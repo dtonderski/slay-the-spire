@@ -208,11 +208,45 @@ pub(super) fn enter_divinity(state: &mut CombatState) -> SimResult<Vec<InternalA
     Ok(Vec::new())
 }
 
+pub(super) fn enter_calm(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
+    if state.player.powers.calm > 0 {
+        return Ok(Vec::new());
+    }
+    state.player.powers.calm = 1;
+    state.player.powers.wrath = 0;
+    state.player.powers.divinity = 0;
+    return_flurry_of_blows_from_discard(state);
+    Ok(Vec::new())
+}
+
 pub(super) fn enter_wrath(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
+    if state.player.powers.wrath > 0 {
+        return Ok(Vec::new());
+    }
     state.player.powers.wrath = 1;
     state.player.powers.divinity = 0;
     state.player.powers.calm = 0;
+    return_flurry_of_blows_from_discard(state);
     Ok(Vec::new())
+}
+
+fn return_flurry_of_blows_from_discard(state: &mut CombatState) {
+    // ChangeStanceAction iterates discardPile and FlurryOfBlows
+    // triggerExhaustedCardsOnStanceChange addToBots DiscardToHandAction.
+    use crate::combat::draw::MAX_HAND_SIZE;
+    use crate::content::cards::FLURRY_OF_BLOWS_ANY_COLOR_ID;
+    let mut index = 0;
+    while index < state.piles.discard_pile.len() {
+        if state.piles.discard_pile[index].content_id != FLURRY_OF_BLOWS_ANY_COLOR_ID {
+            index += 1;
+            continue;
+        }
+        if state.piles.hand.len() >= MAX_HAND_SIZE {
+            break;
+        }
+        let card = state.piles.discard_pile.remove(index);
+        state.piles.hand.push(card);
+    }
 }
 
 pub(super) fn apply_end_turn_death(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
