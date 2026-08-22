@@ -384,6 +384,27 @@ pub(crate) fn process_internal_queue(
                     .expect("Reaper healing action remains queued");
                 queue.insert(index, follow_up);
             } else if exhaust_follow_up {
+                // ExhaustAll / selected-card exhaust happens in card.use() before
+                // UseCardAction Beat of Death. FNP from those other cards must
+                // land before BoD (FIDL02333). The played card's own exhaust is
+                // UseCardAction settlement after BoD (Havoc/Slimed/Pummel).
+                let exhausted_is_card_in_use = match internal_action {
+                    InternalAction::CardExhausted { card_id }
+                    | InternalAction::HandCardExhausted { card_id } => {
+                        next.card_in_use == Some(card_id)
+                    }
+                    _ => false,
+                };
+                if !exhausted_is_card_in_use
+                    && matches!(follow_up, InternalAction::GainBlockFromExhaust { .. })
+                {
+                    if let Some(index) = queue.iter().position(|action| {
+                        matches!(action, InternalAction::DealThornsDamageToPlayer { .. })
+                    }) {
+                        queue.insert(index, follow_up);
+                        continue;
+                    }
+                }
                 // The target's onExhaust callbacks are addToBot actions on the
                 // original UseCardAction. A Double Tap/Necronomicon copy is a
                 // later card-use boundary, so these callbacks must drain before
@@ -8936,10 +8957,9 @@ mod tests {
     }
 
     #[test]
-    fn sever_soul_feel_no_pain_block_resolves_after_guardian_sharp_hide() {
-        // STS order for Sever Soul with Sharp Hide + Feel No Pain:
-        // card.use exhaust + damage → SharpHide onUseCard damage → FNP GainBlock.
-        // Exhausting a non-attack must not absorb Sharp Hide with FNP block.
+    fn sever_soul_feel_no_pain_block_absorbs_guardian_sharp_hide() {
+        // ExhaustAll FNP from the discarded skill lands before UseCardAction
+        // Sharp Hide / Beat of Death (FIDL02333).
         let target = MonsterId::new(1);
         let mut state = CombatState::initial_fixture();
         state.monsters = vec![monster_state(&GUARDIAN_A0, target)];
@@ -8965,10 +8985,10 @@ mod tests {
                 target: Some(target),
             },
         )
-        .expect("Sever Soul should resolve exhaust, damage, Sharp Hide, then FNP");
+        .expect("Sever Soul should resolve exhaust FNP before Sharp Hide");
 
-        assert_eq!(next.player.hp, 77);
-        assert_eq!(next.player.block, 3);
+        assert_eq!(next.player.hp, 80);
+        assert_eq!(next.player.block, 0);
         assert_eq!(
             next.piles
                 .exhaust_pile
