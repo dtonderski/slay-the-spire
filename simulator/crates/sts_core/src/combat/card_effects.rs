@@ -289,6 +289,14 @@ pub(super) fn play_card_queue(
         id if id == crate::content::cards::RECURSION_ANY_COLOR_ID => {
             recursion_queue(state, card_id, definition)
         }
+        id if id == crate::content::cards::AFTER_IMAGE_ANY_COLOR_ID => after_image_queue(card_id),
+        id if id == crate::content::cards::PRAY_ANY_COLOR_ID => {
+            pray_queue(state, card_id, definition)
+        }
+        id if id == crate::content::cards::INSIGHT_ID => insight_queue(state, card_id, definition),
+        id if id == crate::content::cards::CRESCENDO_ANY_COLOR_ID => {
+            crescendo_queue(state, card_id, definition)
+        }
         MAYHEM_ID | MAYHEM_PLUS_ID => mayhem_queue(card_id),
         FIRE_BREATHING_ID | FIRE_BREATHING_PLUS_ID => fire_breathing_queue(card_id, definition),
         EXHUME_ID | EXHUME_PLUS_ID => exhume_queue(state, card_id),
@@ -3266,6 +3274,101 @@ fn magnetism_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainMagnetism { amount: 1 },
+        InternalAction::RemoveCard {
+            card_id,
+            from: CardPile::Hand,
+        },
+    ]))
+}
+
+fn crescendo_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    let _ = upgrades;
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::EnterWrath,
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn pray_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // Pray.baseMagicNumber is 3; upgradeMagicNumber(1). Always shuffles Insight.
+    let mantra = 3 + i32::from(upgrades > 0);
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainMantra { amount: mantra },
+        InternalAction::AddGeneratedCardToDrawPileRandomSpot {
+            content_id: crate::content::cards::INSIGHT_ID,
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn insight_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // Insight.baseMagicNumber is 2; upgradeMagicNumber(1).
+    let draw = 2 + i32::from(upgrades > 0);
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::DrawCards {
+            count: draw as usize,
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn after_image_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
+    // AfterImage.use applies AfterImagePower(1). Upgrade only sets isInnate.
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainAfterImage { amount: 1 },
         InternalAction::RemoveCard {
             card_id,
             from: CardPile::Hand,

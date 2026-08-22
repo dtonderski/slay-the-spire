@@ -20,6 +20,9 @@ pub struct PlayerPowers {
     pub mantra: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub calm: i32,
+    /// Watcher Wrath stance: double attack damage.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub wrath: i32,
     pub weak: i32,
     pub dexterity: i32,
     pub frail: i32,
@@ -66,6 +69,9 @@ pub struct PlayerPowers {
     /// StormPower: Channel this many Lightning whenever a Power is played.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub storm: i32,
+    /// AfterImagePower: Gain this much block whenever a card is played.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub after_image: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub panache: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]

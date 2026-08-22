@@ -36,7 +36,21 @@ pub(crate) fn printed_card_cost(card: &CardInstance) -> SimResult<i32> {
         }
     }
     get_card_definition(card.content_id)
-        .map(|definition| i32::from(definition.cost))
+        .map(|definition| {
+            // Recursion / Crescendo upgradeBaseCost(0). Synthetic plus cards keep
+            // the base content id and only increment upgrades.
+            if card.upgrades > 0
+                && matches!(
+                    card.content_id,
+                    crate::content::cards::RECURSION_ANY_COLOR_ID
+                        | crate::content::cards::CRESCENDO_ANY_COLOR_ID
+                )
+            {
+                0
+            } else {
+                i32::from(definition.cost)
+            }
+        })
         .ok_or(SimError::UnknownContent(card.content_id))
 }
 

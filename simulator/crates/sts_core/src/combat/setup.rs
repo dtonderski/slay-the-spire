@@ -25,7 +25,10 @@ fn card_instance_is_innate(card: &CardInstance) -> SimResult<bool> {
     // only increments upgrades, so the instance — not the printed definition —
     // is authoritative.
     if card.upgrades > 0
-        && crate::run::reward::any_color_reward_card_key(card.content_id) == Some("STORM")
+        && matches!(
+            crate::run::reward::any_color_reward_card_key(card.content_id),
+            Some("STORM" | "AFTER_IMAGE")
+        )
     {
         return Ok(true);
     }

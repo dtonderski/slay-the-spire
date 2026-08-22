@@ -203,6 +203,15 @@ pub(super) fn gain_corruption(
 
 pub(super) fn enter_divinity(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
     state.player.powers.divinity = 1;
+    state.player.powers.wrath = 0;
+    state.player.powers.calm = 0;
+    Ok(Vec::new())
+}
+
+pub(super) fn enter_wrath(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
+    state.player.powers.wrath = 1;
+    state.player.powers.divinity = 0;
+    state.player.powers.calm = 0;
     Ok(Vec::new())
 }
 
@@ -229,6 +238,14 @@ pub(super) fn gain_magnetism(
 
 pub(super) fn gain_storm(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
     checked_add_combat_value(&mut state.player.powers.storm, amount)?;
+    Ok(Vec::new())
+}
+
+pub(super) fn gain_after_image(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    checked_add_combat_value(&mut state.player.powers.after_image, amount)?;
     Ok(Vec::new())
 }
 
