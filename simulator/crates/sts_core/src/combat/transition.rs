@@ -1431,11 +1431,7 @@ fn apply_internal_action_with_defer(
         }
         InternalAction::GainStrength { amount } => player_actions::gain_strength(state, amount),
         InternalAction::GainMantra { amount } => player_actions::gain_mantra(state, amount),
-        InternalAction::EnterCalm => {
-            state.player.powers.calm = 1;
-            state.player.powers.wrath = 0;
-            Ok(Vec::new())
-        }
+        InternalAction::EnterCalm => player_actions::enter_calm(state),
         InternalAction::EnterWrath => player_actions::enter_wrath(state),
         InternalAction::ExitCalm => {
             state.player.powers.calm = 0;
@@ -12114,6 +12110,47 @@ mod tests {
             5,
             "Horn draw must be discarded with the rest of the old hand"
         );
+    }
+
+    #[test]
+    fn fear_no_evil_returns_flurry_of_blows_from_discard_on_calm() {
+        // ChangeStanceAction iterates discard and FlurryOfBlows queues
+        // DiscardToHandAction (FIDL02294).
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), FEAR_NO_EVIL_ANY_COLOR_ID)];
+        state.piles.discard_pile = vec![CardInstance::new(
+            CardId::new(2),
+            FLURRY_OF_BLOWS_ANY_COLOR_ID,
+        )];
+        state.monsters[0].intent = crate::MonsterIntent::AttackAndBlock {
+            damage: 11,
+            block: 5,
+        };
+        state.monsters[0].hp = 40;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(state.monsters[0].id),
+            },
+        )
+        .expect("Fear No Evil enters Calm");
+
+        assert_eq!(next.player.powers.calm, 1);
+        assert!(
+            next.piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == FLURRY_OF_BLOWS_ANY_COLOR_ID),
+            "Flurry of Blows must return from discard"
+        );
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .all(|card| card.content_id != FLURRY_OF_BLOWS_ANY_COLOR_ID));
     }
 
     #[test]
