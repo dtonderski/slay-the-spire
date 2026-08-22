@@ -1284,6 +1284,7 @@ fn apply_internal_action_with_defer(
             player_actions::gain_sadistic_nature(state, amount)
         }
         InternalAction::GainMagnetism { amount } => player_actions::gain_magnetism(state, amount),
+        InternalAction::GainStorm { amount } => player_actions::gain_storm(state, amount),
         InternalAction::ArmTheBomb { turns, damage } => {
             player_actions::arm_the_bomb(state, turns, damage)
         }
@@ -2907,6 +2908,7 @@ fn is_play_top_deferred_power_gain(action: &InternalAction) -> bool {
             | InternalAction::GainCorruption { .. }
             | InternalAction::GainSadisticNature { .. }
             | InternalAction::GainMagnetism { .. }
+            | InternalAction::GainStorm { .. }
             | InternalAction::GainMetallicize { .. }
             | InternalAction::GainStrength { .. }
             | InternalAction::GainDexterity { .. }

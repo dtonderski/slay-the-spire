@@ -276,6 +276,7 @@ pub(super) fn play_card_queue(
         JUGGERNAUT_ID | JUGGERNAUT_PLUS_ID => juggernaut_queue(card_id, definition),
         BRUTALITY_ID | BRUTALITY_PLUS_ID => brutality_queue(card_id),
         MAGNETISM_ID | MAGNETISM_PLUS_ID => magnetism_queue(card_id),
+        id if id == crate::content::cards::STORM_ANY_COLOR_ID => storm_queue(card_id, *card),
         MAYHEM_ID | MAYHEM_PLUS_ID => mayhem_queue(card_id),
         FIRE_BREATHING_ID | FIRE_BREATHING_PLUS_ID => fire_breathing_queue(card_id, definition),
         EXHUME_ID | EXHUME_PLUS_ID => exhume_queue(state, card_id),
@@ -3245,6 +3246,19 @@ fn magnetism_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainMagnetism { amount: 1 },
+        InternalAction::RemoveCard {
+            card_id,
+            from: CardPile::Hand,
+        },
+    ]))
+}
+
+fn storm_queue(card_id: CardId, _card: CardInstance) -> SimResult<VecDeque<InternalAction>> {
+    // Storm.use applies StormPower(baseMagicNumber=1). Upgrade only sets isInnate.
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy { amount: 1 },
+        InternalAction::GainStorm { amount: 1 },
         InternalAction::RemoveCard {
             card_id,
             from: CardPile::Hand,
