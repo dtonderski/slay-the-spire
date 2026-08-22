@@ -2649,10 +2649,12 @@ pub(crate) fn upgrade_random_non_status_hand_card(state: &mut CombatState) -> Si
         .iter()
         .enumerate()
         .filter_map(|(index, card)| {
-            let definition = crate::content::cards::get_card_definition(card.content_id)?;
-            (definition.card_type != CardType::Status
-                && crate::content::cards::card_instance_is_upgradeable(card))
-            .then_some(index)
+            // Warped Tongs uses AbstractCard.canUpgrade() and skips Status.
+            // Unregistered prismatic cards are still upgradeable in place.
+            let is_status = crate::content::cards::get_card_definition(card.content_id)
+                .is_some_and(|definition| definition.card_type == CardType::Status);
+            (!is_status && crate::content::cards::card_instance_is_upgradeable(card))
+                .then_some(index)
         })
         .collect::<Vec<_>>();
     if upgradeable.is_empty() {

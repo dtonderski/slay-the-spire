@@ -437,6 +437,12 @@ pub(super) fn play_card_queue(
         id if id == crate::content::cards::BOOT_SEQUENCE_ANY_COLOR_ID => {
             boot_sequence_queue(state, card_id, definition)
         }
+        id if id == crate::content::cards::DARKNESS_ANY_COLOR_ID => {
+            darkness_queue(state, card_id, definition)
+        }
+        id if id == crate::content::cards::STATIC_DISCHARGE_ANY_COLOR_ID => {
+            static_discharge_queue(state, card_id, definition)
+        }
         id if id == crate::content::cards::EMPTY_BODY_ANY_COLOR_ID => {
             empty_body_queue(state, card_id, definition)
         }
@@ -3399,6 +3405,61 @@ fn empty_body_queue(
         to: card_move_destination(definition),
     });
     Ok(queue)
+}
+
+fn darkness_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::ChannelDark,
+    ]);
+    if upgrades > 0 {
+        // Darkness.use queues DarkImpulseAction only when upgraded.
+        queue.push_back(InternalAction::DarkImpulse);
+    }
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: card_move_destination(definition),
+    });
+    Ok(queue)
+}
+
+fn static_discharge_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // StaticDischarge.baseMagicNumber is 1; upgradeMagicNumber(1).
+    let amount = 1 + i32::from(upgrades > 0);
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainStaticDischarge { amount },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
 }
 
 fn boot_sequence_queue(
