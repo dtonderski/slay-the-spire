@@ -869,7 +869,7 @@ const ANY_COLOR_RARE_CARDS: &[&str] = &[
     "HYPERBEAM",
     "IMMOLATE",
     "IMPERVIOUS",
-    "JUDGMENT",
+    "JUDGEMENT",
     "JUGGERNAUT",
     "LESSON_LEARNED",
     "LIMIT_BREAK",
@@ -1425,6 +1425,10 @@ pub fn any_color_reward_card_key_from_identity(identity: &str) -> Option<&'stati
     // CommunicationMod exports Silent Sneaky Strike as id `Underhanded Strike`.
     if normalized == "underhandedstrike" {
         normalized = "sneakystrike".to_owned();
+    }
+    // Watcher Judgement cardID is `Judgement`; some pool tables used `JUDGMENT`.
+    if normalized == "judgment" {
+        normalized = "judgement".to_owned();
     }
     // Defect Recursion's cardID is `Redo` (Recursion.java ldc).
     if normalized == "redo" {
