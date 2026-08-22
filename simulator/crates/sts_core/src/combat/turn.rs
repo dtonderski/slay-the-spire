@@ -2050,7 +2050,13 @@ fn revive_with_lizard_tail_if_available(state: &mut CombatState) -> SimResult<()
         return Ok(());
     }
 
-    let hp = revival_hp(state.player.max_hp, crate::relic::LIZARD_TAIL_HEAL_PERCENT)?;
+    // LizardTail.onTrigger calls player.heal(maxHealth/2, true), which runs
+    // MagicFlower.onPlayerHeal in combat (FIDL02322).
+    let hp = revival_hp_with_relics(
+        state.player.max_hp,
+        crate::relic::LIZARD_TAIL_HEAL_PERCENT,
+        &state.relics,
+    )?;
     state.relic_counters.lizard_tail_available = false;
     state.player.hp = hp;
     Ok(())
