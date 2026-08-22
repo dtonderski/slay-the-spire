@@ -750,6 +750,21 @@ fn push_follow_up(
             queue.insert(index, follow_up);
             return;
         }
+        // UseCardAction constructor addToTops Pain after card.use() queued
+        // MakeTempCardInHand, so LoseHP / Runic Cube draw run first
+        // (FIDL02215 Infernal Blade: Cube draw then generated attack).
+        if let Some(index) = queue.iter().position(|action| {
+            matches!(
+                action,
+                InternalAction::AddGeneratedCardToPile {
+                    to: CardPile::Hand,
+                    ..
+                } | InternalAction::AddGeneratedCardsToHandWhileSourceInLimbo { .. }
+            )
+        }) {
+            queue.insert(index, follow_up);
+            return;
+        }
         // UseCardAction applies Pain before it settles the played card.
         // Runic Cube's wasHPLost DrawCardAction therefore shuffles/draws
         // before the source card enters discard (FIDL02215 Bash).
