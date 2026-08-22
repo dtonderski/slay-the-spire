@@ -5902,6 +5902,10 @@ fn confirm_gambling_chip_select(state: &mut CombatState, selected: Vec<usize>) -
     }
     state.piles.discard_pile.extend(discarded);
     player_draw_cards(state, count)?;
+    if state.relic_counters.deferred_warped_tongs {
+        state.relic_counters.deferred_warped_tongs = false;
+        crate::relic::upgrade_random_non_status_hand_card(state)?;
+    }
     Ok(())
 }
 
