@@ -277,6 +277,15 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         } else {
             Vec::new()
         };
+        // Constricted.atEndOfTurn addToBots Damage before DiscardAtEndOfTurn.
+        // RunicCube.wasHPLost addToTops DrawCardAction, so that draw lands
+        // before ethereal exhaust (FIDL02191 two Apparitions).
+        let constricted_before_ethereal = next.relics.contains(&crate::Relic::RunicCube)
+            && next.player.powers.constricted > 0
+            && !crate::combat::turn_powers::constricted_resolved_before_hand_with_combust(&next);
+        if constricted_before_ethereal {
+            crate::combat::turn_powers::apply_end_of_turn_constricted(&mut next)?;
+        }
         end_of_turn_hand =
             resolve_end_of_turn_hand_with_queued_autoplay(&mut next, Some(&queued_autoplay))?;
         // Charon's Ashes (and other on-exhaust damage) can kill a Stasis orb
@@ -309,7 +318,9 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         // end-turn card losses when Combust is absent. That lets Metallicize
         // block Decay before the non-card Constricted loss (FIDL00415). When
         // Combust is active, Constricted already ran in before_hand (FIDL00440).
-        if !crate::combat::turn_powers::constricted_resolved_before_hand_with_combust(&next) {
+        if !crate::combat::turn_powers::constricted_resolved_before_hand_with_combust(&next)
+            && !constricted_before_ethereal
+        {
             crate::combat::turn_powers::apply_end_of_turn_constricted(&mut next)?;
         }
         crate::combat::turn_powers::apply_end_of_player_turn_regeneration(&mut next)?;
