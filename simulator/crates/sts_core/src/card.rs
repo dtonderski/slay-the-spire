@@ -100,6 +100,9 @@ pub struct CardInstance {
     /// content_id to Searing Blow+; later upgrades keep that content id and raise this count.
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub searing_blow_upgrades: u8,
+    /// WindmillStrike.onRetained calls upgradeDamage(magicNumber) each retain.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub windmill_retain_damage: i32,
 }
 
 impl CardInstance {
@@ -118,6 +121,7 @@ impl CardInstance {
             ritual_dagger_damage_bonus: 0,
             upgrades: 0,
             searing_blow_upgrades: 0,
+            windmill_retain_damage: 0,
         }
     }
 
@@ -136,6 +140,7 @@ impl CardInstance {
             ritual_dagger_damage_bonus: 0,
             upgrades: 0,
             searing_blow_upgrades: 0,
+            windmill_retain_damage: 0,
         }
     }
 }

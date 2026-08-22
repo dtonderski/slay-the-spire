@@ -280,6 +280,7 @@ pub(crate) fn exhaust_unplayed_ethereal_cards(
 
 fn discard_non_retain_hand(state: &mut CombatState) {
     if state.relics.contains(&crate::Relic::RunicPyramid) {
+        apply_on_retained_card_effects(state);
         apply_sands_of_time_end_of_turn_cost(state);
         return;
     }
@@ -302,7 +303,21 @@ fn discard_non_retain_hand(state: &mut CombatState) {
     state.piles.hand = retained;
     discarded.reverse();
     state.piles.discard_pile.extend(discarded);
+    apply_on_retained_card_effects(state);
     apply_sands_of_time_end_of_turn_cost(state);
+}
+
+fn apply_on_retained_card_effects(state: &mut CombatState) {
+    use crate::content::cards::WINDMILL_STRIKE_ANY_COLOR_ID;
+    for card in &mut state.piles.hand {
+        if card.content_id != WINDMILL_STRIKE_ANY_COLOR_ID {
+            continue;
+        }
+        // WindmillStrike.onRetained: upgradeDamage(magicNumber).
+        // magicNumber is 4, or 5 after upgradeMagicNumber(1).
+        let bonus = if card.upgrades > 0 { 5 } else { 4 };
+        card.windmill_retain_damage = card.windmill_retain_damage.saturating_add(bonus);
+    }
 }
 
 fn apply_sands_of_time_end_of_turn_cost(state: &mut CombatState) {
