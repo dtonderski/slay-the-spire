@@ -428,6 +428,13 @@ pub(super) fn play_card_queue(
             *card,
             definition,
         ),
+        id if id == crate::content::cards::CRUSH_JOINTS_ANY_COLOR_ID => crush_joints_queue(
+            state,
+            card_id,
+            target.expect("validated Crush Joints has a target"),
+            *card,
+            definition,
+        ),
         GO_FOR_THE_EYES_ANY_COLOR_ID => go_for_the_eyes_queue(
             card_id,
             target.expect("validated Go for the Eyes has a target"),
@@ -1267,6 +1274,9 @@ fn synthetic_any_color_upgrade_damage(definition: &CardDefinition, upgrades: u8)
         4
     } else if definition.id == WINDMILL_STRIKE_ANY_COLOR_ID {
         // WindmillStrike.upgradeDamage(3)
+        3
+    } else if definition.id == crate::content::cards::CRUSH_JOINTS_ANY_COLOR_ID {
+        // CrushJoints.upgradeDamage(3)
         3
     } else {
         0
@@ -2997,6 +3007,42 @@ fn beam_cell_queue(
             to: card_move_destination(definition),
         },
     ]))
+}
+
+fn crush_joints_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = card.upgrades;
+    let amount = attack_damage_with_strike_dummy(state, definition)?
+        + synthetic_any_color_upgrade_damage(definition, upgrades);
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount,
+            },
+        },
+    ]);
+    // CrushJointsAction: if cardsPlayedThisCombat[-2] is a Skill, apply Vulnerable.
+    if state.last_played_card_type == Some(CardType::Skill) {
+        queue.push_back(InternalAction::ApplyVulnerable {
+            target,
+            amount: if upgrades > 0 { 2 } else { 1 },
+        });
+    }
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: card_move_destination(definition),
+    });
+    Ok(queue)
 }
 
 fn go_for_the_eyes_queue(
