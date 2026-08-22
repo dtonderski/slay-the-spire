@@ -88,6 +88,8 @@ pub const BEAM_CELL_ANY_COLOR_ID: ContentId = ContentId::new(58_249_160_828_490)
 pub const FASTING_ANY_COLOR_ID: ContentId = ContentId::new(64_065_380_414);
 /// Prismatic/Watcher Crush Joints — id matches `shop_card_content_id("CRUSH_JOINTS")`.
 pub const CRUSH_JOINTS_ANY_COLOR_ID: ContentId = ContentId::new(1_771_897_696_846_148_005);
+/// Prismatic/Watcher Evaluate — id matches `shop_card_content_id("EVALUATE")`.
+pub const EVALUATE_ANY_COLOR_ID: ContentId = ContentId::new(1_976_629_370_609);
 /// Curse granted by [crate::relic::Relic::Necronomicon] on equip. Unpurgeable.
 pub const NECRONOMICURSE_ID: ContentId = ContentId::new(74);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
@@ -5226,6 +5228,7 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | BEAM_CELL_ANY_COLOR_ID
             | FASTING_ANY_COLOR_ID
             | CRUSH_JOINTS_ANY_COLOR_ID
+            | EVALUATE_ANY_COLOR_ID
     ) || (get_card_definition(id).is_none()
         && crate::run::reward::any_color_reward_card_key(id).is_some())
 }
@@ -5927,6 +5930,24 @@ pub static EMPTY_BODY_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static EVALUATE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: EVALUATE_ANY_COLOR_ID,
+    key: "EVALUATE",
+    name: "Evaluate",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        // Evaluate.baseBlock is 6; upgradeBlock(4).
+        damage: None,
+        block: Some(6),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub static CRUSH_JOINTS_ANY_COLOR: CardDefinition = CardDefinition {
     id: CRUSH_JOINTS_ANY_COLOR_ID,
     key: "CRUSH_JOINTS",
@@ -5988,6 +6009,7 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == JUST_LUCKY_ANY_COLOR_ID).then_some(&JUST_LUCKY_ANY_COLOR))
         .or_else(|| (id == EMPTY_BODY_ANY_COLOR_ID).then_some(&EMPTY_BODY_ANY_COLOR))
         .or_else(|| (id == CRUSH_JOINTS_ANY_COLOR_ID).then_some(&CRUSH_JOINTS_ANY_COLOR))
+        .or_else(|| (id == EVALUATE_ANY_COLOR_ID).then_some(&EVALUATE_ANY_COLOR))
 }
 
 /// Returns the vanilla `AbstractCard.cardID` spelling for a modeled card.
