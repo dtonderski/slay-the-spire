@@ -10874,6 +10874,12 @@ fn set_effective_multi_hit_intent(monster: &mut MonsterState, intent: MonsterInt
     if monster.content_id == DARKLING_ID && !monster.alive && monster.escaped {
         return;
     }
+    // AwakenedOne.damage setMove(3, UNKNOWN) on first-form death. Soul Strike
+    // thorns can kill during the same takeTurn; do not put the attack back
+    // (FIDL02415 REBIRTH mid 3).
+    if matches!(monster.intent, MonsterIntent::AwakenedOneHalfDead) {
+        return;
+    }
     monster.intent = intent;
 }
 
