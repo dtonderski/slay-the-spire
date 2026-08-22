@@ -2050,7 +2050,16 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
                 checked_add_relic_value(&mut combat.player.energy, LANTERN_ENERGY)?;
             }
             Relic::BagOfPreparation => {
-                crate::combat::transition::player_draw_cards(combat, BAG_OF_PREPARATION_DRAW)?;
+                // Toolbox ChooseOneColorless parks later atBattleStart draws
+                // (Bag of Preparation DrawCardAction(2)) until the colorless
+                // card is chosen (FIDL02396).
+                if combat.pending_opening_hand_draw > 0 && relics.contains(&Relic::Toolbox) {
+                    combat.pending_opening_hand_draw = combat
+                        .pending_opening_hand_draw
+                        .saturating_add(BAG_OF_PREPARATION_DRAW);
+                } else {
+                    crate::combat::transition::player_draw_cards(combat, BAG_OF_PREPARATION_DRAW)?;
+                }
             }
             Relic::BagOfMarbles => {
                 // Toolbox publishes its opening reward before the queued
