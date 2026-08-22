@@ -1,6 +1,8 @@
 use crate::combat::{CombatState, MonsterState, PlayerState};
 use crate::content::cards::COMBUST_HP_LOSS;
-use crate::content::monsters::{check_slime_boss_split, wake_lagavulin_on_damage};
+use crate::content::monsters::{
+    awakened_one_is_half_dead, check_slime_boss_split, wake_lagavulin_on_damage,
+};
 use crate::relic::{heal_combat_player_with_relics, heal_player_in_combat_with_relics, Relic};
 use crate::{MonsterId, SimError, SimResult};
 
@@ -209,6 +211,16 @@ fn apply_end_of_turn_combust(
     state: &mut CombatState,
     deferred: &mut Option<&mut Vec<crate::combat::transition::DeferredMonsterDeath>>,
 ) -> SimResult<()> {
+    // CombustPower.atEndOfTurn returns immediately when
+    // MonsterGroup.areMonstersBasicallyDead(). Metallicize/Juggernaut can
+    // empty the field before this power is queued (FIDL02206).
+    if state
+        .monsters
+        .iter()
+        .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
+    {
+        return Ok(());
+    }
     let combust_stacks = state.player.powers.combust.max(0);
     if combust_stacks > 0 {
         // Stacked Combust is one LoseHPAction whose hpLoss field is increased by
