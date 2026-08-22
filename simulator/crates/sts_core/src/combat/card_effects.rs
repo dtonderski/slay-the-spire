@@ -277,6 +277,18 @@ pub(super) fn play_card_queue(
         BRUTALITY_ID | BRUTALITY_PLUS_ID => brutality_queue(card_id),
         MAGNETISM_ID | MAGNETISM_PLUS_ID => magnetism_queue(card_id),
         id if id == crate::content::cards::STORM_ANY_COLOR_ID => storm_queue(card_id, *card),
+        id if id == crate::content::cards::COOLHEADED_ANY_COLOR_ID => {
+            coolheaded_queue(state, card_id, definition)
+        }
+        id if id == crate::content::cards::CALTROPS_ANY_COLOR_ID => {
+            caltrops_queue(state, card_id, definition)
+        }
+        id if id == crate::content::cards::CAPACITOR_ANY_COLOR_ID => {
+            capacitor_queue(state, card_id, definition)
+        }
+        id if id == crate::content::cards::RECURSION_ANY_COLOR_ID => {
+            recursion_queue(state, card_id, definition)
+        }
         MAYHEM_ID | MAYHEM_PLUS_ID => mayhem_queue(card_id),
         FIRE_BREATHING_ID | FIRE_BREATHING_PLUS_ID => fire_breathing_queue(card_id, definition),
         EXHUME_ID | EXHUME_PLUS_ID => exhume_queue(state, card_id),
@@ -3257,6 +3269,115 @@ fn magnetism_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
         InternalAction::RemoveCard {
             card_id,
             from: CardPile::Hand,
+        },
+    ]))
+}
+
+fn recursion_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // Recursion.upgradeBaseCost(0).
+    let cost = if upgrades > 0 {
+        0
+    } else {
+        i32::from(definition.cost)
+    };
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy { amount: cost },
+        InternalAction::RecurseRightmostOrb,
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn capacitor_queue(
+    state: &CombatState,
+    card_id: CardId,
+    _definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // Capacitor.baseMagicNumber is 2; upgradeMagicNumber(1).
+    let amount = 2 + i32::from(upgrades > 0);
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::IncreaseMaxOrbs { amount },
+        InternalAction::RemoveCard {
+            card_id,
+            from: CardPile::Hand,
+        },
+    ]))
+}
+
+fn caltrops_queue(
+    state: &CombatState,
+    card_id: CardId,
+    _definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // Caltrops.baseMagicNumber is 3; upgradeMagicNumber(2).
+    let amount = 3 + if upgrades > 0 { 2 } else { 0 };
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainThorns { amount },
+        InternalAction::RemoveCard {
+            card_id,
+            from: CardPile::Hand,
+        },
+    ]))
+}
+
+fn coolheaded_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // Coolheaded.baseMagicNumber is 1; upgradeMagicNumber(1).
+    let draw = 1 + i32::from(upgrades > 0);
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::ChannelFrost,
+        InternalAction::DrawCards {
+            count: draw as usize,
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
         },
     ]))
 }

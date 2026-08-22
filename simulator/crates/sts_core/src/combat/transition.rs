@@ -1285,7 +1285,13 @@ fn apply_internal_action_with_defer(
         }
         InternalAction::GainMagnetism { amount } => player_actions::gain_magnetism(state, amount),
         InternalAction::GainStorm { amount } => player_actions::gain_storm(state, amount),
+        InternalAction::GainThorns { amount } => player_actions::gain_thorns(state, amount),
+        InternalAction::IncreaseMaxOrbs { amount } => {
+            player_actions::increase_max_orbs(state, amount)
+        }
+        InternalAction::RecurseRightmostOrb => player_actions::recurse_rightmost_orb(state),
         InternalAction::ChannelLightning => player_actions::channel_lightning(state),
+        InternalAction::ChannelFrost => player_actions::channel_frost(state),
         InternalAction::LightningOrbPassive => player_actions::lightning_orb_passive(state),
         InternalAction::ArmTheBomb { turns, damage } => {
             player_actions::arm_the_bomb(state, turns, damage)
@@ -2034,6 +2040,10 @@ pub(crate) fn apply_juggernaut_after_direct_block_gain(
         apply_juggernaut_random_damage(state, amount)?;
     }
     Ok(())
+}
+
+pub(crate) fn apply_orb_end_of_turn_passives(state: &mut CombatState) -> SimResult<()> {
+    player_actions::apply_orb_end_of_turn_passives(state)
 }
 
 pub(crate) fn apply_juggernaut_random_damage(
@@ -2940,6 +2950,8 @@ fn is_play_top_deferred_power_gain(action: &InternalAction) -> bool {
             | InternalAction::GainSadisticNature { .. }
             | InternalAction::GainMagnetism { .. }
             | InternalAction::GainStorm { .. }
+            | InternalAction::GainThorns { .. }
+            | InternalAction::IncreaseMaxOrbs { .. }
             | InternalAction::GainMetallicize { .. }
             | InternalAction::GainStrength { .. }
             | InternalAction::GainDexterity { .. }
