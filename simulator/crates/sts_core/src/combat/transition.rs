@@ -710,6 +710,20 @@ fn push_follow_up(
             queue.insert(index + 1, follow_up);
             return;
         }
+        // Transmutation.use addToBot's TransmutationAction; that action later
+        // addToBot's MakeTempCardInHand *after* InkBottle.onUseCard queued its
+        // draw. Infernal Blade addToBot's MakeTempCardInHand directly from
+        // use(), so its generate stays ahead of Ink.
+        if let Some(index) = queue.iter().position(|action| {
+            matches!(
+                action,
+                InternalAction::AddRandomColorlessCardsToHandWhileSourceInLimbo { .. }
+                    | InternalAction::AddRandomColorlessCardToHand { .. }
+            )
+        }) {
+            queue.insert(index, follow_up);
+            return;
+        }
         // Cards without a forced top-play still settle via MoveCard after
         // onUseCard; keep the draw before that limbo→discard/exhaust move.
         if let Some(index) = queue
@@ -6575,6 +6589,44 @@ mod tests {
         assert!(matches!(
             queue.pop_front(),
             Some(InternalAction::DrawCardsFromInkBottle { count: 1 })
+        ));
+        assert!(matches!(
+            queue.pop_front(),
+            Some(InternalAction::MoveCard { .. })
+        ));
+    }
+
+    #[test]
+    fn ink_bottle_draws_before_transmutation_generation() {
+        // TransmutationAction queues MakeTempCardInHand after Ink's onUseCard
+        // DrawCardAction, so a full Pyramid hand can still shuffle+draw.
+        let mut queue = VecDeque::from([
+            InternalAction::AddRandomColorlessCardsToHandWhileSourceInLimbo {
+                source_card_id: CardId::new(1),
+                count: 4,
+                temp_cost: Some(0),
+                upgrade: false,
+            },
+            InternalAction::MoveCard {
+                card_id: CardId::new(1),
+                from: CardPile::Hand,
+                to: CardPile::ExhaustPile,
+            },
+        ]);
+
+        push_follow_up(
+            &mut queue,
+            InternalAction::DrawCardsFromInkBottle { count: 1 },
+            false,
+        );
+
+        assert!(matches!(
+            queue.pop_front(),
+            Some(InternalAction::DrawCardsFromInkBottle { count: 1 })
+        ));
+        assert!(matches!(
+            queue.pop_front(),
+            Some(InternalAction::AddRandomColorlessCardsToHandWhileSourceInLimbo { .. })
         ));
         assert!(matches!(
             queue.pop_front(),
