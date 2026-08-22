@@ -1199,6 +1199,27 @@ fn attack_damage_with_strike_dummy(
     })
 }
 
+fn synthetic_any_color_upgrade_damage(definition: &CardDefinition, upgrades: u8) -> i32 {
+    if upgrades == 0 {
+        return 0;
+    }
+    use crate::content::cards::{
+        FLURRY_OF_BLOWS_ANY_COLOR_ID, SLICE_ANY_COLOR_ID, SNEAKY_STRIKE_ANY_COLOR_ID,
+    };
+    if definition.id == SLICE_ANY_COLOR_ID {
+        // Slice.upgradeDamage(3)
+        3
+    } else if definition.id == FLURRY_OF_BLOWS_ANY_COLOR_ID {
+        // FlurryOfBlows.upgradeDamage(2)
+        2
+    } else if definition.id == SNEAKY_STRIKE_ANY_COLOR_ID {
+        // SneakyStrike.upgradeDamage(4)
+        4
+    } else {
+        0
+    }
+}
+
 fn required_vulnerable(definition: &CardDefinition) -> SimResult<i32> {
     definition.values.vulnerable.ok_or(SimError::InvalidState(
         "card definition is missing required vulnerable",
@@ -1235,6 +1256,15 @@ fn generic_attack_queue(
     target: MonsterId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    let amount = attack_damage_with_strike_dummy(state, definition)?
+        + synthetic_any_color_upgrade_damage(definition, upgrades);
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
@@ -1242,7 +1272,7 @@ fn generic_attack_queue(
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
-                amount: attack_damage_with_strike_dummy(state, definition)?,
+                amount,
             },
         },
         InternalAction::MoveCard {
