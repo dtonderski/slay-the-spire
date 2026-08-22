@@ -279,6 +279,7 @@ pub(super) fn play_card_queue(
         JUGGERNAUT_ID | JUGGERNAUT_PLUS_ID => juggernaut_queue(card_id, definition),
         BRUTALITY_ID | BRUTALITY_PLUS_ID => brutality_queue(card_id),
         MAGNETISM_ID | MAGNETISM_PLUS_ID => magnetism_queue(card_id),
+        id if id == crate::content::cards::CREATIVE_AI_ANY_COLOR_ID => creative_ai_queue(card_id),
         id if id == crate::content::cards::STORM_ANY_COLOR_ID => storm_queue(card_id, *card),
         id if id == crate::content::cards::COOLHEADED_ANY_COLOR_ID => {
             coolheaded_queue(state, card_id, definition)
@@ -3369,6 +3370,18 @@ fn magnetism_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainMagnetism { amount: 1 },
+        InternalAction::RemoveCard {
+            card_id,
+            from: CardPile::Hand,
+        },
+    ]))
+}
+
+fn creative_ai_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainCreativeAI { amount: 1 },
         InternalAction::RemoveCard {
             card_id,
             from: CardPile::Hand,

@@ -110,6 +110,8 @@ pub const FEAR_NO_EVIL_ANY_COLOR_ID: ContentId = ContentId::new(1_836_938_932_33
 pub const BANE_ANY_COLOR_ID: ContentId = ContentId::new(2_031_758);
 /// Prismatic/Watcher Judgement — id matches `shop_card_content_id("JUDGEMENT")`.
 pub const JUDGEMENT_ANY_COLOR_ID: ContentId = ContentId::new(65_514_957_976_365);
+/// Prismatic/Defect Creative AI — id matches `shop_card_content_id("CREATIVE_AI")`.
+pub const CREATIVE_AI_ANY_COLOR_ID: ContentId = ContentId::new(57_143_858_768_198_928);
 /// Curse granted by [crate::relic::Relic::Necronomicon] on equip. Unpurgeable.
 pub const NECRONOMICURSE_ID: ContentId = ContentId::new(74);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
@@ -5259,6 +5261,7 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | FEAR_NO_EVIL_ANY_COLOR_ID
             | BANE_ANY_COLOR_ID
             | JUDGEMENT_ANY_COLOR_ID
+            | CREATIVE_AI_ANY_COLOR_ID
     ) || (get_card_definition(id).is_none()
         && crate::run::reward::any_color_reward_card_key(id).is_some())
 }
@@ -6102,6 +6105,23 @@ pub static BANE_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static CREATIVE_AI_ANY_COLOR: CardDefinition = CardDefinition {
+    id: CREATIVE_AI_ANY_COLOR_ID,
+    key: "CREATIVE_AI",
+    name: "Creative AI",
+    cost: 3,
+    card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub static JUDGEMENT_ANY_COLOR: CardDefinition = CardDefinition {
     id: JUDGEMENT_ANY_COLOR_ID,
     key: "JUDGEMENT",
@@ -6233,6 +6253,7 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == FEAR_NO_EVIL_ANY_COLOR_ID).then_some(&FEAR_NO_EVIL_ANY_COLOR))
         .or_else(|| (id == BANE_ANY_COLOR_ID).then_some(&BANE_ANY_COLOR))
         .or_else(|| (id == JUDGEMENT_ANY_COLOR_ID).then_some(&JUDGEMENT_ANY_COLOR))
+        .or_else(|| (id == CREATIVE_AI_ANY_COLOR_ID).then_some(&CREATIVE_AI_ANY_COLOR))
 }
 
 /// Returns the vanilla `AbstractCard.cardID` spelling for a modeled card.

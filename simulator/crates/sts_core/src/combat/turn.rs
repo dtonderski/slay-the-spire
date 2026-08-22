@@ -740,6 +740,7 @@ fn start_player_turn_in_place(
         return Ok(());
     }
     apply_start_of_turn_magnetism(state)?;
+    apply_start_of_turn_creative_ai(state)?;
     // MayhemPower.atStartOfTurn queues one anonymous action per stack before
     // DrawCardAction. That wrapper rolls getRandomMonster (cardRandomRng) and
     // only then addToBot(PlayTopCardAction). Confusion on the hand draw must
@@ -950,6 +951,41 @@ fn apply_start_of_turn_magnetism(state: &mut CombatState) -> SimResult<()> {
     let first_id = state.reserve_card_instance_ids(count)?;
     for offset in 0..count {
         let content_id = crate::combat::card_effects::magnetism_generated_colorless_card(state);
+        let next_id = crate::CardId::new(first_id + offset as u64);
+        let generated = crate::CardInstance {
+            combat_only: true,
+            ..crate::CardInstance::new(next_id, content_id)
+        };
+        if state.piles.hand.len() >= 10 {
+            state.piles.discard_pile.push(generated);
+        } else {
+            state.piles.hand.push(generated);
+        }
+    }
+    Ok(())
+}
+
+fn apply_start_of_turn_creative_ai(state: &mut CombatState) -> SimResult<()> {
+    if state
+        .monsters
+        .iter()
+        .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
+    {
+        return Ok(());
+    }
+
+    let count = state.player.powers.creative_ai.max(0) as usize;
+    if count == 0 {
+        return Ok(());
+    }
+    let pool = crate::content::shop_pool::ironclad_combat_power_discovery_pool();
+    let first_id = state.reserve_card_instance_ids(count)?;
+    for offset in 0..count {
+        let idx = state
+            .rng
+            .card_random_rng
+            .random_int((pool.len() - 1) as i32) as usize;
+        let content_id = pool[idx];
         let next_id = crate::CardId::new(first_id + offset as u64);
         let generated = crate::CardInstance {
             combat_only: true,

@@ -47,6 +47,11 @@ pub(crate) fn printed_card_cost(card: &CardInstance) -> SimResult<i32> {
                 )
             {
                 0
+            } else if card.upgrades > 0
+                && card.content_id == crate::content::cards::CREATIVE_AI_ANY_COLOR_ID
+            {
+                // CreativeAI.upgradeBaseCost(2)
+                2
             } else {
                 i32::from(definition.cost)
             }

@@ -66,6 +66,9 @@ pub struct PlayerPowers {
     pub corruption: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub magnetism: i32,
+    /// CreativeAIPower: add this many random Power cards at turn start.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub creative_ai: i32,
     /// StormPower: Channel this many Lightning whenever a Power is played.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub storm: i32,
