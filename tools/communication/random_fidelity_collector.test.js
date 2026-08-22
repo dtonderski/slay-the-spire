@@ -12,6 +12,7 @@ const {
   currentRunRecords,
   enumerateGameplayActions,
   immutableTracePath,
+  isCommandInFlightHang,
   isSoleEventLeaveScreen,
   loadBossUnlocks,
   localBridgeTracePath,
@@ -244,6 +245,20 @@ assert.deepStrictEqual(
   }),
   ["CHOOSE 0", "CHOOSE 2"],
 );
+assert.deepStrictEqual(
+  enumerateGameplayActions({
+    available_commands: ["choose"],
+    screen_type: "EVENT",
+    event_id: "Match and Keep!",
+    choices: ["double tap", "card1", "normality", "card3", "card5", "sever soul", "card7", "double tap", "card10"],
+  }),
+  ["CHOOSE 0", "CHOOSE 1", "CHOOSE 2", "CHOOSE 3", "CHOOSE 4", "CHOOSE 5", "CHOOSE 6", "CHOOSE 7", "CHOOSE 8"],
+);
+assert.strictEqual(
+  isCommandInFlightHang(new Error("bridge command did not complete after acceptance: CHOOSE 8")),
+  true,
+);
+assert.strictEqual(isCommandInFlightHang(new Error("bridge ownership rejected")), false);
 
 
 const bossUnlocks = parseBossUnlocks(JSON.stringify({
@@ -631,6 +646,33 @@ assert.ok(
     ...summary,
     combat: { ...summary.combat, discard_pile_count: 1 },
   }).includes("PLAY 4 0"),
+);
+assert.deepStrictEqual(
+  enumerateGameplayActions({
+    available_commands: ["key", "click", "wait", "state", "profile", "abandon"],
+    screen_type: "EVENT",
+    room_type: "EventRoom",
+    event_id: "Match and Keep!",
+    choices: null,
+  }),
+  ["WAIT 240"],
+);
+assert.deepStrictEqual(
+  enumerateGameplayActions({
+    available_commands: ["key", "click", "wait", "state", "profile"],
+    screen_type: "EVENT",
+    choices: [],
+  }),
+  ["WAIT 240"],
+);
+assert.ok(
+  !enumerateGameplayActions({
+    available_commands: ["play", "end", "wait"],
+    screen_type: "NONE",
+    combat: {
+      hand: [{ index: 1, playable: true, has_target: false }],
+    },
+  }).some((action) => action.startsWith("WAIT ")),
 );
 
 const first = seededRandom(1234);

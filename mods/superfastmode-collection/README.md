@@ -34,6 +34,10 @@ gameplay tick removes that frame-rate-dependent branch for all
 `AbstractGameAction.tickDuration()` users and for the small audited set of
 actions that subtract `getDeltaTime()` directly.
 
+`GremlinMatchGame.update` / `updateMatchGameLogic` stay on raw 1× delta. The
+match minigame’s flip timer and hitbox path are one-frame click sensitive;
+100× plus software GL left `CHOOSE` accepted with no completing boundary.
+
 Map-screen and many UI flicker mitigations from upstream are kept.
 
 ## Install

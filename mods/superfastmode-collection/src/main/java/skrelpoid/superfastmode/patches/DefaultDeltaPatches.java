@@ -200,6 +200,10 @@ public class DefaultDeltaPatches {
 	@SpirePatch(clz = com.megacrit.cardcrawl.vfx.DeathScreenFloatyEffect.class, method = "update")
 	// GridSelectScreen (Tramsform and Upgrade)
 	@SpirePatch(clz = com.megacrit.cardcrawl.screens.select.GridCardSelectScreen.class, method = "update")
+	// Match and Keep flip timers/hitboxes: 100x delta plus software GL can skip
+	// the one-frame hover/click CommunicationMod used to drive CHOOSE.
+	@SpirePatch(clz = com.megacrit.cardcrawl.events.shrines.GremlinMatchGame.class, method = "update")
+	@SpirePatch(clz = com.megacrit.cardcrawl.events.shrines.GremlinMatchGame.class, method = "updateMatchGameLogic")
 	// Math
 	@SpirePatch(clz = com.megacrit.cardcrawl.helpers.MathHelper.class, method = "mouseLerpSnap")
 	@SpirePatch(clz = com.megacrit.cardcrawl.helpers.MathHelper.class, method = "cardLerpSnap")
