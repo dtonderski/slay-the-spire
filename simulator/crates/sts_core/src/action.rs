@@ -383,6 +383,11 @@ pub enum InternalAction {
     DarkImpulse,
     /// Conclude.use addToBot EndTurnAction.
     ForceEndTurn,
+    /// JudgementAction: if target HP <= threshold, set HP to 0.
+    ExecuteJudgement {
+        target: MonsterId,
+        threshold: i32,
+    },
     /// Lightning.onEndOfTurn / LightningOrbPassiveAction.
     LightningOrbPassive,
     ArmTheBomb {

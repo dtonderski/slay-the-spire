@@ -1322,6 +1322,9 @@ fn apply_internal_action_with_defer(
             settle_time_warp_end_turn_if_ready(state)?;
             Ok(Vec::new())
         }
+        InternalAction::ExecuteJudgement { target, threshold } => {
+            execute_judgement(state, target, threshold)
+        }
         InternalAction::GainStaticDischarge { amount } => {
             player_actions::gain_static_discharge(state, amount)
         }
@@ -2082,6 +2085,23 @@ pub(crate) fn apply_juggernaut_after_direct_block_gain(
         apply_juggernaut_random_damage(state, amount)?;
     }
     Ok(())
+}
+
+fn execute_judgement(
+    state: &mut CombatState,
+    target: MonsterId,
+    threshold: i32,
+) -> SimResult<Vec<InternalAction>> {
+    let Some(monster) = living_monster_mut_opt(state, target) else {
+        return Ok(Vec::new());
+    };
+    if monster.hp > threshold {
+        return Ok(Vec::new());
+    }
+    monster.hp = 0;
+    monster.alive = false;
+    apply_monster_death_hooks(state, target)?;
+    Ok(Vec::new())
 }
 
 pub(crate) fn apply_orb_end_of_turn_passives(state: &mut CombatState) -> SimResult<()> {
