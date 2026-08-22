@@ -3065,14 +3065,10 @@ fn resolve_top_draw_card(
         || normality_blocks_play
         || !crate::relic::can_play_card_with_relics(state)
     {
-        // Normality rejects the forced UseCardAction before it reaches its
-        // card-use/exhaust settlement. The selected card remains outside the
-        // published piles for this boundary; firing CardExhausted here would
-        // incorrectly trigger Dark Embrace and consume the next draw
-        // (FIDL01595).
-        if normality_blocks_play {
-            return Ok(Vec::new());
-        }
+        // GameActionManager skips use() when canUse is false, but autoplay
+        // PlayTop still queues UseCardAction with dontTriggerOnUseCard. Havoc
+        // already set exhaustOnUseOnce, so the card exhausts and onExhaust
+        // (Feel No Pain) still fires (FIDL02388).
         let mut follow_ups = Vec::new();
         if dual_wield_is_unplayable {
             // Dual Wield has no custom canUse. PlayTop autoplay still constructs
@@ -10626,9 +10622,9 @@ mod tests {
     }
 
     #[test]
-    fn havoc_drops_top_card_without_effect_when_normality_blocks_fourth_play() {
-        // FIDL00415/FIDL01595: after 3 plays, Havoc's forced card is rejected
-        // by Normality before UseCardAction settlement and is not published.
+    fn havoc_exhausts_top_card_without_effect_when_normality_blocks_fourth_play() {
+        // GameActionManager autoplay still settles UseCardAction after Normality
+        // rejects canUse, so Havoc's exhaustOnUseOnce card is exhausted.
         let mut state = CombatState::cultist_fixture();
         state.player.energy = 1;
         state.player.powers.strength = 2;
@@ -10657,12 +10653,11 @@ mod tests {
             "Normality must suppress forced Strike"
         );
         assert!(
-            !next
-                .piles
+            next.piles
                 .exhaust_pile
                 .iter()
                 .any(|card| card.content_id == STRIKE_R_ID),
-            "Normality-rejected Strike must not exhaust"
+            "Normality-rejected autoplay still exhausts"
         );
         assert!(!next
             .piles
