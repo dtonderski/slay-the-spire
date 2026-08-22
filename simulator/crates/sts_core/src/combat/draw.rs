@@ -448,8 +448,11 @@ pub(crate) fn apply_confusion_cost_randomization(state: &mut CombatState, card: 
     if state.player.powers.confusion <= 0 {
         return;
     }
+    // ConfusionPower.onCardDraw randomizes any playable non-X card. Missing
+    // definitions are still real prismatic cards; skipping them drops
+    // cardRandomRng rolls (FIDL02294 Sentinel cost).
     if get_card_definition(card.content_id)
-        .is_none_or(|definition| definition.keywords.unplayable || definition.cost < 0)
+        .is_some_and(|definition| definition.keywords.unplayable || definition.cost < 0)
     {
         return;
     }
