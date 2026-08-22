@@ -38,6 +38,10 @@ pub const EQUILIBRIUM_ANY_COLOR_ID: ContentId = ContentId::new(58_770_534_959_37
 pub const SNEAKY_STRIKE_ANY_COLOR_ID: ContentId = ContentId::new(12_075_979_460_702_295_972);
 /// Prismatic/Silent Dagger Spray — id matches `shop_card_content_id("DAGGER_SPRAY")`.
 pub const DAGGER_SPRAY_ANY_COLOR_ID: ContentId = ContentId::new(1_782_992_009_990_908_400);
+/// Prismatic/Watcher Flurry of Blows — id matches `shop_card_content_id("FLURRY_OF_BLOWS")`.
+pub const FLURRY_OF_BLOWS_ANY_COLOR_ID: ContentId = ContentId::new(13_403_098_338_430_095_878);
+/// Prismatic/Silent Slice — id matches `shop_card_content_id("SLICE")`.
+pub const SLICE_ANY_COLOR_ID: ContentId = ContentId::new(78_989_258);
 pub const PROSTRATE_ANY_COLOR_ID: ContentId = ContentId::new(70_559_886_447_078);
 pub const CLOAK_AND_DAGGER_ANY_COLOR_ID: ContentId = ContentId::new(12_608_504_500_537_169_241);
 pub const SHIV_ANY_COLOR_ID: ContentId = ContentId::new(2_544_794);
@@ -5162,6 +5166,8 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | EQUILIBRIUM_ANY_COLOR_ID
             | SNEAKY_STRIKE_ANY_COLOR_ID
             | DAGGER_SPRAY_ANY_COLOR_ID
+            | FLURRY_OF_BLOWS_ANY_COLOR_ID
+            | SLICE_ANY_COLOR_ID
             | PROSTRATE_ANY_COLOR_ID
             | CLOAK_AND_DAGGER_ANY_COLOR_ID
             | SHIV_ANY_COLOR_ID
@@ -5467,6 +5473,42 @@ pub static DAGGER_SPRAY_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static FLURRY_OF_BLOWS_ANY_COLOR: CardDefinition = CardDefinition {
+    id: FLURRY_OF_BLOWS_ANY_COLOR_ID,
+    key: "FLURRY_OF_BLOWS",
+    name: "Flurry Of Blows",
+    cost: 0,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        // FlurryOfBlows.baseDamage is 4; upgradeDamage(2).
+        damage: Some(4),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static SLICE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: SLICE_ANY_COLOR_ID,
+    key: "SLICE",
+    name: "Slice",
+    cost: 0,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        // Slice.baseDamage is 6; upgradeDamage(3).
+        damage: Some(6),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub static EQUILIBRIUM_ANY_COLOR: CardDefinition = CardDefinition {
     id: EQUILIBRIUM_ANY_COLOR_ID,
     key: "EQUILIBRIUM",
@@ -5578,6 +5620,8 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == EQUILIBRIUM_ANY_COLOR_ID).then_some(&EQUILIBRIUM_ANY_COLOR))
         .or_else(|| (id == SNEAKY_STRIKE_ANY_COLOR_ID).then_some(&SNEAKY_STRIKE_ANY_COLOR))
         .or_else(|| (id == DAGGER_SPRAY_ANY_COLOR_ID).then_some(&DAGGER_SPRAY_ANY_COLOR))
+        .or_else(|| (id == FLURRY_OF_BLOWS_ANY_COLOR_ID).then_some(&FLURRY_OF_BLOWS_ANY_COLOR))
+        .or_else(|| (id == SLICE_ANY_COLOR_ID).then_some(&SLICE_ANY_COLOR))
         .or_else(|| (id == PROSTRATE_ANY_COLOR_ID).then_some(&PROSTRATE_ANY_COLOR))
         .or_else(|| (id == CLOAK_AND_DAGGER_ANY_COLOR_ID).then_some(&CLOAK_AND_DAGGER_ANY_COLOR))
         .or_else(|| (id == SHIV_ANY_COLOR_ID).then_some(&SHIV_ANY_COLOR))
