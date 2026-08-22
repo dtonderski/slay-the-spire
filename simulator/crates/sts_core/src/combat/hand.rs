@@ -218,13 +218,13 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
 }
 
 /// `TheBombPower` can end combat in the pre-hand end-turn window. The target
-/// still plays Burn/Decay from `callEndOfTurnActions` (FIDL01533 Burn+ 4 HP)
-/// while skipping Regret in that terminal queue (FIDL00244).
+/// still plays Burn/Decay/Regret from `callEndOfTurnActions` before the bomb
+/// tick (FIDL01533 Burn; FIDL02376 Regret 5 then Burning Blood).
 pub(crate) fn apply_end_of_turn_burn_and_decay_for_bomb_victory(
     state: &mut CombatState,
 ) -> SimResult<()> {
     let hand_size = state.piles.hand.len() as i32;
-    apply_end_of_turn_for_playing_cards_in_hand_order(state, hand_size, None, true)
+    apply_end_of_turn_for_playing_cards_in_hand_order(state, hand_size, None, false)
 }
 
 pub(crate) fn exhaust_unplayed_ethereal_cards(
