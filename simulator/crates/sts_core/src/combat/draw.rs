@@ -24,6 +24,7 @@ pub(crate) enum DrawFollowUp {
     FireBreathingDamage { amount: i32 },
     GainBlockDirect { amount: i32 },
     GainEnergy { amount: i32 },
+    LoseEnergy { amount: i32 },
 }
 
 impl DrawFollowUp {
@@ -33,6 +34,7 @@ impl DrawFollowUp {
             Self::FireBreathingDamage { amount } => InternalAction::FireBreathingDamage { amount },
             Self::GainBlockDirect { amount } => InternalAction::GainBlockDirect { amount },
             Self::GainEnergy { amount } => InternalAction::GainEnergy { amount },
+            Self::LoseEnergy { amount } => InternalAction::LoseEnergy { amount },
         }
     }
 }
@@ -68,6 +70,9 @@ pub fn draw_cards_with_sts_rng(
                         .ok_or(crate::SimError::InvalidState(
                             "combat integer addition overflows i32",
                         ))?;
+            }
+            DrawFollowUp::LoseEnergy { amount } => {
+                next.player.energy = (next.player.energy - amount).max(0);
             }
         }
     }
@@ -108,9 +113,8 @@ fn draw_cards_with_sts_rng_batch_deferred(
             apply_on_card_draw_cost_effects(state, &mut card);
             state.piles.hand.push(card);
             if content_id == VOID_ID {
-                // LoseEnergyAction floors at zero; i32::saturating_sub only
-                // clamps at i32::MIN and would allow negative energy.
-                state.player.energy = (state.player.energy - 1).max(0);
+                // VoidCard.triggerWhenDrawn addToBot's LoseEnergyAction.
+                deferred_follow_ups.push(DrawFollowUp::LoseEnergy { amount: 1 });
             }
             deferred_follow_ups.extend(draw_follow_ups_for_card(state, content_id, extra_draws)?);
         }
@@ -151,6 +155,9 @@ pub fn draw_cards_with_combat_rng(state: &mut CombatState, count: usize) -> SimR
                         .ok_or(crate::SimError::InvalidState(
                             "combat integer addition overflows i32",
                         ))?;
+            }
+            DrawFollowUp::LoseEnergy { amount } => {
+                next.player.energy = (next.player.energy - amount).max(0);
             }
         }
     }
@@ -205,6 +212,9 @@ pub(crate) fn draw_cards_with_combat_rng_without_evolve(
                         .ok_or(crate::SimError::InvalidState(
                             "combat integer addition overflows i32",
                         ))?;
+            }
+            DrawFollowUp::LoseEnergy { amount } => {
+                next.player.energy = (next.player.energy - amount).max(0);
             }
         }
     }
@@ -269,9 +279,8 @@ fn draw_cards_batch_in_place(
             apply_on_card_draw_cost_effects(state, &mut card);
             state.piles.hand.push(card);
             if content_id == VOID_ID {
-                // LoseEnergyAction floors at zero; i32::saturating_sub only
-                // clamps at i32::MIN and would allow negative energy.
-                state.player.energy = (state.player.energy - 1).max(0);
+                // VoidCard.triggerWhenDrawn addToBot's LoseEnergyAction.
+                deferred_follow_ups.push(DrawFollowUp::LoseEnergy { amount: 1 });
             }
             deferred_follow_ups.extend(draw_follow_ups_for_card(state, content_id, extra_draws)?);
         }

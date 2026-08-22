@@ -268,6 +268,10 @@ pub enum InternalAction {
     GainEnergy {
         amount: i32,
     },
+    /// VoidCard.triggerWhenDrawn addToBot's LoseEnergyAction.
+    LoseEnergy {
+        amount: i32,
+    },
     LoseHp {
         amount: i32,
         source: HpLossSource,
