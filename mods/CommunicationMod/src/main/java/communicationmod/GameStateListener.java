@@ -128,6 +128,10 @@ public class GameStateListener {
         blocked = false;
     }
 
+    public static boolean isStateUpdateBlocked() {
+        return blocked;
+    }
+
     /**
      * Used by a patch in the game to signal the start of your turn. We do not care about state changes
      * when it is not our turn in combat, as we cannot take action until then.
