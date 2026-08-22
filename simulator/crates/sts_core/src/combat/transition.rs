@@ -2224,6 +2224,15 @@ pub(crate) fn dark_embrace_then_necronomicurse_follow_ups(
     }
 }
 
+fn queued_dark_embrace_then_necronomicurse_follow_ups(
+    state: &CombatState,
+    card_id: CardId,
+) -> Vec<InternalAction> {
+    let mut follow_ups = dark_embrace_draw_follow_up(state);
+    follow_ups.extend(necronomicurse_replacement_follow_up(state, card_id));
+    follow_ups
+}
+
 fn apply_on_exhaust_effects_inner(
     state: &mut CombatState,
     card_id: CardId,
@@ -5332,8 +5341,12 @@ fn confirm_burning_pact_select(
             deferred_bot_on_exhaust.push(dead_branch);
             dead_branch_count += 1;
         }
-        deferred_bot_on_exhaust
-            .extend(dark_embrace_then_necronomicurse_follow_ups(state, card.id)?);
+        // ExhaustAction addToBots onExhaust (DE draw, then Necro MakeTemp).
+        // Burning Pact already queued DrawCardAction, so do not apply Necro
+        // immediately — that would insert it before BP's draws (FIDL02209).
+        deferred_bot_on_exhaust.extend(queued_dark_embrace_then_necronomicurse_follow_ups(
+            state, card.id,
+        ));
     }
     // DrawCardAction(2/3) is queued in card.use() before HexPower.onUseCard
     // MakeTempCardInDrawPile and before UseCardAction. Evolve/Fire Breathing
@@ -5368,9 +5381,9 @@ fn confirm_burning_pact_select(
                     deferred_bot_on_exhaust.push(dead_branch);
                     dead_branch_count += 1;
                 }
-                deferred_bot_on_exhaust.extend(dark_embrace_then_necronomicurse_follow_ups(
+                deferred_bot_on_exhaust.extend(queued_dark_embrace_then_necronomicurse_follow_ups(
                     state, source_id,
-                )?);
+                ));
             }
             CardPile::DiscardPile => state.piles.discard_pile.push(source_card),
             CardPile::Hand => state.piles.hand.push(source_card),
