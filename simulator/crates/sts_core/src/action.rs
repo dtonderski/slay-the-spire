@@ -359,6 +359,10 @@ pub enum InternalAction {
     GainStorm {
         amount: i32,
     },
+    /// StormPower.onUseCard addToBot ChannelAction(Lightning).
+    ChannelLightning,
+    /// Lightning.onEndOfTurn / LightningOrbPassiveAction.
+    LightningOrbPassive,
     ArmTheBomb {
         turns: i32,
         damage: i32,

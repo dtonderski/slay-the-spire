@@ -1285,6 +1285,8 @@ fn apply_internal_action_with_defer(
         }
         InternalAction::GainMagnetism { amount } => player_actions::gain_magnetism(state, amount),
         InternalAction::GainStorm { amount } => player_actions::gain_storm(state, amount),
+        InternalAction::ChannelLightning => player_actions::channel_lightning(state),
+        InternalAction::LightningOrbPassive => player_actions::lightning_orb_passive(state),
         InternalAction::ArmTheBomb { turns, damage } => {
             player_actions::arm_the_bomb(state, turns, damage)
         }
@@ -1554,6 +1556,12 @@ fn apply_on_card_play_powers(
         follow_ups.push(InternalAction::DealThornsDamageToPlayer {
             amount: beat_of_death,
         });
+    }
+
+    if card_type == CardType::Power && state.player.powers.storm > 0 {
+        for _ in 0..state.player.powers.storm {
+            follow_ups.push(InternalAction::ChannelLightning);
+        }
     }
 
     if state.player.powers.hex > 0 && card_type != CardType::Attack {
