@@ -208,7 +208,10 @@ pub(super) fn play_card_queue(
         CLEAVE_ID | CLEAVE_PLUS_ID | DRAMATIC_ENTRANCE_ID | DRAMATIC_ENTRANCE_PLUS_ID => {
             cleave_queue(card_id, definition)
         }
-        DAGGER_SPRAY_ANY_COLOR_ID => dagger_spray_queue(card_id, definition),
+        DAGGER_SPRAY_ANY_COLOR_ID => dagger_spray_queue(state, card_id, definition),
+        id if id == crate::content::cards::SWEEPING_BEAM_ANY_COLOR_ID => {
+            sweeping_beam_queue(state, card_id, definition)
+        }
         id if id == crate::content::cards::HALT_ANY_COLOR_ID => {
             halt_queue(state, card_id, definition)
         }
@@ -1287,6 +1290,9 @@ fn synthetic_any_color_upgrade_damage(definition: &CardDefinition, upgrades: u8)
     } else if definition.id == crate::content::cards::CRUSH_JOINTS_ANY_COLOR_ID {
         // CrushJoints.upgradeDamage(2)
         2
+    } else if definition.id == crate::content::cards::SWEEPING_BEAM_ANY_COLOR_ID {
+        // SweepingBeam.upgradeDamage(3)
+        3
     } else {
         0
     }
@@ -4064,11 +4070,50 @@ fn scrape_queue(
     ]))
 }
 
-fn dagger_spray_queue(
+fn sweeping_beam_queue(
+    state: &CombatState,
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    let damage = required_damage(definition)?;
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    let damage =
+        required_damage(definition)? + synthetic_any_color_upgrade_damage(definition, upgrades);
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::DealDamageAll {
+            source: card_id,
+            amount: damage,
+        },
+        InternalAction::DrawCards { count: 1 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn dagger_spray_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // DaggerSpray.upgradeDamage(2) for each of the two all-enemy hits.
+    let damage = required_damage(definition)? + if upgrades > 0 { 2 } else { 0 };
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
