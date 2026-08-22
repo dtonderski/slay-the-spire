@@ -46,6 +46,10 @@ pub const SLICE_ANY_COLOR_ID: ContentId = ContentId::new(78_989_258);
 pub const HALT_ANY_COLOR_ID: ContentId = ContentId::new(2_210_457);
 /// Prismatic/Defect Scrape — id matches `shop_card_content_id("SCRAPE")`.
 pub const SCRAPE_ANY_COLOR_ID: ContentId = ContentId::new(2_440_603_916);
+/// Prismatic/Watcher Flying Sleeves — id matches `shop_card_content_id("FLYING_SLEEVES")`.
+pub const FLYING_SLEEVES_ANY_COLOR_ID: ContentId = ContentId::new(526_494_157_090_452_691);
+/// Prismatic/Watcher Windmill Strike — id matches `shop_card_content_id("WINDMILL_STRIKE")`.
+pub const WINDMILL_STRIKE_ANY_COLOR_ID: ContentId = ContentId::new(283_075_441_137_885_829);
 pub const PROSTRATE_ANY_COLOR_ID: ContentId = ContentId::new(70_559_886_447_078);
 pub const CLOAK_AND_DAGGER_ANY_COLOR_ID: ContentId = ContentId::new(12_608_504_500_537_169_241);
 pub const SHIV_ANY_COLOR_ID: ContentId = ContentId::new(2_544_794);
@@ -5174,6 +5178,8 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | SLICE_ANY_COLOR_ID
             | HALT_ANY_COLOR_ID
             | SCRAPE_ANY_COLOR_ID
+            | FLYING_SLEEVES_ANY_COLOR_ID
+            | WINDMILL_STRIKE_ANY_COLOR_ID
             | PROSTRATE_ANY_COLOR_ID
             | CLOAK_AND_DAGGER_ANY_COLOR_ID
             | SHIV_ANY_COLOR_ID
@@ -5551,6 +5557,54 @@ pub static SCRAPE_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static FLYING_SLEEVES_ANY_COLOR: CardDefinition = CardDefinition {
+    id: FLYING_SLEEVES_ANY_COLOR_ID,
+    key: "FLYING_SLEEVES",
+    name: "Flying Sleeves",
+    cost: 1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        // FlyingSleeves.baseDamage is 4 twice; upgradeDamage(2).
+        damage: Some(4),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: false,
+        retain: true,
+        unplayable: false,
+    },
+};
+
+pub static WINDMILL_STRIKE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: WINDMILL_STRIKE_ANY_COLOR_ID,
+    key: "WINDMILL_STRIKE",
+    name: "Windmill Strike",
+    cost: 2,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        // WindmillStrike.baseDamage is 7; upgradeDamage(3). Retain scaling is separate.
+        damage: Some(7),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: false,
+        retain: true,
+        unplayable: false,
+    },
+};
+
 pub static EQUILIBRIUM_ANY_COLOR: CardDefinition = CardDefinition {
     id: EQUILIBRIUM_ANY_COLOR_ID,
     key: "EQUILIBRIUM",
@@ -5666,6 +5720,8 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == SLICE_ANY_COLOR_ID).then_some(&SLICE_ANY_COLOR))
         .or_else(|| (id == HALT_ANY_COLOR_ID).then_some(&HALT_ANY_COLOR))
         .or_else(|| (id == SCRAPE_ANY_COLOR_ID).then_some(&SCRAPE_ANY_COLOR))
+        .or_else(|| (id == FLYING_SLEEVES_ANY_COLOR_ID).then_some(&FLYING_SLEEVES_ANY_COLOR))
+        .or_else(|| (id == WINDMILL_STRIKE_ANY_COLOR_ID).then_some(&WINDMILL_STRIKE_ANY_COLOR))
         .or_else(|| (id == PROSTRATE_ANY_COLOR_ID).then_some(&PROSTRATE_ANY_COLOR))
         .or_else(|| (id == CLOAK_AND_DAGGER_ANY_COLOR_ID).then_some(&CLOAK_AND_DAGGER_ANY_COLOR))
         .or_else(|| (id == SHIV_ANY_COLOR_ID).then_some(&SHIV_ANY_COLOR))

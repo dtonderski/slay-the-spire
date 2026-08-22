@@ -401,8 +401,12 @@ pub(super) fn draw_then_scrape_discard(
         let Some(card) = state.piles.hand.iter().find(|card| card.id == card_id) else {
             continue;
         };
+        // Unplayable curses/statuses use costForTurn -2 in the target, but our
+        // definitions store cost 0 + unplayable. ScrapeFollowUp discards those.
+        let unplayable = get_card_definition(card.content_id)
+            .is_some_and(|definition| definition.keywords.unplayable);
         let cost = crate::combat::cost::effective_card_cost(card).unwrap_or(0);
-        if cost == 0 || card.free_to_play_once {
+        if card.free_to_play_once || (cost == 0 && !unplayable) {
             continue;
         }
         follow_ups.extend(move_card_between_piles(
