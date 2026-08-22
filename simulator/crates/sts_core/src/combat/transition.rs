@@ -1317,6 +1317,11 @@ fn apply_internal_action_with_defer(
         InternalAction::ChannelFrost => player_actions::channel_frost(state),
         InternalAction::ChannelDark => player_actions::channel_dark(state),
         InternalAction::DarkImpulse => player_actions::dark_impulse(state),
+        InternalAction::ForceEndTurn => {
+            state.time_warp_end_turn = true;
+            settle_time_warp_end_turn_if_ready(state)?;
+            Ok(Vec::new())
+        }
         InternalAction::GainStaticDischarge { amount } => {
             player_actions::gain_static_discharge(state, amount)
         }
