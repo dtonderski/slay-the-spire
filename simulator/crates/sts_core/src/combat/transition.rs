@@ -6298,8 +6298,12 @@ fn move_card(
 
     match to {
         CardPile::DiscardPile => {
-            let is_played_power = get_card_definition(card.content_id)
-                .is_some_and(|definition| definition.card_type == CardType::Power);
+            // UseCardAction.empower removes the Power that was just played
+            // (`card_in_use`). ScrapeFollowUp / other moveToDiscardPile paths
+            // still put unplayed Powers into the discard pile (FIDL02294).
+            let is_played_power = state.card_in_use == Some(card_id)
+                && get_card_definition(card.content_id)
+                    .is_some_and(|definition| definition.card_type == CardType::Power);
             if !is_played_power {
                 state.piles.discard_pile.push(card);
             }
@@ -11686,6 +11690,53 @@ mod tests {
 
         assert_eq!(chosen.phase, CombatPhase::Won);
         assert!(chosen.monsters.iter().all(|monster| !monster.alive));
+    }
+
+    #[test]
+    fn scrape_discards_nonzero_cost_power_instead_of_empowering_it() {
+        // ScrapeFollowUp.moveToDiscardPile is not UseCardAction.empower.
+        // A drawn Power that costs more than 0 must remain in discard.
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), SCRAPE_ANY_COLOR_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), EVOLVE_ID)];
+        state.piles.discard_pile.clear();
+        state.monsters = vec![monster_state(&JAW_WORM_A0, MonsterId::new(1))];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(state.monsters[0].id),
+            },
+        )
+        .expect("Scrape draws and discards Evolve");
+
+        assert!(
+            next.piles
+                .discard_pile
+                .iter()
+                .any(|card| card.content_id == EVOLVE_ID),
+            "unplayed Power must stay in discard, discard={:?} hand={:?}",
+            next.piles
+                .discard_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            next.piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+        );
+        assert!(
+            !next
+                .piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == EVOLVE_ID),
+            "nonzero-cost Evolve must not remain in hand",
+        );
     }
 
     #[test]

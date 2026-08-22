@@ -1819,7 +1819,11 @@ fn grid_trace_choice_label(_run: &RunState, card: &CardInstance) -> String {
     }
     if sts_core::content::cards::is_synthetic_any_color_content_id(card.content_id) {
         if let Some(key) = sts_core::run::reward::any_color_reward_card_key(card.content_id) {
-            let mut label = key.replace('_', " ").to_ascii_lowercase();
+            let mut label = if key == "JUDGEMENT" {
+                "judgment".to_owned()
+            } else {
+                key.replace('_', " ").to_ascii_lowercase()
+            };
             if card.upgrades > 0 {
                 label.push('+');
             }
@@ -2155,11 +2159,16 @@ fn card_reward_ids_from_value(value: Option<&Value>) -> Vec<Value> {
 }
 
 fn normalize_card_identity(value: &str) -> String {
-    value
+    let mut normalized: String = value
         .chars()
         .filter(|character| character.is_ascii_alphanumeric())
         .flat_map(char::to_lowercase)
-        .collect()
+        .collect();
+    // CommunicationMod cardID is `Judgement`; some choice_list labels are `judgment`.
+    if normalized == "judgment" {
+        normalized = "judgement".to_owned();
+    }
+    normalized
 }
 
 fn simulated_card_reward_identity(content_id: ContentId) -> Value {
@@ -3808,7 +3817,13 @@ fn reward_card_choice_display_key(run: &RunState, card: &CardInstance) -> String
     }
     if sts_core::content::cards::is_synthetic_any_color_content_id(card.content_id) {
         if let Some(key) = sts_core::run::reward::any_color_reward_card_key(card.content_id) {
-            let mut label = key.replace('_', " ");
+            // CommunicationMod's choice_list uses American `judgment`; the
+            // cardID / card_reward_ids field is `Judgement`.
+            let mut label = if key == "JUDGEMENT" {
+                "Judgment".to_owned()
+            } else {
+                key.replace('_', " ")
+            };
             // Synthetic Prismatic cards can be upgraded by the matching Egg even
             // though they retain one content identity.
             if (card.upgrades > 0 || egg_preview_upgrade(run, card.content_id).is_some())
