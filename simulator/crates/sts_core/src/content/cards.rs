@@ -36,6 +36,8 @@ pub const JUST_LUCKY_ANY_COLOR_ID: ContentId = ContentId::new(2_031_388_667_909_
 pub const GO_FOR_THE_EYES_ANY_COLOR_ID: ContentId = ContentId::new(2_618_527_352_455_044_789);
 pub const EQUILIBRIUM_ANY_COLOR_ID: ContentId = ContentId::new(58_770_534_959_378_700);
 pub const SNEAKY_STRIKE_ANY_COLOR_ID: ContentId = ContentId::new(12_075_979_460_702_295_972);
+/// Prismatic/Silent Dagger Spray — id matches `shop_card_content_id("DAGGER_SPRAY")`.
+pub const DAGGER_SPRAY_ANY_COLOR_ID: ContentId = ContentId::new(1_782_992_009_990_908_400);
 pub const PROSTRATE_ANY_COLOR_ID: ContentId = ContentId::new(70_559_886_447_078);
 pub const CLOAK_AND_DAGGER_ANY_COLOR_ID: ContentId = ContentId::new(12_608_504_500_537_169_241);
 pub const SHIV_ANY_COLOR_ID: ContentId = ContentId::new(2_544_794);
@@ -5159,6 +5161,7 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | GO_FOR_THE_EYES_ANY_COLOR_ID
             | EQUILIBRIUM_ANY_COLOR_ID
             | SNEAKY_STRIKE_ANY_COLOR_ID
+            | DAGGER_SPRAY_ANY_COLOR_ID
             | PROSTRATE_ANY_COLOR_ID
             | CLOAK_AND_DAGGER_ANY_COLOR_ID
             | SHIV_ANY_COLOR_ID
@@ -5446,6 +5449,24 @@ pub static SNEAKY_STRIKE_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static DAGGER_SPRAY_ANY_COLOR: CardDefinition = CardDefinition {
+    id: DAGGER_SPRAY_ANY_COLOR_ID,
+    key: "DAGGER_SPRAY",
+    name: "Dagger Spray",
+    cost: 1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::AllEnemies,
+    values: CardValues {
+        // DaggerSpray.baseDamage is 4; use() queues two DamageAllEnemiesAction.
+        damage: Some(4),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub static EQUILIBRIUM_ANY_COLOR: CardDefinition = CardDefinition {
     id: EQUILIBRIUM_ANY_COLOR_ID,
     key: "EQUILIBRIUM",
@@ -5556,6 +5577,7 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == CHARGE_BATTERY_ANY_COLOR_ID).then_some(&CHARGE_BATTERY_ANY_COLOR))
         .or_else(|| (id == EQUILIBRIUM_ANY_COLOR_ID).then_some(&EQUILIBRIUM_ANY_COLOR))
         .or_else(|| (id == SNEAKY_STRIKE_ANY_COLOR_ID).then_some(&SNEAKY_STRIKE_ANY_COLOR))
+        .or_else(|| (id == DAGGER_SPRAY_ANY_COLOR_ID).then_some(&DAGGER_SPRAY_ANY_COLOR))
         .or_else(|| (id == PROSTRATE_ANY_COLOR_ID).then_some(&PROSTRATE_ANY_COLOR))
         .or_else(|| (id == CLOAK_AND_DAGGER_ANY_COLOR_ID).then_some(&CLOAK_AND_DAGGER_ANY_COLOR))
         .or_else(|| (id == SHIV_ANY_COLOR_ID).then_some(&SHIV_ANY_COLOR))
