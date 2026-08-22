@@ -20,8 +20,20 @@ pub fn card_has_innate(content_id: ContentId) -> SimResult<bool> {
     Err(SimError::UnknownContent(content_id))
 }
 
+fn card_instance_is_innate(card: &CardInstance) -> SimResult<bool> {
+    // Storm.upgrade sets isInnate. Synthetic Storm keeps the base content id and
+    // only increments upgrades, so the instance — not the printed definition —
+    // is authoritative.
+    if card.upgrades > 0
+        && crate::run::reward::any_color_reward_card_key(card.content_id) == Some("STORM")
+    {
+        return Ok(true);
+    }
+    card_has_innate(card.content_id)
+}
+
 pub fn card_starts_in_opening_hand(card: &CardInstance) -> SimResult<bool> {
-    let innate = card_has_innate(card.content_id)?;
+    let innate = card_instance_is_innate(card)?;
     Ok(card.bottled || innate)
 }
 
@@ -42,13 +54,13 @@ pub fn initialize_combat_piles_with_relics(
         let (starts_in_opening_hand, unplayable) =
             if let Some(definition) = get_card_definition(card.content_id) {
                 (
-                    card.bottled || definition.keywords.innate,
+                    card.bottled || card_instance_is_innate(&card)?,
                     definition.keywords.unplayable,
                 )
             } else if crate::run::reward::any_color_reward_card_key(card.content_id).is_some() {
                 // Unmodeled Prismatic cards may sit in the deck; mark unplayable
                 // until their effects are implemented (FIDL00288).
-                (card.bottled, true)
+                (card.bottled || card_instance_is_innate(&card)?, true)
             } else {
                 return Err(SimError::UnknownContent(card.content_id));
             };

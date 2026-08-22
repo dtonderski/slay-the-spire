@@ -227,6 +227,11 @@ pub(super) fn gain_magnetism(
     Ok(Vec::new())
 }
 
+pub(super) fn gain_storm(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
+    checked_add_combat_value(&mut state.player.powers.storm, amount)?;
+    Ok(Vec::new())
+}
+
 pub(super) fn arm_the_bomb(
     state: &mut CombatState,
     turns: i32,

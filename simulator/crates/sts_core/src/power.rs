@@ -63,6 +63,9 @@ pub struct PlayerPowers {
     pub corruption: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub magnetism: i32,
+    /// StormPower: Channel this many Lightning whenever a Power is played.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub storm: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub panache: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
