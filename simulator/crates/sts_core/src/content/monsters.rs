@@ -10359,6 +10359,15 @@ fn apply_monster_intent_with_card_rng_inner(
     let monster_damage_to_player =
         |player: &crate::PlayerState, monster: &MonsterState, base: i32| {
             let damage = monster_damage_to_player_with_relics(player, monster, base, relics)?;
+            // DamageInfo.applyPowers calls atDamageFinalReceive after Weak/
+            // Vulnerable and before AbstractMonster's Back Attack 1.5x.
+            // IntangiblePlayerPower caps that intermediate output at 1, so
+            // Shield smash GainBlock(damage[1].output) is 1 (FIDL02191).
+            let damage = if player.powers.intangible > 0 && damage > 1 {
+                1
+            } else {
+                damage
+            };
             if monster.back_attack {
                 // AbstractMonster.applyPowers first floors DamageInfo.output
                 // after Weak/Vulnerable, then applies Back Attack's 1.5x to
@@ -11022,6 +11031,39 @@ mod tests {
     #[test]
     fn spire_shield_a18_attack_and_block_keeps_fixed_ninety_nine_block() {
         assert_eq!(resolve_shield_attack_and_block(18, true, 0), (57, 99));
+    }
+
+    #[test]
+    fn spire_shield_smash_block_uses_intangible_capped_output() {
+        let mut combat = crate::CombatState::initial_fixture();
+        combat.player.hp = 100;
+        combat.player.max_hp = 100;
+        combat.player.block = 0;
+        combat.player.powers.intangible = 1;
+        let mut player = combat.player.clone();
+        let player_before = player.clone();
+        let mut piles = combat.piles.clone();
+        let allocated = piles.max_card_instance_id();
+        let mut rng = crate::rng::StsRng::new(1);
+        let mut shield = monster_state_for_ascension(&SPIRE_SHIELD_A0, crate::MonsterId::new(1), 0);
+        shield.back_attack = true;
+        shield.intent = MonsterIntent::AttackAndBlock {
+            damage: 34,
+            block: 54,
+        };
+        let damage = apply_monster_intent_with_card_rng(
+            &mut shield,
+            &mut player,
+            &mut piles,
+            allocated,
+            0,
+            &player_before,
+            &[],
+            &mut rng,
+        )
+        .expect("intangible smash resolves");
+        // atDamageFinalReceive caps to 1, then Back Attack (int)(1 * 1.5f) = 1.
+        assert_eq!((damage, shield.block), (1, 1));
     }
 
     #[test]
