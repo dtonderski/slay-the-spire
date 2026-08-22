@@ -131,12 +131,23 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         apply_pending_nilry_end_powers(&mut next)?;
         crate::relic::nilrys_codex_flush_pending_draw_inserts(&mut next)?;
         deferred_stasis_cards = Vec::new();
+        let dead_branch_cards = std::mem::take(&mut next.pending_end_turn_dead_branch_cards);
+        let deferred_dark_embrace_draws =
+            std::mem::take(&mut next.pending_end_turn_dark_embrace_draws);
+        let mut ethereal_follow_ups = dead_branch_cards
+            .iter()
+            .cloned()
+            .map(crate::combat::hand::EtherealEndTurnFollowUp::DeadBranch)
+            .collect::<Vec<_>>();
+        ethereal_follow_ups.extend(std::iter::repeat_n(
+            crate::combat::hand::EtherealEndTurnFollowUp::DarkEmbraceDraw,
+            deferred_dark_embrace_draws,
+        ));
         end_of_turn_hand = crate::combat::hand::EndOfTurnHandResolution {
             auto_play_emptied_hand: false,
-            dead_branch_cards: std::mem::take(&mut next.pending_end_turn_dead_branch_cards),
-            deferred_dark_embrace_draws: std::mem::take(
-                &mut next.pending_end_turn_dark_embrace_draws,
-            ),
+            dead_branch_cards,
+            deferred_dark_embrace_draws,
+            ethereal_follow_ups,
             deferred_juggernaut_damage: std::mem::take(
                 &mut next.pending_end_turn_juggernaut_damage,
             ),
@@ -357,22 +368,31 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         next.piles.discard_pile.extend(pending);
         next.pending_hidden_hand_card_exhausts_with_fiend_fire = false;
     }
-    // Dead Branch cards created while end-of-turn ethereal cards exhaust are
-    // queued after the hand discard and remain at the front of the next hand.
-    next.piles.hand.extend(end_of_turn_hand.dead_branch_cards);
+    // Dead Branch onExhaust and DarkEmbrace onExhaust are both addToBot per
+    // ethereal. After the hand discard they resolve in that interleaved order
+    // (FIDL02353: DB, draw, DB, draw — not both DBs then both draws).
+    next.player.cannot_draw = false;
+    let mut deferred_dark_embrace_fire_breathing = Vec::new();
+    if end_of_turn_hand.ethereal_follow_ups.is_empty() {
+        next.piles.hand.extend(end_of_turn_hand.dead_branch_cards);
+    } else {
+        for follow_up in end_of_turn_hand.ethereal_follow_ups {
+            match follow_up {
+                crate::combat::hand::EtherealEndTurnFollowUp::DeadBranch(card) => {
+                    next.piles.hand.push(card);
+                }
+                crate::combat::hand::EtherealEndTurnFollowUp::DarkEmbraceDraw => {
+                    deferred_dark_embrace_fire_breathing
+                        .extend(resolve_deferred_dark_embrace_draws(&mut next, 1)?);
+                }
+            }
+        }
+    }
     // Runic Cube/Centennial Puzzle drew the trigger card before the bulk hand
     // discard, but Evolve/Fire Breathing callbacks were queued behind that
     // discard action in the source manager.
     let hp_loss_follow_ups = std::mem::take(&mut next.pending_hp_loss_draw_follow_ups);
     resolve_deferred_draw_follow_ups(&mut next, hp_loss_follow_ups.into_iter().collect())?;
-    // Battle Trance's No Draw power expires with the player turn. Deferred
-    // Dark Embrace draws from ethereal cards resolve before the queued
-    // Juggernaut damage, matching the target action queue's card-draw batch.
-    next.player.cannot_draw = false;
-    let deferred_dark_embrace_fire_breathing = resolve_deferred_dark_embrace_draws(
-        &mut next,
-        end_of_turn_hand.deferred_dark_embrace_draws,
-    )?;
     next.piles.hand.extend(deferred_stasis_cards);
     crate::combat::transition::resolve_deferred_end_turn_monster_deaths(
         &mut next,

@@ -11,12 +11,21 @@ use crate::{
     CardInstance, SimError, SimResult,
 };
 
+#[derive(Clone)]
+pub(crate) enum EtherealEndTurnFollowUp {
+    DeadBranch(CardInstance),
+    DarkEmbraceDraw,
+}
+
 pub(crate) struct EndOfTurnHandResolution {
     /// The visible hand existed at END click but was completely consumed by
     /// auto-play curses before DiscardAtEndOfTurnAction.
     pub(crate) auto_play_emptied_hand: bool,
+    #[allow(dead_code)]
     pub(crate) deferred_dark_embrace_draws: usize,
     pub(crate) dead_branch_cards: Vec<CardInstance>,
+    /// Per-ethereal addToBot order: Dead Branch then Dark Embrace (FIDL02353).
+    pub(crate) ethereal_follow_ups: Vec<EtherealEndTurnFollowUp>,
     pub(crate) deferred_juggernaut_damage: Vec<i32>,
 }
 
@@ -244,7 +253,7 @@ pub(crate) fn apply_end_of_turn_burn_and_decay_for_bomb_victory(
 pub(crate) fn exhaust_unplayed_ethereal_cards(
     state: &mut CombatState,
 ) -> SimResult<EndOfTurnHandResolution> {
-    let ethereal_ids: Vec<CardId> = state
+    let mut ethereal_ids: Vec<CardId> = state
         .piles
         .hand
         .iter()
@@ -254,6 +263,11 @@ pub(crate) fn exhaust_unplayed_ethereal_cards(
         })
         .map(|card| card.id)
         .collect();
+    // AbstractCard.triggerOnEndOfTurnForPlayingCard addToTop's
+    // ExhaustSpecificCardAction per ethereal in hand order, so the last
+    // ethereal exhausts first. Dead Branch onExhaust addToBot follows that
+    // exhaust order (FIDL02353 two Voids).
+    ethereal_ids.reverse();
 
     let first_dead_branch_id = (!ethereal_ids.is_empty())
         .then(|| state.reserve_card_instance_ids(ethereal_ids.len()))
@@ -261,6 +275,7 @@ pub(crate) fn exhaust_unplayed_ethereal_cards(
     let mut deferred_dark_embrace_draws: usize = 0;
     let mut deferred_juggernaut_damage = Vec::new();
     let mut dead_branch_cards = Vec::new();
+    let mut ethereal_follow_ups = Vec::new();
     let mut dead_branch_count = 0_u64;
     for card_id in ethereal_ids {
         if let Some(index) = state.piles.hand.iter().position(|card| card.id == card_id) {
@@ -275,19 +290,26 @@ pub(crate) fn exhaust_unplayed_ethereal_cards(
             );
             if let Some(card) = dead_branch_card_for_end_turn(state, generated_id)? {
                 dead_branch_cards.push(card);
+                ethereal_follow_ups.push(EtherealEndTurnFollowUp::DeadBranch(card));
                 dead_branch_count += 1;
             }
-            deferred_dark_embrace_draws = deferred_dark_embrace_draws
-                .checked_add(state.player.powers.dark_embrace.max(0) as usize)
-                .ok_or(SimError::InvalidState(
-                    "Dark Embrace deferred draw count overflows usize",
-                ))?;
+            let embrace = state.player.powers.dark_embrace.max(0) as usize;
+            deferred_dark_embrace_draws =
+                deferred_dark_embrace_draws
+                    .checked_add(embrace)
+                    .ok_or(SimError::InvalidState(
+                        "Dark Embrace deferred draw count overflows usize",
+                    ))?;
+            for _ in 0..embrace {
+                ethereal_follow_ups.push(EtherealEndTurnFollowUp::DarkEmbraceDraw);
+            }
         }
     }
     Ok(EndOfTurnHandResolution {
         auto_play_emptied_hand: false,
         deferred_dark_embrace_draws,
         dead_branch_cards,
+        ethereal_follow_ups,
         deferred_juggernaut_damage,
     })
 }
