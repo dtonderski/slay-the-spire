@@ -218,6 +218,12 @@ pub(super) fn play_card_queue(
             target.expect("validated Scrape has a target"),
             definition,
         ),
+        id if id == crate::content::cards::MALAISE_ANY_COLOR_ID => malaise_queue(
+            state,
+            card_id,
+            target.expect("validated Malaise has a target"),
+            *card,
+        ),
         id if id == crate::content::cards::FLYING_SLEEVES_ANY_COLOR_ID => flying_sleeves_queue(
             state,
             card_id,
@@ -3813,6 +3819,43 @@ fn uppercut_queue(
             to: CardPile::DiscardPile,
         },
     ]))
+}
+
+fn malaise_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    card: CardInstance,
+) -> SimResult<VecDeque<InternalAction>> {
+    // MalaiseAction: X = energyOnUse; +2 Chemical X; +1 if upgraded. If X>0,
+    // ApplyPower Strength -X then Weak X; spend energy unless freeToPlayOnce.
+    let mut x = state.player.energy;
+    if state.relics.contains(&Relic::ChemicalX) {
+        x = x.saturating_add(CHEMICAL_X_BONUS_X);
+    }
+    if card.upgrades > 0 {
+        x = x.saturating_add(1);
+    }
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: if card.free_to_play_once {
+                0
+            } else {
+                state.player.energy
+            },
+        },
+    ]);
+    if x > 0 {
+        queue.push_back(InternalAction::ReduceMonsterStrength { target, amount: x });
+        queue.push_back(InternalAction::ApplyWeak { target, amount: x });
+    }
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: CardPile::ExhaustPile,
+    });
+    Ok(queue)
 }
 
 fn whirlwind_queue(
