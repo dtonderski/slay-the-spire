@@ -1,6 +1,6 @@
 use crate::{
     card::{CardInstance, CardRarity},
-    combat::turn::{revival_hp, revival_hp_with_relics},
+    combat::turn::revival_hp_with_relics,
     combat::{
         apply_combat_action_with_events, finish_monster_turn_after_player_revival,
         start_player_turn, CombatPhase,
@@ -2285,7 +2285,11 @@ fn apply_fairy_if_lethal(
     }
 
     if run.relics.contains(&Relic::LizardTail) && !run.lizard_tail_used {
-        let hp = revival_hp(combat.player.max_hp, crate::relic::LIZARD_TAIL_HEAL_PERCENT)?;
+        let hp = revival_hp_with_relics(
+            combat.player.max_hp,
+            crate::relic::LIZARD_TAIL_HEAL_PERCENT,
+            &run.relics,
+        )?;
         run.lizard_tail_used = true;
         combat.player.hp = hp;
         combat.phase = CombatPhase::WaitingForPlayer;
