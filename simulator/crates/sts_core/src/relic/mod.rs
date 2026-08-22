@@ -3101,7 +3101,7 @@ pub fn apply_on_card_play_relics(
         heal_combat_player_with_relics(state, BIRD_FACED_URN_HEAL)?;
     }
 
-    if apply_orange_pellets_on_card_play(state, card_type) {
+    if apply_orange_pellets_on_card_play(state, card_type)? {
         follow_ups.push(InternalAction::ClearPlayerDebuffs);
     }
 
@@ -3129,9 +3129,12 @@ fn apply_start_of_combat_red_skull(state: &mut CombatState) -> SimResult<()> {
     sync_red_skull_strength_present(state, true)
 }
 
-fn apply_orange_pellets_on_card_play(state: &mut CombatState, card_type: CardType) -> bool {
+fn apply_orange_pellets_on_card_play(
+    state: &mut CombatState,
+    card_type: CardType,
+) -> SimResult<bool> {
     if !state.relics.contains(&Relic::OrangePellets) {
-        return false;
+        return Ok(false);
     }
 
     match card_type {
@@ -3151,11 +3154,11 @@ fn apply_orange_pellets_on_card_play(state: &mut CombatState, card_type: CardTyp
         // Standalone relic probes call this helper outside a card-use queue;
         // the live callback returns a deferred ClearPlayerDebuffs action.
         if state.card_in_use.is_none() {
-            crate::power::clear_player_debuffs(&mut state.player.powers);
+            state.player.remove_debuffs()?;
         }
-        return true;
+        return Ok(true);
     }
-    false
+    Ok(false)
 }
 
 #[must_use]
@@ -3259,8 +3262,8 @@ mod tests {
         state.relics.push(Relic::OrangePellets);
         state.player.powers.constricted = 0;
 
-        apply_orange_pellets_on_card_play(&mut state, CardType::Attack);
-        apply_orange_pellets_on_card_play(&mut state, CardType::Power);
+        apply_orange_pellets_on_card_play(&mut state, CardType::Attack).unwrap();
+        apply_orange_pellets_on_card_play(&mut state, CardType::Power).unwrap();
         assert!(state.relic_counters.orange_pellets_attack_played);
         assert!(state.relic_counters.orange_pellets_power_played);
         assert!(!state.relic_counters.orange_pellets_skill_played);
@@ -3273,14 +3276,14 @@ mod tests {
         assert!(!state.relic_counters.orange_pellets_skill_played);
         assert!(!state.relic_counters.orange_pellets_power_played);
 
-        apply_orange_pellets_on_card_play(&mut state, CardType::Attack);
-        apply_orange_pellets_on_card_play(&mut state, CardType::Skill);
+        apply_orange_pellets_on_card_play(&mut state, CardType::Attack).unwrap();
+        apply_orange_pellets_on_card_play(&mut state, CardType::Skill).unwrap();
         assert_eq!(
             state.player.powers.constricted, 10,
             "Attack+Skill alone must not cleanse without a same-turn Power"
         );
 
-        apply_orange_pellets_on_card_play(&mut state, CardType::Power);
+        apply_orange_pellets_on_card_play(&mut state, CardType::Power).unwrap();
         assert_eq!(
             state.player.powers.constricted, 0,
             "same-turn Attack+Skill+Power cleanses Constricted"

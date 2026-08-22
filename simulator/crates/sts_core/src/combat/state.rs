@@ -538,6 +538,23 @@ impl PlayerState {
             frail_just_applied: false,
         })
     }
+
+    /// `RemoveDebuffsAction`: drop debuff powers without running Flex /
+    /// LoseDexterity `atEndOfTurn`. Already-applied Strength and Dexterity stay.
+    pub(crate) fn remove_debuffs(&mut self) -> SimResult<()> {
+        crate::power::clear_player_debuffs(&mut self.powers);
+        self.cannot_draw = false;
+        let temp_strength = std::mem::take(&mut self.temp_strength);
+        self.powers.strength =
+            self.powers
+                .strength
+                .checked_add(temp_strength)
+                .ok_or(SimError::InvalidState(
+                    "combat integer addition overflows i32",
+                ))?;
+        self.temp_dexterity = 0;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
