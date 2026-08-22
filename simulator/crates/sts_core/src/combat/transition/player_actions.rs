@@ -232,26 +232,96 @@ pub(super) fn gain_storm(state: &mut CombatState, amount: i32) -> SimResult<Vec<
     Ok(Vec::new())
 }
 
+pub(super) fn gain_thorns(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
+    checked_add_combat_value(&mut state.player.powers.thorns, amount)?;
+    Ok(Vec::new())
+}
+
+pub(super) fn recurse_rightmost_orb(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
+    // RedoAction no-ops when the first slot is empty.
+    if state.orbs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let orb = state.orbs.remove(0);
+    evoke_orb(state, orb)?;
+    // ChannelAction(orb, autoEvoke=false) fills the emptied slot.
+    if state.max_orbs > 0 {
+        state.orbs.insert(0, orb);
+    }
+    Ok(Vec::new())
+}
+
+pub(super) fn increase_max_orbs(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    // AbstractPlayer.increaseMaxOrbSlots no-ops at 10.
+    if state.max_orbs >= 10 {
+        return Ok(Vec::new());
+    }
+    state.max_orbs = (state.max_orbs + amount).min(10);
+    Ok(Vec::new())
+}
+
 pub(super) fn channel_lightning(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
+    channel_orb(state, crate::combat::CombatOrb::Lightning)
+}
+
+pub(super) fn channel_frost(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
+    channel_orb(state, crate::combat::CombatOrb::Frost)
+}
+
+fn channel_orb(
+    state: &mut CombatState,
+    orb: crate::combat::CombatOrb,
+) -> SimResult<Vec<InternalAction>> {
     // AbstractPlayer.channelOrb no-ops when maxOrbs <= 0.
     if state.max_orbs <= 0 {
         return Ok(Vec::new());
     }
     if state.orbs.len() >= state.max_orbs as usize {
-        // A filled slot evokes the oldest orb before the new Lightning lands.
-        let _evoked = state.orbs.remove(0);
-        super::apply_juggernaut_random_damage(state, LIGHTNING_EVOKE_DAMAGE)?;
+        // A filled slot evokes the oldest orb before the new one lands.
+        let evoked = state.orbs.remove(0);
+        evoke_orb(state, evoked)?;
     }
-    state.orbs.push(crate::combat::CombatOrb::Lightning);
+    state.orbs.push(orb);
     Ok(Vec::new())
+}
+
+fn evoke_orb(state: &mut CombatState, orb: crate::combat::CombatOrb) -> SimResult<()> {
+    match orb {
+        crate::combat::CombatOrb::Lightning => {
+            super::apply_juggernaut_random_damage(state, LIGHTNING_EVOKE_DAMAGE)
+        }
+        crate::combat::CombatOrb::Frost => {
+            super::apply_player_end_turn_automatic_block_gain(state, FROST_EVOKE_BLOCK)
+        }
+    }
 }
 
 const LIGHTNING_PASSIVE_DAMAGE: i32 = 3;
 const LIGHTNING_EVOKE_DAMAGE: i32 = 8;
+const FROST_PASSIVE_BLOCK: i32 = 2;
+const FROST_EVOKE_BLOCK: i32 = 5;
 
 pub(super) fn lightning_orb_passive(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
     super::apply_juggernaut_random_damage(state, LIGHTNING_PASSIVE_DAMAGE)?;
     Ok(Vec::new())
+}
+
+pub(crate) fn apply_orb_end_of_turn_passives(state: &mut CombatState) -> SimResult<()> {
+    let orbs = state.orbs.clone();
+    for orb in orbs {
+        match orb {
+            crate::combat::CombatOrb::Lightning => {
+                super::apply_juggernaut_random_damage(state, LIGHTNING_PASSIVE_DAMAGE)?;
+            }
+            crate::combat::CombatOrb::Frost => {
+                super::apply_player_end_turn_automatic_block_gain(state, FROST_PASSIVE_BLOCK)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn arm_the_bomb(

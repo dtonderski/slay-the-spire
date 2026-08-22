@@ -359,8 +359,18 @@ pub enum InternalAction {
     GainStorm {
         amount: i32,
     },
+    GainThorns {
+        amount: i32,
+    },
+    IncreaseMaxOrbs {
+        amount: i32,
+    },
+    /// Recursion / RedoAction: evoke the rightmost orb and channel it again.
+    RecurseRightmostOrb,
     /// StormPower.onUseCard addToBot ChannelAction(Lightning).
     ChannelLightning,
+    /// Coolheaded.use addToBot ChannelAction(Frost).
+    ChannelFrost,
     /// Lightning.onEndOfTurn / LightningOrbPassiveAction.
     LightningOrbPassive,
     ArmTheBomb {

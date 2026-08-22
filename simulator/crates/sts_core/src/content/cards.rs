@@ -54,6 +54,14 @@ pub const WINDMILL_STRIKE_ANY_COLOR_ID: ContentId = ContentId::new(283_075_441_1
 pub const MALAISE_ANY_COLOR_ID: ContentId = ContentId::new(70_270_875_658);
 /// Prismatic/Defect Storm — id matches `shop_card_content_id("STORM")`.
 pub const STORM_ANY_COLOR_ID: ContentId = ContentId::new(79_233_825);
+/// Prismatic/Defect Coolheaded — id matches `shop_card_content_id("COOLHEADED")`.
+pub const COOLHEADED_ANY_COLOR_ID: ContentId = ContentId::new(1_841_076_150_543_712);
+/// Prismatic/Silent Caltrops — id matches `shop_card_content_id("CALTROPS")`.
+pub const CALTROPS_ANY_COLOR_ID: ContentId = ContentId::new(1_903_288_797_886);
+/// Prismatic/Defect Capacitor — id matches `shop_card_content_id("CAPACITOR")`.
+pub const CAPACITOR_ANY_COLOR_ID: ContentId = ContentId::new(59_004_944_749_562);
+/// Prismatic/Defect Recursion (`Redo`) — id matches `shop_card_content_id("RECURSION")`.
+pub const RECURSION_ANY_COLOR_ID: ContentId = ContentId::new(71_897_409_942_938);
 pub const PROSTRATE_ANY_COLOR_ID: ContentId = ContentId::new(70_559_886_447_078);
 pub const CLOAK_AND_DAGGER_ANY_COLOR_ID: ContentId = ContentId::new(12_608_504_500_537_169_241);
 pub const SHIV_ANY_COLOR_ID: ContentId = ContentId::new(2_544_794);
@@ -5186,6 +5194,10 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | WINDMILL_STRIKE_ANY_COLOR_ID
             | MALAISE_ANY_COLOR_ID
             | STORM_ANY_COLOR_ID
+            | COOLHEADED_ANY_COLOR_ID
+            | CALTROPS_ANY_COLOR_ID
+            | CAPACITOR_ANY_COLOR_ID
+            | RECURSION_ANY_COLOR_ID
             | PROSTRATE_ANY_COLOR_ID
             | CLOAK_AND_DAGGER_ANY_COLOR_ID
             | SHIV_ANY_COLOR_ID
@@ -5651,6 +5663,74 @@ pub static STORM_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static COOLHEADED_ANY_COLOR: CardDefinition = CardDefinition {
+    id: COOLHEADED_ANY_COLOR_ID,
+    key: "COOLHEADED",
+    name: "Coolheaded",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static CALTROPS_ANY_COLOR: CardDefinition = CardDefinition {
+    id: CALTROPS_ANY_COLOR_ID,
+    key: "CALTROPS",
+    name: "Caltrops",
+    cost: 1,
+    card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static CAPACITOR_ANY_COLOR: CardDefinition = CardDefinition {
+    id: CAPACITOR_ANY_COLOR_ID,
+    key: "CAPACITOR",
+    name: "Capacitor",
+    cost: 1,
+    card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static RECURSION_ANY_COLOR: CardDefinition = CardDefinition {
+    id: RECURSION_ANY_COLOR_ID,
+    key: "RECURSION",
+    name: "Recursion",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub static EQUILIBRIUM_ANY_COLOR: CardDefinition = CardDefinition {
     id: EQUILIBRIUM_ANY_COLOR_ID,
     key: "EQUILIBRIUM",
@@ -5770,6 +5850,10 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == WINDMILL_STRIKE_ANY_COLOR_ID).then_some(&WINDMILL_STRIKE_ANY_COLOR))
         .or_else(|| (id == MALAISE_ANY_COLOR_ID).then_some(&MALAISE_ANY_COLOR))
         .or_else(|| (id == STORM_ANY_COLOR_ID).then_some(&STORM_ANY_COLOR))
+        .or_else(|| (id == COOLHEADED_ANY_COLOR_ID).then_some(&COOLHEADED_ANY_COLOR))
+        .or_else(|| (id == CALTROPS_ANY_COLOR_ID).then_some(&CALTROPS_ANY_COLOR))
+        .or_else(|| (id == CAPACITOR_ANY_COLOR_ID).then_some(&CAPACITOR_ANY_COLOR))
+        .or_else(|| (id == RECURSION_ANY_COLOR_ID).then_some(&RECURSION_ANY_COLOR))
         .or_else(|| (id == PROSTRATE_ANY_COLOR_ID).then_some(&PROSTRATE_ANY_COLOR))
         .or_else(|| (id == CLOAK_AND_DAGGER_ANY_COLOR_ID).then_some(&CLOAK_AND_DAGGER_ANY_COLOR))
         .or_else(|| (id == SHIV_ANY_COLOR_ID).then_some(&SHIV_ANY_COLOR))

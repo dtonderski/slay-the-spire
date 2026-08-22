@@ -563,16 +563,7 @@ pub fn apply_pending_nilry_end_powers(state: &mut CombatState) -> SimResult<()> 
 }
 
 fn apply_end_of_turn_orb_passives(state: &mut CombatState) -> SimResult<()> {
-    use crate::combat::CombatOrb;
-    let lightning_count = state
-        .orbs
-        .iter()
-        .filter(|orb| matches!(orb, CombatOrb::Lightning))
-        .count();
-    for _ in 0..lightning_count {
-        crate::combat::transition::apply_juggernaut_random_damage(state, 3)?;
-    }
-    Ok(())
+    crate::combat::transition::apply_orb_end_of_turn_passives(state)
 }
 
 fn queued_end_turn_autoplay_ids(

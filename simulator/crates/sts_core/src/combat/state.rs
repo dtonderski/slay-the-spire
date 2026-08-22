@@ -276,6 +276,7 @@ pub struct BombTimer {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CombatOrb {
     Lightning,
+    Frost,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
