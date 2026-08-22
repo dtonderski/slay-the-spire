@@ -1260,8 +1260,7 @@ fn apply_internal_action_with_defer(
         InternalAction::LoseHp { amount, source } => player_actions::lose_hp(state, amount, source),
         InternalAction::SetCannotDraw => player_actions::set_cannot_draw(state),
         InternalAction::ClearPlayerDebuffs => {
-            crate::power::clear_player_debuffs(&mut state.player.powers);
-            state.player.cannot_draw = false;
+            state.player.remove_debuffs()?;
             Ok(Vec::new())
         }
         InternalAction::GainRage { amount } => player_actions::gain_rage(state, amount),
