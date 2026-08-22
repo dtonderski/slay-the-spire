@@ -362,6 +362,9 @@ pub enum InternalAction {
     GainAfterImage {
         amount: i32,
     },
+    GainStaticDischarge {
+        amount: i32,
+    },
     GainThorns {
         amount: i32,
     },
@@ -374,6 +377,10 @@ pub enum InternalAction {
     ChannelLightning,
     /// Coolheaded.use addToBot ChannelAction(Frost).
     ChannelFrost,
+    /// Darkness.use addToBot ChannelAction(Dark).
+    ChannelDark,
+    /// Darkness+ addToBot DarkImpulseAction: each Dark orb onEndOfTurn.
+    DarkImpulse,
     /// Lightning.onEndOfTurn / LightningOrbPassiveAction.
     LightningOrbPassive,
     ArmTheBomb {

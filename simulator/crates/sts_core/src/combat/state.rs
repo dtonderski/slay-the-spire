@@ -281,6 +281,7 @@ pub struct BombTimer {
 pub enum CombatOrb {
     Lightning,
     Frost,
+    Dark { evoke: i32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

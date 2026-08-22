@@ -1315,6 +1315,11 @@ fn apply_internal_action_with_defer(
         InternalAction::RecurseRightmostOrb => player_actions::recurse_rightmost_orb(state),
         InternalAction::ChannelLightning => player_actions::channel_lightning(state),
         InternalAction::ChannelFrost => player_actions::channel_frost(state),
+        InternalAction::ChannelDark => player_actions::channel_dark(state),
+        InternalAction::DarkImpulse => player_actions::dark_impulse(state),
+        InternalAction::GainStaticDischarge { amount } => {
+            player_actions::gain_static_discharge(state, amount)
+        }
         InternalAction::LightningOrbPassive => player_actions::lightning_orb_passive(state),
         InternalAction::ArmTheBomb { turns, damage } => {
             player_actions::arm_the_bomb(state, turns, damage)
@@ -2983,6 +2988,7 @@ fn is_play_top_deferred_power_gain(action: &InternalAction) -> bool {
             | InternalAction::GainMagnetism { .. }
             | InternalAction::GainStorm { .. }
             | InternalAction::GainAfterImage { .. }
+            | InternalAction::GainStaticDischarge { .. }
             | InternalAction::GainThorns { .. }
             | InternalAction::IncreaseMaxOrbs { .. }
             | InternalAction::GainMetallicize { .. }

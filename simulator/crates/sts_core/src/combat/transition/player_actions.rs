@@ -249,6 +249,14 @@ pub(super) fn gain_after_image(
     Ok(Vec::new())
 }
 
+pub(super) fn gain_static_discharge(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    checked_add_combat_value(&mut state.player.powers.static_discharge, amount)?;
+    Ok(Vec::new())
+}
+
 pub(super) fn gain_thorns(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
     checked_add_combat_value(&mut state.player.powers.thorns, amount)?;
     Ok(Vec::new())
@@ -288,6 +296,25 @@ pub(super) fn channel_frost(state: &mut CombatState) -> SimResult<Vec<InternalAc
     channel_orb(state, crate::combat::CombatOrb::Frost)
 }
 
+pub(super) fn channel_dark(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
+    channel_orb(
+        state,
+        crate::combat::CombatOrb::Dark {
+            evoke: DARK_BASE_EVOKE,
+        },
+    )
+}
+
+pub(super) fn dark_impulse(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
+    // DarkImpulseAction calls Dark.onEndOfTurn on each Dark orb.
+    for orb in &mut state.orbs {
+        if let crate::combat::CombatOrb::Dark { evoke } = orb {
+            *evoke = evoke.saturating_add(DARK_BASE_EVOKE);
+        }
+    }
+    Ok(Vec::new())
+}
+
 fn channel_orb(
     state: &mut CombatState,
     orb: crate::combat::CombatOrb,
@@ -313,6 +340,7 @@ fn evoke_orb(state: &mut CombatState, orb: crate::combat::CombatOrb) -> SimResul
         crate::combat::CombatOrb::Frost => {
             super::apply_player_end_turn_automatic_block_gain(state, FROST_EVOKE_BLOCK)
         }
+        crate::combat::CombatOrb::Dark { evoke } => evoke_dark(state, evoke),
     }
 }
 
@@ -320,21 +348,37 @@ const LIGHTNING_PASSIVE_DAMAGE: i32 = 3;
 const LIGHTNING_EVOKE_DAMAGE: i32 = 8;
 const FROST_PASSIVE_BLOCK: i32 = 2;
 const FROST_EVOKE_BLOCK: i32 = 5;
+const DARK_BASE_EVOKE: i32 = 6;
 
 pub(super) fn lightning_orb_passive(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
     super::apply_juggernaut_random_damage(state, LIGHTNING_PASSIVE_DAMAGE)?;
     Ok(Vec::new())
 }
 
+fn evoke_dark(state: &mut CombatState, amount: i32) -> SimResult<()> {
+    let Some(target) = super::random_living_monster_id(state) else {
+        return Ok(());
+    };
+    let monster = super::living_monster_mut(state, target)?;
+    let hp_damage = crate::combat::damage::deal_unmodified_damage_to_monster(monster, amount);
+    crate::content::monsters::wake_lagavulin_on_damage(monster, hp_damage);
+    Ok(())
+}
+
 pub(crate) fn apply_orb_end_of_turn_passives(state: &mut CombatState) -> SimResult<()> {
     let orbs = state.orbs.clone();
-    for orb in orbs {
+    for (index, orb) in orbs.into_iter().enumerate() {
         match orb {
             crate::combat::CombatOrb::Lightning => {
                 super::apply_juggernaut_random_damage(state, LIGHTNING_PASSIVE_DAMAGE)?;
             }
             crate::combat::CombatOrb::Frost => {
                 super::apply_player_end_turn_automatic_block_gain(state, FROST_PASSIVE_BLOCK)?;
+            }
+            crate::combat::CombatOrb::Dark { .. } => {
+                if let Some(crate::combat::CombatOrb::Dark { evoke }) = state.orbs.get_mut(index) {
+                    *evoke = evoke.saturating_add(DARK_BASE_EVOKE);
+                }
             }
         }
     }

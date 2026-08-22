@@ -72,6 +72,9 @@ pub struct PlayerPowers {
     /// AfterImagePower: Gain this much block whenever a card is played.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub after_image: i32,
+    /// StaticDischargePower: Channel this many Lightning when attacked.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub static_discharge: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub panache: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]

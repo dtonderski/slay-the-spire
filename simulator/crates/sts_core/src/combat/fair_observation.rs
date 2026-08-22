@@ -623,6 +623,7 @@ fn push_player_power_fields(result: &mut Vec<FairPower>, p: PlayerPowers) {
         ("magnetism", p.magnetism),
         ("storm", p.storm),
         ("after_image", p.after_image),
+        ("static_discharge", p.static_discharge),
         ("wrath", p.wrath),
         ("panache", p.panache),
         ("panache_cards_played", p.panache_cards_played),

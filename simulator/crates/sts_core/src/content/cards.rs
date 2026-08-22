@@ -94,6 +94,10 @@ pub const EVALUATE_ANY_COLOR_ID: ContentId = ContentId::new(1_976_629_370_609);
 pub const BOOT_SEQUENCE_ANY_COLOR_ID: ContentId = ContentId::new(17_166_580_192_207_018_182);
 /// Prismatic/Defect Sweeping Beam — id matches `shop_card_content_id("SWEEPING_BEAM")`.
 pub const SWEEPING_BEAM_ANY_COLOR_ID: ContentId = ContentId::new(12_304_765_320_090_509_104);
+/// Prismatic/Defect Darkness — id matches `shop_card_content_id("DARKNESS")`.
+pub const DARKNESS_ANY_COLOR_ID: ContentId = ContentId::new(1_930_964_746_533);
+/// Prismatic/Defect Static Discharge — id matches `shop_card_content_id("STATIC_DISCHARGE")`.
+pub const STATIC_DISCHARGE_ANY_COLOR_ID: ContentId = ContentId::new(1_879_279_616_276_734_569);
 /// Curse granted by [crate::relic::Relic::Necronomicon] on equip. Unpurgeable.
 pub const NECRONOMICURSE_ID: ContentId = ContentId::new(74);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
@@ -5235,6 +5239,8 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | EVALUATE_ANY_COLOR_ID
             | BOOT_SEQUENCE_ANY_COLOR_ID
             | SWEEPING_BEAM_ANY_COLOR_ID
+            | DARKNESS_ANY_COLOR_ID
+            | STATIC_DISCHARGE_ANY_COLOR_ID
     ) || (get_card_definition(id).is_none()
         && crate::run::reward::any_color_reward_card_key(id).is_some())
 }
@@ -5954,6 +5960,40 @@ pub static SWEEPING_BEAM_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static DARKNESS_ANY_COLOR: CardDefinition = CardDefinition {
+    id: DARKNESS_ANY_COLOR_ID,
+    key: "DARKNESS",
+    name: "Darkness",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static STATIC_DISCHARGE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: STATIC_DISCHARGE_ANY_COLOR_ID,
+    key: "STATIC_DISCHARGE",
+    name: "Static Discharge",
+    cost: 1,
+    card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub static BOOT_SEQUENCE_ANY_COLOR: CardDefinition = CardDefinition {
     id: BOOT_SEQUENCE_ANY_COLOR_ID,
     key: "BOOT_SEQUENCE",
@@ -6060,6 +6100,8 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == EVALUATE_ANY_COLOR_ID).then_some(&EVALUATE_ANY_COLOR))
         .or_else(|| (id == BOOT_SEQUENCE_ANY_COLOR_ID).then_some(&BOOT_SEQUENCE_ANY_COLOR))
         .or_else(|| (id == SWEEPING_BEAM_ANY_COLOR_ID).then_some(&SWEEPING_BEAM_ANY_COLOR))
+        .or_else(|| (id == DARKNESS_ANY_COLOR_ID).then_some(&DARKNESS_ANY_COLOR))
+        .or_else(|| (id == STATIC_DISCHARGE_ANY_COLOR_ID).then_some(&STATIC_DISCHARGE_ANY_COLOR))
 }
 
 /// Returns the vanilla `AbstractCard.cardID` spelling for a modeled card.
