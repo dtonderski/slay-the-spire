@@ -819,7 +819,12 @@ fn push_follow_up(
         }
     }
 
-    if matches!(follow_up, InternalAction::GainStrength { .. }) {
+    if matches!(
+        follow_up,
+        InternalAction::GainStrength { .. } | InternalAction::GainDexterity { .. }
+    ) {
+        // Shuriken / Kunai onUseCard is addToBot ApplyPower. Double Tap's copy
+        // is a later card-queue item, so the copy sees the new Strength/Dex.
         if let Some(index) = queue
             .iter()
             .position(|action| matches!(action, InternalAction::PlayCardCopy { .. }))
