@@ -2152,13 +2152,18 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::BirdFacedUrn => {}
             Relic::CoffeeDripper => {}
             Relic::Anchor => {
+                // Anchor.atBattleStart queues GainBlockAction(10), which
+                // triggers Juggernaut.
                 if combat.pending_opening_hand_draw > 0 {
                     checked_add_relic_value(
                         &mut combat.pending_opening_combat_block,
                         ANCHOR_BLOCK,
                     )?;
                 } else {
-                    checked_add_relic_value(&mut combat.player.block, ANCHOR_BLOCK)?;
+                    crate::combat::transition::apply_player_end_turn_automatic_block_gain(
+                        combat,
+                        ANCHOR_BLOCK,
+                    )?;
                 }
             }
             Relic::InkBottle => {}
@@ -2743,7 +2748,11 @@ pub fn settle_pending_opening_combat_actions(state: &mut CombatState) -> SimResu
         insert_mark_of_pain_wounds(&mut next)?;
     }
     if next.pending_opening_combat_block > 0 {
-        checked_add_relic_value(&mut next.player.block, next.pending_opening_combat_block)?;
+        let pending_block = next.pending_opening_combat_block;
+        crate::combat::transition::apply_player_end_turn_automatic_block_gain(
+            &mut next,
+            pending_block,
+        )?;
     }
     next.pending_opening_hand_draw = 0;
     next.pending_opening_combat_block = 0;
