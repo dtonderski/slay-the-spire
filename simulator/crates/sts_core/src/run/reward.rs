@@ -2472,6 +2472,9 @@ fn apply_final_boss_victory_proceed(run: &RunState) -> SimResult<RunState> {
     let mut next = run.clone();
     if next.current_act == 4 {
         next.advance_floor()?;
+        // TrueVictoryRoom is a real room transition; MawBank.onEnterRoom still
+        // grants gold if the relic is not used up (FIDL02369).
+        next.apply_floor_entry_relics()?;
         next.phase = RunPhase::Complete;
         next.combat = None;
         next.reward = None;
@@ -3305,6 +3308,25 @@ mod tests {
         assert_eq!(complete.current_floor, 56);
         assert!(complete.combat.is_none());
         assert!(complete.reward.is_none());
+    }
+
+    #[test]
+    fn corrupt_heart_victory_applies_maw_bank_gold() {
+        use crate::relic::{Relic, MAW_BANK_GOLD};
+
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.current_act = 4;
+        run.current_floor = 55;
+        run.gold = 100;
+        run.maw_bank_broken = false;
+        run.relics = vec![Relic::BurningBlood, Relic::MawBank];
+        prepare_won_combat_reward_fixture(&mut run);
+        run.current_room_override = Some(RoomKind::Boss);
+
+        enter_final_boss_victory(&mut run).expect("won Heart enters COMPLETE boundary");
+        let complete = apply_run_action(&run, RunAction::Proceed)
+            .expect("Heart victory proceeds to TrueVictory");
+        assert_eq!(complete.gold, 100 + MAW_BANK_GOLD);
     }
 
     #[test]
