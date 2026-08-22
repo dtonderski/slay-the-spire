@@ -212,6 +212,9 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
             &mut deferred_monster_deaths,
             !defer_combust_until_after_autoplay,
         )?;
+        // GameActionManager.callEndOfTurnActions queues TriggerEndOfTurnOrbsAction
+        // after pre-card powers and before triggerOnEndOfTurnForPlayingCard.
+        apply_end_of_turn_orb_passives(&mut next)?;
         // The Bomb's end-turn explosion can end combat before hand cleanup.
         // callEndOfTurnActions still plays Burn/Decay/Regret first (FIDL01533,
         // FIDL02376). Keep this limited to Bomb-triggered victory; other
@@ -554,7 +557,21 @@ pub fn apply_pending_nilry_end_powers(state: &mut CombatState) -> SimResult<()> 
         state,
         &mut deferred_monster_deaths,
     )?;
+    apply_end_of_turn_orb_passives(state)?;
     state.nilrys_end_powers_pending = false;
+    Ok(())
+}
+
+fn apply_end_of_turn_orb_passives(state: &mut CombatState) -> SimResult<()> {
+    use crate::combat::CombatOrb;
+    let lightning_count = state
+        .orbs
+        .iter()
+        .filter(|orb| matches!(orb, CombatOrb::Lightning))
+        .count();
+    for _ in 0..lightning_count {
+        crate::combat::transition::apply_juggernaut_random_damage(state, 3)?;
+    }
     Ok(())
 }
 

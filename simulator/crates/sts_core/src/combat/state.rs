@@ -101,6 +101,12 @@ pub struct CombatState {
     /// Pending The Bomb explosions. Each entry ticks down at end of player turn.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bomb_timers: Vec<BombTimer>,
+    /// AbstractPlayer.maxOrbs. PrismaticShard.onEquip sets this to 1 on non-Defect.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub max_orbs: i32,
+    /// Occupied orb slots. Empty slots are implied by `max_orbs - orbs.len()`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub orbs: Vec<CombatOrb>,
     /// Player damage queued by monster powers that add actions after card use, such as Guardian
     /// Sharp Hide.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
@@ -265,6 +271,11 @@ pub struct CombatState {
 pub struct BombTimer {
     pub turns_remaining: i32,
     pub damage: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CombatOrb {
+    Lightning,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1102,6 +1113,7 @@ impl CombatState {
         ascension: u8,
         rng: CombatRngState,
     ) -> Self {
+        let max_orbs = i32::from(relics.contains(&Relic::PrismaticShard));
         Self {
             player,
             monsters,
@@ -1120,6 +1132,8 @@ impl CombatState {
             double_tap_pending: 0,
             pen_nib_double_active: false,
             bomb_timers: Vec::new(),
+            max_orbs,
+            orbs: Vec::new(),
             pending_player_spikes_damage: 0,
             card_in_use: None,
             defer_strange_spoon_until_source_move: None,

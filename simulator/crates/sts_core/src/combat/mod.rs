@@ -29,7 +29,7 @@ pub use setup::{
     starter_only_deck,
 };
 pub use state::{
-    BombTimer, CardPiles, CombatDecisionState, CombatPhase, CombatRngState, CombatState,
+    BombTimer, CardPiles, CombatDecisionState, CombatOrb, CombatPhase, CombatRngState, CombatState,
     DiscardSelectPurpose, DiscardSelectState, DrawSelectPurpose, DrawSelectState,
     ExhaustSelectPurpose, ExhaustSelectState, HandSelectPurpose, HandSelectState, MonsterIntent,
     MonsterState, PlayerState, PotionCardRewardKind, SlimeSize, BASE_PLAYER_ENERGY,

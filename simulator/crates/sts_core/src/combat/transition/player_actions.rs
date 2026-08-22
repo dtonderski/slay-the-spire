@@ -232,6 +232,28 @@ pub(super) fn gain_storm(state: &mut CombatState, amount: i32) -> SimResult<Vec<
     Ok(Vec::new())
 }
 
+pub(super) fn channel_lightning(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
+    // AbstractPlayer.channelOrb no-ops when maxOrbs <= 0.
+    if state.max_orbs <= 0 {
+        return Ok(Vec::new());
+    }
+    if state.orbs.len() >= state.max_orbs as usize {
+        // A filled slot evokes the oldest orb before the new Lightning lands.
+        let _evoked = state.orbs.remove(0);
+        super::apply_juggernaut_random_damage(state, LIGHTNING_EVOKE_DAMAGE)?;
+    }
+    state.orbs.push(crate::combat::CombatOrb::Lightning);
+    Ok(Vec::new())
+}
+
+const LIGHTNING_PASSIVE_DAMAGE: i32 = 3;
+const LIGHTNING_EVOKE_DAMAGE: i32 = 8;
+
+pub(super) fn lightning_orb_passive(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
+    super::apply_juggernaut_random_damage(state, LIGHTNING_PASSIVE_DAMAGE)?;
+    Ok(Vec::new())
+}
+
 pub(super) fn arm_the_bomb(
     state: &mut CombatState,
     turns: i32,
