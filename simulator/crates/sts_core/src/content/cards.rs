@@ -106,6 +106,10 @@ pub const LEAP_ANY_COLOR_ID: ContentId = ContentId::new(2_333_120);
 pub const LEG_SWEEP_ANY_COLOR_ID: ContentId = ContentId::new(66_783_901_063_059);
 /// Prismatic/Watcher Fear No Evil — id matches `shop_card_content_id("FEAR_NO_EVIL")`.
 pub const FEAR_NO_EVIL_ANY_COLOR_ID: ContentId = ContentId::new(1_836_938_932_330_733_467);
+/// Prismatic/Silent Bane — id matches `shop_card_content_id("BANE")`.
+pub const BANE_ANY_COLOR_ID: ContentId = ContentId::new(2_031_758);
+/// Prismatic/Watcher Judgement — id matches `shop_card_content_id("JUDGEMENT")`.
+pub const JUDGEMENT_ANY_COLOR_ID: ContentId = ContentId::new(65_514_957_976_365);
 /// Curse granted by [crate::relic::Relic::Necronomicon] on equip. Unpurgeable.
 pub const NECRONOMICURSE_ID: ContentId = ContentId::new(74);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
@@ -5253,6 +5257,8 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | LEAP_ANY_COLOR_ID
             | LEG_SWEEP_ANY_COLOR_ID
             | FEAR_NO_EVIL_ANY_COLOR_ID
+            | BANE_ANY_COLOR_ID
+            | JUDGEMENT_ANY_COLOR_ID
     ) || (get_card_definition(id).is_none()
         && crate::run::reward::any_color_reward_card_key(id).is_some())
 }
@@ -6078,6 +6084,41 @@ pub static FEAR_NO_EVIL_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static BANE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: BANE_ANY_COLOR_ID,
+    key: "BANE",
+    name: "Bane",
+    cost: 1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        // Bane.baseDamage is 7; upgradeDamage(2).
+        damage: Some(7),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static JUDGEMENT_ANY_COLOR: CardDefinition = CardDefinition {
+    id: JUDGEMENT_ANY_COLOR_ID,
+    key: "JUDGEMENT",
+    name: "Judgement",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub static BOOT_SEQUENCE_ANY_COLOR: CardDefinition = CardDefinition {
     id: BOOT_SEQUENCE_ANY_COLOR_ID,
     key: "BOOT_SEQUENCE",
@@ -6190,6 +6231,8 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == LEAP_ANY_COLOR_ID).then_some(&LEAP_ANY_COLOR))
         .or_else(|| (id == LEG_SWEEP_ANY_COLOR_ID).then_some(&LEG_SWEEP_ANY_COLOR))
         .or_else(|| (id == FEAR_NO_EVIL_ANY_COLOR_ID).then_some(&FEAR_NO_EVIL_ANY_COLOR))
+        .or_else(|| (id == BANE_ANY_COLOR_ID).then_some(&BANE_ANY_COLOR))
+        .or_else(|| (id == JUDGEMENT_ANY_COLOR_ID).then_some(&JUDGEMENT_ANY_COLOR))
 }
 
 /// Returns the vanilla `AbstractCard.cardID` spelling for a modeled card.

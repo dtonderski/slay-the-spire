@@ -455,6 +455,12 @@ pub(super) fn play_card_queue(
             target.expect("validated Leg Sweep has a target"),
             definition,
         ),
+        id if id == crate::content::cards::JUDGEMENT_ANY_COLOR_ID => judgement_queue(
+            state,
+            card_id,
+            target.expect("validated Judgement has a target"),
+            definition,
+        ),
         id if id == crate::content::cards::FEAR_NO_EVIL_ANY_COLOR_ID => fear_no_evil_queue(
             state,
             card_id,
@@ -1320,6 +1326,9 @@ fn synthetic_any_color_upgrade_damage(definition: &CardDefinition, upgrades: u8)
     } else if definition.id == crate::content::cards::SWEEPING_BEAM_ANY_COLOR_ID {
         // SweepingBeam.upgradeDamage(3)
         3
+    } else if definition.id == crate::content::cards::BANE_ANY_COLOR_ID {
+        // Bane.upgradeDamage(2)
+        2
     } else {
         0
     }
@@ -2543,9 +2552,7 @@ fn intimidate_queue(
 ) -> SimResult<VecDeque<InternalAction>> {
     let mut queue = VecDeque::from([
         InternalAction::PlayCard { card_id },
-        InternalAction::SpendEnergy {
-            amount: i32::from(definition.cost),
-        },
+        InternalAction::SpendCardEnergy { card_id },
     ]);
 
     for monster in state.monsters.iter().filter(|monster| monster.alive) {
@@ -3426,6 +3433,33 @@ fn empty_body_queue(
         to: card_move_destination(definition),
     });
     Ok(queue)
+}
+
+fn judgement_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // Judgement.baseMagicNumber is 30; upgradeMagicNumber(10).
+    let threshold = 30 + if upgrades > 0 { 10 } else { 0 };
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::ExecuteJudgement { target, threshold },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
 }
 
 fn conclude_queue(
