@@ -90,6 +90,8 @@ pub const FASTING_ANY_COLOR_ID: ContentId = ContentId::new(64_065_380_414);
 pub const CRUSH_JOINTS_ANY_COLOR_ID: ContentId = ContentId::new(1_771_897_696_846_148_005);
 /// Prismatic/Watcher Evaluate — id matches `shop_card_content_id("EVALUATE")`.
 pub const EVALUATE_ANY_COLOR_ID: ContentId = ContentId::new(1_976_629_370_609);
+/// Prismatic/Defect Boot Sequence — id matches `shop_card_content_id("BOOT_SEQUENCE")`.
+pub const BOOT_SEQUENCE_ANY_COLOR_ID: ContentId = ContentId::new(17_166_580_192_207_018_182);
 /// Curse granted by [crate::relic::Relic::Necronomicon] on equip. Unpurgeable.
 pub const NECRONOMICURSE_ID: ContentId = ContentId::new(74);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
@@ -5229,6 +5231,7 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | FASTING_ANY_COLOR_ID
             | CRUSH_JOINTS_ANY_COLOR_ID
             | EVALUATE_ANY_COLOR_ID
+            | BOOT_SEQUENCE_ANY_COLOR_ID
     ) || (get_card_definition(id).is_none()
         && crate::run::reward::any_color_reward_card_key(id).is_some())
 }
@@ -5930,6 +5933,30 @@ pub static EMPTY_BODY_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static BOOT_SEQUENCE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: BOOT_SEQUENCE_ANY_COLOR_ID,
+    key: "BOOT_SEQUENCE",
+    name: "Boot Sequence",
+    cost: 0,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        // BootSequence.baseBlock is 10; upgradeBlock(3).
+        damage: None,
+        block: Some(10),
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: true,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub static EVALUATE_ANY_COLOR: CardDefinition = CardDefinition {
     id: EVALUATE_ANY_COLOR_ID,
     key: "EVALUATE",
@@ -5958,7 +5985,7 @@ pub static CRUSH_JOINTS_ANY_COLOR: CardDefinition = CardDefinition {
     upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
-        // CrushJoints.baseDamage is 8; upgradeDamage(3).
+        // CrushJoints.baseDamage is 8; upgradeDamage(2).
         damage: Some(8),
         block: None,
         vulnerable: None,
@@ -6010,6 +6037,7 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == EMPTY_BODY_ANY_COLOR_ID).then_some(&EMPTY_BODY_ANY_COLOR))
         .or_else(|| (id == CRUSH_JOINTS_ANY_COLOR_ID).then_some(&CRUSH_JOINTS_ANY_COLOR))
         .or_else(|| (id == EVALUATE_ANY_COLOR_ID).then_some(&EVALUATE_ANY_COLOR))
+        .or_else(|| (id == BOOT_SEQUENCE_ANY_COLOR_ID).then_some(&BOOT_SEQUENCE_ANY_COLOR))
 }
 
 /// Returns the vanilla `AbstractCard.cardID` spelling for a modeled card.

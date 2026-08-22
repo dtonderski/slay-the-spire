@@ -280,8 +280,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         // Constricted.atEndOfTurn addToBots Damage before DiscardAtEndOfTurn.
         // RunicCube.wasHPLost addToTops DrawCardAction, so that draw lands
         // before ethereal exhaust (FIDL02191 two Apparitions).
-        let constricted_before_ethereal = next.relics.contains(&crate::Relic::RunicCube)
-            && next.player.powers.constricted > 0
+        let constricted_before_ethereal = next.player.powers.constricted > 0
             && !crate::combat::turn_powers::constricted_resolved_before_hand_with_combust(&next);
         if constricted_before_ethereal {
             crate::combat::turn_powers::apply_end_of_turn_constricted(&mut next)?;

@@ -431,6 +431,9 @@ pub(super) fn play_card_queue(
         id if id == crate::content::cards::EVALUATE_ANY_COLOR_ID => {
             evaluate_queue(state, card_id, definition)
         }
+        id if id == crate::content::cards::BOOT_SEQUENCE_ANY_COLOR_ID => {
+            boot_sequence_queue(state, card_id, definition)
+        }
         id if id == crate::content::cards::EMPTY_BODY_ANY_COLOR_ID => {
             empty_body_queue(state, card_id, definition)
         }
@@ -1282,8 +1285,8 @@ fn synthetic_any_color_upgrade_damage(definition: &CardDefinition, upgrades: u8)
         // WindmillStrike.upgradeDamage(3)
         3
     } else if definition.id == crate::content::cards::CRUSH_JOINTS_ANY_COLOR_ID {
-        // CrushJoints.upgradeDamage(3)
-        3
+        // CrushJoints.upgradeDamage(2)
+        2
     } else {
         0
     }
@@ -3390,6 +3393,32 @@ fn empty_body_queue(
         to: card_move_destination(definition),
     });
     Ok(queue)
+}
+
+fn boot_sequence_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // BootSequence.baseBlock is 10; upgradeBlock(3). Innate + Exhaust.
+    let block = required_block(definition)? + if upgrades > 0 { 3 } else { 0 };
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainBlock { amount: block },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
 }
 
 fn evaluate_queue(
