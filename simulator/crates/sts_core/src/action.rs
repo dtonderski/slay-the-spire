@@ -381,6 +381,8 @@ pub enum InternalAction {
     ChannelDark,
     /// Darkness+ addToBot DarkImpulseAction: each Dark orb onEndOfTurn.
     DarkImpulse,
+    /// Conclude.use addToBot EndTurnAction.
+    ForceEndTurn,
     /// Lightning.onEndOfTurn / LightningOrbPassiveAction.
     LightningOrbPassive,
     ArmTheBomb {

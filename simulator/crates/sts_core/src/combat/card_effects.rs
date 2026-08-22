@@ -440,6 +440,27 @@ pub(super) fn play_card_queue(
         id if id == crate::content::cards::DARKNESS_ANY_COLOR_ID => {
             darkness_queue(state, card_id, definition)
         }
+        id if id == crate::content::cards::CONCLUDE_ANY_COLOR_ID => conclude_queue(
+            state,
+            card_id,
+            target.expect("validated Conclude has a target"),
+            definition,
+        ),
+        id if id == crate::content::cards::LEAP_ANY_COLOR_ID => {
+            leap_queue(state, card_id, definition)
+        }
+        id if id == crate::content::cards::LEG_SWEEP_ANY_COLOR_ID => leg_sweep_queue(
+            state,
+            card_id,
+            target.expect("validated Leg Sweep has a target"),
+            definition,
+        ),
+        id if id == crate::content::cards::FEAR_NO_EVIL_ANY_COLOR_ID => fear_no_evil_queue(
+            state,
+            card_id,
+            target.expect("validated Fear No Evil has a target"),
+            definition,
+        ),
         id if id == crate::content::cards::STATIC_DISCHARGE_ANY_COLOR_ID => {
             static_discharge_queue(state, card_id, definition)
         }
@@ -3405,6 +3426,158 @@ fn empty_body_queue(
         to: card_move_destination(definition),
     });
     Ok(queue)
+}
+
+fn conclude_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // Conclude.upgradeDamage(4). use() queues DamageAction then EndTurnAction.
+    let damage = required_damage(definition)? + if upgrades > 0 { 4 } else { 0 };
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: damage,
+            },
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+        InternalAction::ForceEndTurn,
+    ]))
+}
+
+fn leap_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // Leap.upgradeBlock(3).
+    let block = required_block(definition)? + if upgrades > 0 { 3 } else { 0 };
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainBlock { amount: block },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn leg_sweep_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // LegSweep.upgradeBlock(3) / upgradeMagicNumber(1).
+    let block = required_block(definition)? + if upgrades > 0 { 3 } else { 0 };
+    let weak = 2 + i32::from(upgrades > 0);
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::ApplyWeak {
+            target,
+            amount: weak,
+        },
+        InternalAction::GainBlock { amount: block },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn fear_no_evil_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // FearNoEvil.upgradeDamage(3). ChangeStance(Calm) if the enemy intends to attack.
+    let damage = required_damage(definition)? + if upgrades > 0 { 3 } else { 0 };
+    let enter_calm = state
+        .monsters
+        .iter()
+        .find(|monster| monster.id == target)
+        .is_some_and(|monster| monster_intent_is_attack(monster.intent));
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: damage,
+            },
+        },
+    ]);
+    if enter_calm {
+        queue.push_back(InternalAction::EnterCalm);
+    }
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: card_move_destination(definition),
+    });
+    Ok(queue)
+}
+
+fn monster_intent_is_attack(intent: crate::MonsterIntent) -> bool {
+    use crate::MonsterIntent as I;
+    matches!(
+        intent,
+        I::Attack { .. }
+            | I::AttackMultiple { .. }
+            | I::AttackAndBlock { .. }
+            | I::AttackApplyPlayerWeak { .. }
+            | I::AttackMultipleApplyPlayerWeak { .. }
+            | I::AttackAddVoidToDraw { .. }
+            | I::AttackMultipleAddDazedToDiscard { .. }
+            | I::AttackAddSlimedToDiscard { .. }
+            | I::AttackAddWoundsToDiscard { .. }
+            | I::AttackStealGold { .. }
+            | I::AttackMultipleUpgradeBurns { .. }
+    )
 }
 
 fn darkness_queue(

@@ -98,6 +98,14 @@ pub const SWEEPING_BEAM_ANY_COLOR_ID: ContentId = ContentId::new(12_304_765_320_
 pub const DARKNESS_ANY_COLOR_ID: ContentId = ContentId::new(1_930_964_746_533);
 /// Prismatic/Defect Static Discharge — id matches `shop_card_content_id("STATIC_DISCHARGE")`.
 pub const STATIC_DISCHARGE_ANY_COLOR_ID: ContentId = ContentId::new(1_879_279_616_276_734_569);
+/// Prismatic/Watcher Conclude — id matches `shop_card_content_id("CONCLUDE")`.
+pub const CONCLUDE_ANY_COLOR_ID: ContentId = ContentId::new(1_915_755_234_499);
+/// Prismatic/Watcher Leap — id matches `shop_card_content_id("LEAP")`.
+pub const LEAP_ANY_COLOR_ID: ContentId = ContentId::new(2_333_120);
+/// Prismatic/Watcher Leg Sweep — id matches `shop_card_content_id("LEG_SWEEP")`.
+pub const LEG_SWEEP_ANY_COLOR_ID: ContentId = ContentId::new(66_783_901_063_059);
+/// Prismatic/Watcher Fear No Evil — id matches `shop_card_content_id("FEAR_NO_EVIL")`.
+pub const FEAR_NO_EVIL_ANY_COLOR_ID: ContentId = ContentId::new(1_836_938_932_330_733_467);
 /// Curse granted by [crate::relic::Relic::Necronomicon] on equip. Unpurgeable.
 pub const NECRONOMICURSE_ID: ContentId = ContentId::new(74);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
@@ -5241,6 +5249,10 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | SWEEPING_BEAM_ANY_COLOR_ID
             | DARKNESS_ANY_COLOR_ID
             | STATIC_DISCHARGE_ANY_COLOR_ID
+            | CONCLUDE_ANY_COLOR_ID
+            | LEAP_ANY_COLOR_ID
+            | LEG_SWEEP_ANY_COLOR_ID
+            | FEAR_NO_EVIL_ANY_COLOR_ID
     ) || (get_card_definition(id).is_none()
         && crate::run::reward::any_color_reward_card_key(id).is_some())
 }
@@ -5994,6 +6006,78 @@ pub static STATIC_DISCHARGE_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static CONCLUDE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: CONCLUDE_ANY_COLOR_ID,
+    key: "CONCLUDE",
+    name: "Conclude",
+    cost: 1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        // Conclude.baseDamage is 12; upgradeDamage(4).
+        damage: Some(12),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static LEAP_ANY_COLOR: CardDefinition = CardDefinition {
+    id: LEAP_ANY_COLOR_ID,
+    key: "LEAP",
+    name: "Leap",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        // Leap.baseBlock is 9; upgradeBlock(3).
+        damage: None,
+        block: Some(9),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static LEG_SWEEP_ANY_COLOR: CardDefinition = CardDefinition {
+    id: LEG_SWEEP_ANY_COLOR_ID,
+    key: "LEG_SWEEP",
+    name: "Leg Sweep",
+    cost: 2,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        // LegSweep.baseBlock is 11; upgradeBlock(3). Weak 2 / +1.
+        damage: None,
+        block: Some(11),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static FEAR_NO_EVIL_ANY_COLOR: CardDefinition = CardDefinition {
+    id: FEAR_NO_EVIL_ANY_COLOR_ID,
+    key: "FEAR_NO_EVIL",
+    name: "Fear No Evil",
+    cost: 1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        // FearNoEvil.baseDamage is 8; upgradeDamage(3).
+        damage: Some(8),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub static BOOT_SEQUENCE_ANY_COLOR: CardDefinition = CardDefinition {
     id: BOOT_SEQUENCE_ANY_COLOR_ID,
     key: "BOOT_SEQUENCE",
@@ -6102,6 +6186,10 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == SWEEPING_BEAM_ANY_COLOR_ID).then_some(&SWEEPING_BEAM_ANY_COLOR))
         .or_else(|| (id == DARKNESS_ANY_COLOR_ID).then_some(&DARKNESS_ANY_COLOR))
         .or_else(|| (id == STATIC_DISCHARGE_ANY_COLOR_ID).then_some(&STATIC_DISCHARGE_ANY_COLOR))
+        .or_else(|| (id == CONCLUDE_ANY_COLOR_ID).then_some(&CONCLUDE_ANY_COLOR))
+        .or_else(|| (id == LEAP_ANY_COLOR_ID).then_some(&LEAP_ANY_COLOR))
+        .or_else(|| (id == LEG_SWEEP_ANY_COLOR_ID).then_some(&LEG_SWEEP_ANY_COLOR))
+        .or_else(|| (id == FEAR_NO_EVIL_ANY_COLOR_ID).then_some(&FEAR_NO_EVIL_ANY_COLOR))
 }
 
 /// Returns the vanilla `AbstractCard.cardID` spelling for a modeled card.
