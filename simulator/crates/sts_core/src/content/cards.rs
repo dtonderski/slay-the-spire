@@ -86,6 +86,8 @@ pub const DOPPELGANGER_ANY_COLOR_ID: ContentId = ContentId::new(1_794_712_432_59
 pub const BEAM_CELL_ANY_COLOR_ID: ContentId = ContentId::new(58_249_160_828_490);
 /// Prismatic/Watcher Fasting (`Fasting2`) — id matches `shop_card_content_id("FASTING")`.
 pub const FASTING_ANY_COLOR_ID: ContentId = ContentId::new(64_065_380_414);
+/// Prismatic/Watcher Crush Joints — id matches `shop_card_content_id("CRUSH_JOINTS")`.
+pub const CRUSH_JOINTS_ANY_COLOR_ID: ContentId = ContentId::new(1_771_897_696_846_148_005);
 /// Curse granted by [crate::relic::Relic::Necronomicon] on equip. Unpurgeable.
 pub const NECRONOMICURSE_ID: ContentId = ContentId::new(74);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
@@ -5223,6 +5225,7 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | DOPPELGANGER_ANY_COLOR_ID
             | BEAM_CELL_ANY_COLOR_ID
             | FASTING_ANY_COLOR_ID
+            | CRUSH_JOINTS_ANY_COLOR_ID
     ) || (get_card_definition(id).is_none()
         && crate::run::reward::any_color_reward_card_key(id).is_some())
 }
@@ -5924,6 +5927,24 @@ pub static EMPTY_BODY_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static CRUSH_JOINTS_ANY_COLOR: CardDefinition = CardDefinition {
+    id: CRUSH_JOINTS_ANY_COLOR_ID,
+    key: "CRUSH_JOINTS",
+    name: "Crush Joints",
+    cost: 1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        // CrushJoints.baseDamage is 8; upgradeDamage(3).
+        damage: Some(8),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 #[must_use]
 pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
     ALL_CARDS
@@ -5966,6 +5987,7 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == FASTING_ANY_COLOR_ID).then_some(&FASTING_ANY_COLOR))
         .or_else(|| (id == JUST_LUCKY_ANY_COLOR_ID).then_some(&JUST_LUCKY_ANY_COLOR))
         .or_else(|| (id == EMPTY_BODY_ANY_COLOR_ID).then_some(&EMPTY_BODY_ANY_COLOR))
+        .or_else(|| (id == CRUSH_JOINTS_ANY_COLOR_ID).then_some(&CRUSH_JOINTS_ANY_COLOR))
 }
 
 /// Returns the vanilla `AbstractCard.cardID` spelling for a modeled card.
@@ -6175,7 +6197,9 @@ pub fn ritual_dagger_card_growth(card: &CardInstance) -> Option<i32> {
 
 pub fn upgrade_card_instance(card: CardInstance) -> SimResult<Option<CardInstance>> {
     validate_searing_blow_metadata(&card)?;
-    if card.content_id == RITUAL_DAGGER_ID && card.upgrades == 0 {
+    if (card.content_id == RITUAL_DAGGER_ID || card.content_id == INSIGHT_ID) && card.upgrades == 0
+    {
+        // Insight.upgrade() is upgradeMagicNumber(1); there is no plus ContentId.
         let mut upgraded = card;
         upgraded.upgrades = 1;
         return Ok(Some(upgraded));
@@ -6250,9 +6274,14 @@ fn adjust_temp_cost_for_upgrade(card: CardInstance, upgraded: &mut CardInstance)
 
 #[must_use]
 pub fn card_instance_is_upgradeable(card: &CardInstance) -> bool {
-    (card.content_id == RITUAL_DAGGER_ID && card.upgrades == 0)
+    // Match AbstractCard.canUpgrade() / upgrade_card_instance: Insight and
+    // Ritual Dagger have no plus ContentId; synthetic / unregistered prismatic
+    // cards upgrade in place. Warped Tongs and Whetstone use this set.
+    (matches!(card.content_id, RITUAL_DAGGER_ID | INSIGHT_ID) && card.upgrades == 0)
         || upgrade_content_id(card.content_id).is_some()
-        || (is_synthetic_any_color_content_id(card.content_id) && card.upgrades == 0)
+        || ((get_card_definition(card.content_id).is_none()
+            || is_synthetic_any_color_content_id(card.content_id))
+            && card.upgrades == 0)
 }
 
 #[cfg(test)]

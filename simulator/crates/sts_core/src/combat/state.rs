@@ -1,6 +1,6 @@
 use crate::{
     action::InternalAction,
-    card::CardInstance,
+    card::{CardInstance, CardType},
     combat::cost::validate_combat_card_cost_metadata,
     content::cards::{
         get_card_definition, validate_searing_blow_metadata, BASH_ID, COMBUST_DAMAGE,
@@ -116,6 +116,10 @@ pub struct CombatState {
     /// is mid-play must not reduce that copy).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub card_in_use: Option<CardId>,
+    /// `GameActionManager.cardsPlayedThisCombat` tail type. Crush Joints / Sash
+    /// Whip read the previous card (`size-2`) after the current play is queued.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_played_card_type: Option<CardType>,
     /// UseCardAction applies Strange Spoon when the played card actually
     /// `moveToExhaustPile`s, after that card's `addToBot` effects. Violence
     /// builds its attack tmp group with `cardRandomRng` in ViolenceAction,
@@ -1137,6 +1141,7 @@ impl CombatState {
             orbs: Vec::new(),
             pending_player_spikes_damage: 0,
             card_in_use: None,
+            last_played_card_type: None,
             defer_strange_spoon_until_source_move: None,
             play_top_force_exhaust_active: false,
             deferred_play_top_monster_blocks: Vec::new(),

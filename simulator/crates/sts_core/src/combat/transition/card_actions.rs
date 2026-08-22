@@ -54,6 +54,7 @@ pub(super) fn play_card(
         state,
         definition.card_type,
     )?);
+    state.last_played_card_type = Some(definition.card_type);
     apply_mummified_hand_on_power_play(state, card_id, definition.card_type);
     follow_ups.extend(apply_on_card_play_powers(
         state,
@@ -75,6 +76,7 @@ pub(super) fn play_card_copy(
         state,
         definition.card_type,
     )?);
+    state.last_played_card_type = Some(definition.card_type);
     follow_ups.extend(apply_on_card_play_powers(
         state,
         definition.card_type,
