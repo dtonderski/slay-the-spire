@@ -280,6 +280,9 @@ fn is_affordable(
     if definition.id == WHIRLWIND_ID || definition.id == WHIRLWIND_PLUS_ID {
         return Ok(true);
     }
+    if definition.id == crate::content::cards::MALAISE_ANY_COLOR_ID {
+        return Ok(true);
+    }
     if definition.id == TRANSMUTATION_ID || definition.id == TRANSMUTATION_PLUS_ID {
         return Ok(true);
     }
