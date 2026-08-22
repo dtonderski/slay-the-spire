@@ -878,6 +878,16 @@ fn push_follow_up(
             queue.insert(index + 1, follow_up);
             return;
         }
+        // PressEndTurnButtonAction only flags the end; the action manager still
+        // drains addToBot Malleable / Reactive before the enemy phase. Block
+        // granted after SettleForcedEndTurn survives loseBlock (FIDL02294).
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::SettleForcedEndTurn))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
         queue.push_back(follow_up);
         return;
     }
@@ -11997,6 +12007,64 @@ mod tests {
         assert_eq!(
             crate::content::monsters::target_move_byte_for_monster(&next.monsters[1]),
             Some(4)
+        );
+    }
+
+    #[test]
+    fn conclude_rerolls_writhing_mass_before_forced_end_turn() {
+        // ReactivePower.onAttacked addToBots RollMoveAction during DamageAll.
+        // PressEndTurnButton only flags the end; that roll must drain before
+        // the enemy phase (FIDL02294 Conclude smash block).
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(
+            &crate::content::monsters::WRITHING_MASS_A0,
+            MonsterId::new(1),
+        )];
+        state.monsters[0].hp = 70;
+        state.monsters[0].max_hp = 70;
+        state.monsters[0].block = 0;
+        state.monsters[0].intent = crate::MonsterIntent::AttackAndBlock {
+            damage: 15,
+            block: 20,
+        };
+        state.monsters[0].move_history = vec![2];
+        state.monsters[0].powers.malleable = 3;
+        state.monsters[0].powers.malleable_base = 3;
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), CONCLUDE_ANY_COLOR_ID)];
+        state.piles.draw_pile = (10..=14)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.discard_pile.clear();
+
+        let transition = apply_combat_action_with_events(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Conclude hits then ends the turn");
+
+        let reroll = transition
+            .event_log
+            .iter()
+            .position(|action| {
+                matches!(action, InternalAction::RerollWrithingMassAfterAttack { .. })
+            })
+            .expect("Reactive reroll");
+        let settle = transition
+            .event_log
+            .iter()
+            .position(|action| matches!(action, InternalAction::SettleForcedEndTurn))
+            .expect("forced end-turn settlement");
+        assert!(
+            reroll < settle,
+            "RollMoveAction must drain before the enemy phase"
+        );
+        assert_ne!(
+            transition.state.monsters[0].block, 20,
+            "pre-hit smash block must not apply after Reactive reroll"
         );
     }
 
