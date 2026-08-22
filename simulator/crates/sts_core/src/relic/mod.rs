@@ -623,6 +623,9 @@ pub struct RelicCounters {
     pub red_skull_active: bool,
     #[serde(default, skip_serializing_if = "is_false")]
     pub necronomicon_used_this_turn: bool,
+    /// Warped Tongs atTurnStartPostDraw is addToBot after Gambling Chip's screen.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub deferred_warped_tongs: bool,
 }
 
 impl RelicCounters {
@@ -2602,14 +2605,25 @@ pub fn apply_start_of_player_turn_post_draw_relics(state: &mut CombatState) -> S
             {
                 crate::combat::transition::player_draw_cards(state, POCKETWATCH_DRAW)?;
             }
-            Relic::WarpedTongs => upgrade_random_non_status_hand_card(state)?,
+            Relic::WarpedTongs => {
+                // Both relics are atTurnStartPostDraw addToBot. Chip is earlier
+                // in acquisition order, so its discard/draw screen resolves
+                // before UpgradeRandomCardAction (FIDL02335).
+                if state.relics.contains(&Relic::GamblingChip)
+                    && state.relic_counters.player_turns_started <= 1
+                {
+                    state.relic_counters.deferred_warped_tongs = true;
+                } else {
+                    upgrade_random_non_status_hand_card(state)?;
+                }
+            }
             _ => {}
         }
     }
     Ok(())
 }
 
-fn upgrade_random_non_status_hand_card(state: &mut CombatState) -> SimResult<()> {
+pub(crate) fn upgrade_random_non_status_hand_card(state: &mut CombatState) -> SimResult<()> {
     let mut upgradeable = state
         .piles
         .hand
