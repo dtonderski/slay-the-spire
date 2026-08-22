@@ -141,8 +141,14 @@ pub struct CombatState {
     /// residual draws from the base hand refill (FIDL01469 Wild Strike Wound).
     #[serde(default, skip_serializing_if = "is_false")]
     pub defer_mayhem_play_top_draw_inserts: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub defer_mayhem_play_top_settlement: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deferred_mayhem_play_top_draw_inserts: Vec<InternalAction>,
+    /// UseCardAction settlement for start-of-turn Mayhem PlayTops waits behind
+    /// Evolve residual draws (FIDL02303 Strike stays in limbo during shuffle).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deferred_mayhem_play_top_settlements: Vec<(crate::CardInstance, crate::action::CardPile)>,
     /// Letter Opener all-enemy hits still on the action queue (FIDL00428).
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub pending_letter_opener_blasts: u32,
@@ -1165,7 +1171,9 @@ impl CombatState {
             deferred_play_top_monster_blocks: Vec::new(),
             play_top_resolving_depth: 0,
             defer_mayhem_play_top_draw_inserts: false,
+            defer_mayhem_play_top_settlement: false,
             deferred_mayhem_play_top_draw_inserts: Vec::new(),
+            deferred_mayhem_play_top_settlements: Vec::new(),
             pending_letter_opener_blasts: 0,
             opening_turn_pending: false,
             pending_opening_monster_intents: Vec::new(),

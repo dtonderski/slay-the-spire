@@ -3041,12 +3041,20 @@ pub(crate) fn flush_deferred_mayhem_play_top_draw_inserts(
     state: &mut CombatState,
 ) -> SimResult<()> {
     state.defer_mayhem_play_top_draw_inserts = false;
+    state.defer_mayhem_play_top_settlement = false;
     let inserts = std::mem::take(&mut state.deferred_mayhem_play_top_draw_inserts);
-    if inserts.is_empty() || state.player.hp <= 0 {
-        return Ok(());
+    if !inserts.is_empty() && state.player.hp > 0 {
+        let transition = process_internal_queue(state, VecDeque::from(inserts))?;
+        *state = transition.state;
     }
-    let transition = process_internal_queue(state, VecDeque::from(inserts))?;
-    *state = transition.state;
+    let settlements = std::mem::take(&mut state.deferred_mayhem_play_top_settlements);
+    for (card, dest) in settlements {
+        match dest {
+            CardPile::ExhaustPile => state.piles.exhaust_pile.push(card),
+            CardPile::DiscardPile => state.piles.discard_pile.push(card),
+            _ => {}
+        }
+    }
     Ok(())
 }
 
@@ -3286,12 +3294,26 @@ fn resolve_top_draw_card(
 
     let mut immediate = VecDeque::new();
     let mut deferred_power_gains = Vec::new();
+    let mut deferred_source_move = None;
     for action in queue {
         if is_play_top_deferred_power_gain(&action) {
             deferred_power_gains.push(action);
         } else if state.defer_mayhem_play_top_draw_inserts && is_play_top_draw_pile_insert(&action)
         {
             state.deferred_mayhem_play_top_draw_inserts.push(action);
+        } else if state.defer_mayhem_play_top_settlement
+            && matches!(
+                action,
+                InternalAction::MoveCard {
+                    card_id: moved,
+                    from: CardPile::Hand,
+                    ..
+                } if moved == card_id
+            )
+        {
+            // UseCardAction is addToBottom after use(); Evolve residual draws
+            // from the base refill are already on that bot queue (FIDL02303).
+            deferred_source_move = Some(action);
         } else {
             immediate.push_back(action);
         }
@@ -3299,6 +3321,12 @@ fn resolve_top_draw_card(
     state.play_top_resolving_depth = state.play_top_resolving_depth.saturating_add(1);
     let transition = process_internal_queue(state, immediate)?;
     *state = transition.state;
+    if let Some(InternalAction::MoveCard { to, .. }) = deferred_source_move {
+        if let Some(index) = state.piles.hand.iter().position(|card| card.id == card_id) {
+            let card = state.piles.hand.remove(index);
+            state.deferred_mayhem_play_top_settlements.push((card, to));
+        }
+    }
     state.play_top_resolving_depth = state.play_top_resolving_depth.saturating_sub(1);
     let nested_blocks = std::mem::take(&mut state.deferred_play_top_monster_blocks);
     for (target, amount) in nested_blocks {

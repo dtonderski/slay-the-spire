@@ -802,6 +802,10 @@ fn start_player_turn_in_place(
     // (FIDL01469).
     state.defer_time_warp_end_turn = true;
     state.defer_mayhem_play_top_draw_inserts = true;
+    // UseCardAction settlement waits behind Evolve residuals only when the
+    // base refill actually queued those draws (FIDL02303). Unconditional
+    // parking put played Powers into discard (FIDL02199 Fire Breathing+).
+    state.defer_mayhem_play_top_settlement = !base_draw_follow_ups.is_empty();
     apply_start_of_turn_mayhem(state, &mayhem_targets)?;
     if state.player.hp <= 0 {
         state.player.hp = 0;
@@ -809,7 +813,9 @@ fn start_player_turn_in_place(
         state.clear_decisions_on_combat_end();
         state.defer_time_warp_end_turn = false;
         state.defer_mayhem_play_top_draw_inserts = false;
+        state.defer_mayhem_play_top_settlement = false;
         state.deferred_mayhem_play_top_draw_inserts.clear();
+        state.deferred_mayhem_play_top_settlements.clear();
         return Ok(());
     }
     if state.player.hp > 0 {
@@ -6687,6 +6693,62 @@ mod tests {
         assert!(state.piles.draw_pile.is_empty());
         assert_eq!(state.piles.discard_pile.len(), 1);
         assert_eq!(state.piles.discard_pile[0].content_id, DEFEND_R_ID);
+    }
+
+    #[test]
+    fn mayhem_play_top_settles_after_evolve_residual_draw() {
+        // UseCardAction is behind Evolve's addToBot Draw from the base refill,
+        // so the forced card is not in the shuffle Evolve consumes.
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.mayhem = 1;
+        state.player.powers.evolve = 1;
+        state.piles.hand.clear();
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(10), DEFEND_R_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(20), STRIKE_R_ID),
+            CardInstance::new(CardId::new(21), WOUND_ID),
+            CardInstance::new(CardId::new(22), DEFEND_R_ID),
+            CardInstance::new(CardId::new(23), DEFEND_R_ID),
+            CardInstance::new(CardId::new(24), DEFEND_R_ID),
+            CardInstance::new(CardId::new(25), DEFEND_R_ID),
+        ];
+        state.piles.exhaust_pile.clear();
+        state.monsters = vec![monster_state_for_ascension(
+            &LOOTER_A0,
+            MonsterId::new(1),
+            0,
+        )];
+
+        start_player_turn(&mut state).expect("Mayhem + Evolve start turn");
+
+        assert!(
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .any(|card| card.id == CardId::new(20)),
+            "Mayhem Strike must settle after Evolve shuffle, discard={:?}",
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+        );
+        assert!(
+            state
+                .piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == DEFEND_R_ID && card.id == CardId::new(10)),
+            "Evolve must draw the pre-Mayhem discard Defend, hand={:?}",
+            state
+                .piles
+                .hand
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+        );
     }
 
     #[test]
