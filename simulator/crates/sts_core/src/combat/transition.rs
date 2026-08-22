@@ -1296,9 +1296,7 @@ fn apply_internal_action_with_defer(
             Ok(Vec::new())
         }
         InternalAction::DealUnmodifiedDamageRandom { amount } => {
-            if let Some(target) = random_living_monster_id(state) {
-                deal_unmodified_damage_to_living_monster(state, target, amount)?;
-            }
+            apply_juggernaut_random_damage(state, amount)?;
             Ok(Vec::new())
         }
         InternalAction::GainMetallicize { amount } => {
@@ -2034,8 +2032,33 @@ pub(crate) fn apply_juggernaut_random_damage(
     state: &mut CombatState,
     amount: i32,
 ) -> SimResult<()> {
-    if let Some(target) = random_living_monster_id(state) {
-        deal_unmodified_damage_to_living_monster(state, target, amount)?;
+    let Some(target) = random_living_monster_id(state) else {
+        return Ok(());
+    };
+    let hand_drill = state.relics.contains(&crate::Relic::HandDrill);
+    let (still_alive, broke_block) = {
+        let monster = living_monster_mut(state, target)?;
+        let block_before = monster.block;
+        let hp_damage = deal_unmodified_damage_to_monster(monster, amount);
+        wake_lagavulin_on_damage(monster, hp_damage);
+        (monster.alive, block_before > 0 && monster.block == 0)
+    };
+    if still_alive && hand_drill && broke_block {
+        let relics = state.relics.clone();
+        if let Some(monster) = living_monster_mut_opt(state, target) {
+            let mut powers = monster.powers;
+            crate::relic::apply_monster_vulnerable_with_relics(
+                &mut powers,
+                &relics,
+                crate::relic::HAND_DRILL_VULNERABLE,
+            )?;
+            monster.vulnerable_just_applied = true;
+            monster.powers = powers;
+        }
+    }
+    check_slime_boss_split(state, target);
+    if !still_alive {
+        apply_monster_death_hooks(state, target)?;
     }
     Ok(())
 }
