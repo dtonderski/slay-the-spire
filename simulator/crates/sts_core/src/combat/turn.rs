@@ -359,7 +359,10 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
     // Dark Embrace draws from ethereal cards resolve before the queued
     // Juggernaut damage, matching the target action queue's card-draw batch.
     next.player.cannot_draw = false;
-    resolve_deferred_dark_embrace_draws(&mut next, end_of_turn_hand.deferred_dark_embrace_draws)?;
+    let deferred_dark_embrace_fire_breathing = resolve_deferred_dark_embrace_draws(
+        &mut next,
+        end_of_turn_hand.deferred_dark_embrace_draws,
+    )?;
     next.piles.hand.extend(deferred_stasis_cards);
     crate::combat::transition::resolve_deferred_end_turn_monster_deaths(
         &mut next,
@@ -373,6 +376,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         return Ok(next);
     }
     clear_living_monster_block(&mut next);
+    resolve_deferred_draw_follow_ups(&mut next, deferred_dark_embrace_fire_breathing)?;
     for amount in end_of_turn_hand.deferred_juggernaut_damage {
         crate::combat::transition::apply_juggernaut_random_damage(&mut next, amount)?;
     }
