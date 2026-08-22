@@ -1,10 +1,12 @@
 use crate::{
     action::InternalAction,
     card::CardType,
-    combat::{damage::deal_unmodified_damage_to_monster, CombatState},
+    combat::{damage::deal_unmodified_damage_to_monster_deferred_guardian, CombatState},
     content::{
         cards::{get_card_definition, is_curse_content_id, VOID_ID},
-        monsters::{check_slime_boss_split, wake_lagavulin_on_damage},
+        monsters::{
+            check_slime_boss_split, guardian_accumulate_hp_damage, wake_lagavulin_on_damage,
+        },
     },
     ids::{ContentId, MonsterId},
     rng::{JavaRng, StsRng},
@@ -76,6 +78,7 @@ pub fn draw_cards_with_sts_rng(
             }
         }
     }
+    crate::content::monsters::resolve_deferred_guardian_mode_shifts(&mut next.monsters);
     *state = next;
     *rng = next_rng;
     Ok(())
@@ -161,6 +164,7 @@ pub fn draw_cards_with_combat_rng(state: &mut CombatState, count: usize) -> SimR
             }
         }
     }
+    crate::content::monsters::resolve_deferred_guardian_mode_shifts(&mut next.monsters);
     *state = next;
     Ok(())
 }
@@ -218,6 +222,7 @@ pub(crate) fn draw_cards_with_combat_rng_without_evolve(
             }
         }
     }
+    crate::content::monsters::resolve_deferred_guardian_mode_shifts(&mut next.monsters);
     *state = next;
     Ok(())
 }
@@ -359,7 +364,11 @@ pub(crate) fn apply_fire_breathing_damage(state: &mut CombatState, amount: i32) 
                 continue;
             };
             let block_before = monster.block;
-            let hp_damage = deal_unmodified_damage_to_monster(monster, amount);
+            // DamageAllEnemiesAction is addToBot per onCardDraw. Guardian.damage
+            // queues ChangeState/GainBlock addToBottom, so a later FB pulse in
+            // the same bot queue still hits the open form (FIDL02259).
+            let hp_damage = deal_unmodified_damage_to_monster_deferred_guardian(monster, amount);
+            guardian_accumulate_hp_damage(monster, hp_damage);
             let blocked = block_before - monster.block;
             let broke_block = block_before > 0 && blocked == block_before;
             wake_lagavulin_on_damage(monster, hp_damage);

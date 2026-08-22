@@ -765,6 +765,9 @@ fn start_player_turn_in_place(
     if state.player.hp > 0 {
         crate::combat::transition::resolve_deferred_draw_follow_ups(state, base_draw_follow_ups)?;
     }
+    // Start-of-turn Fire Breathing pulses are consecutive addToBot DamageAll
+    // actions. Guardian ChangeState/GainBlock is queued behind that burst.
+    crate::content::monsters::resolve_deferred_guardian_mode_shifts(&mut state.monsters);
     crate::combat::transition::flush_deferred_mayhem_play_top_draw_inserts(state)?;
     state.defer_time_warp_end_turn = false;
     crate::combat::transition::settle_time_warp_end_turn_if_ready(state)?;
