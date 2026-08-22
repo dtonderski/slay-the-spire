@@ -218,6 +218,12 @@ pub(super) fn play_card_queue(
             target.expect("validated Scrape has a target"),
             definition,
         ),
+        id if id == crate::content::cards::FLYING_SLEEVES_ANY_COLOR_ID => flying_sleeves_queue(
+            state,
+            card_id,
+            target.expect("validated Flying Sleeves has a target"),
+            definition,
+        ),
         IMMOLATE_ID | IMMOLATE_PLUS_ID => immolate_queue(card_id, definition),
         TWIN_STRIKE_ID | TWIN_STRIKE_PLUS_ID => twin_strike_queue(
             state,
@@ -1213,17 +1219,23 @@ fn synthetic_any_color_upgrade_damage(definition: &CardDefinition, upgrades: u8)
         return 0;
     }
     use crate::content::cards::{
-        FLURRY_OF_BLOWS_ANY_COLOR_ID, SLICE_ANY_COLOR_ID, SNEAKY_STRIKE_ANY_COLOR_ID,
+        FLURRY_OF_BLOWS_ANY_COLOR_ID, FLYING_SLEEVES_ANY_COLOR_ID, SLICE_ANY_COLOR_ID,
+        SNEAKY_STRIKE_ANY_COLOR_ID, WINDMILL_STRIKE_ANY_COLOR_ID,
     };
     if definition.id == SLICE_ANY_COLOR_ID {
         // Slice.upgradeDamage(3)
         3
-    } else if definition.id == FLURRY_OF_BLOWS_ANY_COLOR_ID {
-        // FlurryOfBlows.upgradeDamage(2)
+    } else if definition.id == FLURRY_OF_BLOWS_ANY_COLOR_ID
+        || definition.id == FLYING_SLEEVES_ANY_COLOR_ID
+    {
+        // FlurryOfBlows / FlyingSleeves.upgradeDamage(2)
         2
     } else if definition.id == SNEAKY_STRIKE_ANY_COLOR_ID {
         // SneakyStrike.upgradeDamage(4)
         4
+    } else if definition.id == WINDMILL_STRIKE_ANY_COLOR_ID {
+        // WindmillStrike.upgradeDamage(3)
+        3
     } else {
         0
     }
@@ -3562,6 +3574,46 @@ fn halt_queue(
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainBlock { amount },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn flying_sleeves_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    let amount =
+        required_damage(definition)? + synthetic_any_color_upgrade_damage(definition, upgrades);
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount,
+            },
+        },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount,
+            },
+        },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
