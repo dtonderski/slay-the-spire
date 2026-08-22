@@ -1532,6 +1532,12 @@ fn execute_generic_monster_intent(
             state.monsters[index].intent = crate::MonsterIntent::DarklingCount;
             record_target_move(&mut state.monsters[index]);
         }
+        if awakened_one_is_half_dead(&state.monsters[index]) {
+            // AwakenedOne.damage setMove(3, UNKNOWN) after first-form death,
+            // behind the takeTurn RollMoveAction.
+            state.monsters[index].intent = crate::MonsterIntent::AwakenedOneHalfDead;
+            record_target_move(&mut state.monsters[index]);
+        }
         if state.monsters[index].alive {
             apply_transient_fading_after_turn(&mut state.monsters, actor_id);
         }
