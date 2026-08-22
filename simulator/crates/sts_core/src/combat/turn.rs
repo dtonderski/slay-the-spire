@@ -1975,9 +1975,14 @@ fn finish_monster_turn_cleanup(
             } else {
                 apply_end_of_monster_turn_powers(monster)?;
             }
-            if monster.content_id == crate::content::monsters::AWAKENED_ONE_ID {
-                let regeneration = if state.ascension >= 19 { 15 } else { 10 };
-                monster.hp = monster.hp.saturating_add(regeneration).min(monster.max_hp);
+            // RegenerateMonsterPower.atEndOfTurn addToBot's HealAction when the
+            // owner is not halfDead / isDying / isDead. This loop already skips
+            // !alive monsters (Awakened One / Darkling half-dead forms).
+            if monster.powers.regeneration > 0 {
+                monster.hp = monster
+                    .hp
+                    .saturating_add(monster.powers.regeneration)
+                    .min(monster.max_hp);
             }
             if monster.content_id == BYRD_ID && monster.powers.flight > 0 {
                 monster.powers.flight = target_byrd_flight_amount(state.ascension);

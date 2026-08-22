@@ -3926,7 +3926,12 @@ pub fn monster_state_for_ascension(
                 0
             },
             regeneration: if definition.content_id == AWAKENED_ONE_ID {
-                10
+                // AwakenedOne.usePreBattleAction: 15 on A19+, otherwise REGEN_AMT 10.
+                if ascension >= 19 {
+                    15
+                } else {
+                    10
+                }
             } else {
                 0
             },
