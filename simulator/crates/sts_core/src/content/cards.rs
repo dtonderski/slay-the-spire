@@ -42,6 +42,10 @@ pub const DAGGER_SPRAY_ANY_COLOR_ID: ContentId = ContentId::new(1_782_992_009_99
 pub const FLURRY_OF_BLOWS_ANY_COLOR_ID: ContentId = ContentId::new(13_403_098_338_430_095_878);
 /// Prismatic/Silent Slice — id matches `shop_card_content_id("SLICE")`.
 pub const SLICE_ANY_COLOR_ID: ContentId = ContentId::new(78_989_258);
+/// Prismatic/Watcher Halt — id matches `shop_card_content_id("HALT")`.
+pub const HALT_ANY_COLOR_ID: ContentId = ContentId::new(2_210_457);
+/// Prismatic/Defect Scrape — id matches `shop_card_content_id("SCRAPE")`.
+pub const SCRAPE_ANY_COLOR_ID: ContentId = ContentId::new(2_440_603_916);
 pub const PROSTRATE_ANY_COLOR_ID: ContentId = ContentId::new(70_559_886_447_078);
 pub const CLOAK_AND_DAGGER_ANY_COLOR_ID: ContentId = ContentId::new(12_608_504_500_537_169_241);
 pub const SHIV_ANY_COLOR_ID: ContentId = ContentId::new(2_544_794);
@@ -5168,6 +5172,8 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | DAGGER_SPRAY_ANY_COLOR_ID
             | FLURRY_OF_BLOWS_ANY_COLOR_ID
             | SLICE_ANY_COLOR_ID
+            | HALT_ANY_COLOR_ID
+            | SCRAPE_ANY_COLOR_ID
             | PROSTRATE_ANY_COLOR_ID
             | CLOAK_AND_DAGGER_ANY_COLOR_ID
             | SHIV_ANY_COLOR_ID
@@ -5509,6 +5515,42 @@ pub static SLICE_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static HALT_ANY_COLOR: CardDefinition = CardDefinition {
+    id: HALT_ANY_COLOR_ID,
+    key: "HALT",
+    name: "Halt",
+    cost: 0,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        // Halt.baseBlock is 3; upgradeBlock(1). Wrath bonus is unused on Ironclad.
+        damage: None,
+        block: Some(3),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static SCRAPE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: SCRAPE_ANY_COLOR_ID,
+    key: "SCRAPE",
+    name: "Scrape",
+    cost: 1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        // Scrape.baseDamage is 7; upgradeDamage(3). magicNumber 4 / +1 is the draw.
+        damage: Some(7),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub static EQUILIBRIUM_ANY_COLOR: CardDefinition = CardDefinition {
     id: EQUILIBRIUM_ANY_COLOR_ID,
     key: "EQUILIBRIUM",
@@ -5622,6 +5664,8 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == DAGGER_SPRAY_ANY_COLOR_ID).then_some(&DAGGER_SPRAY_ANY_COLOR))
         .or_else(|| (id == FLURRY_OF_BLOWS_ANY_COLOR_ID).then_some(&FLURRY_OF_BLOWS_ANY_COLOR))
         .or_else(|| (id == SLICE_ANY_COLOR_ID).then_some(&SLICE_ANY_COLOR))
+        .or_else(|| (id == HALT_ANY_COLOR_ID).then_some(&HALT_ANY_COLOR))
+        .or_else(|| (id == SCRAPE_ANY_COLOR_ID).then_some(&SCRAPE_ANY_COLOR))
         .or_else(|| (id == PROSTRATE_ANY_COLOR_ID).then_some(&PROSTRATE_ANY_COLOR))
         .or_else(|| (id == CLOAK_AND_DAGGER_ANY_COLOR_ID).then_some(&CLOAK_AND_DAGGER_ANY_COLOR))
         .or_else(|| (id == SHIV_ANY_COLOR_ID).then_some(&SHIV_ANY_COLOR))

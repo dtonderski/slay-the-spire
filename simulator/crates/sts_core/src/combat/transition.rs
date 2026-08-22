@@ -1188,6 +1188,9 @@ fn apply_internal_action_with_defer(
         InternalAction::DrawCardsIfNoAttacksInHand { count } => {
             pile_actions::draw_cards_if_no_attacks_in_hand(state, count)
         }
+        InternalAction::DrawThenScrapeDiscard { count } => {
+            pile_actions::draw_then_scrape_discard(state, count)
+        }
         InternalAction::DrawRandomAttacksFromDrawPile { count } => {
             // ViolenceAction runs while UseCardAction still holds the source in
             // cardInUse. Hand capacity must not count that card, or the third
