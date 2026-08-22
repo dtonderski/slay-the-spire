@@ -4017,13 +4017,20 @@ fn havoc_queue(
         // Branch must see DB_havoc before DB_top (FIDL01410).
         queue.push_back(play_top);
         queue.push_back(settle);
+    } else if state.piles.draw_pile.len() == 1 {
+        // Last draw-pile card: PlayTop empties the pile. If that card draws
+        // (Pommel), the refill must not include Havoc (FIDL02213). Broader
+        // non-empty PlayTop-first regressed FIDL02261 block.
+        queue.push_back(play_top);
+        queue.push_back(settle);
     } else if source_exhausts {
         // Corruption/exhaust keyword: self-exhaust (and its Dead Branch) before
         // resolving the forced top card, matching T → DB_havoc → hits → DB_top.
         queue.push_back(settle);
         queue.push_back(play_top);
     } else {
-        // Non-empty draw, Headbutt empty-draw preview, or dual-Havoc empty-draw.
+        // Headbutt empty-draw preview or dual-Havoc empty-draw: settle first
+        // so the source can enter the refill.
         queue.push_back(settle);
         queue.push_back(play_top);
     }
