@@ -101,6 +101,9 @@ const ACID_SLIME_L_A2_NORMAL_TACKLE_DAMAGE: i32 = 18;
 const ACID_SLIME_WEAK: i32 = 1;
 
 const LAGAVULIN_SLEEP_TURNS: u32 = 3;
+/// Lagavulin.usePreBattleAction applies Metallicize 8; changeState(OPEN)
+/// ReducePowerAction removes that same 8 and leaves any stacked amount.
+const LAGAVULIN_SLEEP_METALLICIZE: i32 = 8;
 const LAGAVULIN_SIPHON_STRENGTH: i32 = 1;
 const LAGAVULIN_SIPHON_DEXTERITY: i32 = 1;
 const LAGAVULIN_ATTACK_DAMAGE: i32 = 18;
@@ -9647,10 +9650,9 @@ pub fn target_lagavulin_direct_wake_attack_intent(ascension: u8) -> MonsterInten
     }
 }
 
-pub fn clear_lagavulin_metallicize_if_awake(monster: &mut MonsterState) {
-    if monster.content_id == LAGAVULIN_ID && monster.sleep_turns_remaining == 0 {
-        monster.powers.metallicize = 0;
-    }
+pub fn clear_lagavulin_metallicize_if_awake(_monster: &mut MonsterState) {
+    // changeState(OPEN) ReducePower's sleep Metallicize once. Do not zero the
+    // stacked remainder (Burning Elite) on later awake turns.
 }
 
 /// Wakes a sleeping Lagavulin when HP damage is dealt and updates its intent for the current turn.
@@ -9659,10 +9661,14 @@ pub fn wake_lagavulin_on_damage(monster: &mut MonsterState, hp_damage: i32) {
         if monster.sleep_turns_remaining > 0 {
             monster.sleep_turns_remaining = 0;
             monster.intent = MonsterIntent::Stun;
+            reduce_lagavulin_sleep_metallicize(monster);
         }
         monster.block = 0;
-        monster.powers.metallicize = 0;
     }
+}
+
+fn reduce_lagavulin_sleep_metallicize(monster: &mut MonsterState) {
+    monster.powers.metallicize = (monster.powers.metallicize - LAGAVULIN_SLEEP_METALLICIZE).max(0);
 }
 
 /// Queues Slime Boss's split move when it crosses its split threshold.
@@ -10575,7 +10581,7 @@ fn apply_monster_intent_with_card_rng_inner(
             // block before the attack intent is published.
             if monster.content_id == LAGAVULIN_ID && monster.sleep_turns_remaining == 0 {
                 monster.block = 0;
-                monster.powers.metallicize = 0;
+                reduce_lagavulin_sleep_metallicize(monster);
             }
             (0, 0)
         }
