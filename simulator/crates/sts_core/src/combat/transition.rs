@@ -70,47 +70,10 @@ pub fn apply_combat_action_with_events(
 ) -> SimResult<CombatTransition> {
     validate_combat_action(state, action)?;
 
-    let cards_played_before = state.relic_counters.cards_played_this_turn;
     let mut transition = match action {
         CombatAction::PlayCard { card_id, target } => apply_play_card(state, card_id, target),
         CombatAction::EndTurn => apply_end_turn(state),
     }?;
-    if matches!(action, CombatAction::PlayCard { .. })
-        && transition.state.monsters.iter().any(|monster| {
-            monster.alive && monster.content_id == crate::content::monsters::CORRUPT_HEART_ID
-        })
-    {
-        let beat_of_death = transition
-            .state
-            .monsters
-            .iter()
-            .find(|monster| {
-                monster.alive && monster.content_id == crate::content::monsters::CORRUPT_HEART_ID
-            })
-            .map(|monster| monster.powers.beat_of_death)
-            .unwrap_or(0);
-        let cards_played = transition
-            .state
-            .relic_counters
-            .cards_played_this_turn
-            .saturating_sub(cards_played_before);
-        if transition.state.decision.is_some() {
-            transition.state.pending_beat_of_death_triggers = transition
-                .state
-                .pending_beat_of_death_triggers
-                .checked_add(cards_played)
-                .ok_or(SimError::InvalidState(
-                    "pending Beat of Death overflows u32",
-                ))?;
-        } else {
-            for _ in 0..cards_played {
-                crate::combat::turn::deal_non_attack_damage_to_player(
-                    &mut transition.state,
-                    beat_of_death,
-                )?;
-            }
-        }
-    }
     if matches!(action, CombatAction::PlayCard { .. })
         && transition.state.opening_end_turn_pending
         && transition.state.decision.is_none()
@@ -1530,6 +1493,25 @@ fn apply_on_card_play_powers(
                 amount: sharp_hide_damage,
             });
         }
+    }
+
+    // BeatOfDeathPower.onAfterUseCard addToBot's THORNS DamageAction at the
+    // start of UseCardAction, before that action exhausts the card. Feel No
+    // Pain's onExhaust GainBlock is therefore still behind this hit.
+    let beat_of_death: i32 = state
+        .monsters
+        .iter()
+        .filter(|monster| {
+            monster.alive
+                && monster.content_id == crate::content::monsters::CORRUPT_HEART_ID
+                && monster.powers.beat_of_death > 0
+        })
+        .map(|monster| monster.powers.beat_of_death)
+        .try_fold(0, checked_combat_sum)?;
+    if beat_of_death > 0 {
+        follow_ups.push(InternalAction::DealThornsDamageToPlayer {
+            amount: beat_of_death,
+        });
     }
 
     if state.player.powers.hex > 0 && card_type != CardType::Attack {
