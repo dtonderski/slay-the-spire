@@ -786,8 +786,9 @@ fn push_follow_up(
             return;
         }
         // UseCardAction constructor addToTops Pain after card.use() queued
-        // MakeTempCardInHand, so LoseHP / Runic Cube draw run first
-        // (FIDL02215 Infernal Blade: Cube draw then generated attack).
+        // MakeTempCardInHand / MakeTempCardInDrawPile, so LoseHP / Runic Cube
+        // draw run first (FIDL02215 Infernal Blade hand; FIDL02191 Wild Strike
+        // Wound insert sees the post-Cube pile).
         if let Some(index) = queue.iter().position(|action| {
             matches!(
                 action,
@@ -795,6 +796,8 @@ fn push_follow_up(
                     to: CardPile::Hand,
                     ..
                 } | InternalAction::AddGeneratedCardsToHandWhileSourceInLimbo { .. }
+                    | InternalAction::AddGeneratedCardToDrawPileRandomSpot { .. }
+                    | InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost { .. }
             )
         }) {
             queue.insert(index, follow_up);
