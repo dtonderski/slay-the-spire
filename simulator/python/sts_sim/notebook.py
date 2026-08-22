@@ -87,6 +87,8 @@ def _card_text(card: FairCard, *, include_cost: bool = True) -> str:
         details.append(f"Rampage +{card.dynamic.rampage_damage_bonus}")
     if card.dynamic.ritual_dagger_damage_bonus is not None:
         details.append(f"Ritual Dagger +{card.dynamic.ritual_dagger_damage_bonus}")
+    if card.dynamic.windmill_retain_damage is not None:
+        details.append(f"Windmill +{card.dynamic.windmill_retain_damage}")
     return f"{_card_name(card)} ({', '.join(details)})" if details else _card_name(card)
 
 
@@ -300,6 +302,17 @@ def _combat_lines(observation: FairCombatObservation) -> list[str]:
         ),
         f"Powers: {_power_text(observation.player.powers)}",
     ]
+    if observation.orb_slots:
+        orbs = []
+        for slot in observation.orb_slots:
+            if slot.orb is None:
+                text = "empty"
+            elif slot.orb.type == "dark":
+                text = f"Dark (evoke {slot.orb.evoke})"
+            else:
+                text = _name(slot.orb.type)
+            orbs.append(f"[{slot.slot}] {text}")
+        lines.append("Orbs: " + ", ".join(orbs))
     _section(lines, f"Hand ({len(observation.hand)})")
     if observation.hand:
         lines.extend(

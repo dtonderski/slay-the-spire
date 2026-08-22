@@ -19,8 +19,8 @@ pub use damage::{DamageInfo, DamageSource};
 pub use fair_observation::{
     fair_combat_observation, FairCard, FairCardDynamicValues, FairCombatObservation,
     FairCombatPhase, FairCounter, FairHandCard, FairIntentCategory, FairMonster, FairMonsterIntent,
-    FairObservationError, FairPile, FairPlayer, FairPotionSlot, FairPower, FairRelic,
-    FairRunContext, FairSelection, FairSelectionKind, FairSelectionOption,
+    FairObservationError, FairOrb, FairOrbSlot, FairPile, FairPlayer, FairPotionSlot, FairPower,
+    FairRelic, FairRunContext, FairSelection, FairSelectionKind, FairSelectionOption,
     FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION,
 };
 pub use legal::{legal_combat_actions, validate_combat_action};

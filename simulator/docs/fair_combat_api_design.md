@@ -22,7 +22,7 @@ leakage-proof public representation of the same legal choices.
    `Action` type, and explicit fair/full/snapshot state projections. Its
    compiled implementation is private `_native`; do not create a separate
    `sts_fair` crate or a second fair environment.
-4. Combat remains the detailed V1 projection; run-level screens use the
+4. Combat remains the detailed versioned projection; run-level screens use the
    screen-tagged `Observation` envelope and the same public `Action` boundary.
 5. Belief and particle planning are deferred. The same fair boundary will be
    reused when a singleton privileged search root is replaced by a belief over
@@ -59,14 +59,21 @@ the current authoritative state and applies the corresponding internal action.
 Internal `CardId`, `MonsterId`, content-pool position, and generation provenance
 never cross the fair boundary.
 
-## FairCombatObservation V1
+## FairCombatObservation V2
 
-The implemented observation schema and visibility allowlists are specified in
-[`fair_combat_observation_v1.md`](fair_combat_observation_v1.md). This section
-remains the joint observation/action design rationale.
+[`fair_combat_observation_v1.md`](fair_combat_observation_v1.md) remains the
+frozen V1 baseline. V2 is an additive public-state revision: it adds explicit
+`orb_slots[]`, the visible Windmill Strike retained-damage value, and visible
+Poison/Lock-On monster powers. This section remains the joint observation/action
+design rationale.
 
-For orientation, the implemented V1 observation has this top-level shape; the
-field-level contract is defined in the exact schema document linked above:
+Compatibility policy: producers emit only the current schema version. Consumers
+must inspect `schema_version` before relying on current fields. The typed Python
+reader accepts stored V1 payloads by treating the V2 additive fields as absent
+(`orb_slots=()` and `windmill_retain_damage=None`); it does not silently
+reinterpret fields whose meaning changes.
+
+For orientation, the implemented V2 observation has this top-level shape:
 
 ```text
 FairCombatObservation
@@ -74,7 +81,8 @@ FairCombatObservation
   context { ascension, act, floor, gold }
   phase
   player { hp, max_hp, block, energy, max_energy, powers[] }
-  hand[] { slot, card }
+  orb_slots[] { slot, orb?: Lightning | Frost | Dark { evoke } }
+  hand[] { slot, card.dynamic { ..., windmill_retain_damage? } }
   draw_pile { count, cards[], known_order[] }
   discard_pile { count, cards[], known_order=[] }
   exhaust_pile { count, cards[], known_order=[] }

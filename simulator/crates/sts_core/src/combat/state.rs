@@ -5,6 +5,7 @@ use crate::{
     content::cards::{
         get_card_definition, validate_searing_blow_metadata, BASH_ID, COMBUST_DAMAGE,
         COMBUST_PLUS_DAMAGE, DEFEND_R_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, STRIKE_R_ID,
+        WINDMILL_STRIKE_ANY_COLOR_ID,
     },
     content::character::IRONCLAD_A0_BASE_HP,
     content::monsters::{
@@ -1350,6 +1351,25 @@ impl CombatState {
                 "Combust power state is inconsistent",
             ));
         }
+        if self.max_orbs < 0 {
+            return Err(SimError::InvalidState(
+                "combat max orb slots cannot be negative",
+            ));
+        }
+        if self.orbs.len() > self.max_orbs as usize {
+            return Err(SimError::InvalidState(
+                "combat occupied orbs exceed max orb slots",
+            ));
+        }
+        if self
+            .orbs
+            .iter()
+            .any(|orb| matches!(orb, CombatOrb::Dark { evoke } if *evoke < 0))
+        {
+            return Err(SimError::InvalidState(
+                "Dark orb evoke amount cannot be negative",
+            ));
+        }
         self.validate_unique_card_piles()?;
         let mut card_ids = BTreeSet::new();
         for card in self.authoritative_cards() {
@@ -1400,6 +1420,11 @@ impl CombatState {
             {
                 return Err(SimError::InvalidState(
                     "combat monster HP, block, or stolen gold is out of bounds",
+                ));
+            }
+            if monster.powers.poison < 0 || monster.powers.lock_on < 0 {
+                return Err(SimError::InvalidState(
+                    "combat monster Poison or Lock-On cannot be negative",
                 ));
             }
             if let Some(card) = &monster.stasis_card {
@@ -1460,6 +1485,11 @@ impl CombatState {
         // END. They must reserve instance IDs so generated wounds (Wild Strike)
         // cannot collide and later fail unique-pile validation (FIDL00222).
         cards.extend(self.pending_hidden_hand_card_until_end_turn.iter());
+        cards.extend(
+            self.deferred_mayhem_play_top_settlements
+                .iter()
+                .map(|(card, _)| card),
+        );
         if let Some(decision) = &self.decision {
             extend_decision_cards(&mut cards, decision);
         }
@@ -1494,6 +1524,16 @@ fn validate_combat_card(card: &CardInstance) -> SimResult<()> {
     {
         return Err(SimError::InvalidState(
             "non-Rampage card carries a Rampage damage bonus",
+        ));
+    }
+    if card.windmill_retain_damage < 0 {
+        return Err(SimError::InvalidState(
+            "Windmill Strike retain damage cannot be negative",
+        ));
+    }
+    if card.windmill_retain_damage != 0 && card.content_id != WINDMILL_STRIKE_ANY_COLOR_ID {
+        return Err(SimError::InvalidState(
+            "non-Windmill-Strike card carries retain damage",
         ));
     }
     Ok(())
@@ -1841,6 +1881,105 @@ mod tests {
             Err(SimError::InvalidState(
                 "consumed combat fairy retains a revival percentage"
             ))
+        );
+    }
+
+    #[test]
+    fn combat_validation_rejects_invalid_orb_state() {
+        let mut negative_slots = CombatState::initial_fixture();
+        negative_slots.max_orbs = -1;
+        assert_eq!(
+            negative_slots.validate(),
+            Err(SimError::InvalidState(
+                "combat max orb slots cannot be negative"
+            ))
+        );
+
+        let mut overshoot_slots = CombatState::initial_fixture();
+        overshoot_slots.max_orbs = 12;
+        assert_eq!(overshoot_slots.validate(), Ok(()));
+
+        let mut occupied_without_slots = CombatState::initial_fixture();
+        occupied_without_slots.orbs.push(CombatOrb::Lightning);
+        assert_eq!(
+            occupied_without_slots.validate(),
+            Err(SimError::InvalidState(
+                "combat occupied orbs exceed max orb slots"
+            ))
+        );
+
+        let mut negative_dark = CombatState::initial_fixture();
+        negative_dark.max_orbs = 1;
+        negative_dark.orbs.push(CombatOrb::Dark { evoke: -1 });
+        assert_eq!(
+            negative_dark.validate(),
+            Err(SimError::InvalidState(
+                "Dark orb evoke amount cannot be negative"
+            ))
+        );
+    }
+
+    #[test]
+    fn combat_validation_rejects_invalid_poison_and_windmill_state() {
+        let mut negative_poison = CombatState::initial_fixture();
+        negative_poison.monsters[0].powers.poison = -1;
+        assert_eq!(
+            negative_poison.validate(),
+            Err(SimError::InvalidState(
+                "combat monster Poison or Lock-On cannot be negative"
+            ))
+        );
+
+        let mut negative_lock_on = CombatState::initial_fixture();
+        negative_lock_on.monsters[0].powers.lock_on = -1;
+        assert_eq!(
+            negative_lock_on.validate(),
+            Err(SimError::InvalidState(
+                "combat monster Poison or Lock-On cannot be negative"
+            ))
+        );
+
+        let mut negative_windmill = CombatState::initial_fixture();
+        negative_windmill.piles.hand = vec![CardInstance::new(
+            CardId::new(100),
+            WINDMILL_STRIKE_ANY_COLOR_ID,
+        )];
+        negative_windmill.piles.hand[0].windmill_retain_damage = -1;
+        assert_eq!(
+            negative_windmill.validate(),
+            Err(SimError::InvalidState(
+                "Windmill Strike retain damage cannot be negative"
+            ))
+        );
+
+        let mut wrong_card = CombatState::initial_fixture();
+        wrong_card.piles.hand[0].windmill_retain_damage = 4;
+        assert_eq!(
+            wrong_card.validate(),
+            Err(SimError::InvalidState(
+                "non-Windmill-Strike card carries retain damage"
+            ))
+        );
+    }
+
+    #[test]
+    fn deferred_mayhem_settlement_keeps_original_card_pile_wire_shape() {
+        let mut state = CombatState::initial_fixture();
+        let card = state.piles.hand.remove(0);
+        state
+            .deferred_mayhem_play_top_settlements
+            .push((card, crate::action::CardPile::ExhaustPile));
+
+        let value = serde_json::to_value(&state).expect("combat state serializes");
+        assert_eq!(
+            value["deferred_mayhem_play_top_settlements"][0][1],
+            serde_json::json!("ExhaustPile")
+        );
+        let restored: CombatState =
+            serde_json::from_value(value).expect("original settlement wire type restores");
+        assert_eq!(
+            restored.deferred_mayhem_play_top_settlements,
+            vec![(card, crate::action::CardPile::ExhaustPile)]
         );
     }
 

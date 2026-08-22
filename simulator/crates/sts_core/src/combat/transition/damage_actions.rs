@@ -102,6 +102,21 @@ pub(super) fn deal_damage(
     Ok(follow_ups)
 }
 
+pub(super) fn deal_bane_damage_if_poisoned(
+    state: &mut CombatState,
+    info: DamageInfo,
+) -> SimResult<Vec<InternalAction>> {
+    let poisoned = state
+        .monsters
+        .iter()
+        .find(|monster| monster.id == info.target && monster.alive)
+        .is_some_and(|monster| monster.powers.poison > 0);
+    if !poisoned {
+        return Ok(Vec::new());
+    }
+    deal_damage(state, info)
+}
+
 pub(super) fn deal_body_slam_damage(
     state: &mut CombatState,
     source: CardId,

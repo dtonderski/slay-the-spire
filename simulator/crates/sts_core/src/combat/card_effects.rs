@@ -441,12 +441,9 @@ pub(super) fn play_card_queue(
         id if id == crate::content::cards::DARKNESS_ANY_COLOR_ID => {
             darkness_queue(state, card_id, definition)
         }
-        id if id == crate::content::cards::CONCLUDE_ANY_COLOR_ID => conclude_queue(
-            state,
-            card_id,
-            target.expect("validated Conclude has a target"),
-            definition,
-        ),
+        id if id == crate::content::cards::CONCLUDE_ANY_COLOR_ID => {
+            conclude_queue(state, card_id, definition)
+        }
         id if id == crate::content::cards::LEAP_ANY_COLOR_ID => {
             leap_queue(state, card_id, definition)
         }
@@ -466,6 +463,12 @@ pub(super) fn play_card_queue(
             state,
             card_id,
             target.expect("validated Fear No Evil has a target"),
+            definition,
+        ),
+        id if id == crate::content::cards::BANE_ANY_COLOR_ID => bane_queue(
+            state,
+            card_id,
+            target.expect("validated Bane has a target"),
             definition,
         ),
         id if id == crate::content::cards::STATIC_DISCHARGE_ANY_COLOR_ID => {
@@ -760,15 +763,6 @@ pub(super) fn play_top_draw_card_queue(
         && !burning_pact_opens_deferred_source_select
         && !discovery_reward_defers_source_settlement
     {
-        // UseCardAction.empower removes a played Power; it does not
-        // moveToDiscardPile (FIDL02303 Mayhem Juggernaut).
-        if definition.card_type == CardType::Power {
-            queue.push_back(InternalAction::RemoveCard {
-                card_id: card.id,
-                from: CardPile::Hand,
-            });
-            return Ok((queued_state, queue));
-        }
         // Hand-play builders place MoveCard at the UseCardAction slot among *that*
         // card's bot actions (after damage, before nothing, etc.). Nested Havoc /
         // Mayhem are special: card.use() queues PlayTop before UseCardAction, so a
@@ -971,6 +965,14 @@ fn apply_strange_spoon_to_played_card_move(
     let Some(index) = own_exhaust_index else {
         return;
     };
+
+    // Start-of-turn Mayhem can park UseCardAction settlement behind residual
+    // Evolve/draw-pile actions. Preserve the Exhaust destination and make the
+    // Spoon decision only when that MoveCard actually settles.
+    if state.defer_mayhem_play_top_settlement {
+        state.defer_strange_spoon_until_source_move = Some(card_id);
+        return;
+    }
 
     // ViolenceAction (and any other addToBot effect that draws from
     // cardRandomRng) runs before UseCardAction calls moveToExhaustPile.
@@ -1337,8 +1339,8 @@ fn synthetic_any_color_upgrade_damage(definition: &CardDefinition, upgrades: u8)
         // SweepingBeam.upgradeDamage(3)
         3
     } else if definition.id == crate::content::cards::BANE_ANY_COLOR_ID {
-        // Bane.upgradeDamage(2)
-        2
+        // Bane.upgradeDamage(3)
+        3
     } else {
         0
     }
@@ -3487,6 +3489,40 @@ fn judgement_queue(
 fn conclude_queue(
     state: &CombatState,
     card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // Conclude.upgradeDamage(4). DamageAllEnemiesAction resolves before the
+    // separately queued PressEndTurnButtonAction.
+    let damage = required_damage(definition)? + if upgrades > 0 { 4 } else { 0 };
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::DealDamageAll {
+            source: card_id,
+            amount: damage,
+        },
+        // PressEndTurnButtonAction is already queued before UseCardAction, but
+        // the request does not execute end-turn hand discard synchronously.
+        InternalAction::ForceEndTurn,
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+        InternalAction::SettleForcedEndTurn,
+    ]))
+}
+
+fn bane_queue(
+    state: &CombatState,
+    card_id: CardId,
     target: MonsterId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
@@ -3497,24 +3533,24 @@ fn conclude_queue(
         .find(|card| card.id == card_id)
         .map(|card| card.upgrades)
         .unwrap_or(0);
-    // Conclude.upgradeDamage(4). use() queues DamageAction then EndTurnAction.
-    let damage = required_damage(definition)? + if upgrades > 0 { 4 } else { 0 };
+    let amount = required_damage(definition)? + if upgrades > 0 { 3 } else { 0 };
+    let info = DamageInfo {
+        source: DamageSource::Card(card_id),
+        target,
+        amount,
+    };
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
-        InternalAction::DealDamage {
-            info: DamageInfo {
-                source: DamageSource::Card(card_id),
-                target,
-                amount: damage,
-            },
-        },
+        InternalAction::DealDamage { info },
+        // BaneAction.hasPower("Poison") is evaluated by this action, after the
+        // first DamageAction and any earlier queued state changes have resolved.
+        InternalAction::DealBaneDamageIfPoisoned { info },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
             to: card_move_destination(definition),
         },
-        InternalAction::ForceEndTurn,
     ]))
 }
 
@@ -3817,26 +3853,15 @@ fn after_image_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
 }
 
 fn recursion_queue(
-    state: &CombatState,
+    _state: &CombatState,
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    let upgrades = state
-        .piles
-        .hand
-        .iter()
-        .find(|card| card.id == card_id)
-        .map(|card| card.upgrades)
-        .unwrap_or(0);
-    // Recursion.upgradeBaseCost(0).
-    let cost = if upgrades > 0 {
-        0
-    } else {
-        i32::from(definition.cost)
-    };
+    // SpendCardEnergy resolves the effective combat-local cost, including
+    // Recursion+'s zero base cost and a later Confusion/Madness temp cost.
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
-        InternalAction::SpendEnergy { amount: cost },
+        InternalAction::SpendCardEnergy { card_id },
         InternalAction::RecurseRightmostOrb,
         InternalAction::MoveCard {
             card_id,
@@ -4272,12 +4297,25 @@ fn halt_queue(
         .find(|card| card.id == card_id)
         .map(|card| card.upgrades)
         .unwrap_or(0);
-    // Halt.upgradeBlock(1). Wrath extra block is unused outside Watcher stance.
-    let amount = required_block(definition)? + i32::from(upgrades > 0);
+    // Halt.applyPowers computes its base block and 9/14 additional Wrath block
+    // separately, including Dexterity/Frail on each value. HaltAction then queues
+    // exactly one GainBlockAction for their precomputed sum.
+    let base = required_block(definition)? + i32::from(upgrades > 0);
+    let base = crate::power::calculate_block(base, state.player.powers);
+    let amount = if state.player.powers.wrath > 0 {
+        let additional = if upgrades > 0 { 14 } else { 9 };
+        base.checked_add(crate::power::calculate_block(
+            additional,
+            state.player.powers,
+        ))
+        .ok_or(SimError::InvalidState("Halt block overflows i32"))?
+    } else {
+        base
+    };
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
-        InternalAction::GainBlock { amount },
+        InternalAction::GainPrecomputedCardBlock { amount },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
@@ -4694,57 +4732,8 @@ fn havoc_queue(
 
     // Havoc's source settlement is normally a discard MoveCard; Corruption
     // rewrites that move to exhaust.
-    //
-    // Empty draw pile normally uses PlayTop-first so the reshuffle cannot
-    // include Havoc before the forced card is chosen. Exceptions that settle
-    // first (source enters the refill):
-    // - Headbutt preview (discard-sensitive put-on-draw)
-    // - Discard is only Havoc/Havoc+ (FIDL00238 step 953): nested force-play
-    //   must be able to chain-exhaust the settled source. Mixed discards keep
-    //   PlayTop-first (Sever Soul / FIDL00238 step 873).
     let source_exhausts = definition.keywords.exhaust
         || (definition.card_type == CardType::Skill && state.player.powers.corruption > 0);
-    let discard_is_only_havoc = !state.piles.discard_pile.is_empty()
-        && state
-            .piles
-            .discard_pile
-            .iter()
-            .all(|card| matches!(card.content_id, HAVOC_ID | HAVOC_PLUS_ID));
-    // When an empty draw pile is refilled, a forced Headbutt can select the
-    // played Havoc from discard and put it on top of the new draw pile. Preview
-    // the Java-equivalent reshuffle with the source settled; the preview does
-    // not consume the real shuffle RNG. Dark Embrace is excluded because its
-    // exhaust-triggered draw must see the forced card before Havoc settles.
-    let empty_draw_headbutt_needs_source_in_discard = if state.piles.draw_pile.is_empty()
-        && !state.piles.discard_pile.is_empty()
-        && !source_exhausts
-        && state.player.powers.dark_embrace == 0
-    {
-        let mut preview = state.clone();
-        if let Some(index) = preview
-            .piles
-            .hand
-            .iter()
-            .position(|card| card.id == card_id)
-        {
-            let source = preview.piles.hand.remove(index);
-            preview.piles.discard_pile.push(source);
-            crate::combat::transition::player_shuffle_discard_into_draw(&mut preview)?;
-            preview
-                .piles
-                .draw_pile
-                .last()
-                .is_some_and(|card| matches!(card.content_id, HEADBUTT_ID | HEADBUTT_PLUS_ID))
-        } else {
-            false
-        }
-    } else {
-        false
-    };
-    let empty_draw_dual_havoc_needs_source_in_discard = state.piles.draw_pile.is_empty()
-        && discard_is_only_havoc
-        && !source_exhausts
-        && state.player.powers.dark_embrace == 0;
     let settle = InternalAction::MoveCard {
         card_id,
         from: CardPile::Hand,
@@ -4786,34 +4775,13 @@ fn havoc_queue(
         exhaust_played_card: true,
         random_living_target,
     };
-    let empty_draw_play_top_first = state.piles.draw_pile.is_empty()
-        && !source_exhausts
-        && !empty_draw_headbutt_needs_source_in_discard
-        && !empty_draw_dual_havoc_needs_source_in_discard;
-    if empty_draw_play_top_first {
-        // Empty-draw mixed discard: choose forced card before a discarded
-        // source reshuffles in. Exhausting Havoc (Corruption / exhaust) is
-        // settle-first instead: the source never enters the refill, and Dead
-        // Branch must see DB_havoc before DB_top (FIDL01410).
-        queue.push_back(play_top);
-        queue.push_back(settle);
-    } else if state.piles.draw_pile.len() == 1 {
-        // Last draw-pile card: PlayTop empties the pile. If that card draws
-        // (Pommel), the refill must not include Havoc (FIDL02213). Broader
-        // non-empty PlayTop-first regressed FIDL02261 block.
-        queue.push_back(play_top);
-        queue.push_back(settle);
-    } else if source_exhausts {
-        // Corruption/exhaust keyword: self-exhaust (and its Dead Branch) before
-        // resolving the forced top card, matching T → DB_havoc → hits → DB_top.
-        queue.push_back(settle);
-        queue.push_back(play_top);
-    } else {
-        // Headbutt empty-draw preview or dual-Havoc empty-draw: settle first
-        // so the source can enter the refill.
-        queue.push_back(settle);
-        queue.push_back(play_top);
-    }
+    // Havoc.use addToBot's PlayTopCardAction before AbstractPlayer.useCard
+    // addToBottom's the outer UseCardAction. PlayTop removes the selected card
+    // into limbo and returns ResolveTopDrawCard as a card-queue follow-up; the
+    // outer source MoveCard therefore runs after extraction but before the
+    // forced card is serviced. This ordering is unconditional in the target.
+    queue.push_back(play_top);
+    queue.push_back(settle);
 
     Ok(queue)
 }
@@ -5946,6 +5914,35 @@ mod tests {
     use crate::combat::CombatState;
     use crate::content::monsters::NEMESIS_ID;
     use crate::ids::MonsterId;
+
+    #[test]
+    fn havoc_always_extracts_top_before_outer_source_settlement() {
+        for top in [DEFEND_R_ID, POMMEL_STRIKE_ID, DEEP_BREATH_ID] {
+            let havoc_id = CardId::new(100);
+            let mut state = CombatState::initial_fixture();
+            state.piles.hand = vec![CardInstance::new(havoc_id, HAVOC_ID)];
+            state.piles.draw_pile = vec![CardInstance::new(CardId::new(101), top)];
+            state.piles.discard_pile.clear();
+            let target = (top == POMMEL_STRIKE_ID).then_some(state.monsters[0].id);
+            let definition = get_card_definition(HAVOC_ID).expect("Havoc definition");
+
+            let queue = havoc_queue(&mut state, havoc_id, definition, target).expect("Havoc queue");
+            let source_move = queue
+                .iter()
+                .position(|action| {
+                    matches!(
+                        action,
+                        InternalAction::MoveCard { card_id, .. } if *card_id == havoc_id
+                    )
+                })
+                .expect("Havoc source movement");
+            let play_top = queue
+                .iter()
+                .position(|action| matches!(action, InternalAction::PlayTopDrawCard { .. }))
+                .expect("Havoc PlayTop");
+            assert!(play_top < source_move);
+        }
+    }
 
     #[test]
     fn spot_weakness_ignores_pure_debuff_and_defend_debuff_intents() {

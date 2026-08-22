@@ -5599,7 +5599,7 @@ pub static HALT_ANY_COLOR: CardDefinition = CardDefinition {
     upgrade: None,
     target: TargetRequirement::None,
     values: CardValues {
-        // Halt.baseBlock is 3; upgradeBlock(1). Wrath bonus is unused on Ironclad.
+        // Halt.baseBlock is 3; upgradeBlock(1). HaltAction adds 9/14 in Wrath.
         damage: None,
         block: Some(3),
         vulnerable: None,
@@ -6023,7 +6023,7 @@ pub static CONCLUDE_ANY_COLOR: CardDefinition = CardDefinition {
     card_type: CardType::Attack,
     rarity: Some(CardRarity::Uncommon),
     upgrade: None,
-    target: TargetRequirement::Enemy,
+    target: TargetRequirement::AllEnemies,
     values: CardValues {
         // Conclude.baseDamage is 12; upgradeDamage(4).
         damage: Some(12),
@@ -6097,7 +6097,7 @@ pub static BANE_ANY_COLOR: CardDefinition = CardDefinition {
     upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
-        // Bane.baseDamage is 7; upgradeDamage(2).
+        // Bane.baseDamage is 7; upgradeDamage(3).
         damage: Some(7),
         block: None,
         vulnerable: None,

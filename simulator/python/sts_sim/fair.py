@@ -26,6 +26,7 @@ type FairIntentCategory = Literal[
     "stun",
 ]
 type FairSelectionKind = str
+type FairOrbKind = Literal["lightning", "frost", "dark"]
 type PlayerChoiceKind = Literal[
     "play_hand_slot",
     "end_turn",
@@ -54,13 +55,19 @@ def _items(value: object) -> tuple[object, ...]:
 class FairCardDynamicValues:
     rampage_damage_bonus: int | None
     ritual_dagger_damage_bonus: int | None
+    windmill_retain_damage: int | None
 
     @classmethod
     def _from_payload(cls, payload: object) -> FairCardDynamicValues:
         value = _mapping(payload)
         return cls(
-            cast(int | None, value.get("rampage_damage_bonus")),
-            cast(int | None, value.get("ritual_dagger_damage_bonus")),
+            rampage_damage_bonus=cast(int | None, value.get("rampage_damage_bonus")),
+            ritual_dagger_damage_bonus=cast(
+                int | None, value.get("ritual_dagger_damage_bonus")
+            ),
+            windmill_retain_damage=cast(
+                int | None, value.get("windmill_retain_damage")
+            ),
         )
 
 
@@ -149,6 +156,35 @@ class FairPlayer:
             energy=cast(int, value["energy"]),
             max_energy=cast(int, value["max_energy"]),
             powers=tuple(FairPower._from_payload(power) for power in _items(value["powers"])),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class FairOrb:
+    type: FairOrbKind
+    evoke: int | None
+
+    @classmethod
+    def _from_payload(cls, payload: object) -> FairOrb:
+        value = _mapping(payload)
+        return cls(
+            type=cast(FairOrbKind, value["type"]),
+            evoke=cast(int | None, value.get("evoke")),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class FairOrbSlot:
+    slot: int
+    orb: FairOrb | None
+
+    @classmethod
+    def _from_payload(cls, payload: object) -> FairOrbSlot:
+        value = _mapping(payload)
+        orb = value.get("orb")
+        return cls(
+            slot=cast(int, value["slot"]),
+            orb=None if orb is None else FairOrb._from_payload(orb),
         )
 
 
@@ -324,6 +360,7 @@ class FairCombatObservation:
     context: FairContext
     phase: FairCombatPhase
     player: FairPlayer
+    orb_slots: tuple[FairOrbSlot, ...]
     hand: tuple[FairHandCard, ...]
     draw_pile: FairPile
     discard_pile: FairPile
@@ -343,6 +380,12 @@ class FairCombatObservation:
             context=FairContext._from_payload(value["context"]),
             phase=cast(FairCombatPhase, value["phase"]),
             player=FairPlayer._from_payload(value["player"]),
+            # The parser remains additive-backward-compatible with stored V1
+            # payloads, which predate public orb slots.
+            orb_slots=tuple(
+                FairOrbSlot._from_payload(slot)
+                for slot in _items(value.get("orb_slots", []))
+            ),
             hand=tuple(FairHandCard._from_payload(card) for card in _items(value["hand"])),
             draw_pile=FairPile._from_payload(value["draw_pile"]),
             discard_pile=FairPile._from_payload(value["discard_pile"]),

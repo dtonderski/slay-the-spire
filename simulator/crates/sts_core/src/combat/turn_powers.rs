@@ -35,13 +35,14 @@ pub fn apply_end_of_player_turn_powers(state: &mut CombatState) -> SimResult<()>
     if state.player.hp <= 0 {
         return Ok(());
     }
-    apply_end_of_turn_bomb_timers(state, &mut deferred)?;
+    let _ = apply_end_of_turn_bomb_timers(state, &mut deferred)?;
     Ok(())
 }
 
 pub fn apply_end_of_player_turn_powers_before_hand(state: &mut CombatState) -> SimResult<()> {
     let mut deferred = None;
-    apply_end_of_player_turn_powers_before_hand_inner(state, &mut deferred, true)
+    let _ = apply_end_of_player_turn_powers_before_hand_inner(state, &mut deferred, true)?;
+    Ok(())
 }
 
 /// Resolve end-turn powers while retaining death callbacks until the hand
@@ -51,7 +52,9 @@ pub(crate) fn apply_end_of_player_turn_powers_before_hand_deferred(
     state: &mut CombatState,
     deferred: &mut Vec<crate::combat::transition::DeferredMonsterDeath>,
 ) -> SimResult<()> {
-    apply_end_of_player_turn_powers_before_hand_deferred_with_combust(state, deferred, true)
+    let _ =
+        apply_end_of_player_turn_powers_before_hand_deferred_with_combust(state, deferred, true)?;
+    Ok(())
 }
 
 /// `apply_combust` is false when Burn/Decay/Regret still have to auto-play.
@@ -61,7 +64,7 @@ pub(crate) fn apply_end_of_player_turn_powers_before_hand_deferred_with_combust(
     state: &mut CombatState,
     deferred: &mut Vec<crate::combat::transition::DeferredMonsterDeath>,
     apply_combust: bool,
-) -> SimResult<()> {
+) -> SimResult<bool> {
     let mut deferred = Some(deferred);
     apply_end_of_player_turn_powers_before_hand_inner(state, &mut deferred, apply_combust)
 }
@@ -70,10 +73,10 @@ fn apply_end_of_player_turn_powers_before_hand_inner(
     state: &mut CombatState,
     deferred: &mut Option<&mut Vec<crate::combat::transition::DeferredMonsterDeath>>,
     apply_combust: bool,
-) -> SimResult<()> {
+) -> SimResult<bool> {
     apply_player_end_of_turn_powers_for_combat_state(state, false)?;
     if state.player.hp <= 0 {
-        return Ok(());
+        return Ok(false);
     }
     // When Combust will run, Constricted resolves first (power-list order:
     // older Constricted before later Combust). Orichalcum block is already on
@@ -84,17 +87,16 @@ fn apply_end_of_player_turn_powers_before_hand_inner(
     if state.player.powers.combust > 0 {
         apply_end_of_turn_constricted(state)?;
         if state.player.hp <= 0 {
-            return Ok(());
+            return Ok(false);
         }
     }
     if apply_combust {
         apply_end_of_turn_combust(state, deferred)?;
         if state.player.hp <= 0 {
-            return Ok(());
+            return Ok(false);
         }
     }
-    apply_end_of_turn_bomb_timers(state, deferred)?;
-    Ok(())
+    apply_end_of_turn_bomb_timers(state, deferred)
 }
 
 /// Combust `atEndOfTurn` is `addToBot` from `AbstractRoom.endTurn`, after
@@ -262,24 +264,31 @@ fn deal_combust_damage_to_living_monsters(
 fn apply_end_of_turn_bomb_timers(
     state: &mut CombatState,
     deferred: &mut Option<&mut Vec<crate::combat::transition::DeferredMonsterDeath>>,
-) -> SimResult<()> {
+) -> SimResult<bool> {
     if state.bomb_timers.is_empty() {
-        return Ok(());
+        return Ok(false);
     }
 
     let timers = std::mem::take(&mut state.bomb_timers);
+    let mut bomb_caused_terminal = false;
     for mut timer in timers {
         timer.turns_remaining -= 1;
         if timer.turns_remaining <= 0 {
+            let had_living_monster = state.monsters.iter().any(|monster| monster.alive);
             deal_unmodified_damage_to_living_monsters(state, timer.damage, deferred)?;
-            if state.player.hp <= 0 || state.monsters.iter().all(|monster| !monster.alive) {
-                return Ok(());
+            let all_basically_dead = state
+                .monsters
+                .iter()
+                .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster));
+            bomb_caused_terminal |= had_living_monster && all_basically_dead;
+            if state.player.hp <= 0 || all_basically_dead {
+                return Ok(bomb_caused_terminal);
             }
         } else {
             state.bomb_timers.push(timer);
         }
     }
-    Ok(())
+    Ok(bomb_caused_terminal)
 }
 
 fn deal_unmodified_damage_to_living_monsters(

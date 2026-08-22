@@ -1,6 +1,6 @@
 from dataclasses import replace
 
-from sts_sim import FairCombatObservation, RunEnv
+from sts_sim import FairCombatObservation, FairOrb, FairOrbSlot, RunEnv
 from sts_sim.notebook import action_label, format_action, format_actions, render_decision
 
 
@@ -57,6 +57,36 @@ def test_render_decision_keeps_public_content_as_text() -> None:
     rendered = render_decision(changed)
 
     assert "Card < Demo" in rendered
+
+
+def test_combat_formatter_includes_orbs_and_windmill_damage() -> None:
+    decision = RunEnv.combat_fixture().decision()
+    assert isinstance(decision.observation, FairCombatObservation)
+    first = decision.observation.hand[0]
+    windmill = replace(
+        first,
+        card=replace(
+            first.card,
+            dynamic=replace(first.card.dynamic, windmill_retain_damage=8),
+        ),
+    )
+    changed = replace(
+        decision,
+        observation=replace(
+            decision.observation,
+            orb_slots=(
+                FairOrbSlot(0, FairOrb("lightning", None)),
+                FairOrbSlot(1, FairOrb("dark", 24)),
+                FairOrbSlot(2, None),
+            ),
+            hand=(windmill, *decision.observation.hand[1:]),
+        ),
+    )
+
+    rendered = render_decision(changed)
+
+    assert "Orbs: [0] Lightning, [1] Dark (evoke 24), [2] empty" in rendered
+    assert "Windmill +8" in rendered
 
 
 def test_noncombat_decision_still_renders_legal_actions() -> None:
