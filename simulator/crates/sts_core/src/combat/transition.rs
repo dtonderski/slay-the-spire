@@ -5476,6 +5476,7 @@ fn confirm_burning_pact_select(
     // same pattern as Dual Wield skipped retrieval. Cultist-potion
     // interruption still parks the selection until end-turn.
     let mut deferred_bot_on_exhaust = Vec::new();
+    let mut selected_feel_no_pain = Vec::new();
     let mut dead_branch_count = 0;
     if exhaust_select.interrupted_by_cultist_potion {
         state.piles.hand.remove(index);
@@ -5483,13 +5484,12 @@ fn confirm_burning_pact_select(
     } else {
         state.piles.hand.remove(index);
         state.piles.exhaust_pile.push(card);
-        // Dark Embrace / Feel No Pain use addToBot after ExhaustAction. Burning
-        // Pact still has DrawCardAction and UseCardAction (source → discard) on
-        // the queue, so DE must not draw until those resolve — otherwise DE
-        // consumes the remaining draw pile before BP draws, and BP never re-enters
-        // the post-discard reshuffle (9bf0204173fb2a7f step 459).
+        // Dark Embrace uses addToBot after ExhaustAction. Burning Pact still
+        // has DrawCardAction on the queue, so DE must not draw until those
+        // resolve (9bf0204173fb2a7f step 459). Selected-card FNP must resolve
+        // before UseCardAction Beat of Death (FIDL02258).
         apply_on_exhaust_effects_except_bot_queued_powers(state, card.id)?;
-        deferred_bot_on_exhaust.extend(feel_no_pain_block_follow_up(state));
+        selected_feel_no_pain.extend(feel_no_pain_block_follow_up(state));
         if let Some(dead_branch) = dead_branch_follow_up(state) {
             deferred_bot_on_exhaust.push(dead_branch);
             dead_branch_count += 1;
@@ -5507,6 +5507,10 @@ fn confirm_burning_pact_select(
     // Inlining Evolve here inserted Hex into the post-Evolve pile
     // (FIDL01740 Dazed vs Battle Trance).
     let evolve_follow_ups = player_draw_cards_with_deferred_evolve(state, draw_count)?;
+    if !selected_feel_no_pain.is_empty() {
+        let transition = process_internal_queue(state, selected_feel_no_pain.into())?;
+        *state = transition.state;
+    }
     if !exhaust_select.pending_actions.is_empty() {
         let transition = process_internal_queue(state, exhaust_select.pending_actions)?;
         *state = transition.state;
