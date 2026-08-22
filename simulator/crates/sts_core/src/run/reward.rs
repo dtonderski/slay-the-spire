@@ -1426,6 +1426,10 @@ pub fn any_color_reward_card_key_from_identity(identity: &str) -> Option<&'stati
     if normalized == "underhandedstrike" {
         normalized = "sneakystrike".to_owned();
     }
+    // Defect Recursion's cardID is `Redo` (Recursion.java ldc).
+    if normalized == "redo" {
+        normalized = "recursion".to_owned();
+    }
     ANY_COLOR_COMMON_CARDS
         .iter()
         .chain(ANY_COLOR_UNCOMMON_CARDS.iter())
