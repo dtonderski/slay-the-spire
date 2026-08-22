@@ -3416,13 +3416,23 @@ fn settle_delayed_source_without_bot_exhaust_powers(
     state: &mut CombatState,
     source_card_id: CardId,
 ) -> SimResult<()> {
-    let Some(source) = state
+    let source = if let Some(card) = state
         .piles
         .hand
         .iter()
         .find(|card| card.id == source_card_id)
         .copied()
-    else {
+    {
+        card
+    } else if let Some(card) = state
+        .piles
+        .limbo
+        .iter()
+        .find(|card| card.id == source_card_id)
+        .copied()
+    {
+        card
+    } else {
         if state
             .piles
             .discard_pile
@@ -3439,6 +3449,22 @@ fn settle_delayed_source_without_bot_exhaust_powers(
     let definition = get_card_definition(source.content_id)
         .ok_or(SimError::UnknownContent(source.content_id))?;
     let destination = delayed_source_card_destination(state, definition);
+    if !state
+        .piles
+        .hand
+        .iter()
+        .any(|card| card.id == source_card_id)
+    {
+        if let Some(index) = state
+            .piles
+            .limbo
+            .iter()
+            .position(|card| card.id == source_card_id)
+        {
+            let card = state.piles.limbo.remove(index);
+            state.piles.hand.push(card);
+        }
+    }
     move_card(state, source_card_id, CardPile::Hand, destination)?;
     if destination == CardPile::ExhaustPile {
         apply_on_exhaust_effects_except_bot_queued_powers(state, source_card_id)?;
@@ -4040,13 +4066,23 @@ fn move_delayed_played_source_with_exhaust_policy(
     source_card_id: CardId,
     queue_bot_exhaust_follow_ups: bool,
 ) -> SimResult<usize> {
-    let Some(source) = state
+    let source = if let Some(card) = state
         .piles
         .hand
         .iter()
         .find(|card| card.id == source_card_id)
         .copied()
-    else {
+    {
+        card
+    } else if let Some(card) = state
+        .piles
+        .limbo
+        .iter()
+        .find(|card| card.id == source_card_id)
+        .copied()
+    {
+        card
+    } else {
         if state
             .piles
             .discard_pile
@@ -4063,6 +4099,22 @@ fn move_delayed_played_source_with_exhaust_policy(
     let definition = get_card_definition(source.content_id)
         .ok_or(SimError::UnknownContent(source.content_id))?;
     let destination = delayed_source_card_destination(state, definition);
+    if !state
+        .piles
+        .hand
+        .iter()
+        .any(|card| card.id == source_card_id)
+    {
+        if let Some(index) = state
+            .piles
+            .limbo
+            .iter()
+            .position(|card| card.id == source_card_id)
+        {
+            let card = state.piles.limbo.remove(index);
+            state.piles.hand.push(card);
+        }
+    }
     move_card(state, source_card_id, CardPile::Hand, destination)?;
     if destination == CardPile::ExhaustPile {
         if queue_bot_exhaust_follow_ups {
