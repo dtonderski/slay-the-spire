@@ -2019,11 +2019,13 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     }
     apply_looter_theft_to_run_gold(&mut next, &combat_for_action, &mut next_combat);
     apply_combat_gold_gain_to_run(&mut next, &combat_for_action, &mut next_combat)?;
-    // AddCardToDeckAction is published one combat-owned transition after the
-    // Writhing Mass debuff that queued it. Settle the previous transition's
-    // pending card before recording a newly triggered Parasite.
+    // AddCardToDeckAction is addToBot from Mega Debuff during takeTurn and
+    // drains before the player is command-ready again. Settle after recording
+    // this transition's Parasite so Darkstone / Ceramic Fish apply on the same
+    // END that queued them.
     settle_pending_combat_obtain_cards(&mut next, &mut next_combat)?;
     queue_writhing_mass_mega_debuff_to_run(&mut next, &combat_for_action, &mut next_combat)?;
+    settle_pending_combat_obtain_cards(&mut next, &mut next_combat)?;
     sync_ritual_dagger_damage_to_deck(&mut next, &next_combat);
     next.store_rng_counter(RunRngStream::CardRandom, &next_combat.rng.card_random_rng);
     next_combat.rng.card_random_rng = next.card_random_rng();
@@ -3797,12 +3799,11 @@ mod tests {
         let next = apply_combat_action_on_run(&run, CombatAction::EndTurn)
             .expect("Writhing Mass Mega Debuff resolves");
 
-        // Mega Debuff queues AddCardToDeckAction after the debuffs. The first
-        // published boundary still has no Parasite; the following combat-owned
-        // transition settles it and Ceramic Fish.
-        assert_eq!(next.deck.len(), starting_deck_len);
-        assert_eq!(next.gold, starting_gold);
-        assert_eq!(next.pending_combat_obtain_cards, vec![PARASITE_ID]);
+        // Mega Debuff addToBot(AddCardToDeckAction) drains before the END
+        // command-ready boundary, so Parasite and Ceramic Fish settle here.
+        assert_eq!(next.deck.len(), starting_deck_len + 1);
+        assert_eq!(next.gold, starting_gold + crate::relic::CERAMIC_FISH_GOLD);
+        assert!(next.pending_combat_obtain_cards.is_empty());
         assert!(next.combat.as_ref().expect("combat continues").monsters[0].has_siphoned);
         let player_powers = &next
             .combat
@@ -3812,15 +3813,6 @@ mod tests {
             .powers;
         assert_eq!(player_powers.frail, 0);
         assert_eq!(player_powers.weak, 0);
-
-        let settled = apply_combat_action_on_run(&next, CombatAction::EndTurn)
-            .expect("the next combat boundary settles Parasite");
-        assert_eq!(settled.deck.len(), starting_deck_len + 1);
-        assert_eq!(
-            settled.gold,
-            starting_gold + crate::relic::CERAMIC_FISH_GOLD
-        );
-        assert!(settled.pending_combat_obtain_cards.is_empty());
     }
 
     #[test]
