@@ -70,7 +70,7 @@ use crate::{
     ids::MonsterId,
     relic::HpLossDrawPolicy,
     rng::StsRng,
-    SimError, SimResult, TargetRequirement,
+    SimError, SimResult,
 };
 
 const HAND_SIZE: usize = 5;
@@ -1034,6 +1034,15 @@ fn apply_start_of_turn_mayhem(
     state: &mut CombatState,
     targets: &[Option<MonsterId>],
 ) -> SimResult<()> {
+    // MayhemPower.atStartOfTurn addToBots one PlayTopCardAction per stack
+    // before any of them resolve. InkBottle.onUseCard addToBots Draw after
+    // each played card, so a 10th-card Ink draw from the first PlayTop sits
+    // behind the remaining PlayTops (FIDL02199 Intimidate then Wound).
+    // A single stack keeps the sequential path so unplayable tops still
+    // discard without Blue Candle / UseCardAction (FIDL02199 Havoc turn).
+    if targets.len() > 1 {
+        return crate::combat::transition::apply_mayhem_play_top_cards(state, targets);
+    }
     let mut remaining = targets;
     while let Some((&random_target, rest)) = remaining.split_first() {
         // PlayTop still executes after the base hand draw and Brutality's extra
@@ -1070,7 +1079,7 @@ fn apply_start_of_turn_mayhem(
             crate::combat::transition::apply_mayhem_play_top_cards(state, remaining)?;
             return Ok(());
         }
-        let target = if definition.target == TargetRequirement::Enemy {
+        let target = if definition.target == crate::TargetRequirement::Enemy {
             random_target
         } else {
             None
@@ -6678,6 +6687,80 @@ mod tests {
         assert!(state.piles.draw_pile.is_empty());
         assert_eq!(state.piles.discard_pile.len(), 1);
         assert_eq!(state.piles.discard_pile[0].content_id, DEFEND_R_ID);
+    }
+
+    #[test]
+    fn stacked_mayhem_plays_both_tops_before_ink_bottle_draw() {
+        // MayhemPower queues both PlayTops first. InkBottle.onUseCard addToBot
+        // Draw sits behind the second PlayTop, so it cannot steal that card.
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.mayhem = 2;
+        state.relics = vec![crate::Relic::InkBottle];
+        state.relic_counters.ink_bottle_cards_played = crate::relic::INK_BOTTLE_THRESHOLD - 1;
+        state.piles.hand.clear();
+        // last() is the draw-pile top. Five Pommels sit on top so the opening
+        // draw leaves Defend/Bash/Strike for Mayhem + Ink.
+        let mut draw_pile = vec![
+            CardInstance::new(CardId::new(20), DEFEND_R_ID),
+            CardInstance::new(CardId::new(21), BASH_ID),
+            CardInstance::new(CardId::new(22), STRIKE_R_ID),
+        ];
+        draw_pile.extend((30..35).map(|id| CardInstance::new(CardId::new(id), POMMEL_STRIKE_ID)));
+        state.piles.draw_pile = draw_pile;
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.monsters = vec![monster_state_for_ascension(
+            &LOOTER_A0,
+            MonsterId::new(1),
+            0,
+        )];
+
+        start_player_turn(&mut state).expect("Mayhem 2 then Ink draw");
+
+        assert!(
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .any(|card| card.content_id == STRIKE_R_ID),
+            "first PlayTop must be Strike, discard={:?}",
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+        );
+        assert!(
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .any(|card| card.content_id == BASH_ID),
+            "second PlayTop must be Bash before Ink draws",
+        );
+        assert!(
+            state
+                .piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == DEFEND_R_ID),
+            "Ink must draw the leftover Defend, hand={:?}",
+            state
+                .piles
+                .hand
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+        );
+        assert!(
+            !state
+                .piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == BASH_ID),
+            "Ink must not steal the second PlayTop into hand",
+        );
     }
 
     #[test]
