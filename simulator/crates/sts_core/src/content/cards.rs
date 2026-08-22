@@ -5438,7 +5438,8 @@ pub static SNEAKY_STRIKE_ANY_COLOR: CardDefinition = CardDefinition {
     upgrade: None,
     target: TargetRequirement::Enemy,
     values: CardValues {
-        damage: Some(16),
+        // SneakyStrike.baseDamage is 12; upgradeDamage(4) reaches 16.
+        damage: Some(12),
         block: None,
         vulnerable: None,
     },
