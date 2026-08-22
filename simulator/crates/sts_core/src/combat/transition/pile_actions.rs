@@ -384,6 +384,37 @@ pub(super) fn draw_cards_if_no_attacks_in_hand(
     Ok(Vec::new())
 }
 
+pub(super) fn draw_then_scrape_discard(
+    state: &mut CombatState,
+    count: usize,
+) -> SimResult<Vec<InternalAction>> {
+    let before: Vec<CardId> = state.piles.hand.iter().map(|card| card.id).collect();
+    let mut follow_ups = draw_cards(state, count)?;
+    let newly_drawn: Vec<CardId> = state
+        .piles
+        .hand
+        .iter()
+        .filter(|card| !before.contains(&card.id))
+        .map(|card| card.id)
+        .collect();
+    for card_id in newly_drawn {
+        let Some(card) = state.piles.hand.iter().find(|card| card.id == card_id) else {
+            continue;
+        };
+        let cost = crate::combat::cost::effective_card_cost(card).unwrap_or(0);
+        if cost == 0 || card.free_to_play_once {
+            continue;
+        }
+        follow_ups.extend(move_card_between_piles(
+            state,
+            card_id,
+            CardPile::Hand,
+            CardPile::DiscardPile,
+        )?);
+    }
+    Ok(follow_ups)
+}
+
 pub(super) fn draw_random_attacks(
     state: &mut CombatState,
     count: usize,

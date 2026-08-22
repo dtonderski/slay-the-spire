@@ -209,6 +209,15 @@ pub(super) fn play_card_queue(
             cleave_queue(card_id, definition)
         }
         DAGGER_SPRAY_ANY_COLOR_ID => dagger_spray_queue(card_id, definition),
+        id if id == crate::content::cards::HALT_ANY_COLOR_ID => {
+            halt_queue(state, card_id, definition)
+        }
+        id if id == crate::content::cards::SCRAPE_ANY_COLOR_ID => scrape_queue(
+            state,
+            card_id,
+            target.expect("validated Scrape has a target"),
+            definition,
+        ),
         IMMOLATE_ID | IMMOLATE_PLUS_ID => immolate_queue(card_id, definition),
         TWIN_STRIKE_ID | TWIN_STRIKE_PLUS_ID => twin_strike_queue(
             state,
@@ -3531,6 +3540,66 @@ fn anger_queue(
             card_id,
             from: CardPile::Hand,
             to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn halt_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // Halt.upgradeBlock(1). Wrath extra block is unused outside Watcher stance.
+    let amount = required_block(definition)? + i32::from(upgrades > 0);
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainBlock { amount },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn scrape_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    let damage = required_damage(definition)? + if upgrades > 0 { 3 } else { 0 };
+    let draw = 4 + usize::from(upgrades > 0);
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: damage,
+            },
+        },
+        InternalAction::DrawThenScrapeDiscard { count: draw },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
         },
     ]))
 }

@@ -262,6 +262,11 @@ pub enum InternalAction {
     DrawCardsIfNoAttacksInHand {
         count: usize,
     },
+    /// Draw `count` cards, then discard those whose costForTurn is not 0
+    /// (`ScrapeFollowUpAction` over `DrawCardAction.drawnCards`).
+    DrawThenScrapeDiscard {
+        count: usize,
+    },
     DrawRandomAttacksFromDrawPile {
         count: usize,
     },
