@@ -92,6 +92,8 @@ pub const CRUSH_JOINTS_ANY_COLOR_ID: ContentId = ContentId::new(1_771_897_696_84
 pub const EVALUATE_ANY_COLOR_ID: ContentId = ContentId::new(1_976_629_370_609);
 /// Prismatic/Defect Boot Sequence — id matches `shop_card_content_id("BOOT_SEQUENCE")`.
 pub const BOOT_SEQUENCE_ANY_COLOR_ID: ContentId = ContentId::new(17_166_580_192_207_018_182);
+/// Prismatic/Defect Sweeping Beam — id matches `shop_card_content_id("SWEEPING_BEAM")`.
+pub const SWEEPING_BEAM_ANY_COLOR_ID: ContentId = ContentId::new(12_304_765_320_090_509_104);
 /// Curse granted by [crate::relic::Relic::Necronomicon] on equip. Unpurgeable.
 pub const NECRONOMICURSE_ID: ContentId = ContentId::new(74);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
@@ -5232,6 +5234,7 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | CRUSH_JOINTS_ANY_COLOR_ID
             | EVALUATE_ANY_COLOR_ID
             | BOOT_SEQUENCE_ANY_COLOR_ID
+            | SWEEPING_BEAM_ANY_COLOR_ID
     ) || (get_card_definition(id).is_none()
         && crate::run::reward::any_color_reward_card_key(id).is_some())
 }
@@ -5933,6 +5936,24 @@ pub static EMPTY_BODY_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static SWEEPING_BEAM_ANY_COLOR: CardDefinition = CardDefinition {
+    id: SWEEPING_BEAM_ANY_COLOR_ID,
+    key: "SWEEPING_BEAM",
+    name: "Sweeping Beam",
+    cost: 1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::AllEnemies,
+    values: CardValues {
+        // SweepingBeam.baseDamage is 6; upgradeDamage(3).
+        damage: Some(6),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub static BOOT_SEQUENCE_ANY_COLOR: CardDefinition = CardDefinition {
     id: BOOT_SEQUENCE_ANY_COLOR_ID,
     key: "BOOT_SEQUENCE",
@@ -6038,6 +6059,7 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == CRUSH_JOINTS_ANY_COLOR_ID).then_some(&CRUSH_JOINTS_ANY_COLOR))
         .or_else(|| (id == EVALUATE_ANY_COLOR_ID).then_some(&EVALUATE_ANY_COLOR))
         .or_else(|| (id == BOOT_SEQUENCE_ANY_COLOR_ID).then_some(&BOOT_SEQUENCE_ANY_COLOR))
+        .or_else(|| (id == SWEEPING_BEAM_ANY_COLOR_ID).then_some(&SWEEPING_BEAM_ANY_COLOR))
 }
 
 /// Returns the vanilla `AbstractCard.cardID` spelling for a modeled card.
