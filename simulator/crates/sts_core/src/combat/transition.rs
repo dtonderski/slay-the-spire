@@ -1304,6 +1304,9 @@ fn apply_internal_action_with_defer(
             player_actions::gain_sadistic_nature(state, amount)
         }
         InternalAction::GainMagnetism { amount } => player_actions::gain_magnetism(state, amount),
+        InternalAction::GainCreativeAI { amount } => {
+            player_actions::gain_creative_ai(state, amount)
+        }
         InternalAction::GainStorm { amount } => player_actions::gain_storm(state, amount),
         InternalAction::GainAfterImage { amount } => {
             player_actions::gain_after_image(state, amount)
@@ -3026,6 +3029,7 @@ fn is_play_top_deferred_power_gain(action: &InternalAction) -> bool {
             | InternalAction::GainCorruption { .. }
             | InternalAction::GainSadisticNature { .. }
             | InternalAction::GainMagnetism { .. }
+            | InternalAction::GainCreativeAI { .. }
             | InternalAction::GainStorm { .. }
             | InternalAction::GainAfterImage { .. }
             | InternalAction::GainStaticDischarge { .. }

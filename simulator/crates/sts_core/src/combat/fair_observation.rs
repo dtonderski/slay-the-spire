@@ -621,6 +621,7 @@ fn push_player_power_fields(result: &mut Vec<FairPower>, p: PlayerPowers) {
         ("fire_breathing", p.fire_breathing),
         ("corruption", p.corruption),
         ("magnetism", p.magnetism),
+        ("creative_ai", p.creative_ai),
         ("storm", p.storm),
         ("after_image", p.after_image),
         ("static_discharge", p.static_discharge),

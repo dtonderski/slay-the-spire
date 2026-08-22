@@ -356,6 +356,9 @@ pub enum InternalAction {
     GainMagnetism {
         amount: i32,
     },
+    GainCreativeAI {
+        amount: i32,
+    },
     GainStorm {
         amount: i32,
     },
