@@ -4142,11 +4142,11 @@ fn warcry_queue(
 }
 
 fn thinking_ahead_queue(
-    state: &CombatState,
+    _state: &CombatState,
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    let mut queue = VecDeque::from([
+    Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
@@ -4155,26 +4155,14 @@ fn thinking_ahead_queue(
         // UseCardAction's temporary cardInUse/limbo slot so a full hand can
         // receive both drawn cards before the selection settles.
         InternalAction::DrawCardsWhilePlayedCardIsInLimbo { card_id, count: 2 },
-    ]);
-
-    if lowest_other_hand_card(state, card_id).is_some() {
-        queue.push_back(InternalAction::AwaitHandSelect {
+        // ThinkingAhead.use() checks hand.size() while the source is still in
+        // hand, so PutOnDeckAction is always queued. After limbo + draw, the
+        // select opens when the remaining hand is larger than 1.
+        InternalAction::AwaitHandSelect {
             source_card_id: card_id,
             purpose: HandSelectPurpose::ThinkingAheadPutOnDraw,
-        });
-    } else {
-        queue.push_back(InternalAction::MoveCard {
-            card_id,
-            from: CardPile::Hand,
-            to: if definition.keywords.exhaust {
-                CardPile::ExhaustPile
-            } else {
-                CardPile::DiscardPile
-            },
-        });
-    }
-
-    Ok(queue)
+        },
+    ]))
 }
 
 fn draw_pile_cards_of_type(state: &CombatState, card_type: CardType) -> Vec<CardId> {

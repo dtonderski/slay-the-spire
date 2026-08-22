@@ -22,7 +22,10 @@ pub(super) fn await_hand_select(
     // is moved via getRandomCard(cardRandomRng) without a player decision — so a
     // lone drawn card is auto-placed and END is legal immediately (no CHOOSE/
     // CONFIRM). Empty hand (failed draw) still only settles the source.
-    if purpose == HandSelectPurpose::WarcryPutOnDraw {
+    if matches!(
+        purpose,
+        HandSelectPurpose::WarcryPutOnDraw | HandSelectPurpose::ThinkingAheadPutOnDraw
+    ) {
         let selectable: Vec<usize> = state
             .piles
             .hand

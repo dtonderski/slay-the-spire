@@ -1304,7 +1304,7 @@ fn warcry_empty_draw_shuffle_defers_sundial_energy_until_confirm() {
 }
 
 #[test]
-fn thinking_ahead_with_no_other_card_draws_without_putting_card_back() {
+fn thinking_ahead_with_only_source_in_hand_opens_select_after_drawing_two() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 0;
     state.piles.hand = vec![CardInstance::new(CardId::new(1), cards::THINKING_AHEAD_ID)];
@@ -1324,17 +1324,22 @@ fn thinking_ahead_with_no_other_card_draws_without_putting_card_back() {
     )
     .expect("Thinking Ahead plays without a pre-existing card to put back");
 
-    assert!(next.hand_select().is_none());
-    assert_eq!(next.piles.hand.len(), 2);
+    // use() sees the source still in hand, so PutOnDeckAction is always queued.
+    // Two drawn cards exceed amount=1 and open HandCardSelectScreen. The source
+    // stays staged in hand until CONFIRM (limbo stand-in).
+    assert!(next.hand_select().is_some());
+    assert_eq!(next.piles.hand.len(), 3);
+    assert!(next
+        .piles
+        .hand
+        .iter()
+        .any(|card| card.content_id == cards::THINKING_AHEAD_ID));
     assert!(next.piles.draw_pile.is_empty());
-    assert_eq!(
-        next.piles.exhaust_pile[0].content_id,
-        cards::THINKING_AHEAD_ID
-    );
+    assert!(next.piles.exhaust_pile.is_empty());
 }
 
 #[test]
-fn thinking_ahead_plus_with_no_other_card_draws_and_discards_without_selection() {
+fn thinking_ahead_plus_with_only_source_in_hand_opens_select_after_drawing_two() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 0;
     state.piles.hand = vec![CardInstance::new(
@@ -1357,14 +1362,18 @@ fn thinking_ahead_plus_with_no_other_card_draws_and_discards_without_selection()
     )
     .expect("Thinking Ahead+ plays without a pre-existing card to put back");
 
-    assert!(next.hand_select().is_none());
-    assert_eq!(next.piles.hand.len(), 2);
+    // Same PutOnDeck gate as unupgraded: two drawn cards open the select
+    // before UseCardAction discards the source.
+    assert!(next.hand_select().is_some());
+    assert_eq!(next.piles.hand.len(), 3);
+    assert!(next
+        .piles
+        .hand
+        .iter()
+        .any(|card| card.content_id == cards::THINKING_AHEAD_PLUS_ID));
     assert!(next.piles.draw_pile.is_empty());
     assert!(next.piles.exhaust_pile.is_empty());
-    assert_eq!(
-        next.piles.discard_pile[0].content_id,
-        cards::THINKING_AHEAD_PLUS_ID
-    );
+    assert!(next.piles.discard_pile.is_empty());
 }
 
 #[test]
