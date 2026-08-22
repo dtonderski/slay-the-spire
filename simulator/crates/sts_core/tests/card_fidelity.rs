@@ -937,11 +937,13 @@ fn havoc_force_played_warcry_keeps_source_until_put_on_deck_confirm() {
     .expect("Havoc should resolve Warcry's draw before its selection");
 
     assert!(next.hand_select().is_some());
-    assert!(next
-        .piles
-        .hand
-        .iter()
-        .any(|card| card.content_id == cards::WARCRY_ID));
+    assert!(
+        next.piles
+            .limbo
+            .iter()
+            .any(|card| card.content_id == cards::WARCRY_ID),
+        "forced Warcry stays in limbo until CONFIRM"
+    );
     assert!(!next
         .piles
         .exhaust_pile
@@ -1326,12 +1328,12 @@ fn thinking_ahead_with_only_source_in_hand_opens_select_after_drawing_two() {
 
     // use() sees the source still in hand, so PutOnDeckAction is always queued.
     // Two drawn cards exceed amount=1 and open HandCardSelectScreen. The source
-    // stays staged in hand until CONFIRM (limbo stand-in).
+    // is parked in limbo (cardInUse) until CONFIRM.
     assert!(next.hand_select().is_some());
-    assert_eq!(next.piles.hand.len(), 3);
+    assert_eq!(next.piles.hand.len(), 2);
     assert!(next
         .piles
-        .hand
+        .limbo
         .iter()
         .any(|card| card.content_id == cards::THINKING_AHEAD_ID));
     assert!(next.piles.draw_pile.is_empty());
@@ -1365,10 +1367,10 @@ fn thinking_ahead_plus_with_only_source_in_hand_opens_select_after_drawing_two()
     // Same PutOnDeck gate as unupgraded: two drawn cards open the select
     // before UseCardAction discards the source.
     assert!(next.hand_select().is_some());
-    assert_eq!(next.piles.hand.len(), 3);
+    assert_eq!(next.piles.hand.len(), 2);
     assert!(next
         .piles
-        .hand
+        .limbo
         .iter()
         .any(|card| card.content_id == cards::THINKING_AHEAD_PLUS_ID));
     assert!(next.piles.draw_pile.is_empty());

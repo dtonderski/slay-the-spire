@@ -147,6 +147,23 @@ pub(super) fn await_hand_select(
             return Ok(Vec::new());
         }
     }
+    if matches!(
+        purpose,
+        HandSelectPurpose::WarcryPutOnDraw | HandSelectPurpose::ThinkingAheadPutOnDraw,
+    ) {
+        // UseCardAction has already moved the source to limbo / cardInUse.
+        // Keeping a stand-in in hand makes a 10-card Warcry look full to
+        // Runic Cube's DrawCardAction after PutOnDeck (FIDL02183).
+        if let Some(index) = state
+            .piles
+            .hand
+            .iter()
+            .position(|card| card.id == source_card_id)
+        {
+            let source = state.piles.hand.remove(index);
+            state.piles.limbo.push(source);
+        }
+    }
     state.decision = Some(CombatDecisionState::HandSelect {
         state: crate::combat::HandSelectState {
             purpose,
