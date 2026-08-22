@@ -26,10 +26,10 @@ pub use combat::{
     starter_only_deck, validate_combat_action, CardPiles, CombatDecisionState, CombatPhase,
     CombatState, CombatTransition, DamageInfo, DamageSource, FairCard, FairCardDynamicValues,
     FairCombatObservation, FairCombatPhase, FairCounter, FairHandCard, FairIntentCategory,
-    FairMonster, FairMonsterIntent, FairObservationError, FairPile, FairPlayer, FairPotionSlot,
-    FairPower, FairRelic, FairRunContext, FairSelection, FairSelectionKind, FairSelectionOption,
-    MonsterIntent, MonsterState, PlayerState, SlimeSize, BASE_PLAYER_ENERGY,
-    FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION,
+    FairMonster, FairMonsterIntent, FairObservationError, FairOrb, FairOrbSlot, FairPile,
+    FairPlayer, FairPotionSlot, FairPower, FairRelic, FairRunContext, FairSelection,
+    FairSelectionKind, FairSelectionOption, MonsterIntent, MonsterState, PlayerState, SlimeSize,
+    BASE_PLAYER_ENERGY, FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION,
 };
 pub use content::ascension::AscensionConfig;
 pub use content::character::{BURNING_BLOOD_HEAL_AMOUNT, IRONCLAD_A0_BASE_HP};

@@ -95,8 +95,8 @@ fn resolve_end_of_turn_hand_inner(
     Ok(resolution)
 }
 
-pub(crate) fn discard_end_of_turn_hand(state: &mut CombatState) {
-    discard_non_retain_hand(state);
+pub(crate) fn discard_end_of_turn_hand(state: &mut CombatState) -> SimResult<()> {
+    discard_non_retain_hand(state)
 }
 
 /// Resolve only the end-turn cards that auto-play before the bulk hand discard.
@@ -314,11 +314,11 @@ pub(crate) fn exhaust_unplayed_ethereal_cards(
     })
 }
 
-fn discard_non_retain_hand(state: &mut CombatState) {
+fn discard_non_retain_hand(state: &mut CombatState) -> SimResult<()> {
     if state.relics.contains(&crate::Relic::RunicPyramid) {
-        apply_on_retained_card_effects(state);
+        apply_on_retained_card_effects(state)?;
         apply_sands_of_time_end_of_turn_cost(state);
-        return;
+        return Ok(());
     }
     let retain_hand = std::mem::take(&mut state.player.retain_hand_next_turn);
 
@@ -339,11 +339,12 @@ fn discard_non_retain_hand(state: &mut CombatState) {
     state.piles.hand = retained;
     discarded.reverse();
     state.piles.discard_pile.extend(discarded);
-    apply_on_retained_card_effects(state);
+    apply_on_retained_card_effects(state)?;
     apply_sands_of_time_end_of_turn_cost(state);
+    Ok(())
 }
 
-fn apply_on_retained_card_effects(state: &mut CombatState) {
+fn apply_on_retained_card_effects(state: &mut CombatState) -> SimResult<()> {
     use crate::content::cards::WINDMILL_STRIKE_ANY_COLOR_ID;
     for card in &mut state.piles.hand {
         if card.content_id != WINDMILL_STRIKE_ANY_COLOR_ID {
@@ -352,8 +353,14 @@ fn apply_on_retained_card_effects(state: &mut CombatState) {
         // WindmillStrike.onRetained: upgradeDamage(magicNumber).
         // magicNumber is 4, or 5 after upgradeMagicNumber(1).
         let bonus = if card.upgrades > 0 { 5 } else { 4 };
-        card.windmill_retain_damage = card.windmill_retain_damage.saturating_add(bonus);
+        card.windmill_retain_damage =
+            card.windmill_retain_damage
+                .checked_add(bonus)
+                .ok_or(SimError::InvalidState(
+                    "Windmill Strike retain damage overflows i32",
+                ))?;
     }
+    Ok(())
 }
 
 fn apply_sands_of_time_end_of_turn_cost(state: &mut CombatState) {
@@ -378,7 +385,7 @@ fn apply_sands_of_time_end_of_turn_cost(state: &mut CombatState) {
 mod tests {
     use super::*;
     use crate::{
-        content::cards::{BLOOD_FOR_BLOOD_ID, DEFEND_R_ID},
+        content::cards::{BLOOD_FOR_BLOOD_ID, DEFEND_R_ID, WINDMILL_STRIKE_ANY_COLOR_ID},
         ids::CardId,
         CardInstance,
     };
@@ -507,6 +514,23 @@ mod tests {
 
             assert_eq!(state.player.powers.strength, 2, "{content_id:?}");
         }
+    }
+
+    #[test]
+    fn windmill_retain_damage_overflow_is_rejected() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![CardInstance::new(
+            CardId::new(1),
+            WINDMILL_STRIKE_ANY_COLOR_ID,
+        )];
+        state.piles.hand[0].windmill_retain_damage = i32::MAX;
+
+        assert_eq!(
+            apply_on_retained_card_effects(&mut state),
+            Err(SimError::InvalidState(
+                "Windmill Strike retain damage overflows i32"
+            ))
+        );
     }
 
     #[test]

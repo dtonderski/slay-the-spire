@@ -288,11 +288,22 @@ pub(super) fn increase_max_orbs(
     state: &mut CombatState,
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
-    // AbstractPlayer.increaseMaxOrbSlots no-ops at 10.
-    if state.max_orbs >= 10 {
+    if amount <= 0 {
+        return Err(SimError::InvalidState(
+            "max orb slot increase must be positive",
+        ));
+    }
+    // AbstractPlayer.increaseMaxOrbSlots returns only when maxOrbs == 10.
+    // Otherwise it adds the complete amount, so Capacitor+ can take 9 to 12.
+    if state.max_orbs == 10 {
         return Ok(Vec::new());
     }
-    state.max_orbs = (state.max_orbs + amount).min(10);
+    state.max_orbs = state
+        .max_orbs
+        .checked_add(amount)
+        .ok_or(SimError::InvalidState(
+            "max orb slot increase overflows i32",
+        ))?;
     Ok(Vec::new())
 }
 
@@ -317,7 +328,11 @@ pub(super) fn dark_impulse(state: &mut CombatState) -> SimResult<Vec<InternalAct
     // DarkImpulseAction calls Dark.onEndOfTurn on each Dark orb.
     for orb in &mut state.orbs {
         if let crate::combat::CombatOrb::Dark { evoke } = orb {
-            *evoke = evoke.saturating_add(DARK_BASE_EVOKE);
+            *evoke = evoke
+                .checked_add(DARK_BASE_EVOKE)
+                .ok_or(SimError::InvalidState(
+                    "Dark orb evoke amount overflows i32",
+                ))?;
         }
     }
     Ok(Vec::new())
@@ -364,13 +379,34 @@ pub(super) fn lightning_orb_passive(state: &mut CombatState) -> SimResult<Vec<In
 }
 
 fn evoke_dark(state: &mut CombatState, amount: i32) -> SimResult<()> {
-    let Some(target) = super::random_living_monster_id(state) else {
+    // DarkOrbEvokeAction scans the monster group in order and replaces its
+    // target only for a strictly lower current HP. Ties therefore keep the
+    // first living monster and this path consumes no target RNG.
+    let Some(target) = state
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .min_by_key(|monster| monster.hp)
+        .map(|monster| monster.id)
+    else {
         return Ok(());
     };
-    let monster = super::living_monster_mut(state, target)?;
-    let hp_damage = crate::combat::damage::deal_unmodified_damage_to_monster(monster, amount);
-    crate::content::monsters::wake_lagavulin_on_damage(monster, hp_damage);
-    Ok(())
+    // AbstractOrb.applyLockOn runs before constructing Dark's THORNS
+    // DamageInfo. THORNS then bypasses ordinary attack modifiers.
+    let amount = if state
+        .monsters
+        .iter()
+        .find(|monster| monster.id == target)
+        .is_some_and(|monster| monster.powers.lock_on > 0)
+    {
+        amount
+            .checked_mul(3)
+            .ok_or(SimError::InvalidState("Lock-On orb damage overflows i32"))?
+            / 2
+    } else {
+        amount
+    };
+    super::deal_unmodified_damage_to_living_monster(state, target, amount)
 }
 
 pub(crate) fn apply_orb_end_of_turn_passives(state: &mut CombatState) -> SimResult<()> {
@@ -385,7 +421,11 @@ pub(crate) fn apply_orb_end_of_turn_passives(state: &mut CombatState) -> SimResu
             }
             crate::combat::CombatOrb::Dark { .. } => {
                 if let Some(crate::combat::CombatOrb::Dark { evoke }) = state.orbs.get_mut(index) {
-                    *evoke = evoke.saturating_add(DARK_BASE_EVOKE);
+                    *evoke = evoke
+                        .checked_add(DARK_BASE_EVOKE)
+                        .ok_or(SimError::InvalidState(
+                            "Dark orb evoke amount overflows i32",
+                        ))?;
                 }
             }
         }

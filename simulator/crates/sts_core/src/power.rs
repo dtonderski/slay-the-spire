@@ -121,6 +121,12 @@ fn is_zero_i32(value: &i32) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct MonsterPowers {
     pub vulnerable: i32,
+    /// Public PoisonPower amount. No modeled application source means this honestly remains zero.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub poison: i32,
+    /// Public Lock-On power amount used by orb damage.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub lock_on: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub mark: i32,
     pub weak: i32,

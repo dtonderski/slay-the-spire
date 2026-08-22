@@ -9,6 +9,8 @@ def test_fair_decision_is_typed_and_atomic() -> None:
     decision = env.decision()
 
     assert isinstance(decision.observation.hand, tuple)
+    assert decision.observation.schema_version == 2
+    assert isinstance(decision.observation.orb_slots, tuple)
     assert decision.decision_revision == 0
     assert decision.observation.hand
     assert all(choice.kind for choice in decision.choices)

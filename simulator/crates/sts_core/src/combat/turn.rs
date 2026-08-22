@@ -153,7 +153,6 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
             ),
         };
     } else {
-        let had_bomb_timer = !next.bomb_timers.is_empty();
         let stasis_cards_before_end_powers = next
             .monsters
             .iter()
@@ -218,7 +217,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         }
         let queued_autoplay = queued_end_turn_autoplay_ids(&next);
         let defer_combust_until_after_autoplay = hand_has_end_turn_autoplay_cards(&next);
-        crate::combat::turn_powers::apply_end_of_player_turn_powers_before_hand_deferred_with_combust(
+        let bomb_caused_terminal = crate::combat::turn_powers::apply_end_of_player_turn_powers_before_hand_deferred_with_combust(
             &mut next,
             &mut deferred_monster_deaths,
             !defer_combust_until_after_autoplay,
@@ -229,8 +228,11 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         // Metallicize.atEndOfTurnPreEndTurnCards addToBots GainBlock before
         // Regret is queued. Juggernaut can empty the field there and cancel
         // the card queue (FIDL02289 Giant Head 2 HP).
-        // The Bomb still explodes after Burn/Decay/Regret (FIDL01533).
-        if !had_bomb_timer && finish_combat_if_over(&mut next, started_with_living_monster)? {
+        // Only a firing Bomb that actually changed the encounter to terminal
+        // uses its distinct pre-victory hand ordering. A pending timer, or a
+        // timer present after another power caused lethal, follows the ordinary
+        // terminal path.
+        if !bomb_caused_terminal && finish_combat_if_over(&mut next, started_with_living_monster)? {
             return Ok(next);
         }
         // The Bomb's end-turn explosion can end combat before hand cleanup.
@@ -241,7 +243,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         // blockable THORNS loss before Burning Blood (FIDL00403: 3876 block 5
         // / Constricted 10 → 3877 after BB +6). Combust-only lethals continue
         // to skip Constricted after hand (FIDL00443).
-        if had_bomb_timer
+        if bomb_caused_terminal
             && started_with_living_monster
             && next
                 .monsters
@@ -362,7 +364,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         hand_nonempty_at_end_click,
         end_of_turn_hand.auto_play_emptied_hand,
     );
-    discard_end_of_turn_hand(&mut next);
+    discard_end_of_turn_hand(&mut next)?;
     if settle_pending_hidden_into_discard {
         let pending = std::mem::take(&mut next.pending_hidden_hand_card_until_end_turn);
         next.piles.discard_pile.extend(pending);
@@ -4280,6 +4282,33 @@ mod tests {
     }
 
     #[test]
+    fn pending_bomb_timer_does_not_claim_metallicize_juggernaut_lethal() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 40;
+        state.player.max_hp = 40;
+        state.player.powers.metallicize = 3;
+        state.player.powers.juggernaut = 7;
+        state.bomb_timers = vec![crate::combat::state::BombTimer {
+            turns_remaining: 2,
+            damage: 40,
+        }];
+        state.monsters.truncate(1);
+        state.monsters[0].hp = 7;
+        state.monsters[0].max_hp = 7;
+        state.monsters[0].alive = true;
+        state.monsters[0].intent = crate::MonsterIntent::Stun;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), BURN_ID)];
+        state.relics.clear();
+
+        let next = end_player_turn(&state)
+            .expect("Metallicize/Juggernaut causes lethal with a pending Bomb");
+
+        assert_eq!(next.phase, CombatPhase::Won);
+        assert_eq!(next.player.hp, 40, "noncausal Bomb must not autoplay Burn");
+        assert!(next.piles.hand.iter().any(|card| card.id == CardId::new(1)));
+    }
+
+    #[test]
     fn stone_calendar_respects_block_when_predicting_finish() {
         // FIDL00415: turn-7 Calendar deals 52 unmodified; Barricade block is
         // consumed first, so 20 HP + 60 block does not end combat early.
@@ -6792,6 +6821,80 @@ mod tests {
                 .map(|card| card.id)
                 .collect::<Vec<_>>(),
         );
+    }
+
+    #[test]
+    fn deferred_mayhem_exhaust_settlement_runs_ordinary_exhaust_hooks() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.mayhem = 1;
+        state.player.powers.evolve = 1;
+        state.player.powers.feel_no_pain = 3;
+        state.player.block = 0;
+        state.piles.hand.clear();
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(10), STRIKE_R_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(20), SLIMED_ID),
+            CardInstance::new(CardId::new(21), WOUND_ID),
+            CardInstance::new(CardId::new(22), DEFEND_R_ID),
+            CardInstance::new(CardId::new(23), DEFEND_R_ID),
+            CardInstance::new(CardId::new(24), DEFEND_R_ID),
+            CardInstance::new(CardId::new(25), DEFEND_R_ID),
+        ];
+        state.piles.exhaust_pile.clear();
+        state.monsters = vec![monster_state_for_ascension(
+            &LOOTER_A0,
+            MonsterId::new(1),
+            0,
+        )];
+
+        start_player_turn(&mut state).expect("Mayhem settles Slimed after Evolve draw");
+
+        assert_eq!(state.player.block, 3, "Feel No Pain must run on settlement");
+        assert!(state
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(20)));
+        assert!(state.deferred_mayhem_play_top_settlements.is_empty());
+        assert_eq!(state.card_in_use, None);
+    }
+
+    #[test]
+    fn deferred_mayhem_power_settlement_uses_played_power_removal() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.mayhem = 1;
+        state.player.powers.evolve = 1;
+        state.piles.hand.clear();
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(10), STRIKE_R_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(20), INFLAME_ID),
+            CardInstance::new(CardId::new(21), WOUND_ID),
+            CardInstance::new(CardId::new(22), DEFEND_R_ID),
+            CardInstance::new(CardId::new(23), DEFEND_R_ID),
+            CardInstance::new(CardId::new(24), DEFEND_R_ID),
+            CardInstance::new(CardId::new(25), DEFEND_R_ID),
+        ];
+        state.piles.exhaust_pile.clear();
+        state.monsters = vec![monster_state_for_ascension(
+            &LOOTER_A0,
+            MonsterId::new(1),
+            0,
+        )];
+
+        start_player_turn(&mut state).expect("Mayhem settles Inflame after Evolve draw");
+
+        assert_eq!(state.player.powers.strength, 2);
+        assert!(state
+            .piles
+            .hand
+            .iter()
+            .chain(state.piles.draw_pile.iter())
+            .chain(state.piles.discard_pile.iter())
+            .chain(state.piles.exhaust_pile.iter())
+            .chain(state.piles.limbo.iter())
+            .all(|card| card.id != CardId::new(20)));
+        assert!(state.deferred_mayhem_play_top_settlements.is_empty());
+        assert_eq!(state.card_in_use, None);
     }
 
     #[test]

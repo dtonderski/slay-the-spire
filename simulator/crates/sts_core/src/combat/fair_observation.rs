@@ -8,9 +8,9 @@ use crate::{
     card::CardInstance,
     combat::{
         cost::effective_card_cost_with_corruption, turn_powers::monster_damage_to_player,
-        CombatDecisionState, CombatPhase, CombatState, DiscardSelectPurpose, DrawSelectPurpose,
-        ExhaustSelectPurpose, HandSelectPurpose, MonsterIntent, MonsterState, PotionCardRewardKind,
-        SlimeSize,
+        CombatDecisionState, CombatOrb, CombatPhase, CombatState, DiscardSelectPurpose,
+        DrawSelectPurpose, ExhaustSelectPurpose, HandSelectPurpose, MonsterIntent, MonsterState,
+        PotionCardRewardKind, SlimeSize,
     },
     content::{cards::get_card_definition, monsters::get_monster_definition},
     potion::Potion,
@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, error::Error, fmt};
 
 /// Version of the serialized symbolic fair-combat observation contract.
-pub const FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION: u32 = 1;
+pub const FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -51,6 +51,8 @@ pub struct FairCombatObservation {
     pub context: FairRunContext,
     pub phase: FairCombatPhase,
     pub player: FairPlayer,
+    /// Public left-to-right orb slots. Empty slots are represented explicitly.
+    pub orb_slots: Vec<FairOrbSlot>,
     pub hand: Vec<FairHandCard>,
     pub draw_pile: FairPile,
     pub discard_pile: FairPile,
@@ -89,6 +91,20 @@ pub struct FairPlayer {
     pub powers: Vec<FairPower>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FairOrbSlot {
+    pub slot: usize,
+    pub orb: Option<FairOrb>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum FairOrb {
+    Lightning,
+    Frost,
+    Dark { evoke: i32 },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct FairCard {
     /// Stable public content key, never an internal numeric `ContentId`.
@@ -113,6 +129,8 @@ pub struct FairCardDynamicValues {
     pub rampage_damage_bonus: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ritual_dagger_damage_bonus: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub windmill_retain_damage: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -286,6 +304,22 @@ pub fn fair_combat_observation(
         })
         .collect::<Result<Vec<_>, _>>()?;
     let draw_cards = canonical_cards(&combat.piles.draw_pile, corruption_active)?;
+    let slot_count = usize::try_from(combat.max_orbs)
+        .map_err(|_| FairObservationError::InvalidAuthoritativeState)?;
+    if combat.orbs.len() > slot_count {
+        return Err(FairObservationError::InvalidAuthoritativeState);
+    }
+    let orb_slots = (0..slot_count)
+        .map(|slot| {
+            let orb = combat
+                .orbs
+                .get(slot)
+                .copied()
+                .map(project_orb)
+                .transpose()?;
+            Ok(FairOrbSlot { slot, orb })
+        })
+        .collect::<Result<Vec<_>, FairObservationError>>()?;
     let draw_order = if combat.relics.contains(&Relic::FrozenEye) {
         combat
             .piles
@@ -315,6 +349,7 @@ pub fn fair_combat_observation(
             max_energy: combat.player.max_energy,
             powers: project_player_powers(combat)?,
         },
+        orb_slots,
         hand,
         draw_pile: FairPile {
             count: combat.piles.draw_pile.len(),
@@ -387,8 +422,18 @@ pub(crate) fn project_card(
         dynamic: FairCardDynamicValues {
             rampage_damage_bonus: nonzero(card.rampage_damage_bonus),
             ritual_dagger_damage_bonus: nonzero(card.ritual_dagger_damage_bonus),
+            windmill_retain_damage: nonzero(card.windmill_retain_damage),
         },
     })
+}
+
+fn project_orb(orb: CombatOrb) -> Result<FairOrb, FairObservationError> {
+    match orb {
+        CombatOrb::Lightning => Ok(FairOrb::Lightning),
+        CombatOrb::Frost => Ok(FairOrb::Frost),
+        CombatOrb::Dark { evoke } if evoke >= 0 => Ok(FairOrb::Dark { evoke }),
+        CombatOrb::Dark { .. } => Err(FairObservationError::InvalidAuthoritativeState),
+    }
 }
 
 fn canonical_cards(
@@ -646,6 +691,8 @@ fn project_monster_powers(monster: &MonsterState) -> Vec<FairPower> {
     let mut result = Vec::new();
     for (key, amount) in [
         ("vulnerable", p.vulnerable),
+        ("poison", p.poison),
+        ("lock_on", p.lock_on),
         ("mark", p.mark),
         ("weak", p.weak),
         ("strength", p.strength),
@@ -1113,7 +1160,10 @@ fn nonzero(value: i32) -> Option<i32> {
 mod tests {
     use super::*;
     use crate::{
-        content::cards::{BASH_ID, DEFEND_R_ID, DUAL_WIELD_ID, INFLAME_ID, STRIKE_R_ID},
+        content::cards::{
+            BASH_ID, DEFEND_R_ID, DUAL_WIELD_ID, INFLAME_ID, STRIKE_R_ID,
+            WINDMILL_STRIKE_ANY_COLOR_ID,
+        },
         content::monsters::{monster_state, BRONZE_ORB_A0, GUARDIAN_A0, LOOTER_A0},
         CardId, CardInstance, MonsterId, StsRng,
     };
@@ -1379,6 +1429,69 @@ mod tests {
             });
 
         assert_hidden_equivalent("private counters, queues, and limbo", &left, &right);
+    }
+
+    #[test]
+    fn public_orb_slots_poison_and_windmill_damage_are_projected() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat");
+        combat.max_orbs = 3;
+        combat.orbs = vec![CombatOrb::Lightning, CombatOrb::Dark { evoke: 24 }];
+        combat.monsters[0].powers.poison = 5;
+        combat.monsters[0].powers.lock_on = 2;
+        combat.piles.hand = vec![CardInstance::new(
+            CardId::new(100),
+            WINDMILL_STRIKE_ANY_COLOR_ID,
+        )];
+        combat.piles.hand[0].windmill_retain_damage = 8;
+
+        let projected = observation(&run);
+        assert_eq!(projected.schema_version, 2);
+        assert_eq!(
+            projected.orb_slots,
+            vec![
+                FairOrbSlot {
+                    slot: 0,
+                    orb: Some(FairOrb::Lightning),
+                },
+                FairOrbSlot {
+                    slot: 1,
+                    orb: Some(FairOrb::Dark { evoke: 24 }),
+                },
+                FairOrbSlot { slot: 2, orb: None },
+            ]
+        );
+        assert!(projected.monsters[0].powers.contains(&FairPower {
+            key: "poison".to_owned(),
+            amount: 5,
+        }));
+        assert!(projected.monsters[0].powers.contains(&FairPower {
+            key: "lock_on".to_owned(),
+            amount: 2,
+        }));
+        assert_eq!(
+            projected.hand[0].card.dynamic.windmill_retain_damage,
+            Some(8)
+        );
+    }
+
+    #[test]
+    fn fair_projection_rejects_invalid_orb_contracts() {
+        let mut occupied = RunState::combat_fixture();
+        occupied.combat.as_mut().expect("combat").orbs = vec![CombatOrb::Frost];
+        assert_eq!(
+            fair_combat_observation(&occupied),
+            Err(FairObservationError::InvalidAuthoritativeState)
+        );
+
+        let mut negative_dark = RunState::combat_fixture();
+        let combat = negative_dark.combat.as_mut().expect("combat");
+        combat.max_orbs = 1;
+        combat.orbs = vec![CombatOrb::Dark { evoke: -1 }];
+        assert_eq!(
+            fair_combat_observation(&negative_dark),
+            Err(FairObservationError::InvalidAuthoritativeState)
+        );
     }
 
     #[test]

@@ -1,7 +1,11 @@
 # Fair Combat Observation V1
 
-Status: implemented Rust contract in `sts_core`.
-Last updated: 2026-07-23.
+Status: frozen historical V1 contract; current producers emit V2.
+Last updated: 2026-08-22.
+
+V2 is an additive revision documented in `fair_combat_api_design.md`: explicit
+orb slots, Windmill Strike retained damage, and visible Poison/Lock-On powers.
+The Python reader accepts stored V1 payloads with those additions absent.
 
 `fair_combat_observation(&RunState)` is the sole V1 projection entry point. It
 borrows the active run and combat, consumes no RNG, performs no transition, and

@@ -23,6 +23,17 @@ pub(super) fn gain_player_block(
     apply_player_card_block_gain(state, amount)
 }
 
+pub(super) fn gain_precomputed_player_card_block(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    if state.player.no_block_turns > 0 {
+        return Ok(Vec::new());
+    }
+    checked_add_combat_value(&mut state.player.block, amount)?;
+    Ok(juggernaut_follow_up_for_positive_block_gain(state, amount))
+}
+
 pub(super) fn gain_player_block_direct(
     state: &mut CombatState,
     amount: i32,

@@ -1,9 +1,14 @@
+import json
+from typing import cast
+
 import pytest
 
 import sts_sim
 from sts_sim import (
     Card,
+    FairCardDynamicValues,
     FairCombatObservation,
+    FairOrb,
     FairRunObservation,
     Potion,
     Relic,
@@ -34,6 +39,30 @@ def test_run_env_has_one_action_list_and_one_step_method() -> None:
 
     assert result.decision.revision == 1
     assert isinstance(result.decision.observation, FairCombatObservation)
+
+
+def test_schema_two_orbs_and_windmill_dynamic_value_are_typed() -> None:
+    env = RunEnv.combat_fixture()
+    state = env.full_state()
+    combat = cast(dict[str, object], state["combat"])
+    combat["max_orbs"] = 3
+    combat["orbs"] = ["Lightning", {"Dark": {"evoke": 24}}]
+
+    projected = RunEnv.from_state_json_for_debugging(json.dumps(state)).observation()
+
+    assert isinstance(projected, FairCombatObservation)
+    assert projected.schema_version == 2
+    assert projected.orb_slots[0].orb == FairOrb(type="lightning", evoke=None)
+    assert projected.orb_slots[1].orb == FairOrb(type="dark", evoke=24)
+    assert projected.orb_slots[2].orb is None
+    assert (
+        FairCardDynamicValues._from_payload({"windmill_retain_damage": 8})
+        .windmill_retain_damage
+        == 8
+    )
+    assert (
+        FairCardDynamicValues._from_payload({}).windmill_retain_damage is None
+    ), "stored V1 card payloads remain readable"
 
 
 def test_action_from_old_decision_is_stale() -> None:

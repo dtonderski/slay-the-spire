@@ -87,7 +87,7 @@ pub fn apply_combat_action_with_events(
         transition.state.opening_end_turn_pending = false;
         transition.state.preserve_temp_strength_on_next_start = true;
         crate::combat::hand::resolve_end_of_turn_hand(&mut transition.state)?;
-        crate::combat::hand::discard_end_of_turn_hand(&mut transition.state);
+        crate::combat::hand::discard_end_of_turn_hand(&mut transition.state)?;
         crate::combat::turn::settle_opening_end_turn_monster_and_draw(&mut transition.state)?;
     }
     transition.state.validate()?;
@@ -590,6 +590,21 @@ fn push_follow_up(
     follow_up: InternalAction,
     whirlwind_in_use: bool,
 ) {
+    // ResolveTopDrawCard represents a parked card-queue item. The target action
+    // manager drains every action already queued by the outer card—including
+    // exhaust callbacks—before servicing that card queue. Keep this as a lane
+    // rule rather than enumerating individual Feel No Pain, Dead Branch, or
+    // draw follow-ups.
+    if !matches!(follow_up, InternalAction::ResolveTopDrawCard { .. }) {
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::ResolveTopDrawCard { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
+    }
+
     if whirlwind_in_use && matches!(follow_up, InternalAction::GainBlockDirect { .. }) {
         // Whirlwind.use() only addToBots WhirlwindAction. UseCardAction then
         // addToBots Ornamental Fan / Rage GainBlock before that wrapper
@@ -742,6 +757,16 @@ fn push_follow_up(
             ..
         }
     ) {
+        // UseCardAction's constructor queues Pain with addToTop after
+        // Havoc.use has queued PlayTopCardAction. Pain therefore preempts top
+        // extraction; Runic Cube's resulting draw does too.
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::PlayTopDrawCard { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
         // Pain.triggerOnOtherCardPlayed uses addToTop. If the played card opens
         // a player-selection screen, its LoseHPAction must settle before that
         // screen becomes observable (Warcry/Burning Pact with Pain). Keep the
@@ -935,6 +960,16 @@ fn push_follow_up(
     }
 
     if matches!(follow_up, InternalAction::DrawCards { .. }) {
+        // Runic Cube's DrawCardAction is addToTop from Pain's pre-PlayTop HP
+        // loss, so it also preempts extraction. Other outer action-queue draws
+        // cannot be serviced behind the later parked card queue.
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::PlayTopDrawCard { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
         // PlayTopCardAction parks the selected card on the card queue, then the
         // action queue continues through UseCardAction. Dark Embrace's addToBot
         // DrawCardAction therefore consumes leftover draw before the parked card
@@ -1043,6 +1078,9 @@ fn apply_internal_action_with_defer(
             card_actions::set_hand_card_cost_for_combat(state, card_id, cost)
         }
         InternalAction::DealDamage { info } => damage_actions::deal_damage(state, info),
+        InternalAction::DealBaneDamageIfPoisoned { info } => {
+            damage_actions::deal_bane_damage_if_poisoned(state, info)
+        }
         InternalAction::DealBodySlamDamage { source, target } => {
             damage_actions::deal_body_slam_damage(state, source, target)
         }
@@ -1083,6 +1121,9 @@ fn apply_internal_action_with_defer(
         }
         InternalAction::HealPlayer { amount } => defense_actions::heal_player(state, amount),
         InternalAction::GainBlock { amount } => defense_actions::gain_player_block(state, amount),
+        InternalAction::GainPrecomputedCardBlock { amount } => {
+            defense_actions::gain_precomputed_player_card_block(state, amount)
+        }
         InternalAction::GainBlockDirect { amount } => {
             defense_actions::gain_player_block_direct(state, amount)
         }
@@ -1343,6 +1384,9 @@ fn apply_internal_action_with_defer(
         InternalAction::DarkImpulse => player_actions::dark_impulse(state),
         InternalAction::ForceEndTurn => {
             state.time_warp_end_turn = true;
+            Ok(Vec::new())
+        }
+        InternalAction::SettleForcedEndTurn => {
             settle_time_warp_end_turn_if_ready(state)?;
             Ok(Vec::new())
         }
@@ -3040,21 +3084,73 @@ fn is_play_top_draw_pile_insert(action: &InternalAction) -> bool {
 pub(crate) fn flush_deferred_mayhem_play_top_draw_inserts(
     state: &mut CombatState,
 ) -> SimResult<()> {
-    state.defer_mayhem_play_top_draw_inserts = false;
-    state.defer_mayhem_play_top_settlement = false;
-    let inserts = std::mem::take(&mut state.deferred_mayhem_play_top_draw_inserts);
-    if !inserts.is_empty() && state.player.hp > 0 {
-        let transition = process_internal_queue(state, VecDeque::from(inserts))?;
-        *state = transition.state;
+    let mut next = state.clone();
+    next.defer_mayhem_play_top_draw_inserts = false;
+    next.defer_mayhem_play_top_settlement = false;
+    let inserts = std::mem::take(&mut next.deferred_mayhem_play_top_draw_inserts);
+    if !inserts.is_empty() && next.player.hp > 0 {
+        let transition = process_internal_queue(&next, VecDeque::from(inserts))?;
+        next = transition.state;
     }
-    let settlements = std::mem::take(&mut state.deferred_mayhem_play_top_settlements);
-    for (card, dest) in settlements {
-        match dest {
-            CardPile::ExhaustPile => state.piles.exhaust_pile.push(card),
-            CardPile::DiscardPile => state.piles.discard_pile.push(card),
-            _ => {}
+
+    let mut settlement_ids = std::collections::HashSet::new();
+    for (card, destination) in &next.deferred_mayhem_play_top_settlements {
+        if !settlement_ids.insert(card.id)
+            || next
+                .piles
+                .hand
+                .iter()
+                .chain(next.piles.draw_pile.iter())
+                .chain(next.piles.discard_pile.iter())
+                .chain(next.piles.exhaust_pile.iter())
+                .chain(next.piles.limbo.iter())
+                .any(|candidate| candidate.id == card.id)
+        {
+            return Err(SimError::InvalidState(
+                "deferred Mayhem settlement has duplicate card ownership",
+            ));
+        }
+        if !matches!(destination, CardPile::DiscardPile | CardPile::ExhaustPile) {
+            return Err(SimError::InvalidState(
+                "deferred Mayhem settlement has invalid destination",
+            ));
         }
     }
+    if next.card_in_use.is_some() && !next.deferred_mayhem_play_top_settlements.is_empty() {
+        return Err(SimError::InvalidState(
+            "deferred Mayhem settlement would replace cardInUse",
+        ));
+    }
+
+    while !next.deferred_mayhem_play_top_settlements.is_empty() {
+        // Keep later parked sources authoritative while this settlement runs so
+        // Dead Branch and other generators cannot reuse one of their IDs.
+        let (card, destination) = next.deferred_mayhem_play_top_settlements.remove(0);
+        let card_id = card.id;
+        // Recreate the ordinary UseCardAction source shape only after residual
+        // inserts have drained. MoveCard then owns Spoon, Power removal, exhaust
+        // callbacks, Pen Nib cleanup, and Unceasing Top exactly as a normal play.
+        next.piles.hand.push(card);
+        next.card_in_use = Some(card_id);
+        if destination == CardPile::ExhaustPile && next.relics.contains(&crate::Relic::StrangeSpoon)
+        {
+            next.defer_strange_spoon_until_source_move = Some(card_id);
+        }
+        let movement = InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: destination,
+        };
+        let transition = process_internal_queue(&next, VecDeque::from([movement]))?;
+        next = transition.state;
+        if next.card_in_use != Some(card_id) {
+            return Err(SimError::InvalidState(
+                "deferred Mayhem settlement lost cardInUse ownership",
+            ));
+        }
+        next.card_in_use = None;
+    }
+    *state = next;
     Ok(())
 }
 
@@ -3322,10 +3418,14 @@ fn resolve_top_draw_card(
     let transition = process_internal_queue(state, immediate)?;
     *state = transition.state;
     if let Some(InternalAction::MoveCard { to, .. }) = deferred_source_move {
-        if let Some(index) = state.piles.hand.iter().position(|card| card.id == card_id) {
-            let card = state.piles.hand.remove(index);
-            state.deferred_mayhem_play_top_settlements.push((card, to));
-        }
+        let index = state
+            .piles
+            .hand
+            .iter()
+            .position(|card| card.id == card_id)
+            .ok_or(SimError::UnknownCard(card_id))?;
+        let card = state.piles.hand.remove(index);
+        state.deferred_mayhem_play_top_settlements.push((card, to));
     }
     state.play_top_resolving_depth = state.play_top_resolving_depth.saturating_sub(1);
     let nested_blocks = std::mem::take(&mut state.deferred_play_top_monster_blocks);
@@ -3628,7 +3728,7 @@ pub fn settle_queued_end_turn_discard_after_rejected_command(
 ) -> SimResult<()> {
     if state.opening_end_turn_pending {
         crate::combat::hand::resolve_end_of_turn_hand(state)?;
-        crate::combat::hand::discard_end_of_turn_hand(state);
+        crate::combat::hand::discard_end_of_turn_hand(state)?;
         state.opening_end_turn_pending = false;
         state.time_warp_end_turn_pre_discard_settled = true;
         return Ok(());
@@ -3646,7 +3746,7 @@ pub fn settle_queued_end_turn_discard_after_rejected_command(
         state.pending_end_turn_feel_no_pain_block = state
             .pending_end_turn_feel_no_pain_block
             .saturating_add(gained);
-        crate::combat::hand::discard_end_of_turn_hand(state);
+        crate::combat::hand::discard_end_of_turn_hand(state)?;
         state.resume_end_turn_after_nilrys_codex = false;
         state.nilrys_end_powers_pending = false;
         state.time_warp_end_turn_pre_discard_settled = true;
@@ -3666,7 +3766,7 @@ pub fn settle_time_warp_pre_discard_if_ready_public(state: &mut CombatState) -> 
         && state.decision.is_none()
     {
         let hand_nonempty_at_end_click = !state.piles.hand.is_empty();
-        crate::combat::hand::discard_end_of_turn_hand(state);
+        crate::combat::hand::discard_end_of_turn_hand(state)?;
         if hand_nonempty_at_end_click && !state.relics.contains(&crate::Relic::RunicPyramid) {
             let pending = std::mem::take(&mut state.pending_hidden_hand_card_until_end_turn);
             state.piles.discard_pile.extend(pending);
@@ -6358,6 +6458,94 @@ mod tests {
     use crate::rng::StsRng;
     use crate::run::potion::apply_exhaust_select_choice;
     use crate::{apply_combat_action_on_run, RunState};
+
+    #[test]
+    fn increase_max_orbs_rejects_nonpositive_amounts_and_overflow() {
+        let state = CombatState::initial_fixture();
+        for amount in [0, -1] {
+            assert_eq!(
+                process_internal_queue(
+                    &state,
+                    VecDeque::from([InternalAction::IncreaseMaxOrbs { amount }]),
+                ),
+                Err(SimError::InvalidState(
+                    "max orb slot increase must be positive"
+                ))
+            );
+        }
+
+        let mut overflowing = state;
+        overflowing.max_orbs = i32::MAX;
+        assert_eq!(
+            process_internal_queue(
+                &overflowing,
+                VecDeque::from([InternalAction::IncreaseMaxOrbs { amount: 1 }]),
+            ),
+            Err(SimError::InvalidState(
+                "max orb slot increase overflows i32"
+            ))
+        );
+    }
+
+    #[test]
+    fn deferred_mayhem_spoon_roll_follows_residual_card_random_insert() {
+        let card = CardInstance::new(CardId::new(100), SLIMED_ID);
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::StrangeSpoon];
+        state.defer_mayhem_play_top_settlement = true;
+        state.defer_mayhem_play_top_draw_inserts = true;
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(200), STRIKE_R_ID),
+            CardInstance::new(CardId::new(201), DEFEND_R_ID),
+        ];
+        let counter_before = state.rng.card_random_rng.counter();
+
+        let (mut queued, queue) = card_effects::play_top_draw_card_queue(&state, card, None, false)
+            .expect("deferred Mayhem Slimed queue");
+        assert_eq!(queued.rng.card_random_rng.counter(), counter_before);
+        assert_eq!(queued.defer_strange_spoon_until_source_move, Some(card.id));
+        assert!(queue.iter().any(|action| {
+            matches!(
+                action,
+                InternalAction::MoveCard {
+                    card_id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                } if *card_id == card.id
+            )
+        }));
+
+        let index = queued
+            .piles
+            .hand
+            .iter()
+            .position(|candidate| candidate.id == card.id)
+            .expect("staged Slimed");
+        let parked = queued.piles.hand.remove(index);
+        queued
+            .deferred_mayhem_play_top_settlements
+            .push((parked, CardPile::ExhaustPile));
+        queued.deferred_mayhem_play_top_draw_inserts.push(
+            InternalAction::AddGeneratedCardToDrawPileRandomSpot {
+                content_id: WOUND_ID,
+            },
+        );
+
+        let (result, events) =
+            crate::capture_rng_trace(|| flush_deferred_mayhem_play_top_draw_inserts(&mut queued));
+        result.expect("deferred insert and Spoon settlement resolve");
+
+        assert_eq!(queued.rng.card_random_rng.counter(), counter_before + 2);
+        assert_eq!(events.len(), 2);
+        assert!(matches!(
+            events[0].operation,
+            crate::RngTraceOperation::RandomInt { .. }
+        ));
+        assert!(matches!(
+            events[1].operation,
+            crate::RngTraceOperation::RandomBool { .. }
+        ));
+    }
 
     #[test]
     fn surrounded_back_attack_starts_on_shield_and_clears_after_elite_death() {

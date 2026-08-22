@@ -537,6 +537,31 @@ mod tests {
     }
 
     #[test]
+    fn prismatic_shard_derives_initial_orb_slot_during_run_combat_init() {
+        let mut run = RunState::map_fixture();
+        run.relics.push(Relic::PrismaticShard);
+        let mut base = CombatState::cultist_fixture();
+        base.max_orbs = 0;
+
+        let combat = run.init_combat(base).expect("combat initializes");
+
+        assert_eq!(combat.max_orbs, 1);
+        assert!(combat.orbs.is_empty());
+    }
+
+    #[test]
+    fn prismatic_shard_preserves_existing_orb_slots_during_run_combat_init() {
+        let mut run = RunState::map_fixture();
+        run.relics.push(Relic::PrismaticShard);
+        let mut base = CombatState::cultist_fixture();
+        base.max_orbs = 3;
+
+        let combat = run.init_combat(base).expect("combat initializes");
+
+        assert_eq!(combat.max_orbs, 3);
+    }
+
+    #[test]
     fn snecko_eye_does_not_grant_energy() {
         let mut run = RunState::map_fixture();
 
@@ -2566,6 +2591,12 @@ impl RunState {
         combat.player.max_energy = self.energy_per_turn;
         combat.player.energy = self.energy_per_turn;
         combat.relics = self.relics.clone();
+        // PrismaticShard.onEquip grants one orb slot to a non-Defect. Combat
+        // bases are commonly built before RunState relics are copied in, so
+        // preserve any existing slots while deriving the Shard minimum here.
+        if self.relics.contains(&Relic::PrismaticShard) {
+            combat.max_orbs = combat.max_orbs.max(1);
+        }
         if self.relics.contains(&Relic::Toolbox) {
             // AbstractRoom parks DrawCardAction behind Toolbox's opening
             // ChooseOneColorless action. Keep the shuffled pile authoritative

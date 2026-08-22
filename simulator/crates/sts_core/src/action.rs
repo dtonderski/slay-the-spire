@@ -63,6 +63,10 @@ pub enum InternalAction {
     DealDamage {
         info: DamageInfo,
     },
+    /// BaneAction checks for Poison only when its separately queued second hit resolves.
+    DealBaneDamageIfPoisoned {
+        info: DamageInfo,
+    },
     DealBodySlamDamage {
         source: CardId,
         target: MonsterId,
@@ -113,6 +117,10 @@ pub enum InternalAction {
         amount: i32,
     },
     GainBlock {
+        amount: i32,
+    },
+    /// A card precomputed its final block through applyPowers before queuing one GainBlockAction.
+    GainPrecomputedCardBlock {
         amount: i32,
     },
     GainBlockDirect {
@@ -384,8 +392,10 @@ pub enum InternalAction {
     ChannelDark,
     /// Darkness+ addToBot DarkImpulseAction: each Dark orb onEndOfTurn.
     DarkImpulse,
-    /// Conclude.use addToBot EndTurnAction.
+    /// PressEndTurnButtonAction requests an end turn without settling it inline.
     ForceEndTurn,
+    /// Settle the requested end turn after UseCardAction moves its source card.
+    SettleForcedEndTurn,
     /// JudgementAction: if target HP <= threshold, set HP to 0.
     ExecuteJudgement {
         target: MonsterId,
