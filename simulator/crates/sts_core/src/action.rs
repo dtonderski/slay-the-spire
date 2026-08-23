@@ -396,6 +396,8 @@ pub enum InternalAction {
     ForceEndTurn,
     /// Settle the requested end turn after UseCardAction moves its source card.
     SettleForcedEndTurn,
+    /// GremlinHorn.onMonsterDeath addToBots GainEnergy + Draw at the death.
+    ApplyGremlinHornOnDeath,
     /// JudgementAction: if target HP <= threshold, set HP to 0.
     ExecuteJudgement {
         target: MonsterId,

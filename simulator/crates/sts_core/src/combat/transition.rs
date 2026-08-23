@@ -994,6 +994,19 @@ fn push_follow_up(
         }
     }
 
+    if matches!(follow_up, InternalAction::ApplyGremlinHornOnDeath) {
+        // Conclude addToBots DamageAll then PressEndTurn; UseCardAction is
+        // already queued. Horn addToBots after the hit, so it drains after the
+        // source MoveCard and before the simulator's SettleForcedEndTurn.
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::SettleForcedEndTurn))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
+    }
+
     queue.push_back(follow_up);
 }
 
@@ -1397,12 +1410,11 @@ fn apply_internal_action_with_defer(
             Ok(Vec::new())
         }
         InternalAction::SettleForcedEndTurn => {
-            // GremlinHorn.onMonsterDeath addToBots GainEnergy + Draw during
-            // DamageAll, before the action manager empties and runs the flagged
-            // end turn. Flushing after SettleForcedEndTurn leaves an extra card
-            // and energy on the next turn (FIDL02294 Conclude + minion kill).
-            flush_pending_monster_death_relics_if_ready(state)?;
             settle_time_warp_end_turn_if_ready(state)?;
+            Ok(Vec::new())
+        }
+        InternalAction::ApplyGremlinHornOnDeath => {
+            crate::relic::apply_monster_death_relics(state)?;
             Ok(Vec::new())
         }
         InternalAction::ExecuteJudgement { target, threshold } => {
@@ -1948,18 +1960,17 @@ fn queue_monster_death_hooks(
         .find(|monster| monster.id == monster_id)
         .and_then(|monster| monster.stasis_card.take());
     apply_monster_death_non_stasis_hooks(state, monster_id)?;
-    if combat_continues_after_monster_death(state) && state.relics.contains(&Relic::GremlinHorn) {
-        state.pending_monster_death_relic_triggers = state
-            .pending_monster_death_relic_triggers
-            .checked_add(1)
-            .ok_or(SimError::InvalidState(
-                "combat death trigger counter overflows u32",
-            ))?;
-    }
-    Ok(stasis_card
+    let mut follow_ups = stasis_card
         .into_iter()
         .map(|card| InternalAction::AddCardInstanceToHandOrDiscard { card })
-        .collect())
+        .collect::<Vec<_>>();
+    // GremlinHorn.onMonsterDeath addToBots GainEnergy + Draw at the death
+    // inside DamageAll / the lethal hit, after the already-queued UseCardAction
+    // and before a simulator SettleForcedEndTurn artifact.
+    if combat_continues_after_monster_death(state) && state.relics.contains(&Relic::GremlinHorn) {
+        follow_ups.push(InternalAction::ApplyGremlinHornOnDeath);
+    }
+    Ok(follow_ups)
 }
 
 /// Queue one end-turn-power death in the same order as the target action
@@ -8456,7 +8467,7 @@ mod tests {
     }
 
     #[test]
-    fn queued_monster_death_counter_overflow_fails_without_wrapping() {
+    fn queued_monster_death_queues_gremlin_horn_follow_up() {
         let mut state = CombatState::initial_fixture();
         let dead_id = state.monsters[0].id;
         let mut survivor = state.monsters[0].clone();
@@ -8464,15 +8475,10 @@ mod tests {
         state.monsters[0].alive = false;
         state.monsters.push(survivor);
         state.relics.push(Relic::GremlinHorn);
-        state.pending_monster_death_relic_triggers = u32::MAX;
 
-        assert_eq!(
-            queue_monster_death_hooks(&mut state, dead_id),
-            Err(SimError::InvalidState(
-                "combat death trigger counter overflows u32"
-            ))
-        );
-        assert_eq!(state.pending_monster_death_relic_triggers, u32::MAX);
+        let follow_ups = queue_monster_death_hooks(&mut state, dead_id).expect("queue Horn");
+        assert_eq!(follow_ups, vec![InternalAction::ApplyGremlinHornOnDeath]);
+        assert_eq!(state.pending_monster_death_relic_triggers, 0);
     }
 
     #[test]
