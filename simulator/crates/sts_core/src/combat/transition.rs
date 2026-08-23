@@ -1679,6 +1679,16 @@ fn apply_on_card_play_powers(
         }
     }
 
+    if state.player.powers.after_image > 0 {
+        // AfterImagePower.onUseCard addToBot GainBlockAction from useCard,
+        // before UseCardAction. Beat of Death is onAfterUseCard at the start
+        // of UseCardAction, so the block is already queued (FIDL02358 Bash+
+        // absorbs 1 of 2 Beat of Death).
+        follow_ups.push(InternalAction::GainBlockDirect {
+            amount: state.player.powers.after_image,
+        });
+    }
+
     // BeatOfDeathPower.onAfterUseCard addToBot's THORNS DamageAction at the
     // start of UseCardAction, before that action exhausts the card. Feel No
     // Pain's onExhaust GainBlock is therefore still behind this hit.
@@ -1695,13 +1705,6 @@ fn apply_on_card_play_powers(
     if beat_of_death > 0 {
         follow_ups.push(InternalAction::DealThornsDamageToPlayer {
             amount: beat_of_death,
-        });
-    }
-
-    if state.player.powers.after_image > 0 {
-        // AfterImagePower.onUseCard addToBot GainBlockAction(amount).
-        follow_ups.push(InternalAction::GainBlockDirect {
-            amount: state.player.powers.after_image,
         });
     }
 
