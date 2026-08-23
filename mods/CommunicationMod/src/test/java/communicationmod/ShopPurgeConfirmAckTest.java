@@ -1,7 +1,8 @@
 package communicationmod;
 
 import com.megacrit.cardcrawl.dungeons.AbstractDungeon;
-import communicationmod.patches.ShopRoomPurgePatch;
+import communicationmod.patches.GridCardSelectScreenPatch;
+import communicationmod.patches.ShopScreenPatch;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -11,7 +12,7 @@ import static org.junit.Assert.assertTrue;
 public class ShopPurgeConfirmAckTest {
 
     @Test
-    public void shopPurgeConfirmBlocksUntilUpdatePurgeProcessesSelection() {
+    public void shopPurgeConfirmRetainsHoverAndResumesAfterShopScreenUpdatePurge() {
         assertTrue(ChoiceScreenUtils.shouldBlockAfterShopPurgeGridConfirm(
                 AbstractDungeon.CurrentScreen.SHOP, true));
         assertFalse(ChoiceScreenUtils.shouldBlockAfterShopPurgeGridConfirm(
@@ -19,25 +20,35 @@ public class ShopPurgeConfirmAckTest {
         assertFalse(ChoiceScreenUtils.shouldBlockAfterShopPurgeGridConfirm(
                 AbstractDungeon.CurrentScreen.NONE, true));
         assertFalse(ChoiceScreenUtils.shouldBlockAfterShopPurgeGridConfirm(
-                AbstractDungeon.CurrentScreen.REST, true));
+                AbstractDungeon.CurrentScreen.MAP, true));
 
-        assertFalse(ShopRoomPurgePatch.shouldResumeAfterShopUpdatePurge(false, false));
-        assertFalse(ShopRoomPurgePatch.shouldResumeAfterShopUpdatePurge(false, true));
-        assertFalse(ShopRoomPurgePatch.shouldResumeAfterShopUpdatePurge(true, false));
-        assertTrue(ShopRoomPurgePatch.shouldResumeAfterShopUpdatePurge(true, true));
+        assertTrue(GridCardSelectScreenPatch.shouldRetainHoveredCardForConfirm(true, true));
+        assertFalse(GridCardSelectScreenPatch.shouldRetainHoveredCardForConfirm(true, false));
+        assertFalse(GridCardSelectScreenPatch.shouldRetainHoveredCardForConfirm(false, true));
+
+        assertFalse(ShopScreenPatch.UpdatePurgePatch.shouldResumeAfterShopScreenUpdatePurge(false, false));
+        assertFalse(ShopScreenPatch.UpdatePurgePatch.shouldResumeAfterShopScreenUpdatePurge(false, true));
+        assertFalse(ShopScreenPatch.UpdatePurgePatch.shouldResumeAfterShopScreenUpdatePurge(true, false));
+        assertTrue(ShopScreenPatch.UpdatePurgePatch.shouldResumeAfterShopScreenUpdatePurge(true, true));
 
         GameStateListener.resetStateVariables();
         assertEquals(6, GameStateListener.getBoundarySchema());
         assertFalse(GameStateListener.isStateUpdateBlocked());
 
         GameStateListener.blockStateUpdate();
-        ShopRoomPurgePatch.resumeListenerIfShopPurgeCompleted(false, true);
+        if (ShopScreenPatch.UpdatePurgePatch.shouldResumeAfterShopScreenUpdatePurge(false, true)) {
+            GameStateListener.resumeStateUpdate();
+        }
         assertTrue(GameStateListener.isStateUpdateBlocked());
 
-        ShopRoomPurgePatch.resumeListenerIfShopPurgeCompleted(true, false);
+        if (ShopScreenPatch.UpdatePurgePatch.shouldResumeAfterShopScreenUpdatePurge(true, false)) {
+            GameStateListener.resumeStateUpdate();
+        }
         assertTrue(GameStateListener.isStateUpdateBlocked());
 
-        ShopRoomPurgePatch.resumeListenerIfShopPurgeCompleted(true, true);
+        if (ShopScreenPatch.UpdatePurgePatch.shouldResumeAfterShopScreenUpdatePurge(true, true)) {
+            GameStateListener.resumeStateUpdate();
+        }
         assertFalse(GameStateListener.isStateUpdateBlocked());
         assertFalse(GameStateListener.hasCompletingBoundary());
     }

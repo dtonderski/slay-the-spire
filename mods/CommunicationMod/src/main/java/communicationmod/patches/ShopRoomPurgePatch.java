@@ -1,7 +1,6 @@
 package communicationmod.patches;
 
 import com.evacipated.cardcrawl.modthespire.lib.SpirePatch;
-import com.evacipated.cardcrawl.modthespire.lib.SpirePostfixPatch;
 import com.evacipated.cardcrawl.modthespire.lib.SpirePrefixPatch;
 import com.evacipated.cardcrawl.modthespire.lib.SpireReturn;
 import com.megacrit.cardcrawl.cards.AbstractCard;
@@ -11,7 +10,6 @@ import com.megacrit.cardcrawl.rooms.ShopRoom;
 import com.megacrit.cardcrawl.vfx.UpgradeShineEffect;
 import com.megacrit.cardcrawl.vfx.cardManip.ShowCardBrieflyEffect;
 import com.megacrit.cardcrawl.core.Settings;
-import communicationmod.GameStateListener;
 
 /**
  * Vanilla {@code ShopRoom.updatePurge()} purges every non-empty
@@ -25,38 +23,18 @@ import communicationmod.GameStateListener;
  * Guard: only run the purge path for genuine purge selections. If an upgrade selection
  * is still pending, apply the smith upgrade instead (same outcome as CampfireSmithEffect).
  *
- * CommunicationMod shop-purge GRID CONFIRM also blocks {@link GameStateListener}
- * until this method processes a purge selection. {@code ShopScreen.purgeCard}
- * only opens the grid; resuming there never unblocks CONFIRM and would resume
- * too early when the purge option is chosen.
+ * Shop-purge GRID CONFIRM does not resume here. While the shop screen is up,
+ * {@code ShopScreen.updatePurge} consumes {@code selectedCards} first.
  */
 @SpirePatch(clz = ShopRoom.class, method = "updatePurge")
 public class ShopRoomPurgePatch {
 
-    private static boolean resumeAfterThisUpdate = false;
-
-    /**
-     * {@code updatePurge} runs every shop frame. Resume only when a genuine
-     * purge selection is present so CHOOSE purge (opening the grid) does not
-     * ack before CONFIRM, and empty frames after CONFIRM stay blocked until
-     * the grid has filled {@code selectedCards}.
-     */
-    public static boolean shouldResumeAfterShopUpdatePurge(
-            boolean hadSelectedCards,
-            boolean forPurge
-    ) {
-        return hadSelectedCards && forPurge;
-    }
-
     @SpirePrefixPatch
     public static SpireReturn<Void> Prefix(ShopRoom __instance) {
-        boolean hadSelectedCards = !AbstractDungeon.gridSelectScreen.selectedCards.isEmpty();
-        boolean forPurge = AbstractDungeon.gridSelectScreen.forPurge;
-        resumeAfterThisUpdate = shouldResumeAfterShopUpdatePurge(hadSelectedCards, forPurge);
-        if (!hadSelectedCards) {
+        if (AbstractDungeon.gridSelectScreen.selectedCards.isEmpty()) {
             return SpireReturn.Continue();
         }
-        if (forPurge) {
+        if (AbstractDungeon.gridSelectScreen.forPurge) {
             return SpireReturn.Continue();
         }
         if (AbstractDungeon.gridSelectScreen.forUpgrade) {
@@ -76,22 +54,5 @@ public class ShopRoomPurgePatch {
         // Non-purge, non-upgrade leftover selection must not spend gold.
         AbstractDungeon.gridSelectScreen.selectedCards.clear();
         return SpireReturn.Return(null);
-    }
-
-    @SpirePostfixPatch
-    public static void Postfix(ShopRoom __instance) {
-        if (resumeAfterThisUpdate) {
-            resumeAfterThisUpdate = false;
-            GameStateListener.resumeStateUpdate();
-        }
-    }
-
-    public static void resumeListenerIfShopPurgeCompleted(
-            boolean hadSelectedCards,
-            boolean forPurge
-    ) {
-        if (shouldResumeAfterShopUpdatePurge(hadSelectedCards, forPurge)) {
-            GameStateListener.resumeStateUpdate();
-        }
     }
 }
