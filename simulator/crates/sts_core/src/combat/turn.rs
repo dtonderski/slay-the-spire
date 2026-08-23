@@ -7091,6 +7091,64 @@ mod tests {
     }
 
     #[test]
+    fn stacked_mayhem_pops_second_top_before_pommel_draw() {
+        // PlayTopCardAction removes its top before use() addToBots Draw.
+        // Mayhem 2 must take Intimidate before Pommel draws the Wound
+        // (FIDL02199).
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(20), WOUND_ID),
+            CardInstance::new(CardId::new(21), crate::content::cards::INTIMIDATE_ID),
+            CardInstance::new(CardId::new(22), POMMEL_STRIKE_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.monsters = vec![monster_state_for_ascension(
+            &LOOTER_A0,
+            MonsterId::new(1),
+            0,
+        )];
+        let target = Some(state.monsters[0].id);
+
+        crate::combat::transition::apply_mayhem_play_top_cards(&mut state, &[target, target])
+            .expect("Mayhem 2 pops both tops first");
+
+        assert!(
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .any(|card| card.content_id == POMMEL_STRIKE_ID),
+            "Pommel must be played, discard={:?}",
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+        );
+        assert!(
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .chain(state.piles.exhaust_pile.iter())
+                .any(|card| card.content_id == crate::content::cards::INTIMIDATE_ID),
+            "Intimidate must be the second PlayTop, not the Pommel draw",
+        );
+        assert!(
+            state
+                .piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == WOUND_ID),
+            "Pommel should draw Wound after both PlayTops removed",
+        );
+    }
+
+    #[test]
     fn stacked_mayhem_plays_second_top_before_deep_breath_shuffle() {
         // MayhemPower queues both PlayTopCardActions before DeepBreath.use
         // addToBots ShuffleAction. The second PlayTop is therefore the card
