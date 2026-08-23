@@ -296,6 +296,11 @@ pub(crate) fn process_internal_queue(
         // insertion that can no longer be observed. Keep the gate generic for
         // all random-spot generated cards; surviving and revival paths retain
         // the normal insertion below.
+        //
+        // The same combat-end wipe drops later addToBot DamageActions that are
+        // not the in-flight hit: Guardian Sharp Hide (onUseCard) and Bite's
+        // HealAction. Last-enemy Spiker Thorns are handled at apply time
+        // because they are addToTop from onAttacked during the lethal hit.
         let combat_is_ending = next.player.hp <= 0
             || next
                 .monsters
@@ -306,6 +311,8 @@ pub(crate) fn process_internal_queue(
                 internal_action,
                 InternalAction::AddGeneratedCardToDrawPileRandomSpot { .. }
                     | InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost { .. }
+                    | InternalAction::DealThornsDamageToPlayer { .. }
+                    | InternalAction::HealPlayer { .. }
             )
         {
             event_log.push(internal_action);
@@ -1870,6 +1877,11 @@ fn apply_or_queue_spikes_to_player(
         return Ok(());
     }
     if monster_content_id == GUARDIAN_ID {
+        return Ok(());
+    }
+    // ThornsPower.onAttacked addToTops a DamageAction. When that hit ends the
+    // encounter, the queued thorns never resolve (last-enemy Spiker).
+    if !combat_continues_after_monster_death(state) {
         return Ok(());
     }
     let hp_loss = reflect_spikes_to_player(&mut state.player, &state.relics, spikes);
@@ -6533,7 +6545,7 @@ mod tests {
     use crate::content::monsters::{
         mark_awakened_one_half_dead, monster_state, AWAKENED_ONE_A0, BRONZE_ORB_A0, DAGGER_A0,
         DARKLING_A0, FUNGI_BEAST_A0, GUARDIAN_A0, JAW_WORM_A0, REPTOMANCER_A0, SNAKE_PLANT_A0,
-        SPIRE_SHIELD_A0, SPIRE_SPEAR_A0,
+        SPIKER_A0, SPIRE_SHIELD_A0, SPIRE_SPEAR_A0,
     };
     use crate::relic::INK_BOTTLE_THRESHOLD;
     use crate::rng::StsRng;
@@ -9470,6 +9482,138 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![DEFEND_R_ID]
         );
+    }
+
+    #[test]
+    fn lethal_strike_on_last_guardian_skips_sharp_hide() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&GUARDIAN_A0, target)];
+        state.monsters[0].powers.spikes = 3;
+        state.monsters[0].hp = 5;
+        state.monsters[0].block = 0;
+        state.player.hp = 80;
+        state.player.block = 0;
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("lethal Strike should kill Guardian without Sharp Hide");
+
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.player.hp, 80);
+    }
+
+    #[test]
+    fn lethal_strike_on_last_spiker_skips_thorns() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&SPIKER_A0, target)];
+        state.monsters[0].powers.spikes = 9;
+        state.monsters[0].hp = 5;
+        state.monsters[0].block = 0;
+        state.player.hp = 80;
+        state.player.block = 0;
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("lethal Strike should kill last Spiker without thorns");
+
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.player.hp, 80);
+    }
+
+    #[test]
+    fn lethal_strike_on_spiker_with_ally_alive_applies_thorns() {
+        let target = MonsterId::new(1);
+        let ally = MonsterId::new(2);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![
+            monster_state(&SPIKER_A0, target),
+            monster_state(&SPIKER_A0, ally),
+        ];
+        state.monsters[0].powers.spikes = 9;
+        state.monsters[0].hp = 5;
+        state.monsters[0].block = 0;
+        state.monsters[1].hp = 40;
+        state.player.hp = 80;
+        state.player.block = 0;
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("lethal Strike should apply Spiker thorns while combat continues");
+
+        assert!(!next.monsters[0].alive);
+        assert!(next.monsters[1].alive);
+        assert_eq!(next.player.hp, 71);
+    }
+
+    #[test]
+    fn lethal_bite_on_last_enemy_skips_heal() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].hp = 5;
+        state.monsters[0].block = 0;
+        state.player.hp = 50;
+        state.player.max_hp = 80;
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), BITE_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("lethal Bite should skip the follow-up HealAction");
+
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.player.hp, 50);
+    }
+
+    #[test]
+    fn nonlethal_bite_still_heals() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].hp = 40;
+        state.monsters[0].block = 0;
+        state.player.hp = 50;
+        state.player.max_hp = 80;
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), BITE_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("non-lethal Bite should heal");
+
+        assert!(next.monsters[0].alive);
+        assert_eq!(next.player.hp, 52);
     }
 
     #[test]
