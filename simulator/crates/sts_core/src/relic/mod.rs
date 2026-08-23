@@ -2243,6 +2243,22 @@ pub fn apply_shuffle_relics(state: &mut CombatState) -> SimResult<Vec<InternalAc
     Ok(follow_ups)
 }
 
+#[must_use]
+pub fn monster_death_relic_actions(state: &CombatState) -> Vec<crate::action::InternalAction> {
+    if state.relics.contains(&Relic::GremlinHorn) {
+        vec![
+            crate::action::InternalAction::GainEnergy {
+                amount: GREMLIN_HORN_ENERGY,
+            },
+            crate::action::InternalAction::DrawCards {
+                count: GREMLIN_HORN_DRAW,
+            },
+        ]
+    } else {
+        Vec::new()
+    }
+}
+
 pub fn apply_monster_death_relics(state: &mut CombatState) -> SimResult<()> {
     let mut next = state.clone();
     if next.relics.contains(&Relic::GremlinHorn) {
@@ -2511,27 +2527,42 @@ pub fn reset_turn_relic_counters(state: &mut CombatState) {
     state.relic_counters.orange_pellets_power_played = false;
 }
 
-pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<i32> {
+pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<Vec<i32>> {
     if !has_start_of_turn_relic(state) {
-        return Ok(0);
+        return Ok(Vec::new());
     }
 
     checked_increment_relic_counter(&mut state.relic_counters.player_turns_started)?;
-    let mut deferred_juggernaut_block: i32 = 0;
+    let mut deferred_juggernaut_blocks = Vec::new();
 
-    if state.relic_counters.self_forming_clay_next_turn_block > 0 {
-        let block = state.relic_counters.self_forming_clay_next_turn_block;
-        state.relic_counters.self_forming_clay_next_turn_block = 0;
-        // SelfFormingClay.atTurnStart addToBots GainBlockAction. DrawCardAction
-        // is already queued, so Juggernaut's DamageRandomEnemyAction lands
-        // after the hand's Confusion rolls (FIDL02206).
-        crate::combat::transition::apply_player_direct_block_gain_without_juggernaut(state, block)?;
-        deferred_juggernaut_block =
-            deferred_juggernaut_block
-                .checked_add(block)
-                .ok_or(SimError::InvalidState(
-                    "start-of-turn relic Juggernaut block overflows i32",
-                ))?;
+    // AbstractPlayer applies start-of-turn relic callbacks in relic-list order.
+    // Each block relic queues its own GainBlockAction; those separate actions
+    // each call Juggernaut and therefore must not be collapsed into one sum.
+    for relic in state.relics.clone() {
+        let block = match relic {
+            Relic::SelfFormingClay
+                if state.relic_counters.self_forming_clay_next_turn_block > 0 =>
+            {
+                std::mem::take(&mut state.relic_counters.self_forming_clay_next_turn_block)
+            }
+            Relic::HornCleat if state.relic_counters.player_turns_started == HORN_CLEAT_TURN => {
+                HORN_CLEAT_BLOCK
+            }
+            Relic::CaptainsWheel
+                if state.relic_counters.player_turns_started == CAPTAINS_WHEEL_TURN =>
+            {
+                CAPTAINS_WHEEL_BLOCK
+            }
+            _ => 0,
+        };
+        if block > 0 {
+            // The GainBlockAction is ahead of the already-queued hand draw;
+            // Juggernaut's addToBot damage waits behind that draw.
+            crate::combat::transition::apply_player_direct_block_gain_without_juggernaut(
+                state, block,
+            )?;
+            deferred_juggernaut_blocks.push(block);
+        }
     }
 
     if state.relics.contains(&Relic::HappyFlower) {
@@ -2558,36 +2589,6 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<i
         checked_add_relic_value(&mut state.player.energy, ART_OF_WAR_ENERGY)?;
     }
 
-    match state.relic_counters.player_turns_started {
-        HORN_CLEAT_TURN if state.relics.contains(&Relic::HornCleat) => {
-            // HornCleat.atTurnStart addToBots GainBlockAction(14). Juggernaut
-            // waits behind the already-queued DrawCardAction.
-            crate::combat::transition::apply_player_direct_block_gain_without_juggernaut(
-                state,
-                HORN_CLEAT_BLOCK,
-            )?;
-            deferred_juggernaut_block = deferred_juggernaut_block
-                .checked_add(HORN_CLEAT_BLOCK)
-                .ok_or(SimError::InvalidState(
-                    "start-of-turn relic Juggernaut block overflows i32",
-                ))?;
-        }
-        CAPTAINS_WHEEL_TURN if state.relics.contains(&Relic::CaptainsWheel) => {
-            // Captain's Wheel atTurnStart addToBots GainBlockAction. Juggernaut
-            // waits behind DrawCardAction (FIDL00244/FIDL01632).
-            crate::combat::transition::apply_player_direct_block_gain_without_juggernaut(
-                state,
-                CAPTAINS_WHEEL_BLOCK,
-            )?;
-            deferred_juggernaut_block = deferred_juggernaut_block
-                .checked_add(CAPTAINS_WHEEL_BLOCK)
-                .ok_or(SimError::InvalidState(
-                    "start-of-turn relic Juggernaut block overflows i32",
-                ))?;
-        }
-        _ => {}
-    }
-
     if state.relics.contains(&Relic::Brimstone) {
         checked_add_relic_value(&mut state.player.powers.strength, BRIMSTONE_PLAYER_STRENGTH)?;
         for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
@@ -2602,7 +2603,7 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<i
             checked_add_relic_value(&mut state.player.powers.intangible, 1)?;
         }
     }
-    Ok(deferred_juggernaut_block)
+    Ok(deferred_juggernaut_blocks)
 }
 
 pub fn apply_start_of_player_turn_post_draw_relics(state: &mut CombatState) -> SimResult<()> {

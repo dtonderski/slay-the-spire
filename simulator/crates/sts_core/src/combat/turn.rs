@@ -759,14 +759,11 @@ fn start_player_turn_in_place(
     let deferred_start_relic_juggernaut = if apply_start_relics {
         crate::relic::apply_start_of_player_turn_relics(state)?
     } else {
-        0
+        Vec::new()
     };
     if !draw_hand {
-        if deferred_start_relic_juggernaut > 0 {
-            crate::combat::transition::apply_juggernaut_after_direct_block_gain(
-                state,
-                deferred_start_relic_juggernaut,
-            )?;
+        for block in deferred_start_relic_juggernaut {
+            crate::combat::transition::apply_juggernaut_after_direct_block_gain(state, block)?;
         }
         state.phase = CombatPhase::WaitingForPlayer;
         return Ok(());
@@ -781,11 +778,8 @@ fn start_player_turn_in_place(
     let base_draw_follow_ups = draw_next_hand_without_shuffle_deferred(state)?;
     // Start-of-turn relic GainBlockAction is addToBot before DrawCardAction.
     // Juggernaut onGainedBlock addToBots DamageRandomEnemy behind that draw.
-    if deferred_start_relic_juggernaut > 0 {
-        crate::combat::transition::apply_juggernaut_after_direct_block_gain(
-            state,
-            deferred_start_relic_juggernaut,
-        )?;
+    for block in deferred_start_relic_juggernaut {
+        crate::combat::transition::apply_juggernaut_after_direct_block_gain(state, block)?;
     }
     if state.player.powers.draw_reduction > 0 {
         if state.player.powers.draw_reduction_first_draw_seen {
@@ -847,6 +841,10 @@ fn start_player_turn_in_place(
     // PlayTopCardAction only queued the cards. Fire Breathing (and Evolve
     // residuals) sit on the action queue, so they resolve before cardQueue
     // calls use(). A dead Mayhem target then skips that use() (FIDL02199).
+    // That outer action queue is now empty, so each cardQueue item may settle
+    // normally before the next parked Mayhem card is serviced.
+    state.defer_mayhem_play_top_draw_inserts = false;
+    state.defer_mayhem_play_top_settlement = false;
     if !pending_mayhem_play_tops.is_empty() && state.player.hp > 0 {
         let transition =
             crate::combat::transition::process_internal_queue(state, pending_mayhem_play_tops)?;
@@ -1476,14 +1474,30 @@ fn execute_generic_monster_intent(
         || deferred_burn_to_discard > 0
         || deferred_upgrade_burns > 0
     {
+        let total_player_thorns =
+            checked_turn_add(state.player.powers.thorns, state.player.temp_thorns)?;
         let heal_self_thorns = if heal_self.is_some() {
-            checked_turn_mul(
-                checked_turn_add(state.player.powers.thorns, state.player.temp_thorns)?,
-                hits.max(1),
-            )?
+            checked_turn_mul(total_player_thorns, hits.max(1))?
         } else {
             0
         };
+        let multi_hit = matches!(
+            intent,
+            crate::MonsterIntent::AttackMultiple { .. }
+                | crate::MonsterIntent::AttackMultipleApplyPlayerWeak { .. }
+                | crate::MonsterIntent::AttackMultipleAddDazedToDiscard { .. }
+                | crate::MonsterIntent::AttackMultipleUpgradeBurns { .. }
+        );
+        let queued_multi_hit_thorns = if multi_hit && state.player.powers.static_discharge > 0 {
+            total_player_thorns
+        } else {
+            0
+        };
+        let precomputed_thorns_owner_death = multi_hit
+            && queued_multi_hit_thorns == 0
+            && total_player_thorns > 0
+            && actor_was_alive
+            && !state.monsters[index].alive;
         let plated_armor_before_thorns_damage = state.player.powers.plated_armor;
         apply_monster_pending_effects(
             state,
@@ -1493,6 +1507,8 @@ fn execute_generic_monster_intent(
             state.monsters[index].powers.painful_stabs,
             heal_self,
             heal_self_thorns,
+            queued_multi_hit_thorns,
+            precomputed_thorns_owner_death,
             burn_to_discard_and_draw,
             weak,
             deferred_burn_to_discard,
@@ -1904,6 +1920,8 @@ fn execute_spawning_or_targeted_special_intent(
                 None,
                 0,
                 0,
+                false,
+                0,
                 0,
                 0,
                 false,
@@ -2249,6 +2267,8 @@ fn apply_monster_pending_effects(
     painful_stabs: i32,
     heal_self: Option<MonsterId>,
     heal_self_thorns: i32,
+    queued_multi_hit_thorns: i32,
+    precomputed_thorns_owner_death: bool,
     burn_to_discard_and_draw: i32,
     weak: i32,
     burn_to_discard: i32,
@@ -2279,18 +2299,17 @@ fn apply_monster_pending_effects(
     let mut total_hp_damage = 0;
     let mut painful_stabs_triggers = 0;
     let hit_count = hits.max(1);
-    // ThornsPower.onAttacked addToBots retaliation, so a Byrd can die in the
-    // intent resolver before these DamageActions run and still deliver every
-    // queued peck. StaticDischargePower.onAttacked addToTops ChannelAction, so
-    // a full-slot evoke can kill Deca between beams (FIDL02358).
-    let skip_after_mid_hit_death = !attacker_is_dying_or_dead(state, attacker_index);
+    // Legacy thorns-only preparation has already reduced `hits` to the exact
+    // normal DamageActions that were queued before the owner died. The combined
+    // Thorns + Static Discharge path remains causal instead: both reactions are
+    // addToTop, and a Lightning evoke may cancel later normal hits (FIDL02358).
     if damage > 0 && hit_count > 1 {
         let hit_damage = damage / hit_count;
         for _ in 0..hit_count {
             if state.player.hp <= 0 {
                 break;
             }
-            if skip_after_mid_hit_death && attacker_is_dying_or_dead(state, attacker_index) {
+            if !precomputed_thorns_owner_death && attacker_is_dying_or_dead(state, attacker_index) {
                 break;
             }
             let hp_damage = deal_damage_to_player_with_draw_policy(
@@ -2302,6 +2321,9 @@ fn apply_monster_pending_effects(
                 painful_stabs_triggers = checked_turn_add(painful_stabs_triggers, painful_stabs)?;
             }
             total_hp_damage = checked_turn_add(total_hp_damage, hp_damage)?;
+            if queued_multi_hit_thorns > 0 && state.player.hp > 0 {
+                apply_queued_multi_hit_thorns(state, attacker_index, queued_multi_hit_thorns)?;
+            }
         }
     } else if damage > 0 {
         let hp_damage = deal_damage_to_player(state, damage)?;
@@ -2381,6 +2403,30 @@ fn apply_monster_pending_effects(
             upgrade_burns,
             allocated_card_id_through,
         )?;
+    }
+    Ok(())
+}
+
+fn apply_queued_multi_hit_thorns(
+    state: &mut CombatState,
+    attacker_index: Option<usize>,
+    amount: i32,
+) -> SimResult<()> {
+    let Some(index) = attacker_index else {
+        return Ok(());
+    };
+    let Some(attacker) = state.monsters.get(index) else {
+        return Ok(());
+    };
+    if !attacker.alive || amount <= 0 {
+        return Ok(());
+    }
+    let attacker_id = attacker.id;
+    let was_alive = attacker.alive;
+    crate::combat::damage::deal_unmodified_damage_to_monster(&mut state.monsters[index], amount);
+    check_slime_boss_split(state, attacker_id);
+    if was_alive && !state.monsters[index].alive && !state.monsters[index].escaped {
+        crate::combat::transition::apply_monster_death_hooks(state, attacker_id)?;
     }
     Ok(())
 }
@@ -3860,6 +3906,8 @@ mod tests {
                 None,
                 0,
                 0,
+                false,
+                0,
                 1,
                 0,
                 false,
@@ -4012,6 +4060,30 @@ mod tests {
         assert_eq!(
             state.piles.hand[0].temp_cost, without_juggernaut_first,
             "Confusion must roll before Clay Juggernaut chooses a target"
+        );
+    }
+
+    #[test]
+    fn independent_start_turn_block_relics_each_trigger_juggernaut() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.juggernaut = 7;
+        state.relics = vec![Relic::HornCleat, Relic::SelfFormingClay];
+        state.relic_counters.player_turns_started = 1;
+        state.relic_counters.self_forming_clay_next_turn_block = 3;
+        state.monsters = vec![monster_state_for_ascension(
+            &GIANT_HEAD_A0,
+            MonsterId::new(1),
+            state.ascension,
+        )];
+        state.monsters[0].hp = 100;
+        state.monsters[0].max_hp = 100;
+
+        start_player_turn(&mut state).expect("Horn Cleat and Clay start-turn actions");
+
+        assert_eq!(state.player.block, 17);
+        assert_eq!(
+            state.monsters[0].hp, 86,
+            "two GainBlockActions must produce two Juggernaut callbacks"
         );
     }
 
@@ -5690,6 +5762,8 @@ mod tests {
             None,
             0,
             0,
+            false,
+            0,
             0,
             0,
             false,
@@ -5730,6 +5804,8 @@ mod tests {
             /*painful_stabs=*/ 1,
             None,
             0,
+            0,
+            false,
             0,
             0,
             0,
@@ -5772,6 +5848,8 @@ mod tests {
             /*painful_stabs=*/ 1,
             None,
             0,
+            0,
+            false,
             0,
             0,
             0,
@@ -5826,6 +5904,8 @@ mod tests {
             None,
             0,
             0,
+            false,
+            0,
             0,
             0,
             false,
@@ -5841,6 +5921,52 @@ mod tests {
         assert_eq!(
             state.player.hp, 70,
             "second beam hit must cancel after the attacker dies"
+        );
+    }
+
+    #[test]
+    fn queued_thorns_does_not_mask_static_discharge_mid_hit_death() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 80;
+        state.player.block = 0;
+        state.player.powers.static_discharge = 1;
+        state.player.powers.thorns = 3;
+        state.max_orbs = 3;
+        state.orbs = vec![
+            crate::combat::CombatOrb::Lightning,
+            crate::combat::CombatOrb::Lightning,
+            crate::combat::CombatOrb::Lightning,
+        ];
+        state.monsters[0].hp = 6;
+        state.monsters[0].block = 0;
+        state.monsters[0].alive = true;
+
+        apply_monster_pending_effects(
+            &mut state,
+            crate::MonsterIntent::AttackMultiple {
+                damage: 10,
+                hits: 2,
+            },
+            20,
+            2,
+            0,
+            None,
+            0,
+            3,
+            false,
+            0,
+            0,
+            0,
+            false,
+            0,
+            Some(0),
+        )
+        .expect("combined Thorns and Static Discharge");
+
+        assert!(!state.monsters[0].alive);
+        assert_eq!(
+            state.player.hp, 70,
+            "Static Discharge kills after hit one, so hit two must cancel"
         );
     }
 
@@ -7165,6 +7291,52 @@ mod tests {
                 .iter()
                 .any(|card| card.content_id == WOUND_ID),
             "Pommel should draw Wound after both PlayTops removed",
+        );
+    }
+
+    #[test]
+    fn stacked_mayhem_settles_first_card_before_second_card_queue_item() {
+        let first = CardId::new(21);
+        let second = CardId::new(22);
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.dark_embrace = 1;
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(20), WOUND_ID),
+            CardInstance::new(second, crate::content::cards::CLASH_ID),
+            CardInstance::new(first, SLIMED_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.monsters = vec![monster_state_for_ascension(
+            &LOOTER_A0,
+            MonsterId::new(1),
+            0,
+        )];
+        let target = Some(state.monsters[0].id);
+
+        let resolves =
+            crate::combat::transition::pop_mayhem_play_top_cards(&mut state, &[None, target])
+                .expect("pop both Mayhem tops");
+        let hp_before = state.monsters[0].hp;
+        let transition = crate::combat::transition::process_internal_queue(&state, resolves)
+            .expect("service Mayhem card queue");
+
+        assert!(transition
+            .state
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == first));
+        assert!(transition
+            .state
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == WOUND_ID));
+        assert_eq!(
+            transition.state.monsters[0].hp, hp_before,
+            "Slimed settlement must let Dark Embrace draw Wound before Clash checks canUse"
         );
     }
 

@@ -10841,6 +10841,12 @@ fn apply_multi_hit_thorns(
     if total_thorns <= 0 {
         return hit_count;
     }
+    if player_before.powers.static_discharge > 0 {
+        // Thorns and Static Discharge both enqueue addToTop reactions from each
+        // actual hit. Their combined path must remain causal so a Lightning
+        // evoke can kill the owner and cancel later normal DamageActions.
+        return hit_count;
+    }
 
     let mut effective_hits = 0;
     let mut remaining_block = player_before.block;

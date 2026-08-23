@@ -237,6 +237,10 @@ fn change_stance(state: &mut CombatState, new_stance: Stance) -> SimResult<Vec<I
         // CalmStance.onExitStance addToBots GainEnergyAction(2).
         follow_ups.push(InternalAction::GainEnergy { amount: 2 });
     }
+    if new_stance == Stance::Divinity {
+        // DivinityStance.onEnterStance addToBots GainEnergyAction(3).
+        follow_ups.push(InternalAction::GainEnergy { amount: 3 });
+    }
     follow_ups.extend(flurry_discard_to_hand_actions(state));
     Ok(follow_ups)
 }
@@ -378,14 +382,15 @@ pub(super) fn channel_dark(state: &mut CombatState) -> SimResult<Vec<InternalAct
 }
 
 pub(super) fn dark_impulse(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
-    // DarkImpulseAction calls Dark.onEndOfTurn on each Dark orb.
+    // DarkImpulseAction calls Dark.onEndOfTurn on each Dark orb. Dark overrides
+    // applyFocus for its passive only: the stored evoke starts at 6, then each
+    // pulse grows by max(0, 6 + Focus).
+    let growth = focused_orb_amount(state, DARK_BASE_EVOKE);
     for orb in &mut state.orbs {
         if let crate::combat::CombatOrb::Dark { evoke } = orb {
-            *evoke = evoke
-                .checked_add(DARK_BASE_EVOKE)
-                .ok_or(SimError::InvalidState(
-                    "Dark orb evoke amount overflows i32",
-                ))?;
+            *evoke = evoke.checked_add(growth).ok_or(SimError::InvalidState(
+                "Dark orb evoke amount overflows i32",
+            ))?;
         }
     }
     Ok(Vec::new())
@@ -474,6 +479,7 @@ fn evoke_dark(state: &mut CombatState, amount: i32) -> SimResult<()> {
 
 pub(crate) fn apply_orb_end_of_turn_passives(state: &mut CombatState) -> SimResult<()> {
     let orbs = state.orbs.clone();
+    let dark_growth = focused_orb_amount(state, DARK_BASE_EVOKE);
     for (index, orb) in orbs.into_iter().enumerate() {
         match orb {
             crate::combat::CombatOrb::Lightning => {
@@ -491,7 +497,7 @@ pub(crate) fn apply_orb_end_of_turn_passives(state: &mut CombatState) -> SimResu
             crate::combat::CombatOrb::Dark { .. } => {
                 if let Some(crate::combat::CombatOrb::Dark { evoke }) = state.orbs.get_mut(index) {
                     *evoke = evoke
-                        .checked_add(DARK_BASE_EVOKE)
+                        .checked_add(dark_growth)
                         .ok_or(SimError::InvalidState(
                             "Dark orb evoke amount overflows i32",
                         ))?;

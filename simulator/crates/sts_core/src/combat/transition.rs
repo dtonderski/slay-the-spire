@@ -376,8 +376,17 @@ pub(crate) fn process_internal_queue(
             apply_internal_action_with_defer(&mut next, internal_action, defer_time_warp_card_play)?
         };
         event_log.push(internal_action);
+        let gremlin_horn_expansion =
+            matches!(internal_action, InternalAction::ApplyGremlinHornOnDeath);
+        let mut gremlin_horn_insert_index = 0;
         for follow_up in follow_ups {
-            if pain_before_reaper
+            if gremlin_horn_expansion {
+                // Gremlin Horn queues GainEnergy then Draw at this exact death.
+                // Put both ahead of later deaths already on the queue; follow-ups
+                // created by Draw remain addToBot behind those later deaths.
+                queue.insert(gremlin_horn_insert_index, follow_up);
+                gremlin_horn_insert_index += 1;
+            } else if pain_before_reaper
                 && matches!(follow_up, InternalAction::LoseHp { .. })
                 && queue.iter().any(|action| {
                     matches!(action, InternalAction::DealDamageAllAndHealUnblocked { .. })
@@ -1035,10 +1044,11 @@ pub fn flush_pending_monster_death_relics_if_ready(state: &mut CombatState) -> S
         return Ok(());
     }
     let triggers = std::mem::take(&mut next.pending_monster_death_relic_triggers);
-    for _ in 0..triggers {
-        crate::relic::apply_monster_death_relics(&mut next)?;
-    }
-    *state = next;
+    let queue = (0..triggers)
+        .map(|_| InternalAction::ApplyGremlinHornOnDeath)
+        .collect::<VecDeque<_>>();
+    let transition = process_internal_queue(&next, queue)?;
+    *state = transition.state;
     Ok(())
 }
 
@@ -1421,8 +1431,7 @@ fn apply_internal_action_with_defer(
             Ok(Vec::new())
         }
         InternalAction::ApplyGremlinHornOnDeath => {
-            crate::relic::apply_monster_death_relics(state)?;
-            Ok(Vec::new())
+            Ok(crate::relic::monster_death_relic_actions(state))
         }
         InternalAction::ExecuteJudgement { target, threshold } => {
             execute_judgement(state, target, threshold)
@@ -1960,7 +1969,7 @@ pub(crate) fn apply_monster_death_hooks(
     Ok(())
 }
 
-fn queue_monster_death_hooks(
+pub(crate) fn queue_monster_death_hooks(
     state: &mut CombatState,
     monster_id: MonsterId,
 ) -> SimResult<Vec<InternalAction>> {
@@ -2024,14 +2033,20 @@ pub(crate) fn resolve_deferred_end_turn_monster_deaths(
     state: &mut CombatState,
     deferred: Vec<DeferredMonsterDeath>,
 ) -> SimResult<()> {
+    let mut queue = VecDeque::new();
     for death in deferred {
         if let Some(card) = death.stasis_card {
-            release_deferred_stasis_card(state, card);
+            queue.push_back(InternalAction::AddCardInstanceToHandOrDiscard { card });
         }
         if death.gremlin_horn {
-            crate::relic::apply_monster_death_relics(state)?;
+            queue.push_back(InternalAction::ApplyGremlinHornOnDeath);
         }
     }
+    if queue.is_empty() {
+        return Ok(());
+    }
+    let transition = process_internal_queue(state, queue)?;
+    *state = transition.state;
     Ok(())
 }
 
@@ -3388,10 +3403,8 @@ fn resolve_top_draw_card(
         // (Feel No Pain) still fires (FIDL02388).
         let mut follow_ups = Vec::new();
         if dual_wield_is_unplayable {
-            // Dual Wield has no custom canUse. PlayTop autoplay still constructs
-            // UseCardAction; DualWieldAction no-ops when the hand has no
-            // Attack/Power, but TimeWarpPower.onAfterUseCard still increments
-            // (FIDL01668: Havoc+ Dual Wield 6→8).
+            // Dual Wield has no custom canUse. Its action no-ops with no
+            // Attack/Power candidate, but the card still triggers on-use hooks.
             apply_enrage_on_card_type(state, definition.card_type)?;
             follow_ups.extend(apply_rage_on_card_type(
                 state,
@@ -3410,6 +3423,15 @@ fn resolve_top_draw_card(
                 false,
             )?);
             follow_ups.extend(apply_hand_card_play_triggers(state, card_id));
+
+            // DualWieldAction is ahead of UseCardAction. Drain Hex and other
+            // on-use actions now so Strange Spoon rolls only during the later
+            // source settlement.
+            if !follow_ups.is_empty() {
+                let transition = process_internal_queue(state, VecDeque::from(follow_ups))?;
+                *state = transition.state;
+                follow_ups = Vec::new();
+            }
         }
         if exhaust_played_card || definition.keywords.exhaust {
             // PlayTop still constructs UseCardAction with exhaustOnUseOnce.
@@ -6634,8 +6656,10 @@ mod tests {
 
         let deferred = crate::relic::apply_start_of_player_turn_relics(&mut state)
             .expect("Captain's Wheel resolves");
-        apply_juggernaut_after_direct_block_gain(&mut state, deferred)
-            .expect("Juggernaut after Wheel block");
+        for block in deferred {
+            apply_juggernaut_after_direct_block_gain(&mut state, block)
+                .expect("Juggernaut after Wheel block");
+        }
 
         assert_eq!(state.player.block, 18);
         assert_eq!(state.monsters[0].hp, 25);
@@ -8518,6 +8542,46 @@ mod tests {
         let follow_ups = queue_monster_death_hooks(&mut state, dead_id).expect("queue Horn");
         assert_eq!(follow_ups, vec![InternalAction::ApplyGremlinHornOnDeath]);
         assert_eq!(state.pending_monster_death_relic_triggers, 0);
+    }
+
+    #[test]
+    fn later_gremlin_horn_actions_precede_first_draws_evolve_follow_up() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 0;
+        state.player.powers.evolve = 1;
+        state.relics = vec![Relic::GremlinHorn];
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), WOUND_ID),
+        ];
+        state.piles.discard_pile.clear();
+
+        let transition = process_internal_queue(
+            &state,
+            VecDeque::from([
+                InternalAction::ApplyGremlinHornOnDeath,
+                InternalAction::ApplyGremlinHornOnDeath,
+            ]),
+        )
+        .expect("two queued Horn deaths");
+
+        assert_eq!(
+            transition.event_log,
+            vec![
+                InternalAction::ApplyGremlinHornOnDeath,
+                InternalAction::GainEnergy { amount: 1 },
+                InternalAction::DrawCards { count: 1 },
+                InternalAction::ApplyGremlinHornOnDeath,
+                InternalAction::GainEnergy { amount: 1 },
+                InternalAction::DrawCards { count: 1 },
+                InternalAction::DrawCards { count: 1 },
+            ],
+            "Evolve from Horn draw one is addToBot behind Horn death two"
+        );
+        assert_eq!(transition.state.player.energy, 2);
+        assert_eq!(transition.state.piles.hand.len(), 3);
     }
 
     #[test]
@@ -12462,6 +12526,51 @@ mod tests {
     }
 
     #[test]
+    fn forced_empty_dual_wield_runs_hex_before_strange_spoon() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.hex = 1;
+        state.relics = vec![Relic::StrangeSpoon];
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), DEFEND_R_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), BASH_ID),
+            CardInstance::new(CardId::new(4), RUPTURE_ID),
+            CardInstance::new(CardId::new(5), DUAL_WIELD_PLUS_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.rng.card_random_rng = crate::rng::StsRng::new(1);
+        let transition = process_internal_queue(
+            &state,
+            VecDeque::from([InternalAction::PlayTopDrawCard {
+                target: None,
+                exhaust_played_card: true,
+                random_living_target: false,
+            }]),
+        )
+        .expect("force-play empty Dual Wield");
+        let next = transition.state;
+
+        assert_eq!(next.decision, None);
+        assert_eq!(next.rng.card_random_rng.counter(), 2);
+        assert!(next
+            .piles
+            .draw_pile
+            .iter()
+            .any(|card| card.content_id == DAZED_ID));
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == DUAL_WIELD_PLUS_ID));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == DUAL_WIELD_PLUS_ID));
+    }
+
+    #[test]
     fn strange_spoon_waits_behind_hex_dazed_insert() {
         // Hex onUseCard addToBots MakeTempCardInDrawPile before UseCardAction
         // rolls Strange Spoon (FIDL02399).
@@ -14428,7 +14537,10 @@ mod tests {
             },
         )
         .expect("play blasphemy");
-        assert_eq!(next.player.energy, 2);
+        assert_eq!(
+            next.player.energy, 5,
+            "Blasphemy spends 1 then Divinity grants 3"
+        );
         assert_eq!(next.player.powers.divinity, 1);
         assert_eq!(next.player.powers.end_turn_death, 1);
         assert!(next
@@ -14436,6 +14548,67 @@ mod tests {
             .exhaust_pile
             .iter()
             .any(|c| c.content_id == BLASPHEMY_ID));
+    }
+
+    #[test]
+    fn calm_to_divinity_queues_exit_entry_then_flurry() {
+        let flurry_id = CardId::new(7);
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.calm = 1;
+        state.piles.discard_pile = vec![CardInstance::new(flurry_id, FLURRY_OF_BLOWS_ANY_COLOR_ID)];
+
+        let follow_ups = player_actions::enter_divinity(&mut state).expect("enter Divinity");
+
+        assert_eq!(state.player.powers.calm, 0);
+        assert_eq!(state.player.powers.divinity, 1);
+        assert_eq!(
+            follow_ups,
+            vec![
+                InternalAction::GainEnergy { amount: 2 },
+                InternalAction::GainEnergy { amount: 3 },
+                InternalAction::DiscardToHand { card_id: flurry_id },
+            ]
+        );
+        assert!(player_actions::enter_divinity(&mut state)
+            .expect("same-stance Divinity is a no-op")
+            .is_empty());
+    }
+
+    #[test]
+    fn dark_passive_growth_applies_focus_but_initial_evoke_does_not() {
+        for (focus, expected_growth) in [(-7, 0), (0, 6), (3, 9)] {
+            let mut impulse = CombatState::initial_fixture();
+            impulse.player.powers.focus = focus;
+            impulse.orbs = vec![crate::combat::CombatOrb::Dark { evoke: 10 }];
+            player_actions::dark_impulse(&mut impulse).expect("Darkness+ impulse");
+            assert_eq!(
+                impulse.orbs,
+                vec![crate::combat::CombatOrb::Dark {
+                    evoke: 10 + expected_growth
+                }]
+            );
+
+            let mut end_turn = CombatState::initial_fixture();
+            end_turn.player.powers.focus = focus;
+            end_turn.orbs = vec![crate::combat::CombatOrb::Dark { evoke: 10 }];
+            player_actions::apply_orb_end_of_turn_passives(&mut end_turn)
+                .expect("Dark end-of-turn passive");
+            assert_eq!(
+                end_turn.orbs,
+                vec![crate::combat::CombatOrb::Dark {
+                    evoke: 10 + expected_growth
+                }]
+            );
+        }
+
+        let mut channel = CombatState::initial_fixture();
+        channel.max_orbs = 1;
+        channel.player.powers.focus = 3;
+        player_actions::channel_dark(&mut channel).expect("channel Dark with Focus");
+        assert_eq!(
+            channel.orbs,
+            vec![crate::combat::CombatOrb::Dark { evoke: 6 }]
+        );
     }
 
     #[test]
