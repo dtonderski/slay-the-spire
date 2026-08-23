@@ -2210,7 +2210,7 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
         }
     }
 
-    apply_start_of_player_turn_relics(combat)?;
+    let _ = apply_start_of_player_turn_relics(combat)?;
     Ok(())
 }
 
@@ -2511,26 +2511,27 @@ pub fn reset_turn_relic_counters(state: &mut CombatState) {
     state.relic_counters.orange_pellets_power_played = false;
 }
 
-pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<()> {
+pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<i32> {
     if !has_start_of_turn_relic(state) {
-        return Ok(());
+        return Ok(0);
     }
 
     checked_increment_relic_counter(&mut state.relic_counters.player_turns_started)?;
+    let mut deferred_juggernaut_block: i32 = 0;
 
     if state.relic_counters.self_forming_clay_next_turn_block > 0 {
         let block = state.relic_counters.self_forming_clay_next_turn_block;
         state.relic_counters.self_forming_clay_next_turn_block = 0;
-        if state.player.no_block_turns == 0 {
-            state
-                .player
-                .block
+        // SelfFormingClay.atTurnStart addToBots GainBlockAction. DrawCardAction
+        // is already queued, so Juggernaut's DamageRandomEnemyAction lands
+        // after the hand's Confusion rolls (FIDL02206).
+        crate::combat::transition::apply_player_direct_block_gain_without_juggernaut(state, block)?;
+        deferred_juggernaut_block =
+            deferred_juggernaut_block
                 .checked_add(block)
                 .ok_or(SimError::InvalidState(
-                    "combat integer addition overflows i32",
+                    "start-of-turn relic Juggernaut block overflows i32",
                 ))?;
-        }
-        crate::combat::transition::apply_player_direct_block_gain(state, block)?;
     }
 
     if state.relics.contains(&Relic::HappyFlower) {
@@ -2559,21 +2560,30 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<(
 
     match state.relic_counters.player_turns_started {
         HORN_CLEAT_TURN if state.relics.contains(&Relic::HornCleat) => {
-            // HornCleat.atTurnStart queues GainBlockAction(14), which triggers
-            // Juggernaut (FIDL02412).
-            crate::combat::transition::apply_player_end_turn_automatic_block_gain(
+            // HornCleat.atTurnStart addToBots GainBlockAction(14). Juggernaut
+            // waits behind the already-queued DrawCardAction.
+            crate::combat::transition::apply_player_direct_block_gain_without_juggernaut(
                 state,
                 HORN_CLEAT_BLOCK,
             )?;
+            deferred_juggernaut_block = deferred_juggernaut_block
+                .checked_add(HORN_CLEAT_BLOCK)
+                .ok_or(SimError::InvalidState(
+                    "start-of-turn relic Juggernaut block overflows i32",
+                ))?;
         }
         CAPTAINS_WHEEL_TURN if state.relics.contains(&Relic::CaptainsWheel) => {
-            // Captain's Wheel's start-of-turn callback bypasses No Block just
-            // like the target relic action, while Juggernaut still reacts to
-            // the granted block (FIDL00244/FIDL01632).
-            crate::combat::transition::apply_player_end_turn_automatic_block_gain(
+            // Captain's Wheel atTurnStart addToBots GainBlockAction. Juggernaut
+            // waits behind DrawCardAction (FIDL00244/FIDL01632).
+            crate::combat::transition::apply_player_direct_block_gain_without_juggernaut(
                 state,
                 CAPTAINS_WHEEL_BLOCK,
             )?;
+            deferred_juggernaut_block = deferred_juggernaut_block
+                .checked_add(CAPTAINS_WHEEL_BLOCK)
+                .ok_or(SimError::InvalidState(
+                    "start-of-turn relic Juggernaut block overflows i32",
+                ))?;
         }
         _ => {}
     }
@@ -2592,7 +2602,7 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<(
             checked_add_relic_value(&mut state.player.powers.intangible, 1)?;
         }
     }
-    Ok(())
+    Ok(deferred_juggernaut_block)
 }
 
 pub fn apply_start_of_player_turn_post_draw_relics(state: &mut CombatState) -> SimResult<()> {
