@@ -5751,10 +5751,16 @@ fn confirm_burning_pact_select(
         let transition = process_internal_queue(state, selected_feel_no_pain.into())?;
         *state = transition.state;
     }
+    // TimeWarpPower.onAfterUseCard queues EndTurn after UseCardAction. Pending
+    // ApplyDeferredTimeWarpCardPlay must increment here (with Hex) but must not
+    // discard the hand before Burning Pact itself is settled (FIDL02206).
+    let previous_defer_time_warp = state.defer_time_warp_end_turn;
+    state.defer_time_warp_end_turn = true;
     if !exhaust_select.pending_actions.is_empty() {
         let transition = process_internal_queue(state, exhaust_select.pending_actions)?;
         *state = transition.state;
     }
+    state.defer_time_warp_end_turn = previous_defer_time_warp;
     resolve_deferred_draw_follow_ups(state, evolve_follow_ups)?;
     // UseCardAction settles Burning Pact after DrawCardAction. Under Corruption
     // (or Exhaust) the source exhausts; Dark Embrace / Feel No Pain are bot-
@@ -12304,6 +12310,76 @@ mod tests {
         );
         assert!(next.time_warp_end_powers_applied);
         assert_eq!(next.monsters[0].powers.time_warp, 0);
+    }
+
+    #[test]
+    fn time_warp_burning_pact_settles_source_before_end_turn_discard() {
+        // UseCardAction is queued before Time Warp's EndTurn. CONFIRM must put
+        // Burning Pact in discard ahead of the leftover hand (FIDL02206).
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), BURNING_PACT_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+        ];
+        state.piles.draw_pile = (4..=14)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.draw_pile[0] = CardInstance::new(CardId::new(4), UPPERCUT_ID);
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(20), WOUND_ID)];
+        state.monsters[0].content_id = crate::content::monsters::TIME_EATER_ID;
+        state.monsters[0].powers.time_warp = 11;
+        state.monsters[0].hp = 200;
+        state.monsters[0].max_hp = 200;
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Burning Pact opens exhaust select");
+        choose_exhaust_select(&mut next, 0).expect("select Strike");
+        confirm_exhaust_select(&mut next).expect("CONFIRM settles Time Warp");
+
+        let discard_ids: Vec<_> = next
+            .piles
+            .discard_pile
+            .iter()
+            .map(|card| card.content_id)
+            .collect();
+        let pact_at = discard_ids
+            .iter()
+            .position(|id| *id == BURNING_PACT_ID)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Burning Pact discarded; discard={discard_ids:?} hand={:?} exhaust={:?}",
+                    next.piles
+                        .hand
+                        .iter()
+                        .map(|c| c.content_id)
+                        .collect::<Vec<_>>(),
+                    next.piles
+                        .exhaust_pile
+                        .iter()
+                        .map(|c| c.content_id)
+                        .collect::<Vec<_>>()
+                )
+            });
+        let wound_at = discard_ids
+            .iter()
+            .position(|id| *id == WOUND_ID)
+            .expect("pre-existing Wound remains");
+        assert!(pact_at > wound_at);
+        assert!(
+            discard_ids
+                .iter()
+                .skip(pact_at + 1)
+                .any(|id| *id == DEFEND_R_ID || *id == UPPERCUT_ID),
+            "Time Warp must discard the leftover hand after Burning Pact, discard={discard_ids:?}"
+        );
     }
 
     #[test]
