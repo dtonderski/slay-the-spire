@@ -2260,7 +2260,7 @@ fn apply_player_card_block_gain(
     Ok(juggernaut_follow_up_for_positive_block_gain(state, gained))
 }
 
-fn apply_player_direct_block_gain_without_juggernaut(
+pub(crate) fn apply_player_direct_block_gain_without_juggernaut(
     state: &mut CombatState,
     amount: i32,
 ) -> SimResult<()> {
@@ -6595,8 +6595,10 @@ mod tests {
         state.relic_counters.player_turns_started = 2;
         state.monsters[0].hp = 30;
 
-        crate::relic::apply_start_of_player_turn_relics(&mut state)
+        let deferred = crate::relic::apply_start_of_player_turn_relics(&mut state)
             .expect("Captain's Wheel resolves");
+        apply_juggernaut_after_direct_block_gain(&mut state, deferred)
+            .expect("Juggernaut after Wheel block");
 
         assert_eq!(state.player.block, 18);
         assert_eq!(state.monsters[0].hp, 25);

@@ -754,10 +754,18 @@ fn start_player_turn_in_place(
         state.player.energy =
             checked_turn_add(state.player.energy, -state.player.powers.fasting)?.max(0);
     }
-    if apply_start_relics {
-        crate::relic::apply_start_of_player_turn_relics(state)?;
-    }
+    let deferred_start_relic_juggernaut = if apply_start_relics {
+        crate::relic::apply_start_of_player_turn_relics(state)?
+    } else {
+        0
+    };
     if !draw_hand {
+        if deferred_start_relic_juggernaut > 0 {
+            crate::combat::transition::apply_juggernaut_after_direct_block_gain(
+                state,
+                deferred_start_relic_juggernaut,
+            )?;
+        }
         state.phase = CombatPhase::WaitingForPlayer;
         return Ok(());
     }
@@ -769,6 +777,14 @@ fn start_player_turn_in_place(
     // see those rolls first (FIDL01474).
     let mayhem_targets = collect_start_of_turn_mayhem_targets(state);
     let base_draw_follow_ups = draw_next_hand_without_shuffle_deferred(state)?;
+    // Start-of-turn relic GainBlockAction is addToBot before DrawCardAction.
+    // Juggernaut onGainedBlock addToBots DamageRandomEnemy behind that draw.
+    if deferred_start_relic_juggernaut > 0 {
+        crate::combat::transition::apply_juggernaut_after_direct_block_gain(
+            state,
+            deferred_start_relic_juggernaut,
+        )?;
+    }
     if state.player.powers.draw_reduction > 0 {
         if state.player.powers.draw_reduction_first_draw_seen {
             // DrawReductionPower stacks are a duration: each active turn draws
@@ -3925,6 +3941,38 @@ mod tests {
             ))
         );
         assert_eq!(state, before);
+    }
+
+    #[test]
+    fn self_forming_clay_juggernaut_waits_behind_confused_hand_draw() {
+        // SelfFormingClay.atTurnStart addToBots GainBlock; DrawCardAction is
+        // already queued, so Juggernaut's cardRandom target roll must not
+        // steal the first Confusion cost (FIDL02206).
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.player.powers.confusion = 1;
+        state.player.powers.juggernaut = 5;
+        state.relics = vec![Relic::SelfFormingClay];
+        state.relic_counters.self_forming_clay_next_turn_block = 3;
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(10), STRIKE_R_ID)];
+        state.piles.discard_pile.clear();
+        state.rng.card_random_rng = StsRng::new(1);
+
+        let without_juggernaut_first = {
+            let mut preview = state.clone();
+            preview.player.powers.juggernaut = 0;
+            preview.relic_counters.self_forming_clay_next_turn_block = 3;
+            start_player_turn(&mut preview).expect("draw without Juggernaut");
+            preview.piles.hand[0].temp_cost
+        };
+
+        start_player_turn(&mut state).expect("Clay then draw then Juggernaut");
+        assert_eq!(state.player.block, 3);
+        assert_eq!(
+            state.piles.hand[0].temp_cost, without_juggernaut_first,
+            "Confusion must roll before Clay Juggernaut chooses a target"
+        );
     }
 
     #[test]
