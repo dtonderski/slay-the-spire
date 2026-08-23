@@ -1486,6 +1486,7 @@ fn execute_generic_monster_intent(
             deferred_burn_to_discard,
             deferred_burn_is_upgraded,
             deferred_upgrade_burns,
+            Some(index),
         )?;
         if matches!(intent, crate::MonsterIntent::Stun) {
             state.player.powers.plated_armor = plated_armor_before_thorns_damage;
@@ -1887,6 +1888,7 @@ fn execute_spawning_or_targeted_special_intent(
                 0,
                 false,
                 0,
+                Some(index),
             )?;
             record_target_move(&mut state.monsters[index]);
             state.monsters[index].intent = target_byrd_go_airborne_intent();
@@ -2232,7 +2234,16 @@ fn apply_monster_pending_effects(
     burn_to_discard: i32,
     burn_to_discard_upgraded: bool,
     upgrade_burns: i32,
+    attacker_index: Option<usize>,
 ) -> SimResult<()> {
+    fn attacker_is_dying_or_dead(state: &CombatState, attacker_index: Option<usize>) -> bool {
+        attacker_index.is_some_and(|index| {
+            state
+                .monsters
+                .get(index)
+                .is_none_or(|monster| !monster.alive || awakened_one_is_half_dead(monster))
+        })
+    }
     // PainfulStabsPower.onInflictDamage queues MakeTempCardInDiscardAction via
     // addToBot during AbstractPlayer.damage. Those actions sit behind the rest of
     // the attack queue. A lethal hit constructs DeathScreen and switches
@@ -2248,10 +2259,18 @@ fn apply_monster_pending_effects(
     let mut total_hp_damage = 0;
     let mut painful_stabs_triggers = 0;
     let hit_count = hits.max(1);
+    // ThornsPower.onAttacked addToBots retaliation, so a Byrd can die in the
+    // intent resolver before these DamageActions run and still deliver every
+    // queued peck. StaticDischargePower.onAttacked addToTops ChannelAction, so
+    // a full-slot evoke can kill Deca between beams (FIDL02358).
+    let skip_after_mid_hit_death = !attacker_is_dying_or_dead(state, attacker_index);
     if damage > 0 && hit_count > 1 {
         let hit_damage = damage / hit_count;
         for _ in 0..hit_count {
             if state.player.hp <= 0 {
+                break;
+            }
+            if skip_after_mid_hit_death && attacker_is_dying_or_dead(state, attacker_index) {
                 break;
             }
             let hp_damage = deal_damage_to_player_with_draw_policy(
@@ -3825,6 +3844,7 @@ mod tests {
                 0,
                 false,
                 0,
+                None,
             ),
             Err(SimError::InvalidState(
                 "player Weak application overflows i32"
@@ -5654,6 +5674,7 @@ mod tests {
             0,
             false,
             0,
+            None,
         )
         .expect("Runic Cube and Painful Stabs settle");
 
@@ -5694,6 +5715,7 @@ mod tests {
             0,
             false,
             0,
+            None,
         )
         .expect("non-lethal multi-hit");
 
@@ -5735,6 +5757,7 @@ mod tests {
             0,
             false,
             0,
+            None,
         )
         .expect("lethal multi-hit");
 
@@ -5751,6 +5774,54 @@ mod tests {
             0
         );
         assert_eq!(state.piles.discard_pile.len(), discard_before);
+    }
+
+    #[test]
+    fn static_discharge_evoke_cancels_remaining_hits_when_attacker_dies() {
+        // DamageAction cancels later non-THORNS hits if info.owner.isDying.
+        // SD addToTops ChannelAction, so a full-slot evoke can kill mid-beam.
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 80;
+        state.player.block = 0;
+        state.player.powers.static_discharge = 2;
+        state.max_orbs = 3;
+        state.orbs = vec![
+            crate::combat::CombatOrb::Lightning,
+            crate::combat::CombatOrb::Lightning,
+            crate::combat::CombatOrb::Lightning,
+        ];
+        state.monsters[0].hp = 5;
+        state.monsters[0].block = 0;
+        state.monsters[0].alive = true;
+
+        apply_monster_pending_effects(
+            &mut state,
+            crate::MonsterIntent::AttackMultiple {
+                damage: 10,
+                hits: 2,
+            },
+            /*damage=*/ 20,
+            /*hits=*/ 2,
+            /*painful_stabs=*/ 0,
+            None,
+            0,
+            0,
+            0,
+            0,
+            false,
+            0,
+            Some(0),
+        )
+        .expect("SD mid-beam");
+
+        assert!(
+            !state.monsters[0].alive,
+            "lightning evokes should kill the attacker"
+        );
+        assert_eq!(
+            state.player.hp, 70,
+            "second beam hit must cancel after the attacker dies"
+        );
     }
 
     #[test]
