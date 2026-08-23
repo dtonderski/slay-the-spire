@@ -12,7 +12,7 @@ import static org.junit.Assert.assertTrue;
 public class ShopPurgeConfirmAckTest {
 
     @Test
-    public void shopPurgeConfirmRetainsHoverAndResumesAfterShopScreenUpdatePurge() {
+    public void confirmScreenUpSkipsHoverLogicAndUpdatePurgeResumesOnSelection() {
         assertTrue(ChoiceScreenUtils.shouldBlockAfterShopPurgeGridConfirm(
                 AbstractDungeon.CurrentScreen.SHOP, true));
         assertFalse(ChoiceScreenUtils.shouldBlockAfterShopPurgeGridConfirm(
@@ -22,9 +22,40 @@ public class ShopPurgeConfirmAckTest {
         assertFalse(ChoiceScreenUtils.shouldBlockAfterShopPurgeGridConfirm(
                 AbstractDungeon.CurrentScreen.MAP, true));
 
-        assertTrue(GridCardSelectScreenPatch.shouldRetainHoveredCardForConfirm(true, true));
-        assertFalse(GridCardSelectScreenPatch.shouldRetainHoveredCardForConfirm(true, false));
-        assertFalse(GridCardSelectScreenPatch.shouldRetainHoveredCardForConfirm(false, true));
+        // desktop-1.0.jar GridCardSelectScreen.update offsets 348–355:
+        // confirmScreenUp != 0 jumps over updateCardPositionsAndHoverLogic.
+        assertTrue(GridCardSelectScreenPatch.hoverLogicRunsOnThisUpdate(false));
+        assertFalse(GridCardSelectScreenPatch.hoverLogicRunsOnThisUpdate(true));
+        assertTrue(GridCardSelectScreenPatch.hoverLogicPostfixConsumesChoiceArm(false));
+        assertFalse(GridCardSelectScreenPatch.hoverLogicPostfixConsumesChoiceArm(true));
+
+        // CHOOSE frame: hover logic can consume replaceHoverCard.
+        GridCardSelectScreenPatch.replaceHoverCard = true;
+        if (GridCardSelectScreenPatch.hoverLogicPostfixConsumesChoiceArm(false)) {
+            GridCardSelectScreenPatch.replaceHoverCard = false;
+        }
+        assertFalse(GridCardSelectScreenPatch.replaceHoverCard);
+
+        // CONFIRM frame: hover-logic postfix does not run, so an armed flag
+        // would stay set. Do not arm replaceHoverCard on CONFIRM.
+        GridCardSelectScreenPatch.replaceHoverCard = true;
+        if (GridCardSelectScreenPatch.hoverLogicPostfixConsumesChoiceArm(true)) {
+            GridCardSelectScreenPatch.replaceHoverCard = false;
+        }
+        assertTrue(GridCardSelectScreenPatch.replaceHoverCard);
+        GridCardSelectScreenPatch.clearStoredHover();
+        assertFalse(GridCardSelectScreenPatch.replaceHoverCard);
+
+        // Vanilla confirm uses the hoveredCard retained after CHOOSE. Restore
+        // only if that field is missing, and only on GridCardSelectScreen.update.
+        assertFalse(GridCardSelectScreenPatch.shouldRestoreMissingHoveredCardOnConfirmUpdate(
+                true, false, true));
+        assertTrue(GridCardSelectScreenPatch.shouldRestoreMissingHoveredCardOnConfirmUpdate(
+                true, true, true));
+        assertFalse(GridCardSelectScreenPatch.shouldRestoreMissingHoveredCardOnConfirmUpdate(
+                true, true, false));
+        assertFalse(GridCardSelectScreenPatch.shouldRestoreMissingHoveredCardOnConfirmUpdate(
+                false, true, true));
 
         assertFalse(ShopScreenPatch.UpdatePurgePatch.shouldResumeAfterShopScreenUpdatePurge(false, false));
         assertFalse(ShopScreenPatch.UpdatePurgePatch.shouldResumeAfterShopScreenUpdatePurge(false, true));
