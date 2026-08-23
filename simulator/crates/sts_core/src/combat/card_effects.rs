@@ -962,45 +962,15 @@ fn apply_strange_spoon_to_played_card_move(
             } if *moved == card_id
         )
     });
-    let Some(index) = own_exhaust_index else {
-        return;
-    };
-
-    // Start-of-turn Mayhem can park UseCardAction settlement behind residual
-    // Evolve/draw-pile actions. Preserve the Exhaust destination and make the
-    // Spoon decision only when that MoveCard actually settles.
-    if state.defer_mayhem_play_top_settlement {
-        state.defer_strange_spoon_until_source_move = Some(card_id);
+    if own_exhaust_index.is_none() {
         return;
     }
 
-    // ViolenceAction (and any other addToBot effect that draws from
-    // cardRandomRng) runs before UseCardAction calls moveToExhaustPile.
-    // Rolling Spoon at queue-build time steals the first cardRandomRng
-    // call from addToRandomSpot (FIDL01427 Bash/Rampage/Cleave+).
-    // MadnessAction also rolls cardRandomRng before UseCardAction/Spoon
-    // (FIDL02356).
-    if queue.iter().any(|action| {
-        matches!(
-            action,
-            InternalAction::DrawRandomAttacksFromDrawPile { .. }
-                | InternalAction::SetRandomHandCardCostForCombat { .. }
-        )
-    }) {
-        state.defer_strange_spoon_until_source_move = Some(card_id);
-        return;
-    }
-
-    let rng = &mut state.rng.card_random_rng;
-    if !rng.random_bool() {
-        return;
-    }
-
-    queue[index] = InternalAction::MoveCard {
-        card_id,
-        from: CardPile::Hand,
-        to: CardPile::DiscardPile,
-    };
+    // StrangeSpoon.onExhaust rolls when UseCardAction would moveToExhaustPile.
+    // HexPower.onUseCard addToBots MakeTempCardInDrawPile before that UseCardAction,
+    // so the Dazed insert must consume cardRandomRng first (FIDL02399 Limit Break).
+    // Violence/Madness already needed the same deferral (FIDL01427 / FIDL02356).
+    state.defer_strange_spoon_until_source_move = Some(card_id);
 }
 
 fn apply_vigor_consumption_to_attack_queue(

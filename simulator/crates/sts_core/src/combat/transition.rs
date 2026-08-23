@@ -12383,6 +12383,41 @@ mod tests {
     }
 
     #[test]
+    fn strange_spoon_waits_behind_hex_dazed_insert() {
+        // Hex onUseCard addToBots MakeTempCardInDrawPile before UseCardAction
+        // rolls Strange Spoon (FIDL02399).
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.player.powers.hex = 1;
+        state.relics = vec![Relic::StrangeSpoon];
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), LIMIT_BREAK_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(2), RUPTURE_ID),
+            CardInstance::new(CardId::new(3), THUNDERCLAP_ID),
+            CardInstance::new(CardId::new(4), STRIKE_R_ID),
+            CardInstance::new(CardId::new(5), BASH_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.rng.card_random_rng = crate::rng::StsRng::new(1);
+
+        let expected_index = {
+            let mut rng = crate::rng::StsRng::new(1);
+            rng.random_int(3) as usize
+        };
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Limit Break under Hex");
+
+        assert_eq!(next.piles.draw_pile[expected_index].content_id, DAZED_ID);
+    }
+
+    #[test]
     fn time_warp_ends_turn_after_warcry_select_confirm() {
         // Time Warp increments on Warcry PlayCard; end-turn is deferred while
         // hand select is open and must fire on CONFIRM (15ab4cc step 1625–1631).
