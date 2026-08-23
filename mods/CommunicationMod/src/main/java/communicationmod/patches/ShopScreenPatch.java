@@ -6,6 +6,7 @@ import com.evacipated.cardcrawl.modthespire.patcher.PatchingException;
 import com.megacrit.cardcrawl.cards.AbstractCard;
 import com.megacrit.cardcrawl.dungeons.AbstractDungeon;
 import com.megacrit.cardcrawl.shop.ShopScreen;
+import com.megacrit.cardcrawl.screens.select.GridCardSelectScreen;
 import communicationmod.GameStateListener;
 import javassist.CannotCompileException;
 import javassist.CtBehavior;
@@ -41,10 +42,15 @@ public class ShopScreenPatch {
             return hadSelectedCards && forPurge;
         }
 
+        public static void recordSelectionBeforeUpdate(GridCardSelectScreen gridSelectScreen) {
+            boolean hadSelectedCards = !gridSelectScreen.selectedCards.isEmpty();
+            resumeAfterThisUpdate = shouldResumeAfterShopScreenUpdatePurge(
+                    hadSelectedCards,
+                    gridSelectScreen.forPurge);
+        }
+
         public static void Prefix(ShopScreen _instance) {
-            boolean hadSelectedCards = !AbstractDungeon.gridSelectScreen.selectedCards.isEmpty();
-            boolean forPurge = AbstractDungeon.gridSelectScreen.forPurge;
-            resumeAfterThisUpdate = shouldResumeAfterShopScreenUpdatePurge(hadSelectedCards, forPurge);
+            recordSelectionBeforeUpdate(AbstractDungeon.gridSelectScreen);
         }
 
         public static void Postfix(ShopScreen _instance) {
