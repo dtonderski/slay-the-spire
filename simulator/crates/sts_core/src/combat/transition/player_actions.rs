@@ -201,52 +201,71 @@ pub(super) fn gain_corruption(
     Ok(Vec::new())
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Stance {
+    Neutral,
+    Calm,
+    Wrath,
+    Divinity,
+}
+
+fn current_stance(state: &CombatState) -> Stance {
+    if state.player.powers.divinity > 0 {
+        Stance::Divinity
+    } else if state.player.powers.wrath > 0 {
+        Stance::Wrath
+    } else if state.player.powers.calm > 0 {
+        Stance::Calm
+    } else {
+        Stance::Neutral
+    }
+}
+
+fn change_stance(state: &mut CombatState, new_stance: Stance) -> SimResult<Vec<InternalAction>> {
+    // ChangeStanceAction is a no-op when the requested stance ID matches the
+    // current one. Any actual change runs onExitStance, swaps the stance, then
+    // iterates discard for FlurryOfBlows DiscardToHandAction.
+    if current_stance(state) == new_stance {
+        return Ok(Vec::new());
+    }
+    let leaving_calm = current_stance(state) == Stance::Calm;
+    state.player.powers.calm = i32::from(new_stance == Stance::Calm);
+    state.player.powers.wrath = i32::from(new_stance == Stance::Wrath);
+    state.player.powers.divinity = i32::from(new_stance == Stance::Divinity);
+    let mut follow_ups = Vec::new();
+    if leaving_calm {
+        // CalmStance.onExitStance addToBots GainEnergyAction(2).
+        follow_ups.push(InternalAction::GainEnergy { amount: 2 });
+    }
+    follow_ups.extend(flurry_discard_to_hand_actions(state));
+    Ok(follow_ups)
+}
+
+fn flurry_discard_to_hand_actions(state: &CombatState) -> Vec<InternalAction> {
+    use crate::content::cards::FLURRY_OF_BLOWS_ANY_COLOR_ID;
+    state
+        .piles
+        .discard_pile
+        .iter()
+        .filter(|card| card.content_id == FLURRY_OF_BLOWS_ANY_COLOR_ID)
+        .map(|card| InternalAction::DiscardToHand { card_id: card.id })
+        .collect()
+}
+
 pub(super) fn enter_divinity(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
-    state.player.powers.divinity = 1;
-    state.player.powers.wrath = 0;
-    state.player.powers.calm = 0;
-    Ok(Vec::new())
+    change_stance(state, Stance::Divinity)
 }
 
 pub(super) fn enter_calm(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
-    if state.player.powers.calm > 0 {
-        return Ok(Vec::new());
-    }
-    state.player.powers.calm = 1;
-    state.player.powers.wrath = 0;
-    state.player.powers.divinity = 0;
-    return_flurry_of_blows_from_discard(state);
-    Ok(Vec::new())
+    change_stance(state, Stance::Calm)
 }
 
 pub(super) fn enter_wrath(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
-    if state.player.powers.wrath > 0 {
-        return Ok(Vec::new());
-    }
-    state.player.powers.wrath = 1;
-    state.player.powers.divinity = 0;
-    state.player.powers.calm = 0;
-    return_flurry_of_blows_from_discard(state);
-    Ok(Vec::new())
+    change_stance(state, Stance::Wrath)
 }
 
-fn return_flurry_of_blows_from_discard(state: &mut CombatState) {
-    // ChangeStanceAction iterates discardPile and FlurryOfBlows
-    // triggerExhaustedCardsOnStanceChange addToBots DiscardToHandAction.
-    use crate::combat::draw::MAX_HAND_SIZE;
-    use crate::content::cards::FLURRY_OF_BLOWS_ANY_COLOR_ID;
-    let mut index = 0;
-    while index < state.piles.discard_pile.len() {
-        if state.piles.discard_pile[index].content_id != FLURRY_OF_BLOWS_ANY_COLOR_ID {
-            index += 1;
-            continue;
-        }
-        if state.piles.hand.len() >= MAX_HAND_SIZE {
-            break;
-        }
-        let card = state.piles.discard_pile.remove(index);
-        state.piles.hand.push(card);
-    }
+pub(super) fn enter_neutral(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
+    change_stance(state, Stance::Neutral)
 }
 
 pub(super) fn apply_end_turn_death(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {

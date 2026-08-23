@@ -426,6 +426,10 @@ pub enum InternalAction {
     EnterCalm,
     EnterWrath,
     ExitCalm,
+    /// FlurryOfBlows.triggerExhaustedCardsOnStanceChange addToBots DiscardToHandAction.
+    DiscardToHand {
+        card_id: CardId,
+    },
     GainDexterity {
         amount: i32,
     },
