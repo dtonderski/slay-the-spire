@@ -2,6 +2,7 @@ package communicationmod.patches;
 
 import basemod.ReflectionHacks;
 import com.evacipated.cardcrawl.modthespire.lib.SpirePatch;
+import com.evacipated.cardcrawl.modthespire.lib.SpirePostfixPatch;
 import com.megacrit.cardcrawl.cards.AbstractCard;
 import com.megacrit.cardcrawl.screens.select.GridCardSelectScreen;
 
@@ -27,19 +28,6 @@ public class GridCardSelectScreenPatch {
     }
 
     /**
-     * Bytecode: {@code confirmScreenUp != 0} jumps over
-     * {@code updateCardPositionsAndHoverLogic}. CHOOSE is the only frame that
-     * can consume {@code replaceHoverCard} here.
-     */
-    public static boolean hoverLogicRunsOnThisUpdate(boolean confirmScreenUp) {
-        return !confirmScreenUp;
-    }
-
-    public static boolean hoverLogicPostfixConsumesChoiceArm(boolean confirmScreenUp) {
-        return hoverLogicRunsOnThisUpdate(confirmScreenUp);
-    }
-
-    /**
      * If {@code hoveredCard} was lost after the preview came up, restore it on
      * {@code GridCardSelectScreen.update} itself — not on hover logic, which
      * does not run on CONFIRM.
@@ -55,6 +43,37 @@ public class GridCardSelectScreenPatch {
     public static void clearStoredHover() {
         hoverCard = null;
         replaceHoverCard = false;
+    }
+
+    /**
+     * Vanilla cancelUpgrade() clears its hoveredCard while returning from the
+     * preview to the grid. Discard the matching CommunicationMod selection so
+     * a later confirmation cannot restore a card from the cancelled choice.
+     */
+    @SpirePatch(
+            clz = GridCardSelectScreen.class,
+            method = "cancelUpgrade"
+    )
+    public static class CancelUpgradePatch {
+        @SpirePostfixPatch
+        public static void Postfix(GridCardSelectScreen _instance) {
+            clearStoredHover();
+        }
+    }
+
+    /**
+     * Every new grid open calls vanilla callOnOpen(); temporary top-panel
+     * overlays call hide()/reopen() instead and must retain the stored choice.
+     */
+    @SpirePatch(
+            clz = GridCardSelectScreen.class,
+            method = "callOnOpen"
+    )
+    public static class NewGridPatch {
+        @SpirePostfixPatch
+        public static void Postfix(GridCardSelectScreen _instance) {
+            clearStoredHover();
+        }
     }
 
     public static void Postfix(GridCardSelectScreen _instance) {
