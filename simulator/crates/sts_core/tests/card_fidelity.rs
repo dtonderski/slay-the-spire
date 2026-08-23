@@ -3117,14 +3117,20 @@ fn lethal_headbutt_defers_gremlin_horn_until_after_discard_choice() {
 
     assert!(selecting.discard_select().is_some());
     assert_eq!(selecting.player.energy, 2);
-    assert_eq!(selecting.pending_monster_death_relic_triggers, 1);
     assert_eq!(selecting.piles.draw_pile[0].content_id, cards::BASH_ID);
+    assert!(
+        selecting
+            .piles
+            .hand
+            .iter()
+            .all(|card| card.content_id != cards::RAMPAGE_ID),
+        "Horn must wait behind Headbutt's discard select"
+    );
 
     choose_discard_select(&mut selecting, 0).expect("select Rampage");
     confirm_headbutt_select(&mut selecting).expect("confirm Headbutt selection");
 
     assert!(selecting.discard_select().is_none());
-    assert_eq!(selecting.pending_monster_death_relic_triggers, 0);
     assert_eq!(selecting.player.energy, 3);
     assert_eq!(
         selecting.piles.hand.last().map(|card| card.content_id),
