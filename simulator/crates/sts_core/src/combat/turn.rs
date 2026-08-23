@@ -1510,6 +1510,13 @@ fn execute_generic_monster_intent(
             )
         {
             crate::power::reduce_player_strength(&mut state.player.powers, 1)?;
+            // SpireShield.takeTurn smash: if `player.orbs` is non-empty
+            // (EmptyOrbSlot placeholders count), roll aiRng.randomBoolean()
+            // and on true apply Focus -1. Skipping the roll desyncs later
+            // Shield/Spear getMove booleans (FIDL02358).
+            if state.max_orbs > 0 && state.rng.monster_rng.random_bool() {
+                crate::power::reduce_player_focus(&mut state.player.powers, 1)?;
+            }
         }
     }
     if state.monsters[index].content_id == CORRUPT_HEART_ID
