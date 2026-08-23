@@ -16,6 +16,9 @@ pub enum DrawTriggerPower {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct PlayerPowers {
     pub strength: i32,
+    /// FocusPower: added to orb passive/evoke amounts (floored at 0).
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub focus: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub mantra: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
@@ -350,6 +353,18 @@ pub fn reduce_player_dexterity(powers: &mut PlayerPowers, amount: i32) -> SimRes
             .checked_sub(amount)
             .ok_or(SimError::InvalidState(
                 "player Dexterity reduction underflows i32",
+            ))?;
+        Ok(())
+    })
+}
+
+pub fn reduce_player_focus(powers: &mut PlayerPowers, amount: i32) -> SimResult<bool> {
+    apply_player_debuff(powers, amount, |powers, amount| {
+        powers.focus = powers
+            .focus
+            .checked_sub(amount)
+            .ok_or(SimError::InvalidState(
+                "player Focus reduction underflows i32",
             ))?;
         Ok(())
     })

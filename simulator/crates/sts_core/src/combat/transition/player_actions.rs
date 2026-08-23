@@ -410,12 +410,14 @@ fn channel_orb(
 
 fn evoke_orb(state: &mut CombatState, orb: crate::combat::CombatOrb) -> SimResult<()> {
     match orb {
-        crate::combat::CombatOrb::Lightning => {
-            super::apply_juggernaut_random_damage(state, LIGHTNING_EVOKE_DAMAGE)
-        }
-        crate::combat::CombatOrb::Frost => {
-            super::apply_player_end_turn_automatic_block_gain(state, FROST_EVOKE_BLOCK)
-        }
+        crate::combat::CombatOrb::Lightning => super::apply_juggernaut_random_damage(
+            state,
+            focused_orb_amount(state, LIGHTNING_EVOKE_DAMAGE),
+        ),
+        crate::combat::CombatOrb::Frost => super::apply_player_end_turn_automatic_block_gain(
+            state,
+            focused_orb_amount(state, FROST_EVOKE_BLOCK),
+        ),
         crate::combat::CombatOrb::Dark { evoke } => evoke_dark(state, evoke),
     }
 }
@@ -426,8 +428,16 @@ const FROST_PASSIVE_BLOCK: i32 = 2;
 const FROST_EVOKE_BLOCK: i32 = 5;
 const DARK_BASE_EVOKE: i32 = 6;
 
+fn focused_orb_amount(state: &CombatState, base: i32) -> i32 {
+    // AbstractOrb.applyFocus: amount + Focus, floored at 0.
+    base.saturating_add(state.player.powers.focus).max(0)
+}
+
 pub(super) fn lightning_orb_passive(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
-    super::apply_juggernaut_random_damage(state, LIGHTNING_PASSIVE_DAMAGE)?;
+    super::apply_juggernaut_random_damage(
+        state,
+        focused_orb_amount(state, LIGHTNING_PASSIVE_DAMAGE),
+    )?;
     Ok(Vec::new())
 }
 
@@ -467,10 +477,16 @@ pub(crate) fn apply_orb_end_of_turn_passives(state: &mut CombatState) -> SimResu
     for (index, orb) in orbs.into_iter().enumerate() {
         match orb {
             crate::combat::CombatOrb::Lightning => {
-                super::apply_juggernaut_random_damage(state, LIGHTNING_PASSIVE_DAMAGE)?;
+                super::apply_juggernaut_random_damage(
+                    state,
+                    focused_orb_amount(state, LIGHTNING_PASSIVE_DAMAGE),
+                )?;
             }
             crate::combat::CombatOrb::Frost => {
-                super::apply_player_end_turn_automatic_block_gain(state, FROST_PASSIVE_BLOCK)?;
+                super::apply_player_end_turn_automatic_block_gain(
+                    state,
+                    focused_orb_amount(state, FROST_PASSIVE_BLOCK),
+                )?;
             }
             crate::combat::CombatOrb::Dark { .. } => {
                 if let Some(crate::combat::CombatOrb::Dark { evoke }) = state.orbs.get_mut(index) {

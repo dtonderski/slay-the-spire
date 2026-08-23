@@ -639,6 +639,7 @@ fn project_player_powers(combat: &CombatState) -> Result<Vec<FairPower>, FairObs
 fn push_player_power_fields(result: &mut Vec<FairPower>, p: PlayerPowers) {
     for (key, amount) in [
         ("strength", p.strength),
+        ("focus", p.focus),
         ("mantra", p.mantra),
         ("weak", p.weak),
         ("dexterity", p.dexterity),
