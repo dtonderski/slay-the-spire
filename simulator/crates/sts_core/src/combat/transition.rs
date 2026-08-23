@@ -197,16 +197,16 @@ pub fn apply_mayhem_play_top_cards(
     if targets.is_empty() {
         return Ok(());
     }
-    let queue = targets
-        .iter()
-        .copied()
-        .map(|target| InternalAction::PlayTopDrawCard {
-            target,
-            exhaust_played_card: false,
-            random_living_target: false,
-        })
-        .collect();
-    let transition = process_internal_queue(state, queue)?;
+    // PlayTopCardAction removes its top before the card queue plays it.
+    // Mayhem queues every PlayTop first, so the second remove happens before
+    // the first card's use() addToBot Draw (FIDL02199 Pommel then Intimidate).
+    let mut next = state.clone();
+    let mut resolves = VecDeque::new();
+    for target in targets.iter().copied() {
+        let follow_ups = apply_play_top_draw_card(&mut next, target, false, false)?;
+        resolves.extend(follow_ups);
+    }
+    let transition = process_internal_queue(&next, resolves)?;
     *state = transition.state;
     Ok(())
 }
