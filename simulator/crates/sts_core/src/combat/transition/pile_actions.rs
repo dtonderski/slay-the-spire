@@ -79,6 +79,36 @@ pub(super) fn move_card_between_piles(
     Ok(follow_ups)
 }
 
+pub(super) fn discard_to_hand(
+    state: &mut CombatState,
+    card_id: CardId,
+) -> SimResult<Vec<InternalAction>> {
+    // DiscardToHandAction: if the card is still in discard and hand.size() < 10,
+    // addToHand then remove from discard. The played source is already out of
+    // the target hand (useCard removes it before ChangeStance), so occupancy
+    // must ignore card_in_use.
+    let Some(index) = state
+        .piles
+        .discard_pile
+        .iter()
+        .position(|card| card.id == card_id)
+    else {
+        return Ok(Vec::new());
+    };
+    let occupancy = state
+        .piles
+        .hand
+        .iter()
+        .filter(|card| Some(card.id) != state.card_in_use)
+        .count();
+    if occupancy >= crate::combat::draw::MAX_HAND_SIZE {
+        return Ok(Vec::new());
+    }
+    let card = state.piles.discard_pile.remove(index);
+    state.piles.hand.push(card);
+    Ok(Vec::new())
+}
+
 pub(super) fn return_exhaust_card_to_hand(
     state: &mut CombatState,
     card_id: CardId,

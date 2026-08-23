@@ -1433,10 +1433,8 @@ fn apply_internal_action_with_defer(
         InternalAction::GainMantra { amount } => player_actions::gain_mantra(state, amount),
         InternalAction::EnterCalm => player_actions::enter_calm(state),
         InternalAction::EnterWrath => player_actions::enter_wrath(state),
-        InternalAction::ExitCalm => {
-            state.player.powers.calm = 0;
-            Ok(Vec::new())
-        }
+        InternalAction::ExitCalm => player_actions::enter_neutral(state),
+        InternalAction::DiscardToHand { card_id } => pile_actions::discard_to_hand(state, card_id),
         InternalAction::GainDexterity { amount } => player_actions::gain_dexterity(state, amount),
         InternalAction::GainTempStrength { amount } => {
             player_actions::gain_temp_strength(state, amount)
@@ -12151,6 +12149,112 @@ mod tests {
             .discard_pile
             .iter()
             .all(|card| card.content_id != FLURRY_OF_BLOWS_ANY_COLOR_ID));
+    }
+
+    #[test]
+    fn fear_no_evil_returns_flurry_when_source_still_fills_the_hand() {
+        // useCard removes the source before ChangeStance / DiscardToHand, so a
+        // 10-card hand still has a free slot for Flurry.
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.piles.draw_pile.clear();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), FEAR_NO_EVIL_ANY_COLOR_ID),
+            CardInstance::new(CardId::new(3), STRIKE_R_ID),
+            CardInstance::new(CardId::new(4), STRIKE_R_ID),
+            CardInstance::new(CardId::new(5), STRIKE_R_ID),
+            CardInstance::new(CardId::new(6), STRIKE_R_ID),
+            CardInstance::new(CardId::new(7), STRIKE_R_ID),
+            CardInstance::new(CardId::new(8), DEFEND_R_ID),
+            CardInstance::new(CardId::new(9), DEFEND_R_ID),
+            CardInstance::new(CardId::new(10), DEFEND_R_ID),
+            CardInstance::new(CardId::new(11), DEFEND_R_ID),
+        ];
+        state.piles.discard_pile = vec![CardInstance::new(
+            CardId::new(2),
+            FLURRY_OF_BLOWS_ANY_COLOR_ID,
+        )];
+        state.monsters[0].intent = crate::MonsterIntent::AttackAndBlock {
+            damage: 11,
+            block: 5,
+        };
+        state.monsters[0].hp = 40;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(state.monsters[0].id),
+            },
+        )
+        .expect("Fear No Evil enters Calm from a full hand");
+
+        assert_eq!(next.piles.hand.len(), 10);
+        assert!(
+            next.piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == FLURRY_OF_BLOWS_ANY_COLOR_ID),
+            "source occupancy must not block Flurry"
+        );
+    }
+
+    #[test]
+    fn empty_body_from_neutral_does_not_return_flurry() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), EMPTY_BODY_ANY_COLOR_ID)];
+        state.piles.discard_pile = vec![CardInstance::new(
+            CardId::new(2),
+            FLURRY_OF_BLOWS_ANY_COLOR_ID,
+        )];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Empty Body from Neutral");
+
+        assert_eq!(next.player.powers.calm, 0);
+        assert!(
+            next.piles
+                .discard_pile
+                .iter()
+                .any(|card| card.content_id == FLURRY_OF_BLOWS_ANY_COLOR_ID),
+            "same-stance Neutral must not retrieve Flurry"
+        );
+    }
+
+    #[test]
+    fn empty_body_from_calm_returns_flurry_and_grants_energy() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.player.powers.calm = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), EMPTY_BODY_ANY_COLOR_ID)];
+        state.piles.discard_pile = vec![CardInstance::new(
+            CardId::new(2),
+            FLURRY_OF_BLOWS_ANY_COLOR_ID,
+        )];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Empty Body leaves Calm");
+
+        assert_eq!(next.player.powers.calm, 0);
+        assert_eq!(next.player.energy, 2);
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == FLURRY_OF_BLOWS_ANY_COLOR_ID));
     }
 
     #[test]

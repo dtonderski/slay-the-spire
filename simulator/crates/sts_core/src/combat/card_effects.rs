@@ -2837,30 +2837,25 @@ fn tranquility_queue(
 }
 
 fn empty_mind_queue(
-    state: &CombatState,
+    _state: &CombatState,
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    let exit_calm = state.player.powers.calm > 0;
-    let mut queue = VecDeque::from([
+    // EmptyMind.use addToBots DrawCardAction then ChangeStance(Neutral).
+    // CalmStance.onExitStance supplies the +2 energy; same-stance Neutral is a no-op.
+    Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-    ]);
-    if exit_calm {
-        queue.push_back(InternalAction::ExitCalm);
-        queue.push_back(InternalAction::GainEnergy { amount: 2 });
-    }
-    queue.extend([
         InternalAction::DrawCards { count: 2 },
+        InternalAction::ExitCalm,
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
             to: CardPile::DiscardPile,
         },
-    ]);
-    Ok(queue)
+    ]))
 }
 
 fn pressure_points_queue(
@@ -3438,25 +3433,19 @@ fn empty_body_queue(
         .map(|card| card.upgrades)
         .unwrap_or(0);
     // EmptyBody.baseBlock is 7; upgradeBlock(3). ChangeStance(Neutral).
+    // Same-stance Neutral is a no-op; leaving Calm grants energy via onExitStance.
     let block = required_block(definition)? + if upgrades > 0 { 3 } else { 0 };
-    let exit_calm = state.player.powers.calm > 0;
-    let mut queue = VecDeque::from([
+    Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainBlock { amount: block },
-    ]);
-    if exit_calm {
-        queue.push_back(InternalAction::ExitCalm);
-        queue.push_back(InternalAction::GainEnergy { amount: 2 });
-    }
-    queue.push_back(InternalAction::EnterCalm);
-    queue.push_back(InternalAction::ExitCalm);
-    queue.push_back(InternalAction::MoveCard {
-        card_id,
-        from: CardPile::Hand,
-        to: card_move_destination(definition),
-    });
-    Ok(queue)
+        InternalAction::ExitCalm,
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
 }
 
 fn judgement_queue(
