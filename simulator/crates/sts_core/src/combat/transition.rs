@@ -3390,8 +3390,17 @@ fn resolve_top_draw_card(
             follow_ups.extend(apply_hand_card_play_triggers(state, card_id));
         }
         if exhaust_played_card || definition.keywords.exhaust {
-            state.piles.exhaust_pile.push(card);
-            follow_ups.push(InternalAction::CardExhausted { card_id });
+            // PlayTop still constructs UseCardAction with exhaustOnUseOnce.
+            // StrangeSpoon.onExhaust can send that unplayable card to discard
+            // (FIDL02410 Havoc → Dazed).
+            let spoon_saves = state.relics.contains(&Relic::StrangeSpoon)
+                && state.rng.card_random_rng.random_bool();
+            if spoon_saves {
+                state.piles.discard_pile.push(card);
+            } else {
+                state.piles.exhaust_pile.push(card);
+                follow_ups.push(InternalAction::CardExhausted { card_id });
+            }
         } else if !card.combat_only {
             state.piles.discard_pile.push(card);
         }
@@ -12379,6 +12388,54 @@ mod tests {
                 .skip(pact_at + 1)
                 .any(|id| *id == DEFEND_R_ID || *id == UPPERCUT_ID),
             "Time Warp must discard the leftover hand after Burning Pact, discard={discard_ids:?}"
+        );
+    }
+
+    #[test]
+    fn havoc_unplayable_playtop_still_rolls_strange_spoon() {
+        // Havoc PlayTop of Dazed still constructs UseCardAction with
+        // exhaustOnUseOnce; Spoon can send that Dazed to discard (FIDL02410).
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.relics = vec![Relic::StrangeSpoon];
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_ID)];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(2), DAZED_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.rng.card_random_rng = crate::rng::StsRng::new(2);
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc force-plays Dazed");
+
+        let dazed_discarded = next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.content_id == DAZED_ID);
+        let dazed_exhausted = next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == DAZED_ID);
+        assert!(
+            dazed_discarded != dazed_exhausted,
+            "Spoon must decide Dazed destination, discard={:?} exhaust={:?}",
+            next.piles
+                .discard_pile
+                .iter()
+                .map(|c| c.content_id)
+                .collect::<Vec<_>>(),
+            next.piles
+                .exhaust_pile
+                .iter()
+                .map(|c| c.content_id)
+                .collect::<Vec<_>>(),
         );
     }
 
