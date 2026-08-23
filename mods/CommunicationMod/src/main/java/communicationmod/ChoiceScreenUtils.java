@@ -482,7 +482,6 @@ public class ChoiceScreenUtils {
 
     private static void clickGridScreenConfirmButton() {
         GridCardSelectScreen screen = AbstractDungeon.gridSelectScreen;
-        GridCardSelectScreenPatch.retainHoveredCardForConfirm(screen.confirmScreenUp);
         screen.confirmButton.hb.clicked = true;
         if (shouldBlockAfterShopPurgeGridConfirm(
                 AbstractDungeon.previousScreen, screen.forPurge)) {

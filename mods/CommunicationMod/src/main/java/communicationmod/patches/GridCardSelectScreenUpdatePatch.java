@@ -1,7 +1,9 @@
 package communicationmod.patches;
 
+import basemod.ReflectionHacks;
 import com.evacipated.cardcrawl.modthespire.lib.*;
 import com.evacipated.cardcrawl.modthespire.patcher.PatchingException;
+import com.megacrit.cardcrawl.cards.AbstractCard;
 import com.megacrit.cardcrawl.helpers.Hitbox;
 import com.megacrit.cardcrawl.screens.select.GridCardSelectScreen;
 import communicationmod.GameStateListener;
@@ -17,6 +19,31 @@ import static com.evacipated.cardcrawl.modthespire.lib.LineFinder.findAllInOrder
         method="update"
 )
 public class GridCardSelectScreenUpdatePatch {
+
+    @SpirePrefixPatch
+    public static void Prefix(GridCardSelectScreen _instance) {
+        AbstractCard current = (AbstractCard) ReflectionHacks.getPrivate(
+                _instance, GridCardSelectScreen.class, "hoveredCard");
+        if (!GridCardSelectScreenPatch.shouldRestoreMissingHoveredCardOnConfirmUpdate(
+                _instance.confirmScreenUp,
+                current == null,
+                GridCardSelectScreenPatch.hoverCard != null)) {
+            return;
+        }
+        ReflectionHacks.setPrivate(
+                _instance,
+                GridCardSelectScreen.class,
+                "hoveredCard",
+                GridCardSelectScreenPatch.hoverCard);
+        GridCardSelectScreenPatch.hoverCard.hb.hovered = true;
+    }
+
+    @SpirePostfixPatch
+    public static void Postfix(GridCardSelectScreen _instance) {
+        if (!_instance.selectedCards.isEmpty()) {
+            GridCardSelectScreenPatch.clearStoredHover();
+        }
+    }
 
     @SpireInsertPatch(
             locator=Locator.class
