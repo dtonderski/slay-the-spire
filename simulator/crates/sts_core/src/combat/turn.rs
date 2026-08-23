@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use crate::{
     combat::turn_powers::{
         apply_demon_form_strength_post_draw, apply_end_of_monster_turn_powers,
@@ -824,7 +826,7 @@ fn start_player_turn_in_place(
     // base refill actually queued those draws (FIDL02303). Unconditional
     // parking put played Powers into discard (FIDL02199 Fire Breathing+).
     state.defer_mayhem_play_top_settlement = !base_draw_follow_ups.is_empty();
-    apply_start_of_turn_mayhem(state, &mayhem_targets)?;
+    let pending_mayhem_play_tops = apply_start_of_turn_mayhem(state, &mayhem_targets)?;
     if state.player.hp <= 0 {
         state.player.hp = 0;
         state.phase = CombatPhase::Lost;
@@ -842,6 +844,14 @@ fn start_player_turn_in_place(
     // Start-of-turn Fire Breathing pulses are consecutive addToBot DamageAll
     // actions. Guardian ChangeState/GainBlock is queued behind that burst.
     crate::content::monsters::resolve_deferred_guardian_mode_shifts(&mut state.monsters);
+    // PlayTopCardAction only queued the cards. Fire Breathing (and Evolve
+    // residuals) sit on the action queue, so they resolve before cardQueue
+    // calls use(). A dead Mayhem target then skips that use() (FIDL02199).
+    if !pending_mayhem_play_tops.is_empty() && state.player.hp > 0 {
+        let transition =
+            crate::combat::transition::process_internal_queue(state, pending_mayhem_play_tops)?;
+        *state = transition.state;
+    }
     crate::combat::transition::flush_deferred_mayhem_play_top_draw_inserts(state)?;
     state.defer_time_warp_end_turn = false;
     crate::combat::transition::settle_time_warp_end_turn_if_ready(state)?;
@@ -1057,15 +1067,17 @@ fn collect_start_of_turn_mayhem_targets(state: &mut CombatState) -> Vec<Option<M
 fn apply_start_of_turn_mayhem(
     state: &mut CombatState,
     targets: &[Option<MonsterId>],
-) -> SimResult<()> {
+) -> SimResult<VecDeque<crate::InternalAction>> {
     // MayhemPower.atStartOfTurn addToBots one PlayTopCardAction per stack
     // before any of them resolve. InkBottle.onUseCard addToBots Draw after
     // each played card, so a 10th-card Ink draw from the first PlayTop sits
     // behind the remaining PlayTops (FIDL02199 Intimidate then Wound).
     // A single stack keeps the sequential path so unplayable tops still
     // discard without Blue Candle / UseCardAction (FIDL02199 Havoc turn).
+    // Stacked PlayTops only pop into cardQueue; GameActionManager drains the
+    // action queue (Evolve residuals, Fire Breathing) before use().
     if targets.len() > 1 {
-        return crate::combat::transition::apply_mayhem_play_top_cards(state, targets);
+        return crate::combat::transition::pop_mayhem_play_top_cards(state, targets);
     }
     let mut remaining = targets;
     while let Some((&random_target, rest)) = remaining.split_first() {
@@ -1077,7 +1089,7 @@ fn apply_start_of_turn_mayhem(
             crate::combat::transition::player_shuffle_discard_into_draw(state)?;
         }
         let Some(top_card) = state.piles.draw_pile.last() else {
-            return Ok(());
+            return Ok(VecDeque::new());
         };
         let definition = crate::content::cards::get_card_definition(top_card.content_id)
             .ok_or(crate::SimError::UnknownContent(top_card.content_id))?;
@@ -1101,7 +1113,7 @@ fn apply_start_of_turn_mayhem(
             // addToBots ShuffleAction, so later PlayTops take the pre-shuffle
             // tops (FIDL01709 Dramatic Entrance under Deep Breath).
             crate::combat::transition::apply_mayhem_play_top_cards(state, remaining)?;
-            return Ok(());
+            return Ok(VecDeque::new());
         }
         let target = if definition.target == crate::TargetRequirement::Enemy {
             random_target
@@ -1115,11 +1127,11 @@ fn apply_start_of_turn_mayhem(
                 .iter()
                 .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
         {
-            return Ok(());
+            return Ok(VecDeque::new());
         }
         remaining = rest;
     }
-    Ok(())
+    Ok(VecDeque::new())
 }
 
 fn mayhem_random_living_target(state: &mut CombatState) -> Option<MonsterId> {
@@ -3302,8 +3314,8 @@ mod tests {
     use crate::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BASH_ID, BERSERK_ID, BLOODLETTING_ID, BURNING_PACT_ID, BURN_ID,
         DAZED_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID, GHOSTLY_ARMOR_ID,
-        INFLAME_ID, PARASITE_ID, POMMEL_STRIKE_ID, REGRET_ID, SHAME_ID, SHRUG_IT_OFF_PLUS_ID,
-        SLIMED_ID, STRIKE_R_ID, THUNDERCLAP_ID, VOID_ID, WOUND_ID,
+        INFLAME_ID, INTIMIDATE_ID, PARASITE_ID, POMMEL_STRIKE_ID, REGRET_ID, SHAME_ID,
+        SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, STRIKE_R_ID, THUNDERCLAP_ID, VOID_ID, WOUND_ID,
     };
     use crate::content::monsters::{
         donu_deca_boss_monsters_for_ascension, monster_state_for_ascension,
@@ -7145,6 +7157,62 @@ mod tests {
                 .iter()
                 .any(|card| card.content_id == WOUND_ID),
             "Pommel should draw Wound after both PlayTops removed",
+        );
+    }
+
+    #[test]
+    fn fire_breathing_kills_mayhem_target_before_pommel_use() {
+        // GameActionManager drains action-queue Fire Breathing before cardQueue
+        // plays the Mayhem tops. A dead target skips use() but still settles.
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.mayhem = 2;
+        state.player.powers.fire_breathing = 16;
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(10), WOUND_ID),
+            CardInstance::new(CardId::new(11), INTIMIDATE_ID),
+            CardInstance::new(CardId::new(12), POMMEL_STRIKE_ID),
+            CardInstance::new(CardId::new(13), BURN_ID),
+            CardInstance::new(CardId::new(14), DEFEND_R_ID),
+            CardInstance::new(CardId::new(15), DEFEND_R_ID),
+            CardInstance::new(CardId::new(16), DEFEND_R_ID),
+            CardInstance::new(CardId::new(17), BURN_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        let mut target = monster_state_for_ascension(&LOOTER_A0, MonsterId::new(1), 0);
+        target.hp = 20;
+        target.max_hp = 20;
+        target.block = 0;
+        state.monsters = vec![target];
+
+        start_player_turn(&mut state).expect("Mayhem waits for Fire Breathing");
+
+        assert!(
+            !state.monsters[0].alive,
+            "two Burns should Fire Breathe the 20 HP target down",
+        );
+        assert!(
+            state
+                .piles
+                .draw_pile
+                .iter()
+                .any(|card| card.content_id == WOUND_ID),
+            "dead-target Pommel must not draw, draw={:?}",
+            state
+                .piles
+                .draw_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+        );
+        assert!(
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .any(|card| card.content_id == POMMEL_STRIKE_ID),
+            "skipped Pommel still settles to discard",
         );
     }
 

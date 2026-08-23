@@ -194,21 +194,28 @@ pub fn apply_mayhem_play_top_cards(
     state: &mut CombatState,
     targets: &[Option<MonsterId>],
 ) -> SimResult<()> {
-    if targets.is_empty() {
+    let resolves = pop_mayhem_play_top_cards(state, targets)?;
+    if resolves.is_empty() {
         return Ok(());
     }
-    // PlayTopCardAction removes its top before the card queue plays it.
-    // Mayhem queues every PlayTop first, so the second remove happens before
-    // the first card's use() addToBot Draw (FIDL02199 Pommel then Intimidate).
-    let mut next = state.clone();
-    let mut resolves = VecDeque::new();
-    for target in targets.iter().copied() {
-        let follow_ups = apply_play_top_draw_card(&mut next, target, false, false)?;
-        resolves.extend(follow_ups);
-    }
-    let transition = process_internal_queue(&next, resolves)?;
+    let transition = process_internal_queue(state, resolves)?;
     *state = transition.state;
     Ok(())
+}
+
+/// PlayTopCardAction only removes the top into limbo / cardQueue. The card
+/// is not `use()`d until `GameActionManager` drains the action queue
+/// (including start-of-turn Fire Breathing) and then services cardQueue.
+pub(crate) fn pop_mayhem_play_top_cards(
+    state: &mut CombatState,
+    targets: &[Option<MonsterId>],
+) -> SimResult<VecDeque<InternalAction>> {
+    let mut resolves = VecDeque::new();
+    for target in targets.iter().copied() {
+        let follow_ups = apply_play_top_draw_card(state, target, false, false)?;
+        resolves.extend(follow_ups);
+    }
+    Ok(resolves)
 }
 
 fn apply_play_card(
@@ -3338,6 +3345,17 @@ fn resolve_top_draw_card(
             })
         });
     let missing_enemy_target = definition.target == TargetRequirement::Enemy && target.is_none();
+    // GameActionManager skips use() when the queued card's monster is
+    // isDeadOrEscaped, but autoplay still constructs UseCardAction with
+    // dontTriggerOnUseCard. Mayhem PlayTop of Pommel therefore discards
+    // without drawing if Fire Breathing already killed its target (FIDL02199).
+    let target_is_dead_or_escaped = target.is_some_and(|monster_id| {
+        !state.monsters.iter().any(|monster| {
+            monster.id == monster_id
+                && !monster.escaped
+                && (monster.alive || awakened_one_is_half_dead(monster))
+        })
+    });
     let entangled_blocks_attack =
         state.player.powers.entangled > 0 && definition.card_type == CardType::Attack;
     let normality_blocks_play = state
@@ -3356,6 +3374,7 @@ fn resolve_top_draw_card(
         || clash_is_unplayable
         || dual_wield_is_unplayable
         || missing_enemy_target
+        || target_is_dead_or_escaped
         || entangled_blocks_attack
         || normality_blocks_play
         || !crate::relic::can_play_card_with_relics(state)
