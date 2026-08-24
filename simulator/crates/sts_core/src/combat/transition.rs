@@ -296,6 +296,13 @@ pub(crate) fn process_internal_queue(
         // insertion that can no longer be observed. Keep the gate generic for
         // all random-spot generated cards; surviving and revival paths retain
         // the normal insertion below.
+        //
+        // Sharp Hide (and Beat of Death) are onUseCard / onAfterUseCard
+        // addToBot DamageActions behind UseCardAction. Lethal damage from
+        // card.use() already ended combat, so GameActionManager.clearPostCombatActions
+        // drops that later UseCardAction and the Sharp Hide hit never queues.
+        // Spiker ThornsPower.onAttacked addToTops during the hit itself and is
+        // ActionType.DAMAGE, so last-enemy Spiker thorns still apply.
         let combat_is_ending = next.player.hp <= 0
             || next
                 .monsters
@@ -306,6 +313,7 @@ pub(crate) fn process_internal_queue(
                 internal_action,
                 InternalAction::AddGeneratedCardToDrawPileRandomSpot { .. }
                     | InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost { .. }
+                    | InternalAction::DealThornsDamageToPlayer { .. }
             )
         {
             event_log.push(internal_action);
@@ -6533,7 +6541,7 @@ mod tests {
     use crate::content::monsters::{
         mark_awakened_one_half_dead, monster_state, AWAKENED_ONE_A0, BRONZE_ORB_A0, DAGGER_A0,
         DARKLING_A0, FUNGI_BEAST_A0, GUARDIAN_A0, JAW_WORM_A0, REPTOMANCER_A0, SNAKE_PLANT_A0,
-        SPIRE_SHIELD_A0, SPIRE_SPEAR_A0,
+        SPIKER_A0, SPIRE_SHIELD_A0, SPIRE_SPEAR_A0,
     };
     use crate::relic::INK_BOTTLE_THRESHOLD;
     use crate::rng::StsRng;
@@ -9470,6 +9478,84 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![DEFEND_R_ID]
         );
+    }
+
+    #[test]
+    fn lethal_strike_on_last_guardian_skips_sharp_hide() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&GUARDIAN_A0, target)];
+        state.monsters[0].powers.spikes = 3;
+        state.monsters[0].hp = 5;
+        state.monsters[0].block = 0;
+        state.player.hp = 80;
+        state.player.block = 0;
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("lethal Strike should kill Guardian without Sharp Hide");
+
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.player.hp, 80);
+    }
+
+    #[test]
+    fn nonlethal_strike_on_guardian_applies_sharp_hide() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&GUARDIAN_A0, target)];
+        state.monsters[0].powers.spikes = 3;
+        state.monsters[0].hp = 40;
+        state.monsters[0].block = 0;
+        state.player.hp = 80;
+        state.player.block = 0;
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("non-lethal Strike should take Sharp Hide");
+
+        assert!(next.monsters[0].alive);
+        assert_eq!(next.player.hp, 77);
+    }
+
+    #[test]
+    fn lethal_strike_on_last_spiker_applies_thorns() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&SPIKER_A0, target)];
+        state.monsters[0].powers.spikes = 9;
+        state.monsters[0].hp = 5;
+        state.monsters[0].block = 0;
+        state.player.hp = 80;
+        state.player.block = 0;
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("lethal Strike should apply last-enemy Spiker thorns");
+
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.player.hp, 71);
     }
 
     #[test]
