@@ -97,3 +97,36 @@ fn the_bomb_explodes_after_three_end_turn_ticks() {
     assert!(state.bomb_timers.is_empty());
     assert!(state.monsters.iter().all(|monster| monster.hp == 10));
 }
+
+#[test]
+fn the_bomb_breaking_block_applies_hand_drill_vulnerable() {
+    // TheBombPower queues DamageAllEnemiesAction; brokeBlock notifies Hand Drill
+    // (FIDL00076 Spire Shield 12 block + Vulnerable 1 → 2 after the round tick).
+    let mut state = bomb_fixture();
+    state.relics.push(sts_core::relic::Relic::HandDrill);
+    state.bomb_timers = vec![sts_core::combat::BombTimer {
+        turns_remaining: 1,
+        damage: cards::THE_BOMB_DAMAGE,
+    }];
+    state.piles.hand.clear();
+    for monster in &mut state.monsters {
+        monster.hp = 51;
+        monster.max_hp = 51;
+        monster.block = 12;
+        monster.powers.vulnerable = 1;
+        monster.intent = sts_core::MonsterIntent::Stun;
+    }
+
+    let next = sts_core::end_player_turn(&state).expect("bomb explodes through block");
+
+    assert!(next.bomb_timers.is_empty());
+    for monster in &next.monsters {
+        assert_eq!(monster.block, 0);
+        assert_eq!(monster.hp, 23);
+        assert_eq!(
+            monster.powers.vulnerable,
+            1 + sts_core::relic::HAND_DRILL_VULNERABLE - 1,
+            "Hand Drill 2 stacks onto existing 1, then the round ticks once"
+        );
+    }
+}
