@@ -10521,12 +10521,27 @@ fn apply_monster_intent_with_card_rng_inner(
             weak,
             vulnerable,
         } => {
-            apply_player_frail_from_monster(player, relics, frail)?;
-            apply_player_weak_from_monster(player, relics, weak)?;
-            let had_no_vulnerable = player.powers.vulnerable == 0;
-            let applied = apply_player_vulnerable_from_monster(&mut player.powers, vulnerable)?;
-            if had_no_vulnerable && applied {
-                player.vulnerable_just_applied = true;
+            // Collector Mega Debuff queues Weak, then Vulnerable, then Frail
+            // (`TheCollector.takeTurn` MEGA_DEBUFF). Artifact therefore eats
+            // Weak and leaves Vulnerable + Frail (FIDL00018 Clockwork Souvenir).
+            // Champ Taunt / Guardian Vent Steam use frail=0, so the remaining
+            // Weak-then-Vulnerable path matches those takeTurn queues.
+            if monster.content_id == THE_COLLECTOR_ID {
+                apply_player_weak_from_monster(player, relics, weak)?;
+                let had_no_vulnerable = player.powers.vulnerable == 0;
+                let applied = apply_player_vulnerable_from_monster(&mut player.powers, vulnerable)?;
+                if had_no_vulnerable && applied {
+                    player.vulnerable_just_applied = true;
+                }
+                apply_player_frail_from_monster(player, relics, frail)?;
+            } else {
+                apply_player_frail_from_monster(player, relics, frail)?;
+                apply_player_weak_from_monster(player, relics, weak)?;
+                let had_no_vulnerable = player.powers.vulnerable == 0;
+                let applied = apply_player_vulnerable_from_monster(&mut player.powers, vulnerable)?;
+                if had_no_vulnerable && applied {
+                    player.vulnerable_just_applied = true;
+                }
             }
             (0, 0)
         }
@@ -11375,6 +11390,41 @@ mod tests {
         assert_eq!(player.powers.weak, 2);
         assert_eq!(player.powers.vulnerable, 2);
         assert!(player.vulnerable_just_applied);
+    }
+
+    #[test]
+    fn collector_mega_debuff_artifact_eats_weak_and_leaves_frail() {
+        // TheCollector.takeTurn MEGA_DEBUFF queues Weak, then Vulnerable, then
+        // Frail. One Artifact (Clockwork Souvenir) therefore blocks Weak and
+        // leaves Vulnerable 3 + Frail 3.
+        let mut state = crate::CombatState::initial_fixture();
+        let mut monster = monster_state(&THE_COLLECTOR_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::ApplyPlayerFrailWeakVulnerable {
+            frail: 3,
+            weak: 3,
+            vulnerable: 3,
+        };
+        let mut player = state.player.clone();
+        player.powers.artifact = 1;
+        let player_before = player.clone();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
+
+        let damage = apply_monster_intent_with_card_rng(
+            &mut monster,
+            &mut player,
+            &mut state.piles,
+            allocated_card_id_through,
+            0,
+            &player_before,
+            &[],
+            &mut state.rng.card_random_rng,
+        );
+
+        assert_eq!(damage, Ok(0));
+        assert_eq!(player.powers.artifact, 0);
+        assert_eq!(player.powers.weak, 0);
+        assert_eq!(player.powers.vulnerable, 3);
+        assert_eq!(player.powers.frail, 3);
     }
 
     #[test]

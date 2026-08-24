@@ -4195,7 +4195,9 @@ pub(crate) fn enter_spire_heart_event(run: &mut RunState) -> SimResult<()> {
 }
 
 pub(crate) fn enter_act4_map(run: &mut RunState) -> SimResult<()> {
-    if !all_act4_keys(run) || run.current_act != 3 || run.current_floor != 51 {
+    // The door is the Act 3 Spire Heart event, not a fixed floor number.
+    // Path length to the Act 3 boss varies, so the heart can be before floor 51.
+    if !all_act4_keys(run) || run.current_act != 3 {
         return Err(SimError::InvalidState(
             "Act 4 entry requires all keys after the Act 3 heart event",
         ));
@@ -5204,7 +5206,8 @@ mod tests {
         run.has_sapphire_key = true;
         run.emerald_key_node = None;
         run.current_act = 3;
-        run.current_floor = 51;
+        // Heart follows the Act 3 boss, whose floor is path-length dependent.
+        run.current_floor = 47;
         run.player_hp = 1;
         run.current_room_override = Some(crate::RoomKind::Victory);
         run.phase = RunPhase::Event;
@@ -5217,7 +5220,7 @@ mod tests {
         let act_four = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
             .expect("approaching the door enters Act 4");
         assert_eq!(act_four.current_act, 4);
-        assert_eq!(act_four.current_floor, 51);
+        assert_eq!(act_four.current_floor, 47);
         assert_eq!(act_four.player_hp, act_four.player_max_hp);
         assert_eq!(act_four.phase, RunPhase::Idle);
         let map = act_four.map.as_ref().expect("Act 4 map");
