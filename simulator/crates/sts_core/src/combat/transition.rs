@@ -10003,6 +10003,39 @@ mod tests {
     }
 
     #[test]
+    fn double_tap_and_necronomicon_each_copy_the_original_once() {
+        // Each extra play is an independent purgeOnUse copy of the original
+        // card (FIDL00036 Heavy Blade vs intangible Nemesis: 3 hits of 1).
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(Relic::Necronomicon);
+        state.double_tap_pending = 1;
+        state.player.energy = 2;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HEAVY_BLADE_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.monsters[0].hp = 168;
+        state.monsters[0].max_hp = 185;
+        state.monsters[0].powers.intangible = 1;
+        let target = state.monsters[0].id;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Heavy Blade");
+
+        assert_eq!(
+            next.monsters[0].hp, 165,
+            "original + Necronomicon + Double Tap, not nested copies"
+        );
+        assert!(next.relic_counters.necronomicon_used_this_turn);
+        assert_eq!(next.double_tap_pending, 0);
+    }
+
+    #[test]
     fn iron_wave_juggernaut_kills_before_malleable_block() {
         // Permanent tip 1ac7db2c9f4a3da9 step 670: Iron Wave with Juggernaut 5 vs
         // Snake Plant at 7 HP / Malleable 5. Block first queues Juggernaut
