@@ -3220,16 +3220,19 @@ fn havoc_settles_source_before_forced_anger_copy() {
 }
 
 #[test]
-fn hemokinesis_plus_deals_damage_before_rupture_strength_from_hp_loss() {
+fn double_tap_hemokinesis_recalculates_each_copy_before_its_hp_loss() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 1;
     state.player.hp = 50;
     state.player.powers.rupture = 2;
+    state.double_tap_pending = 1;
     state.piles.hand = vec![
         CardInstance::new(CardId::new(1), cards::HEMOKINESIS_PLUS_ID),
         CardInstance::new(CardId::new(2), cards::BLOOD_FOR_BLOOD_ID),
     ];
     state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    state.monsters[0].hp = 100;
+    state.monsters[0].max_hp = 100;
     let starting_hp = state.monsters[0].hp;
 
     let next = apply_combat_action(
@@ -3241,15 +3244,45 @@ fn hemokinesis_plus_deals_damage_before_rupture_strength_from_hp_loss() {
     )
     .expect("Hemokinesis+ plays against an enemy");
 
-    assert_eq!(next.player.hp, 48);
-    assert_eq!(next.monsters[0].hp, starting_hp - 20);
-    assert_eq!(next.player.powers.strength, 2);
+    assert_eq!(next.player.hp, 46);
+    assert_eq!(next.monsters[0].hp, starting_hp - 42);
+    assert_eq!(next.player.powers.strength, 4);
     assert_eq!(next.piles.hand[0].content_id, cards::BLOOD_FOR_BLOOD_ID);
-    assert_eq!(next.piles.hand[0].blood_for_blood_cost_reduction, 1);
+    assert_eq!(next.piles.hand[0].blood_for_blood_cost_reduction, 2);
     assert_eq!(
         next.piles.discard_pile[0].content_id,
         cards::HEMOKINESIS_PLUS_ID
     );
+}
+
+#[test]
+fn duplication_and_double_tap_hemokinesis_stop_after_a_lethal_copy() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.player.hp = 50;
+    state.duplication_potion_stacks = 1;
+    state.double_tap_pending = 1;
+    state.piles.hand = vec![CardInstance::new(
+        CardId::new(1),
+        cards::HEMOKINESIS_PLUS_ID,
+    )];
+    state.monsters = vec![monster_state(&FIXED_SIMPLE_MONSTER, MonsterId::new(1))];
+    state.monsters[0].hp = 35;
+    state.monsters[0].max_hp = 35;
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: Some(MonsterId::new(1)),
+        },
+    )
+    .expect("nested Hemokinesis copies resolve");
+
+    assert_eq!(next.monsters[0].hp, 0);
+    assert_eq!(next.player.hp, 46);
+    assert_eq!(next.duplication_potion_stacks, 0);
+    assert_eq!(next.double_tap_pending, 0);
 }
 
 #[test]

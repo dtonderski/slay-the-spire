@@ -63,6 +63,16 @@ pub enum InternalAction {
     DealDamage {
         info: DamageInfo,
     },
+    /// Calculate a card's final attack amount before its following queued use
+    /// effects, then resolve that prepared amount later.
+    PrepareCardDamage {
+        info: DamageInfo,
+    },
+    /// Resolution of a prepared card amount still applies block, thorns, and
+    /// monster reactions without recalculating attacker stat modifiers.
+    DealPreparedDamage {
+        info: DamageInfo,
+    },
     /// BaneAction checks for Poison only when its separately queued second hit resolves.
     DealBaneDamageIfPoisoned {
         info: DamageInfo,
@@ -108,8 +118,12 @@ pub enum InternalAction {
         source: CardId,
         amount: i32,
     },
-    /// Guardian Sharp Hide (`onUseCard`) thorns damage to the player.
-    /// Queued after `card.use()` effects, like STS `addToBot(DamageAction)`.
+    /// Guardian Sharp Hide (`onUseCard`) damage. It is queued by card-use
+    /// powers before UseCardAction settles the source card.
+    DealSharpHideDamageToPlayer {
+        amount: i32,
+    },
+    /// Other thorns-style damage to the player, including Beat of Death.
     DealThornsDamageToPlayer {
         amount: i32,
     },
@@ -472,6 +486,13 @@ pub enum InternalAction {
         card_id: CardId,
         target: Option<MonsterId>,
         exhaust_played_card: bool,
+    },
+    /// Finish one card-queue item after all actions produced by that card have run.
+    EndPlayTopCardResolution {
+        card_id: CardId,
+        deferred_destination: Option<CardPile>,
+        previous_card_in_use: Option<CardId>,
+        previous_force_exhaust: bool,
     },
     PutHandCardOnTopOfDraw {
         card_id: CardId,

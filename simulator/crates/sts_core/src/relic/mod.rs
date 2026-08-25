@@ -1959,6 +1959,11 @@ impl Relic {
 }
 
 pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) -> SimResult<()> {
+    // AbstractPlayer visits relics in acquisition order, while each addToTop
+    // inserts at the front of one shared action queue. Preserve that stack
+    // discipline across relic boundaries rather than applying queued effects
+    // immediately during visitation.
+    let mut top_actions = std::collections::VecDeque::new();
     for relic in relics {
         match relic {
             Relic::BurningBlood => {}
@@ -2020,10 +2025,12 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::Enchiridion => {}
             Relic::NilrysCodex => {}
             Relic::MutagenicStrength => {
-                checked_add_relic_value(
-                    &mut combat.player.temp_strength,
-                    MUTAGENIC_STRENGTH_AMOUNT,
-                )?;
+                // Strength then LoseStrength are each addToTop. The simulator's
+                // GainTempStrength combines those paired power applications;
+                // its Artifact handling models LoseStrength as a debuff.
+                top_actions.push_front(InternalAction::GainTempStrength {
+                    amount: MUTAGENIC_STRENGTH_AMOUNT,
+                });
             }
             Relic::FossilizedHelix => {
                 checked_add_relic_value(&mut combat.player.powers.buffer, FOSSILIZED_HELIX_BUFFER)?;
@@ -2086,10 +2093,9 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
                 )?;
             }
             Relic::ClockworkSouvenir => {
-                checked_add_relic_value(
-                    &mut combat.player.powers.artifact,
-                    CLOCKWORK_SOUVENIR_ARTIFACT,
-                )?;
+                top_actions.push_front(InternalAction::GainArtifact {
+                    amount: CLOCKWORK_SOUVENIR_ARTIFACT,
+                });
             }
             Relic::RedSkull => {
                 apply_start_of_combat_red_skull(combat)?;
@@ -2210,6 +2216,10 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
         }
     }
 
+    if !top_actions.is_empty() {
+        let transition = crate::combat::transition::process_internal_queue(combat, top_actions)?;
+        *combat = transition.state;
+    }
     let _ = apply_start_of_player_turn_relics(combat)?;
     Ok(())
 }
@@ -3314,6 +3324,29 @@ fn deal_unmodified_damage_to_living_monsters(
 mod tests {
     use super::*;
     use crate::power::{MonsterPowers, PlayerPowers};
+
+    #[test]
+    fn start_combat_add_to_top_reverses_relic_acquisition_order() {
+        let mut mutagenic_then_clockwork = CombatState::initial_fixture();
+        apply_start_of_combat_relics(
+            &mut mutagenic_then_clockwork,
+            &[Relic::MutagenicStrength, Relic::ClockworkSouvenir],
+        )
+        .expect("start-combat relic actions resolve");
+        assert_eq!(mutagenic_then_clockwork.player.powers.strength, 3);
+        assert_eq!(mutagenic_then_clockwork.player.temp_strength, 0);
+        assert_eq!(mutagenic_then_clockwork.player.powers.artifact, 0);
+
+        let mut clockwork_then_mutagenic = CombatState::initial_fixture();
+        apply_start_of_combat_relics(
+            &mut clockwork_then_mutagenic,
+            &[Relic::ClockworkSouvenir, Relic::MutagenicStrength],
+        )
+        .expect("start-combat relic actions resolve");
+        assert_eq!(clockwork_then_mutagenic.player.powers.strength, 0);
+        assert_eq!(clockwork_then_mutagenic.player.temp_strength, 3);
+        assert_eq!(clockwork_then_mutagenic.player.powers.artifact, 1);
+    }
 
     #[test]
     fn courier_is_rejected_in_shop_and_end_offer_falls_through() {

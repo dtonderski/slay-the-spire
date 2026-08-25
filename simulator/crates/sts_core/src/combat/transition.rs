@@ -389,6 +389,34 @@ pub(crate) fn process_internal_queue(
             apply_internal_action_with_defer(&mut next, internal_action, defer_time_warp_card_play)?
         };
         event_log.push(internal_action);
+        if matches!(internal_action, InternalAction::ResolveTopDrawCard { .. }) {
+            // ResolveTopDrawCard expands one card-queue item into its ordered
+            // action sequence. Insert that sequence as a lane ahead of existing
+            // card-queue siblings without treating its actions as callbacks.
+            let index = queue
+                .iter()
+                .position(|action| matches!(action, InternalAction::ResolveTopDrawCard { .. }))
+                .unwrap_or(queue.len());
+            for (offset, action) in follow_ups.into_iter().enumerate() {
+                queue.insert(index + offset, action);
+            }
+            continue;
+        }
+        if matches!(internal_action, InternalAction::DealPreparedDamage { .. }) {
+            if let Some(index) = queue
+                .iter()
+                .position(|action| matches!(action, InternalAction::EndCopiedCardEffects))
+            {
+                // EndCopiedCardEffects is a simulator card-queue marker, not a
+                // target action. Keep the prepared hit's direct reactions in
+                // their originating copy before a later copy checks its target
+                // or runs on-use triggers.
+                for (offset, action) in follow_ups.into_iter().enumerate() {
+                    queue.insert(index + offset, action);
+                }
+                continue;
+            }
+        }
         let gremlin_horn_expansion =
             matches!(internal_action, InternalAction::ApplyGremlinHornOnDeath);
         let mut gremlin_horn_insert_index = 0;
@@ -414,9 +442,10 @@ pub(crate) fn process_internal_queue(
                 queue.insert(index, follow_up);
             } else if exhaust_follow_up {
                 // ExhaustAll / selected-card exhaust happens in card.use() before
-                // UseCardAction Beat of Death. FNP from those other cards must
-                // land before BoD (FIDL02333). The played card's own exhaust is
-                // UseCardAction settlement after BoD (Havoc/Slimed/Pummel).
+                // UseCardAction's Beat of Death and Sharp Hide callbacks. FNP
+                // from those other cards must land before that damage (FIDL02333
+                // and Sever Soul under Sharp Hide). The played card's own exhaust
+                // is UseCardAction settlement after BoD (Havoc/Slimed/Pummel).
                 let exhausted_is_card_in_use = match internal_action {
                     InternalAction::CardExhausted { card_id }
                     | InternalAction::HandCardExhausted { card_id } => {
@@ -428,7 +457,11 @@ pub(crate) fn process_internal_queue(
                     && matches!(follow_up, InternalAction::GainBlockFromExhaust { .. })
                 {
                     if let Some(index) = queue.iter().position(|action| {
-                        matches!(action, InternalAction::DealThornsDamageToPlayer { .. })
+                        matches!(
+                            action,
+                            InternalAction::DealSharpHideDamageToPlayer { .. }
+                                | InternalAction::DealThornsDamageToPlayer { .. }
+                        )
                     }) {
                         queue.insert(index, follow_up);
                         continue;
@@ -664,6 +697,51 @@ fn push_follow_up(
         if let Some(index) = queue
             .iter()
             .position(|action| matches!(action, InternalAction::DealDamageAll { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
+    }
+
+    if matches!(follow_up, InternalAction::GainBlockDirect { .. }) {
+        // Rage and Ornamental Fan addToBot their GainBlockAction during
+        // UseCardAction, before that action queues source-card settlement.
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::MoveCard { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
+    }
+
+    if matches!(follow_up, InternalAction::DealPreparedDamage { .. }) {
+        // AbstractCard calculates Hemokinesis damage before use() queues LoseHP.
+        // The prepared hit then remains inside the same card-use boundary: an
+        // ordinary play resolves it before source settlement, while a copied
+        // play resolves it before EndCopiedCardEffects and any later copy's
+        // target check or play triggers.
+        if let Some(index) = queue.iter().position(|action| {
+            matches!(
+                action,
+                InternalAction::MoveCard { .. } | InternalAction::EndCopiedCardEffects
+            )
+        }) {
+            queue.insert(index, follow_up);
+            return;
+        }
+    }
+
+    if matches!(
+        follow_up,
+        InternalAction::DealSharpHideDamageToPlayer { .. }
+    ) {
+        // SharpHidePower.onUseCard addToBots its DamageAction after card.use(),
+        // but before UseCardAction moves the source out of limbo. HP-loss
+        // callbacks such as Runic Cube therefore draw before source settlement.
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::MoveCard { .. }))
         {
             queue.insert(index, follow_up);
             return;
@@ -1171,6 +1249,12 @@ fn apply_internal_action_with_defer(
             card_actions::set_hand_card_cost_for_combat(state, card_id, cost)
         }
         InternalAction::DealDamage { info } => damage_actions::deal_damage(state, info),
+        InternalAction::PrepareCardDamage { info } => {
+            damage_actions::prepare_card_damage(state, info)
+        }
+        InternalAction::DealPreparedDamage { info } => {
+            damage_actions::deal_prepared_damage(state, info)
+        }
         InternalAction::DealBaneDamageIfPoisoned { info } => {
             damage_actions::deal_bane_damage_if_poisoned(state, info)
         }
@@ -1207,7 +1291,8 @@ fn apply_internal_action_with_defer(
         InternalAction::DealDamageAllAndHealUnblocked { source, amount } => {
             damage_actions::deal_damage_all_and_heal_unblocked(state, source, amount)
         }
-        InternalAction::DealThornsDamageToPlayer { amount } => {
+        InternalAction::DealSharpHideDamageToPlayer { amount }
+        | InternalAction::DealThornsDamageToPlayer { amount } => {
             let hp_loss = reflect_spikes_to_player(&mut state.player, &state.relics, amount);
             crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)?;
             Ok(Vec::new())
@@ -1569,6 +1654,18 @@ fn apply_internal_action_with_defer(
             target,
             exhaust_played_card,
         } => resolve_top_draw_card(state, card_id, target, exhaust_played_card),
+        InternalAction::EndPlayTopCardResolution {
+            card_id,
+            deferred_destination,
+            previous_card_in_use,
+            previous_force_exhaust,
+        } => end_play_top_card_resolution(
+            state,
+            card_id,
+            deferred_destination,
+            previous_card_in_use,
+            previous_force_exhaust,
+        ),
         InternalAction::PutHandCardOnTopOfDraw { card_id } => {
             let card = remove_card_from_pile(state, card_id, CardPile::Hand)?;
             state.piles.draw_pile.insert(0, card);
@@ -1735,7 +1832,7 @@ fn apply_on_card_play_powers(
             .map(|monster| monster.powers.spikes)
             .try_fold(0, checked_combat_sum)?;
         if sharp_hide_damage > 0 {
-            follow_ups.push(InternalAction::DealThornsDamageToPlayer {
+            follow_ups.push(InternalAction::DealSharpHideDamageToPlayer {
                 amount: sharp_hide_damage,
             });
         }
@@ -2139,17 +2236,22 @@ fn apply_monster_death_non_stasis_hooks(
     state: &mut CombatState,
     monster_id: MonsterId,
 ) -> SimResult<()> {
-    let ended_surrounded = state
+    let dead_monster_content_id = state
         .monsters
         .iter()
         .find(|monster| monster.id == monster_id)
-        .is_some_and(|monster| {
-            matches!(
-                monster.content_id,
-                crate::content::monsters::SPIRE_SHIELD_ID
-                    | crate::content::monsters::SPIRE_SPEAR_ID
-            )
-        });
+        .map(|monster| monster.content_id);
+    if dead_monster_content_id == Some(crate::content::monsters::MUGGER_ID) {
+        // Mugger.playDeathSfx consumes one inclusive aiRng.random(2) draw.
+        // Looter uses process-global MathUtils for its death voice instead.
+        let _ = state.rng.monster_rng.random_int(2);
+    }
+    let ended_surrounded = dead_monster_content_id.is_some_and(|content_id| {
+        matches!(
+            content_id,
+            crate::content::monsters::SPIRE_SHIELD_ID | crate::content::monsters::SPIRE_SPEAR_ID
+        )
+    });
     if ended_surrounded {
         // AbstractMonster.die removes Surrounded from the player and
         // BackAttackPower from the surviving Act 4 elite.
@@ -3573,10 +3675,32 @@ fn resolve_top_draw_card(
             immediate.push_back(action);
         }
     }
+    // Return this card's actions to the outer action manager instead of
+    // recursively draining a private queue. Existing ResolveTopDrawCard items
+    // remain the card-queue siblings; any nested PlayTop appends its new item
+    // behind them through push_follow_up's lane rule.
     state.play_top_resolving_depth = state.play_top_resolving_depth.saturating_add(1);
-    let transition = process_internal_queue(state, immediate)?;
-    *state = transition.state;
-    if let Some(InternalAction::MoveCard { to, .. }) = deferred_source_move {
+    immediate.push_back(InternalAction::EndPlayTopCardResolution {
+        card_id,
+        deferred_destination: deferred_source_move.and_then(|action| match action {
+            InternalAction::MoveCard { to, .. } => Some(to),
+            _ => None,
+        }),
+        previous_card_in_use: previous_in_use,
+        previous_force_exhaust: previous_play_top_force_exhaust,
+    });
+    immediate.extend(deferred_power_gains);
+    Ok(immediate.into_iter().collect())
+}
+
+fn end_play_top_card_resolution(
+    state: &mut CombatState,
+    card_id: CardId,
+    deferred_destination: Option<CardPile>,
+    previous_card_in_use: Option<CardId>,
+    previous_force_exhaust: bool,
+) -> SimResult<Vec<InternalAction>> {
+    if let Some(destination) = deferred_destination {
         let index = state
             .piles
             .hand
@@ -3584,18 +3708,19 @@ fn resolve_top_draw_card(
             .position(|card| card.id == card_id)
             .ok_or(SimError::UnknownCard(card_id))?;
         let card = state.piles.hand.remove(index);
-        state.deferred_mayhem_play_top_settlements.push((card, to));
+        state
+            .deferred_mayhem_play_top_settlements
+            .push((card, destination));
     }
     state.play_top_resolving_depth = state.play_top_resolving_depth.saturating_sub(1);
-    let nested_blocks = std::mem::take(&mut state.deferred_play_top_monster_blocks);
-    for (target, amount) in nested_blocks {
-        deferred_power_gains.push(InternalAction::GainMonsterBlock { target, amount });
-    }
     if state.decision.is_none() {
-        state.play_top_force_exhaust_active = previous_play_top_force_exhaust;
+        state.play_top_force_exhaust_active = previous_force_exhaust;
     }
-    state.card_in_use = previous_in_use;
-    Ok(deferred_power_gains)
+    state.card_in_use = previous_card_in_use;
+    Ok(std::mem::take(&mut state.deferred_play_top_monster_blocks)
+        .into_iter()
+        .map(|(target, amount)| InternalAction::GainMonsterBlock { target, amount })
+        .collect())
 }
 
 pub fn choose_hand_select(state: &mut CombatState, ui_index: usize) -> SimResult<()> {
@@ -4214,17 +4339,19 @@ pub fn confirm_draw_select(state: &mut CombatState) -> SimResult<usize> {
         .take_draw_select()
         .ok_or(SimError::IllegalAction("no draw select is open"))?;
     let dead_branch_count = match draw_select.purpose {
-        DrawSelectPurpose::SecretTechniqueSkillToHand => {
+        DrawSelectPurpose::SecretTechniqueSkillToHand
+        | DrawSelectPurpose::SecretWeaponAttackToHand => {
             let index = draw_select
                 .selected_draw_index
                 .ok_or(SimError::IllegalAction("draw select choice is required"))?;
-            confirm_secret_technique_select(state, draw_select.source_card_id, index)?
-        }
-        DrawSelectPurpose::SecretWeaponAttackToHand => {
-            let index = draw_select
-                .selected_draw_index
-                .ok_or(SimError::IllegalAction("draw select choice is required"))?;
-            confirm_secret_weapon_select(state, draw_select.source_card_id, index)?
+            confirm_secret_draw_select_choice(state, &draw_select, index)?;
+            // AttackFromDeckToHandAction completes first. Actions already on the
+            // manager (notably Ink Bottle's DrawCardAction) then run before the
+            // paused UseCardAction settles and exhausts the source.
+            resume_actions_after_hand_select(state, draw_select.pending_actions)?;
+            let source_definition =
+                draw_select_source_definition(state, draw_select.source_card_id)?;
+            move_draw_select_source_card(state, draw_select.source_card_id, source_definition)?
         }
         DrawSelectPurpose::Scry => {
             confirm_scry_select(
@@ -4232,15 +4359,43 @@ pub fn confirm_draw_select(state: &mut CombatState) -> SimResult<usize> {
                 draw_select.source_card_id,
                 draw_select.selected_draw_index,
             )?;
+            resume_actions_after_hand_select(state, draw_select.pending_actions)?;
             0
         }
     };
-    // The source card and selected draw card settle before deferred on-use
-    // follow-ups. This matches the action queue order while keeping the draw
-    // grid itself stable until CONFIRM.
-    resume_actions_after_hand_select(state, draw_select.pending_actions)?;
     state.activate_next_queued_decision_if_idle();
     Ok(dead_branch_count)
+}
+
+fn confirm_secret_draw_select_choice(
+    state: &mut CombatState,
+    draw_select: &crate::combat::DrawSelectState,
+    index: usize,
+) -> SimResult<()> {
+    let card = state
+        .piles
+        .draw_pile
+        .get(index)
+        .copied()
+        .ok_or(SimError::IllegalAction("draw select index out of range"))?;
+    let expected_type = match draw_select.purpose {
+        DrawSelectPurpose::SecretTechniqueSkillToHand => CardType::Skill,
+        DrawSelectPurpose::SecretWeaponAttackToHand => CardType::Attack,
+        DrawSelectPurpose::Scry => {
+            return Err(SimError::InvalidState(
+                "scry cannot use Secret Technique/Weapon confirmation",
+            ));
+        }
+    };
+    if !get_card_definition(card.content_id)
+        .is_some_and(|definition| definition.card_type == expected_type)
+    {
+        return Err(SimError::IllegalAction(
+            "Secret Technique/Weapon selection has the wrong card type",
+        ));
+    }
+    move_selected_draw_card_to_hand_or_discard(state, index);
+    Ok(())
 }
 
 fn confirm_scry_select(
@@ -4278,48 +4433,6 @@ fn confirm_scry_select(
         move_draw_select_source_card(state, source_card_id, source_definition)?;
     }
     Ok(())
-}
-
-fn confirm_secret_technique_select(
-    state: &mut CombatState,
-    source_card_id: CardId,
-    index: usize,
-) -> SimResult<usize> {
-    let source_definition = draw_select_source_definition(state, source_card_id)?;
-    let card = state
-        .piles
-        .draw_pile
-        .get(index)
-        .copied()
-        .ok_or(SimError::IllegalAction("draw select index out of range"))?;
-    if !get_card_definition(card.content_id)
-        .is_some_and(|definition| definition.card_type == CardType::Skill)
-    {
-        return Err(SimError::IllegalAction("Secret Technique requires a Skill"));
-    }
-    move_selected_draw_card_to_hand_or_discard(state, index);
-    move_draw_select_source_card(state, source_card_id, source_definition)
-}
-
-fn confirm_secret_weapon_select(
-    state: &mut CombatState,
-    source_card_id: CardId,
-    index: usize,
-) -> SimResult<usize> {
-    let source_definition = draw_select_source_definition(state, source_card_id)?;
-    let card = state
-        .piles
-        .draw_pile
-        .get(index)
-        .copied()
-        .ok_or(SimError::IllegalAction("draw select index out of range"))?;
-    if !get_card_definition(card.content_id)
-        .is_some_and(|definition| definition.card_type == CardType::Attack)
-    {
-        return Err(SimError::IllegalAction("Secret Weapon requires an Attack"));
-    }
-    move_selected_draw_card_to_hand_or_discard(state, index);
-    move_draw_select_source_card(state, source_card_id, source_definition)
 }
 
 fn draw_select_source_definition(
@@ -5930,11 +6043,11 @@ fn confirm_burning_pact_select(
         *state = transition.state;
     }
     state.defer_time_warp_end_turn = previous_defer_time_warp;
-    resolve_deferred_draw_follow_ups(state, evolve_follow_ups)?;
-    // UseCardAction settles Burning Pact after DrawCardAction. Under Corruption
-    // (or Exhaust) the source exhausts; Dark Embrace / Feel No Pain are bot-
-    // queued after that settlement, so defer them with the selected-card procs
-    // (FIDL00425).
+    // UseCardAction settles Burning Pact after its primary DrawCardAction and
+    // before Evolve's DrawCardAction follow-ups, which were addToBot'd by that
+    // draw. This source membership matters if an Evolve draw reshuffles the
+    // discard pile. Under Corruption (or Exhaust), source on-exhaust callbacks
+    // are queued behind those already-pending Evolve draws (FIDL00425).
     if let Some(source_card) = exhaust_select.source_card {
         let definition = get_card_definition(source_card.content_id)
             .ok_or(SimError::UnknownContent(source_card.content_id))?;
@@ -5964,6 +6077,7 @@ fn confirm_burning_pact_select(
     } else {
         move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
     }
+    resolve_deferred_draw_follow_ups(state, evolve_follow_ups)?;
     if !deferred_bot_on_exhaust.is_empty() {
         let transition =
             process_internal_queue(state, deferred_bot_on_exhaust.into_iter().collect())?;

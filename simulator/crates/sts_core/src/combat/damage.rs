@@ -182,7 +182,7 @@ fn mark_byrd_death_intent(monster: &mut MonsterState) {
     }
 }
 
-fn deal_attack_damage_to_monster(
+pub(crate) fn deal_attack_damage_to_monster(
     monster: &mut MonsterState,
     relics: &[Relic],
     amount: i32,
@@ -315,7 +315,7 @@ pub fn deal_damage_info_to_monster_with_result(
     deal_attack_damage_to_monster(monster, relics, amount)
 }
 
-fn calculate_player_attack_damage(
+pub(crate) fn calculate_player_attack_damage(
     base: i32,
     player: PlayerPowers,
     temp_strength: i32,

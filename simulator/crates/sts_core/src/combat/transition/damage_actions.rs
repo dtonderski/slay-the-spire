@@ -8,7 +8,10 @@ use crate::{
     action::InternalAction,
     combat::{
         card_effects::pen_nib_queue_amount,
-        damage::{deal_damage_info_to_monster_with_result, DamageInfo, DamageSource},
+        damage::{
+            calculate_player_attack_damage, deal_attack_damage_to_monster,
+            deal_damage_info_to_monster_with_result, DamageInfo, DamageSource,
+        },
         CombatState,
     },
     content::monsters::{
@@ -39,12 +42,56 @@ pub(super) fn deal_damage(
     state: &mut CombatState,
     info: DamageInfo,
 ) -> SimResult<Vec<InternalAction>> {
-    if living_monster_mut_opt(state, info.target).is_none() {
+    let info = apply_pen_nib_to_card_damage_info(state, info);
+    let Some(amount) = calculate_damage_info_amount(state, info) else {
+        return Ok(Vec::new());
+    };
+    resolve_calculated_attack_damage(state, info.target, amount)
+}
+
+pub(super) fn prepare_card_damage(
+    state: &mut CombatState,
+    info: DamageInfo,
+) -> SimResult<Vec<InternalAction>> {
+    let info = apply_pen_nib_to_card_damage_info(state, info);
+    let Some(amount) = calculate_damage_info_amount(state, info) else {
+        return Ok(Vec::new());
+    };
+    Ok(vec![InternalAction::DealPreparedDamage {
+        info: DamageInfo { amount, ..info },
+    }])
+}
+
+fn calculate_damage_info_amount(state: &CombatState, info: DamageInfo) -> Option<i32> {
+    let monster = state
+        .monsters
+        .iter()
+        .find(|monster| monster.id == info.target && monster.alive)?;
+    Some(calculate_player_attack_damage(
+        info.amount,
+        state.player.powers,
+        state.player.temp_strength,
+        monster.powers.vulnerable,
+        monster.powers.slow.saturating_sub(1),
+        &state.relics,
+    ))
+}
+
+pub(super) fn deal_prepared_damage(
+    state: &mut CombatState,
+    info: DamageInfo,
+) -> SimResult<Vec<InternalAction>> {
+    resolve_calculated_attack_damage(state, info.target, info.amount)
+}
+
+fn resolve_calculated_attack_damage(
+    state: &mut CombatState,
+    target: MonsterId,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    if living_monster_mut_opt(state, target).is_none() {
         return Ok(Vec::new());
     }
-    let info = apply_pen_nib_to_card_damage_info(state, info);
-    let player_powers = state.player.powers;
-    let temp_strength = state.player.temp_strength;
     let relics = state.relics.clone();
     let (
         spikes,
@@ -54,16 +101,10 @@ pub(super) fn deal_damage(
         curl_up_block,
         malleable_block,
     ) = {
-        let monster = living_monster_mut(state, info.target)?;
+        let monster = living_monster_mut(state, target)?;
         let spikes = monster.powers.spikes;
         let monster_content_id = monster.content_id;
-        let damage = deal_damage_info_to_monster_with_result(
-            monster,
-            info,
-            player_powers,
-            temp_strength,
-            &relics,
-        );
+        let damage = deal_attack_damage_to_monster(monster, &relics, amount);
         wake_lagavulin_on_damage(monster, damage.hp_damage);
         guardian_accumulate_hp_damage(monster, damage.hp_damage);
         (
@@ -79,7 +120,7 @@ pub(super) fn deal_damage(
     push_attack_block_follow_ups(
         state,
         &mut follow_ups,
-        info.target,
+        target,
         monster_content_id,
         still_alive,
         curl_up_block,
@@ -90,13 +131,13 @@ pub(super) fn deal_damage(
         // behind the remaining card hits so a multi-hit attack cannot consume
         // the newly applied Vulnerable on a later hit.
         follow_ups.push(InternalAction::ApplyVulnerable {
-            target: info.target,
+            target,
             amount: crate::relic::HAND_DRILL_VULNERABLE,
         });
     }
-    check_slime_boss_split(state, info.target);
+    check_slime_boss_split(state, target);
     if !still_alive {
-        follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
+        follow_ups.extend(queue_monster_death_hooks(state, target)?);
     }
     apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
     Ok(follow_ups)

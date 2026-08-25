@@ -325,6 +325,7 @@ pub(super) fn play_card_queue(
         SEEING_RED_ID | SEEING_RED_PLUS_ID => seeing_red_queue(card_id, definition),
         BLOODLETTING_ID | BLOODLETTING_PLUS_ID => bloodletting_queue(card_id, definition),
         HEMOKINESIS_ID | HEMOKINESIS_PLUS_ID => hemokinesis_queue(
+            state,
             card_id,
             target.expect("validated Hemokinesis has a target"),
             definition,
@@ -1192,6 +1193,7 @@ fn copied_card_required_living_target(effects: &VecDeque<InternalAction>) -> Opt
 fn action_required_living_target(action: InternalAction) -> Option<MonsterId> {
     match action {
         InternalAction::DealDamage { info }
+        | InternalAction::PrepareCardDamage { info }
         | InternalAction::DealDamageAndHealUnblocked { info }
         | InternalAction::DealFeedDamage { info, .. } => Some(info.target),
         InternalAction::DealBodySlamDamage { target, .. } => Some(target),
@@ -1665,16 +1667,24 @@ fn bloodletting_queue(
 }
 
 fn hemokinesis_queue(
+    state: &CombatState,
     card_id: CardId,
     target: MonsterId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
+    state
+        .monsters
+        .iter()
+        .find(|monster| monster.id == target && monster.alive)
+        .ok_or(SimError::IllegalAction("Hemokinesis target is not alive"))?;
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
             amount: i32::from(definition.cost),
         },
-        InternalAction::DealDamage {
+        // Each Double Tap copy recalculates card damage immediately before its
+        // own use(), after copy-play powers but before Hemokinesis queues HP loss.
+        InternalAction::PrepareCardDamage {
             info: DamageInfo {
                 source: DamageSource::Card(card_id),
                 target,
