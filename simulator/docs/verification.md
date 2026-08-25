@@ -123,12 +123,7 @@ current reviewed corpus. It contains 208 immutable `collection.2-schema6`
 payloads, each stored as a deterministic `<trace>.jsonl.gz`. The cohort passed
 independent structure, command-fence, zero-effect, hand/card retrieval,
 terminal, repeatability, raw-diff, and hash audits before replacement of the
-remote legacy payloads. A download may also unpack leftover
-`source_version: working-tree` payloads; those are not a counting epoch.
-Last-enemy leftover-0 HP skips and inverted Looter 50/50s in that mix are
-quarantined in `verification/corpus/quarantine.txt` rather than modeled, because
-collection.2 leftover-0 COMBAT_REWARD frames apply those hits and keep the
-vanilla Looter polarity. Current verifier status is 123 complete passes and 85
+remote legacy payloads. Current verifier status is 123 complete passes and 85
 explicit unsupported frontiers, with zero trace errors and zero raw unexpected
 diffs.
 

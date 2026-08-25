@@ -68,38 +68,6 @@ pub fn corpus_path(relative: impl AsRef<Path>) -> PathBuf {
     simulator_root().join("verification/corpus").join(relative)
 }
 
-/// Trace-id prefixes retained as evidence but excluded from the parity gate.
-///
-/// The manifest sits beside the corpus root so a corpus directory carries its
-/// own quarantine list. A missing manifest quarantines nothing.
-pub fn load_quarantine_manifest(corpus_root: &Path) -> Vec<String> {
-    let manifest = corpus_root
-        .parent()
-        .map(|parent| parent.join("quarantine.txt"))
-        .unwrap_or_else(|| PathBuf::from("quarantine.txt"));
-    let Ok(contents) = std::fs::read_to_string(&manifest) else {
-        return Vec::new();
-    };
-    parse_quarantine_manifest(&contents)
-}
-
-/// Parse one `quarantine.txt` body: blank lines and `#` comments are ignored.
-pub fn parse_quarantine_manifest(contents: &str) -> Vec<String> {
-    contents
-        .lines()
-        .map(|line| line.split('#').next().unwrap_or("").trim())
-        .filter(|line| !line.is_empty())
-        .map(str::to_owned)
-        .collect()
-}
-
-/// True when `trace` (a filename or FIDL prefix) matches a quarantined prefix.
-pub fn trace_is_quarantined(trace: &str, prefixes: &[String]) -> bool {
-    prefixes
-        .iter()
-        .any(|prefix| trace.starts_with(prefix.as_str()))
-}
-
 /// Load file contents when present; returns `None` if the path does not exist.
 pub fn load_corpus_file(relative: impl AsRef<Path>) -> Option<String> {
     let path = corpus_path(relative);
@@ -107,39 +75,4 @@ pub fn load_corpus_file(relative: impl AsRef<Path>) -> Option<String> {
         return None;
     }
     std::fs::read_to_string(path).ok()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_quarantine_manifest_ignores_comments_and_blank_lines() {
-        let prefixes = parse_quarantine_manifest(
-            "# leading comment\n\nFIDL01807\n  FIDL01727  # inline reason\n\n# trailing\n",
-        );
-        assert_eq!(prefixes, vec!["FIDL01807", "FIDL01727"]);
-    }
-
-    #[test]
-    fn working_tree_leftover_prefixes_match_filenames() {
-        let prefixes = vec!["FIDL00026".to_owned(), "FIDL00034".to_owned()];
-        assert!(trace_is_quarantined(
-            "FIDL00026-p26-2026-08-21T16-34-12-353Z-6883.jsonl",
-            &prefixes
-        ));
-        assert!(!trace_is_quarantined(
-            "FIDL02367-p2367-2026-08-21T11-32-10-140Z-1973297.jsonl",
-            &prefixes
-        ));
-    }
-
-    #[test]
-    fn active_quarantine_manifest_lists_fifty_working_tree_leftovers() {
-        let prefixes = load_quarantine_manifest(&corpus_path("permanent_traces"));
-        assert_eq!(prefixes.len(), 50);
-        assert!(prefixes.contains(&"FIDL00026".to_owned()));
-        assert!(prefixes.contains(&"FIDL00034".to_owned()));
-        assert!(!prefixes.iter().any(|prefix| prefix.starts_with("FIDL02")));
-    }
 }

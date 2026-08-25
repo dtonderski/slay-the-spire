@@ -23,14 +23,8 @@ schema-5 pilot proved its command fence but still published duration-dependent
 `ObtainKeyEffect` and `ShowCardAndObtainEffect` mutations; its 20 immutable
 payloads are retained under `legacy_schema5_pilot/permanent_traces/`.
 `sts_verify status` defaults to this directory and fails when it contains no
-authoritative traces. A Hugging Face snapshot may also unpack leftover
-`source_version: working-tree` payloads beside the reviewed 208; those are not
-a counting epoch. Fifty of them first-fail on leftover-0 last-enemy HP or an
-inverted Looter 50/50 that collection.2 leftover-0 frames contradict, and are
-listed in `quarantine.txt` beside this directory so they stay visible without
-gating. Do not skip last-enemy Sharp Hide / Spiker / Bite / Exploder /
-Brutality, and do not invert Looter mug-2, to make them green. Override the
-path with `STS_PERMANENT_CORPUS_DIR` or the worker count with `STS_VERIFY_JOBS`:
+authoritative traces. Override the path with `STS_PERMANENT_CORPUS_DIR` or
+the worker count with `STS_VERIFY_JOBS`:
 
 ```bash
 cd simulator

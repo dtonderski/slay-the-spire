@@ -192,13 +192,7 @@ selected-card confirms skipped retrieval, contaminating 328 traces. Those
 payloads were quarantined unchanged. Collection fork `.2` instead gives all
 gameplay action state machines a fixed 60 Hz delta while leaving visual
 transitions accelerated, so uncapped frames preserve canonical update ordering
-without paying wall-clock 60 Hz speed. Working-tree leftovers later mixed into
-a Hugging Face snapshot show the same class of defect on leftover-0 combat-end
-HP (Sharp Hide, Spiker thorns, Bite heal, Exploder, Brutality omitted while
-Burning Blood still applies) and on Looter mug-2 after a dead Mugger. Collection.2
-leftover-0 frames apply those hits and keep the vanilla 50/50; encoding the
-working-tree polarity regresses that cohort. Those 50 payloads stay quarantined
-rather than teaching the simulator a last-enemy skip.
+without paying wall-clock 60 Hz speed.
 
 The hand-selection audit was subsequently shown to be only a narrow detector:
 an unquarantined Discovery reward had the same skipped-retrieval artifact, and

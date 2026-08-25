@@ -4,8 +4,8 @@ use std::{
 };
 
 use sts_verify::{
-    assess_verification, import_communication_mod_trace, load_quarantine_manifest,
-    trace_is_quarantined, verify_communication_mod_trace, VerificationOutcome,
+    assess_verification, import_communication_mod_trace, verify_communication_mod_trace,
+    VerificationOutcome,
 };
 
 const EXTERNAL_CORPUS_ENV: &str = "STS_PERMANENT_CORPUS_DIR";
@@ -101,19 +101,7 @@ fn external_permanent_traces_are_structurally_replayable() {
 #[test]
 #[ignore = "requires STS_PERMANENT_CORPUS_DIR and an explicit all-green run"]
 fn external_permanent_traces_are_complete_passes() {
-    let traces = external_corpus_traces();
-    let quarantine = traces
-        .first()
-        .and_then(|path| path.parent().map(load_quarantine_manifest))
-        .unwrap_or_default();
-    for path in traces {
-        let file_name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or_default();
-        if trace_is_quarantined(file_name, &quarantine) {
-            continue;
-        }
+    for path in external_corpus_traces() {
         let content = fs::read_to_string(&path).expect("external trace is readable");
         assert_current_boundary_schema(&path, &content);
         let report = verify_communication_mod_trace(&content)
