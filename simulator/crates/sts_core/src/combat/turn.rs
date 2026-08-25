@@ -127,33 +127,17 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         deferred_stasis_cards = Vec::new();
         end_of_turn_hand = crate::combat::hand::exhaust_unplayed_ethereal_cards(&mut next)?;
     } else if resuming_after_nilrys {
-        // Nilry's Codex already ran the pre-discard half of end-turn. Resume
-        // after the card-reward decision with hand still present.
+        // CodexAction paused `callEndOfTurnActions` at relic onPlayerEndTurn,
+        // before power/orb hooks and `triggerOnEndOfTurnForPlayingCard`. Resume
+        // continues that queue with the hand still held, then the ordinary
+        // DiscardAtEndOfTurnAction path below (FIDL00108 Ghostly Armor).
         next.resume_end_turn_after_nilrys_codex = false;
         apply_pending_nilry_end_powers(&mut next)?;
         crate::relic::nilrys_codex_flush_pending_draw_inserts(&mut next)?;
         deferred_stasis_cards = Vec::new();
-        let dead_branch_cards = std::mem::take(&mut next.pending_end_turn_dead_branch_cards);
-        let deferred_dark_embrace_draws =
-            std::mem::take(&mut next.pending_end_turn_dark_embrace_draws);
-        let mut ethereal_follow_ups = dead_branch_cards
-            .iter()
-            .cloned()
-            .map(crate::combat::hand::EtherealEndTurnFollowUp::DeadBranch)
-            .collect::<Vec<_>>();
-        ethereal_follow_ups.extend(std::iter::repeat_n(
-            crate::combat::hand::EtherealEndTurnFollowUp::DarkEmbraceDraw,
-            deferred_dark_embrace_draws,
-        ));
-        end_of_turn_hand = crate::combat::hand::EndOfTurnHandResolution {
-            auto_play_emptied_hand: false,
-            dead_branch_cards,
-            deferred_dark_embrace_draws,
-            ethereal_follow_ups,
-            deferred_juggernaut_damage: std::mem::take(
-                &mut next.pending_end_turn_juggernaut_damage,
-            ),
-        };
+        let queued_autoplay = queued_end_turn_autoplay_ids(&next);
+        end_of_turn_hand =
+            resolve_end_of_turn_hand_with_queued_autoplay(&mut next, Some(&queued_autoplay))?;
     } else {
         let stasis_cards_before_end_powers = next
             .monsters
@@ -6770,6 +6754,68 @@ mod tests {
         assert_eq!(killed.phase, CombatPhase::Lost);
         assert_eq!(killed.player.powers.frail, 0);
         assert_eq!(killed.player.powers.artifact, 1);
+    }
+
+    #[test]
+    fn nilry_resume_exhausts_unplayed_ethereal_before_discard() {
+        // CodexAction pauses at relic onPlayerEndTurn with the hand still held.
+        // Closing the offer continues triggerOnEndOfTurnForPlayingCard, so
+        // unplayed Ghostly Armor exhausts instead of riding DiscardAtEndOfTurn.
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::NilrysCodex];
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), GHOSTLY_ARMOR_ID),
+            CardInstance::new(CardId::new(3), WOUND_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.piles.draw_pile = (10..20)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.monsters[0].alive = true;
+        state.monsters[0].hp = 40;
+
+        let paused = end_player_turn(&state).expect("Nilry pauses before discard");
+        assert!(paused.resume_end_turn_after_nilrys_codex);
+        assert!(paused.decision.is_some(), "Codex offer should be open");
+        assert!(
+            paused
+                .piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == GHOSTLY_ARMOR_ID),
+            "ethereal remains in hand across the Codex pause"
+        );
+
+        let mut closing = paused;
+        closing.decision = None;
+        let next = end_player_turn(&closing).expect("Codex close resumes end-turn");
+
+        assert!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .any(|card| card.content_id == GHOSTLY_ARMOR_ID),
+            "Ghostly Armor should exhaust on Codex resume, exhaust={:?}",
+            next.piles
+                .exhaust_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            next.piles
+                .discard_pile
+                .iter()
+                .all(|card| card.content_id != GHOSTLY_ARMOR_ID),
+            "Ghostly Armor must not ride the bulk hand discard"
+        );
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .all(|card| card.content_id != GHOSTLY_ARMOR_ID));
     }
 
     #[test]
