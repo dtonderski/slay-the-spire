@@ -380,11 +380,16 @@ pub(crate) fn process_internal_queue(
             matches!(internal_action, InternalAction::ApplyGremlinHornOnDeath);
         let mut gremlin_horn_insert_index = 0;
         for follow_up in follow_ups {
-            if next.defer_mayhem_play_top_draw_inserts && is_play_top_draw_pile_insert(&follow_up) {
+            if next.defer_mayhem_play_top_draw_inserts
+                && next.defer_mayhem_play_top_settlement
+                && is_play_top_draw_pile_insert(&follow_up)
+            {
                 // HexPower.onUseCard addToBots MakeTempCardInDrawPile after
-                // PlayTop use(). Evolve residual DrawCardAction from the base
-                // refill is already on that bot queue, so the Dazed insert must
-                // see the post-Evolve pile (FIDL02303 Mayhem Juggernaut).
+                // PlayTop use(). When Evolve residual DrawCardAction from the
+                // base refill is already on that bot queue, the Dazed insert
+                // must see the post-Evolve pile (FIDL02303 Mayhem Juggernaut).
+                // Without those residuals, Hex stays in the PlayTop nested
+                // queue so Warcry/select ordering is unchanged.
                 next.deferred_mayhem_play_top_draw_inserts.push(follow_up);
                 continue;
             }

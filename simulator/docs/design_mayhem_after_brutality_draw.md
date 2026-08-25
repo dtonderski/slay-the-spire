@@ -28,7 +28,10 @@ force-played `Shrug+` (block 11), and left Anger in the draw pile.
 
 `start_player_turn` in `combat/turn.rs`: move Brutality (+ draw flush) above
 `apply_start_of_turn_mayhem`. Keep Evolve residual draws after Mayhem.
-Park Mayhem PlayTop random-spot draw inserts until after that Evolve flush.
+`card.use()` Wound/Dazed inserts are parked for every start-of-turn Mayhem
+PlayTop. Hex `onUseCard` Dazed is parked only when the base refill actually
+queued Evolve residuals (FIDL02303); otherwise it stays in the nested PlayTop
+queue so Warcry and other selects keep their prior Hex timing.
 
 ## Non-goals
 
