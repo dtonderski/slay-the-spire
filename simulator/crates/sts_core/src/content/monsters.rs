@@ -4970,12 +4970,6 @@ pub fn target_looter_direct_next_intent_after_turn(
         };
     }
     if last_move(move_history, 1) && moves_executed == 2 {
-        // Java `aiRng.randomBoolean(0.5f)`: SMOKE when the float is < 0.5.
-        // Do not invert, do not use `randomBoolean()` / `random_bool()` (LSB),
-        // and do not add a post-ally-death extra draw: collection.2 FIDL02367
-        // Thugs matches this polarity through later Byrd floors. LSB form
-        // greened WT FIDL00026/00034 Thugs and failed FIDL02367 at an earlier
-        // solo Looter 50/50 (real SMOKE, sim LUNGE).
         if rng.random_float() < 0.5 {
             return MonsterIntent::Block {
                 block: LOOTER_SMOKE_BOMB_BLOCK,
@@ -10064,6 +10058,12 @@ pub(crate) fn apply_monster_intent_with_card_rng(
     )
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PreparedMonsterIntent {
+    pub damage: i32,
+    pub hits: i32,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_monster_intent_with_card_rng_and_revival(
     monster: &mut MonsterState,
@@ -10088,6 +10088,7 @@ pub(crate) fn apply_monster_intent_with_card_rng_and_revival(
         card_random_rng,
         true,
     )
+    .map(|prepared| prepared.damage)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -10101,7 +10102,7 @@ pub(crate) fn prepare_monster_intent_with_card_rng_and_revival(
     relics: &[crate::Relic],
     player_can_revive: bool,
     card_random_rng: &mut StsRng,
-) -> SimResult<i32> {
+) -> SimResult<PreparedMonsterIntent> {
     resolve_monster_intent_with_card_rng_and_revival(
         monster,
         player,
@@ -10128,7 +10129,7 @@ fn resolve_monster_intent_with_card_rng_and_revival(
     player_can_revive: bool,
     card_random_rng: &mut StsRng,
     apply_queued_post_attack_debuffs: bool,
-) -> SimResult<i32> {
+) -> SimResult<PreparedMonsterIntent> {
     let local_allocated_through = monster
         .stasis_card
         .as_ref()
@@ -10144,7 +10145,7 @@ fn resolve_monster_intent_with_card_rng_and_revival(
     let mut next_player = player.clone();
     let mut next_piles = piles.clone();
     let mut next_card_random_rng = card_random_rng.clone();
-    let damage = apply_monster_intent_with_card_rng_inner(
+    let prepared = apply_monster_intent_with_card_rng_inner(
         &mut next_monster,
         &mut next_player,
         &mut next_piles,
@@ -10162,7 +10163,7 @@ fn resolve_monster_intent_with_card_rng_and_revival(
     *player = next_player;
     *piles = next_piles;
     *card_random_rng = next_card_random_rng;
-    Ok(damage)
+    Ok(prepared)
 }
 
 fn checked_monster_intent_add(value: i32, amount: i32) -> SimResult<i32> {
@@ -10308,7 +10309,7 @@ fn apply_monster_intent_with_card_rng_inner(
     relics: &[crate::Relic],
     player_can_revive: bool,
     card_random_rng: &mut StsRng,
-) -> SimResult<i32> {
+) -> SimResult<PreparedMonsterIntent> {
     use crate::combat::damage::deal_unmodified_damage_to_monster;
     use crate::combat::turn_powers::monster_damage_to_player_with_relics;
     use crate::power::{
@@ -10547,6 +10548,17 @@ fn apply_monster_intent_with_card_rng_inner(
                 if had_no_vulnerable && applied {
                     player.vulnerable_just_applied = true;
                 }
+                apply_player_frail_from_monster(player, relics, frail)?;
+            } else if monster.content_id == CORRUPT_HEART_ID {
+                // CorruptHeart MEGA_DEBUFF addToBots Vulnerable, then Weak,
+                // then Frail. Artifact therefore consumes Vulnerable first;
+                // Turnip can independently block the later Frail.
+                let had_no_vulnerable = player.powers.vulnerable == 0;
+                let applied = apply_player_vulnerable_from_monster(&mut player.powers, vulnerable)?;
+                if had_no_vulnerable && applied {
+                    player.vulnerable_just_applied = true;
+                }
+                apply_player_weak_from_monster(player, relics, weak)?;
                 apply_player_frail_from_monster(player, relics, frail)?;
             } else {
                 apply_player_frail_from_monster(player, relics, frail)?;
@@ -10843,7 +10855,10 @@ fn apply_monster_intent_with_card_rng_inner(
             ascension,
         );
     }
-    Ok(damage)
+    Ok(PreparedMonsterIntent {
+        damage,
+        hits: thorns_hits.max(1),
+    })
 }
 
 fn player_survives_monster_hit(
@@ -11327,6 +11342,38 @@ mod tests {
         assert_eq!(player.powers.weak, GUARDIAN_VENT_DEBUFF);
         assert_eq!(player.powers.vulnerable, GUARDIAN_VENT_DEBUFF);
         assert!(player.vulnerable_just_applied);
+    }
+
+    #[test]
+    fn corrupt_heart_mega_debuff_applies_vulnerable_before_weak_and_frail() {
+        let mut state = crate::CombatState::initial_fixture();
+        let mut monster = monster_state(&CORRUPT_HEART_A0, MonsterId::new(1));
+        monster.intent = MonsterIntent::ApplyPlayerFrailWeakVulnerable {
+            frail: 2,
+            weak: 2,
+            vulnerable: 2,
+        };
+        let mut player = state.player.clone();
+        player.powers.artifact = 1;
+        let player_before = player.clone();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
+
+        apply_monster_intent_with_card_rng(
+            &mut monster,
+            &mut player,
+            &mut state.piles,
+            allocated_card_id_through,
+            0,
+            &player_before,
+            &[crate::Relic::Turnip],
+            &mut state.rng.card_random_rng,
+        )
+        .expect("Heart Mega Debuff resolves");
+
+        assert_eq!(player.powers.artifact, 0, "Artifact consumes Vulnerable");
+        assert_eq!(player.powers.vulnerable, 0);
+        assert_eq!(player.powers.weak, 2);
+        assert_eq!(player.powers.frail, 0, "Turnip blocks the later Frail");
     }
 
     #[test]

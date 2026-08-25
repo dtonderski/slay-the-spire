@@ -101,6 +101,52 @@ fn compact_any_color_deck_ids_project_to_spaced_display_names() {
 }
 
 #[test]
+fn combat_player_debuff_projection_uses_communication_mod_power_ids() {
+    let observed = seed_start_combat_observed_subset(&json!({
+        "game_state": {
+            "screen_type": "NONE",
+            "combat_state": {
+                "player": {
+                    "current_hp": 90,
+                    "block": 3,
+                    "energy": 2,
+                    "powers": [
+                        {"id": "Frail", "amount": 1},
+                        {"id": "Weakened", "amount": 2},
+                        {"id": "Vulnerable", "amount": 3},
+                        {"id": "Artifact", "amount": 4}
+                    ]
+                },
+                "hand": [],
+                "draw_pile": [],
+                "discard_pile": [],
+                "monsters": []
+            }
+        }
+    }));
+    assert_eq!(observed["combat_player_frail"], 1);
+    assert_eq!(observed["combat_player_weak"], 2);
+    assert_eq!(observed["combat_player_vulnerable"], 3);
+    assert_eq!(observed["combat_player_artifact"], 4);
+
+    let mut run = RunState::combat_fixture();
+    let combat = run.combat.as_mut().expect("combat");
+    combat.player.powers.frail = 1;
+    combat.player.powers.weak = 2;
+    combat.player.powers.vulnerable = 3;
+    combat.player.powers.artifact = 4;
+    let simulated = seed_start_simulated_combat_subset(&run);
+    for field in [
+        "combat_player_frail",
+        "combat_player_weak",
+        "combat_player_vulnerable",
+        "combat_player_artifact",
+    ] {
+        assert_eq!(simulated[field], observed[field], "{field}");
+    }
+}
+
+#[test]
 fn dead_monster_power_projection_uses_the_documented_visibility_boundary() {
     let observed_game = json!({
         "monsters": [

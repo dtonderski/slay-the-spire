@@ -179,7 +179,10 @@ payloads became the first post-legacy authoritative cohort. A later 208-trace
 schema-6 campaign repeated those integrity checks across 309,676 transitions,
 including zero failures in 2,880 audited hand retrievals and 5,491 card-reward
 selections. It replaced the initial pilot as the active local and Hugging Face
-cohort; 123 traces pass completely and 85 retain honest unsupported frontiers.
+cohort at that point; 123 traces passed completely and 85 retained honest
+unsupported frontiers. A later audited promotion added 103 locally collected
+schema-6 traces and removed 74 externally collected `working-tree` traces,
+producing the current 311-trace regression lock.
 
 A larger apparent lifecycle ambiguity was ultimately a collection-speed defect,
 not a missing trace input. The SuperFastMode collection fork multiplied the
@@ -313,7 +316,9 @@ scope, and feedback-loop quality matter more than task duration or agent count.
   being the strongest player?
 - The mixed `ExhaustAction` retrieval outcome was traced to multiplied gameplay
   delta and removed from future collection without adding lifecycle inputs.
-  The pre-collection.2 corpus is legacy. The reviewed 208-trace schema-6
-  replacement is now the active external cohort; its unsupported frontiers
-  remain future simulator work. Post-state candidate selection remains
-  prohibited.
+  The pre-collection.2 corpus is legacy. The active external regression cohort
+  now contains 311 reviewed schema-6 traces: the original 208-trace replacement
+  plus 103 locally collected traces externally attested to the collection.2
+  artifact despite their stale metadata label. The current simulator now
+  replays all 311 through EOF without unsupported frontiers. Post-state
+  candidate selection remains prohibited.

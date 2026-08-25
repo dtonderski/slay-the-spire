@@ -23,13 +23,13 @@ Model a hand-played Discovery lifecycle as:
 4. The action is complete at that response boundary. There is no staged
    Discovery RNG settlement on later `PLAY` or `END` commands.
 
-Production replay burns 15 discarded post-select `generateCardChoices`
-calls after an ordinary retrieved Discovery. That count is
-`ceil(ACTION_DUR_FAST / GAMEPLAY_DELTA)` ticks minus the opening visible
-offer: `Settings.ACTION_DUR_FAST` is 0.25s and collection-fork
-`tickDuration` subtracts 1/60s, finishing on tick 16 (`duration < 0`).
-The reward screen pauses the action manager, so those leftover ticks all
-run after `CHOOSE`. Do not restore the legacy encounter/hand-shape table.
+Production replay burns fifteen discarded post-select generations for an
+ordinary retrieved Discovery. `ACTION_DUR_FAST` is 0.25 seconds; after the
+opening tick, collection.2's fixed 1/60-second updates run fifteen more times,
+and `generateCardChoices` precedes every duration branch. Duplicate choices can
+consume extra individual RNG draws within those fifteen generations. This count
+is lifecycle-derived and must not be replaced by the legacy encounter/hand-shape
+table.
 
 The legacy potion-specific picked/skipped pulse tables and delayed
 `PendingPotionCardRewardSettlement` were removed. Attack, Skill, Power, and

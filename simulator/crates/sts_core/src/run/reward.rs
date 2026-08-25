@@ -2007,62 +2007,12 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     let transition = apply_combat_action_with_events(&combat_for_action, action)?;
     let mut next_combat = transition.state;
     let mut next = run.clone();
-    if next_combat.relic_counters.fairy_consumed {
-        if let Some((slot, _)) = next
-            .occupied_potion_slots()
-            .into_iter()
-            .find(|(_, potion)| *potion == Potion::Fairy)
-        {
-            next.take_potion_slot(slot)
-                .expect("consumed fairy potion was present before combat transition");
-        }
-    }
-    if next.relics.contains(&Relic::LizardTail) && !next_combat.relic_counters.lizard_tail_available
-    {
-        next.lizard_tail_used = true;
-    }
-    apply_looter_theft_to_run_gold(&mut next, &combat_for_action, &mut next_combat);
-    apply_combat_gold_gain_to_run(&mut next, &combat_for_action, &mut next_combat)?;
-    // AddCardToDeckAction is addToBot from Mega Debuff during takeTurn and
-    // drains before the player is command-ready again. Settle after recording
-    // this transition's Parasite so Darkstone / Ceramic Fish apply on the same
-    // END that queued them.
-    settle_pending_combat_obtain_cards(&mut next, &mut next_combat)?;
-    queue_writhing_mass_mega_debuff_to_run(&mut next, &combat_for_action, &mut next_combat)?;
-    settle_pending_combat_obtain_cards(&mut next, &mut next_combat)?;
-    sync_ritual_dagger_damage_to_deck(&mut next, &next_combat);
-    next.store_rng_counter(RunRngStream::CardRandom, &next_combat.rng.card_random_rng);
-    next_combat.rng.card_random_rng = next.card_random_rng();
-    let revived = apply_fairy_if_lethal(&mut next, &mut next_combat)?;
-    if revived
-        && matches!(action, CombatAction::EndTurn)
-        && next_combat.phase == CombatPhase::WaitingForPlayer
-        && next_combat.monsters.iter().any(|monster| monster.alive)
-    {
-        finish_monster_turn_after_player_revival(&mut next_combat)?;
-        start_player_turn(&mut next_combat)?;
-    }
-    next.combat = Some(next_combat.clone());
-    next.player_hp = next_combat.player.hp;
-    next.player_max_hp = next_combat.player.max_hp;
-    if next.relics.contains(&Relic::IncenseBurner) {
-        next.incense_burner_counter = next_combat.relic_counters.incense_burner_counter;
-    }
-    if next.relics.contains(&Relic::PenNib) {
-        next.pen_nib_attacks_played = next_combat.relic_counters.pen_nib_attacks_played;
-    }
-    if next.relics.contains(&Relic::InkBottle) {
-        next.ink_bottle_cards_played = next_combat.relic_counters.ink_bottle_cards_played;
-    }
-    if next.relics.contains(&Relic::HappyFlower) {
-        next.happy_flower_turns = next_combat.relic_counters.happy_flower_turns;
-    }
-    if next.relics.contains(&Relic::Sundial) {
-        next.sundial_shuffles = next_combat.relic_counters.sundial_shuffles;
-    }
-    if next.relics.contains(&Relic::Nunchaku) {
-        next.nunchaku_attacks_played = next_combat.relic_counters.nunchaku_attacks_played;
-    }
+    settle_run_after_combat_transition(
+        &mut next,
+        &combat_for_action,
+        &mut next_combat,
+        matches!(action, CombatAction::EndTurn),
+    )?;
 
     if next_combat.phase == CombatPhase::Won {
         next.store_rng_counter(RunRngStream::CardRandom, &next_combat.rng.card_random_rng);
@@ -2113,6 +2063,76 @@ pub fn apply_combat_action_on_run(run: &RunState, action: CombatAction) -> SimRe
     }
 
     Ok(next)
+}
+
+pub(crate) fn settle_run_after_combat_transition(
+    run: &mut RunState,
+    before: &crate::combat::CombatState,
+    after: &mut crate::combat::CombatState,
+    finish_revived_end_turn: bool,
+) -> SimResult<()> {
+    if after.relic_counters.fairy_consumed {
+        if let Some((slot, _)) = run
+            .occupied_potion_slots()
+            .into_iter()
+            .find(|(_, potion)| *potion == Potion::Fairy)
+        {
+            run.take_potion_slot(slot)
+                .expect("consumed fairy potion was present before combat transition");
+        }
+    }
+    if run.relics.contains(&Relic::LizardTail) && !after.relic_counters.lizard_tail_available {
+        run.lizard_tail_used = true;
+    }
+    apply_looter_theft_to_run_gold(run, before, after);
+    apply_combat_gold_gain_to_run(run, before, after)?;
+    settle_combat_obtain_actions_after_transition(run, before, after)?;
+    sync_ritual_dagger_damage_to_deck(run, after);
+    run.store_rng_counter(RunRngStream::CardRandom, &after.rng.card_random_rng);
+    after.rng.card_random_rng = run.card_random_rng();
+
+    let revived = apply_fairy_if_lethal(run, after)?;
+    if revived
+        && finish_revived_end_turn
+        && after.phase == CombatPhase::WaitingForPlayer
+        && after.monsters.iter().any(|monster| monster.alive)
+    {
+        finish_monster_turn_after_player_revival(after)?;
+        start_player_turn(after)?;
+    }
+
+    run.combat = Some(after.clone());
+    run.player_hp = after.player.hp;
+    run.player_max_hp = after.player.max_hp;
+    if run.relics.contains(&Relic::IncenseBurner) {
+        run.incense_burner_counter = after.relic_counters.incense_burner_counter;
+    }
+    if run.relics.contains(&Relic::PenNib) {
+        run.pen_nib_attacks_played = after.relic_counters.pen_nib_attacks_played;
+    }
+    if run.relics.contains(&Relic::InkBottle) {
+        run.ink_bottle_cards_played = after.relic_counters.ink_bottle_cards_played;
+    }
+    if run.relics.contains(&Relic::HappyFlower) {
+        run.happy_flower_turns = after.relic_counters.happy_flower_turns;
+    }
+    if run.relics.contains(&Relic::Sundial) {
+        run.sundial_shuffles = after.relic_counters.sundial_shuffles;
+    }
+    if run.relics.contains(&Relic::Nunchaku) {
+        run.nunchaku_attacks_played = after.relic_counters.nunchaku_attacks_played;
+    }
+    Ok(())
+}
+
+pub(crate) fn settle_combat_obtain_actions_after_transition(
+    run: &mut RunState,
+    before: &crate::combat::CombatState,
+    after: &mut crate::combat::CombatState,
+) -> SimResult<()> {
+    settle_pending_combat_obtain_cards(run, after)?;
+    queue_writhing_mass_mega_debuff_to_run(run, before, after)?;
+    settle_pending_combat_obtain_cards(run, after)
 }
 
 fn settle_pending_combat_obtain_cards(

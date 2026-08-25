@@ -44,14 +44,10 @@ use crate::{
     RunAction, RunPhase, RunState, SimError, SimResult,
 };
 
-// One ordinary DiscoveryAction update remains after selection under the fixed
-// 1/60-second gameplay lifecycle. Potion-specific picked/skipped pulse tables
-// were legacy pre-collection.2 trace fits and are intentionally not modeled.
-// DiscoveryAction.update() generates a discarded offer at the start of every
-// gameplay tick, including leftover ticks after CHOOSE. Collection-fork
-// tickDuration subtracts 1/60s from ACTION_DUR_FAST (0.25s). The SuperFastMode
-// probe action finishes on tick 16 (`duration < 0`); the opening update spends
-// tick 1 on the visible offer, so CHOOSE burns 15 leftover generations.
+// DiscoveryAction generates a fresh three-card offer at the start of every
+// update, even after a card was selected. ACTION_DUR_FAST is 0.25 seconds and
+// collection.2 gives gameplay actions a fixed 1/60-second delta, so the opening
+// update is followed by fifteen more generations before tickDuration completes.
 const DISCOVERY_POST_SELECT_GENERATIONS: usize = 15;
 
 pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()> {
@@ -594,7 +590,8 @@ fn settle_discovery_source_without_time_warp_end(
 pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResult<RunState> {
     validate_combat_card_reward_choice(run, index)?;
     let mut next = run.clone();
-    let won = {
+    let mut resumed_nilry_before = None;
+    let mut won = {
         let combat = next.combat.as_mut().expect("validated combat");
         let played_discovery_card_id = matches!(
             combat.decision.as_ref(),
@@ -638,11 +635,10 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
                 } else {
                     CardId::new(combat.next_card_instance_id()?)
                 };
-                // DiscoveryAction.update generates a discarded three-card offer at
-                // the start of every leftover SuperFastMode pulse. Collection-fork
-                // tickDuration is 1/60s and ACTION_DUR_FAST is 0.25s (16 ticks to
-                // isDone). The opening update spends tick 1 on the visible offer;
-                // CHOOSE burns the remaining 15 leftover generations.
+                // DiscoveryAction.update generates a discarded three-card offer
+                // before every duration branch. ACTION_DUR_FAST at collection.2's
+                // fixed 1/60-second tick leaves fifteen updates after opening;
+                // consume those source-derived generations before retrieval.
                 let generations = DISCOVERY_POST_SELECT_GENERATIONS;
                 burn_all_discovery_card_choice_generations(
                     &mut combat.rng.card_random_rng,
@@ -684,6 +680,7 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
                 next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             }
             CombatDecisionState::NilrysCodexCardReward { choices } => {
+                resumed_nilry_before = Some(combat.clone());
                 let choice = choices[index];
                 // Shuffle the chosen card into a random draw-pile spot (combat-only).
                 crate::combat::transition::add_generated_card_to_draw_pile_random_spot_public(
@@ -694,9 +691,6 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
                 // Closing the offer resumes the paused end-turn queue: no further
                 // END command is emitted before the monster turn.
                 *combat = crate::combat::turn::end_player_turn(combat)?;
-                next.player_hp = combat.player.hp;
-                next.player_max_hp = combat.player.max_hp;
-                next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             }
             other => {
                 combat.decision = Some(other);
@@ -709,6 +703,14 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
         }
         won
     };
+    if let Some(before) = resumed_nilry_before {
+        let mut after = next.combat.take().expect("Nilry resume keeps combat state");
+        super::reward::settle_run_after_combat_transition(&mut next, &before, &mut after, true)?;
+        won = next
+            .combat
+            .as_ref()
+            .is_some_and(|combat| combat.phase == CombatPhase::Won);
+    }
     if won {
         let card_random = next
             .combat
@@ -737,15 +739,15 @@ pub fn apply_combat_card_reward_skip(run: &RunState) -> SimResult<RunState> {
         Some(CombatDecisionState::NilrysCodexCardReward { .. }) => {
             // Skipping the offer resumes the paused end-turn queue with no
             // insert: powers, discard, monsters, then the next hand.
-            let finished = crate::combat::turn::end_player_turn(combat)?;
-            next.player_hp = finished.player.hp;
-            next.player_max_hp = finished.player.max_hp;
-            next.card_random_rng_counter = finished.rng.card_random_rng.counter();
+            let before = combat.clone();
+            let mut finished = crate::combat::turn::end_player_turn(combat)?;
+            super::reward::settle_run_after_combat_transition(
+                &mut next,
+                &before,
+                &mut finished,
+                true,
+            )?;
             let won = finished.phase == CombatPhase::Won;
-            if won {
-                next.store_rng_counter(RunRngStream::CardRandom, &finished.rng.card_random_rng);
-            }
-            next.combat = Some(finished);
             if won {
                 enter_combat_reward_for_current_room(&mut next)?;
             } else if let Some(combat) = next.combat.as_mut() {
@@ -1370,17 +1372,12 @@ mod tests {
         apply_combat_action_on_run, apply_run_action,
         content::cards::{
             BASH_ID, BURNING_PACT_ID, BURN_ID, CLASH_ID, CLEAVE_ID, DARK_EMBRACE_ID, DAZED_ID,
-            DEFEND_R_ID, PURITY_ID, STRIKE_R_ID, WARCRY_ID,
+            DEFEND_R_ID, PARASITE_ID, PURITY_ID, STRIKE_R_ID, WARCRY_ID,
         },
+        content::monsters::{monster_state, WRITHING_MASS_A0},
         content::shop_pool::ironclad_combat_discovery_pool,
-        CombatAction,
+        CombatAction, MonsterIntent,
     };
-
-    fn leftover_discovery_rng_counter(seed: i64, start_counter: u32) -> u32 {
-        let mut rng = StsRng::with_counter(seed, start_counter);
-        burn_all_discovery_card_choice_generations(&mut rng, 3, DISCOVERY_POST_SELECT_GENERATIONS);
-        rng.counter()
-    }
 
     #[test]
     fn burning_pact_confirm_enters_reward_when_feel_no_pain_juggernaut_kills_last() {
@@ -1474,6 +1471,88 @@ mod tests {
             "lethal Juggernaut from Metallicize on Codex close must open rewards"
         );
         assert!(after_choose.reward.is_some());
+    }
+
+    #[test]
+    fn nilry_choose_and_skip_settle_writhing_mass_parasite_on_resume() {
+        let mut run = RunState::combat_fixture_with_relics(vec![
+            crate::relic::Relic::NilrysCodex,
+            crate::relic::Relic::CeramicFish,
+        ]);
+        let starting_deck_len = run.deck.len();
+        let starting_gold = run.gold;
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+            combat.piles.draw_pile = (10..20)
+                .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+                .collect();
+            let mut mass = monster_state(&WRITHING_MASS_A0, crate::MonsterId::new(1));
+            mass.intent = MonsterIntent::ApplyPlayerFrailAndWeak { frail: 2, weak: 2 };
+            combat.monsters = vec![mass];
+        }
+
+        let paused = apply_combat_action_on_run(&run, CombatAction::EndTurn)
+            .expect("Nilry pauses before Writhing Mass turn");
+        assert_eq!(paused.deck.len(), starting_deck_len);
+
+        for resumed in [
+            apply_run_action(&paused, RunAction::ChooseCombatCardReward { index: 0 })
+                .expect("Codex choose resumes Mega Debuff"),
+            apply_run_action(&paused, RunAction::SkipCombatCardReward)
+                .expect("Codex skip resumes Mega Debuff"),
+        ] {
+            assert_eq!(resumed.deck.len(), starting_deck_len + 1);
+            assert_eq!(
+                resumed.gold,
+                starting_gold + crate::relic::CERAMIC_FISH_GOLD
+            );
+            assert_eq!(
+                resumed
+                    .deck
+                    .iter()
+                    .filter(|card| card.content_id == PARASITE_ID)
+                    .count(),
+                1
+            );
+            let combat = resumed.combat.as_ref().expect("combat continues");
+            assert!(!combat.writhing_mass_mega_debuff_triggered);
+            assert!(resumed.pending_combat_obtain_cards.is_empty());
+        }
+    }
+
+    #[test]
+    fn nilry_skip_persists_lizard_tail_consumed_during_resumed_monster_turn() {
+        let mut run = RunState::combat_fixture_with_relics(vec![
+            crate::relic::Relic::NilrysCodex,
+            crate::relic::Relic::LizardTail,
+        ]);
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.player.hp = 1;
+            combat.player.max_hp = 100;
+            combat.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+            combat.piles.draw_pile = (10..20)
+                .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+                .collect();
+            combat.monsters.truncate(1);
+            combat.monsters[0].intent = MonsterIntent::Attack { damage: 20 };
+        }
+        run.player_hp = 1;
+        run.player_max_hp = 100;
+
+        let paused = apply_combat_action_on_run(&run, CombatAction::EndTurn)
+            .expect("Nilry pauses before lethal monster turn");
+        let resumed = apply_run_action(&paused, RunAction::SkipCombatCardReward)
+            .expect("Codex skip resumes through Lizard Tail");
+
+        assert!(resumed.lizard_tail_used);
+        let combat = resumed
+            .combat
+            .as_ref()
+            .expect("Lizard Tail keeps combat active");
+        assert!(combat.player.hp > 0);
+        assert!(!combat.relic_counters.lizard_tail_available);
     }
 
     #[test]
@@ -2409,13 +2488,13 @@ mod tests {
         assert_eq!(hand.last().map(|card| card.id), Some(chosen_id));
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
-            "Discovery retrieve burns 15 leftover generateCardChoices generations"
+            62,
+            "Discovery retrieve burns fifteen discarded generateCardChoices generations"
         );
     }
 
     #[test]
-    fn discovery_retrieve_while_hexed_vs_solo_chosen_burns_one_generation() {
+    fn discovery_retrieve_while_hexed_vs_solo_chosen_burns_fifteen_generations() {
         use crate::content::cards::STRIKE_R_ID;
         use crate::content::monsters::{monster_state, CHOSEN_A0};
         use crate::ids::MonsterId;
@@ -2449,13 +2528,13 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
-            "Hex against a single living enemy burns one discarded generateCardChoices generation"
+            62,
+            "Hex against a single living enemy burns fifteen discarded generateCardChoices generations"
         );
     }
 
     #[test]
-    fn discovery_retrieve_with_five_remaining_cards_vs_awakened_one_and_cultist_burns_one_generation(
+    fn discovery_retrieve_with_five_remaining_cards_vs_awakened_one_and_cultist_burns_fifteen_generations(
     ) {
         use crate::content::cards::STRIKE_R_ID;
         use crate::content::monsters::{monster_state, AWAKENED_ONE_A0, CULTIST_A0};
@@ -2492,13 +2571,14 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
-            "Awakened One with another living enemy + 5 remaining cards stay one discarded generation"
+            62,
+            "Awakened One with another living enemy + 5 remaining cards use fifteen discarded generations"
         );
     }
 
     #[test]
-    fn discovery_retrieve_lone_early_magnetism_source_from_six_card_hand_burns_one_generation() {
+    fn discovery_retrieve_lone_early_magnetism_source_from_six_card_hand_burns_fifteen_generations()
+    {
         use crate::content::cards::{DISCOVERY_ID, STRIKE_R_ID};
 
         let mut run = RunState::combat_fixture();
@@ -2533,14 +2613,14 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
-            "lone early-turn Magnetism-generated Discovery from a 6-card remaining hand burns one discarded generation"
+            62,
+            "lone early-turn Magnetism-generated Discovery from a 6-card remaining hand burns fifteen discarded generations"
         );
     }
 
     #[test]
-    fn discovery_retrieve_early_magnetism_source_remaining_five_with_leftover_magnetism_burns_one()
-    {
+    fn discovery_retrieve_early_magnetism_source_remaining_five_with_leftover_magnetism_burns_fifteen_generations(
+    ) {
         use crate::content::cards::{DISCOVERY_ID, ENLIGHTENMENT_ID, STRIKE_R_ID};
 
         let mut run = RunState::combat_fixture();
@@ -2582,14 +2662,14 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
-            "early-turn Magnetism Discovery retrieve from a 5-card remaining hand that still holds another Magnetism card burns one discarded generation"
+            62,
+            "early-turn Magnetism Discovery retrieve from a 5-card remaining hand that still holds another Magnetism card burns fifteen discarded generations"
         );
     }
 
     #[test]
-    fn discovery_retrieve_early_magnetism_source_with_another_generated_card_burns_one_generation()
-    {
+    fn discovery_retrieve_early_magnetism_source_with_another_generated_card_burns_fifteen_generations(
+    ) {
         use crate::content::cards::{DISCOVERY_ID, FLASH_OF_STEEL_ID, STRIKE_R_ID};
 
         let mut run = RunState::combat_fixture();
@@ -2628,13 +2708,13 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
-            "early-turn Magnetism-generated Discovery that leaves another generated card burns one discarded generation"
+            62,
+            "early-turn Magnetism-generated Discovery that leaves another generated card burns fifteen discarded generations"
         );
     }
 
     #[test]
-    fn discovery_retrieve_mayhem_play_top_magnetism_source_burns_one_generation() {
+    fn discovery_retrieve_mayhem_play_top_magnetism_source_burns_fifteen_generations() {
         use crate::content::cards::{DISCOVERY_ID, FLASH_OF_STEEL_ID, STRIKE_R_ID};
 
         let mut run = RunState::combat_fixture();
@@ -2674,13 +2754,13 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
-            "Mayhem PlayTop Magnetism-generated Discovery burns one discarded generation"
+            62,
+            "Mayhem PlayTop Magnetism-generated Discovery burns fifteen discarded generations"
         );
     }
 
     #[test]
-    fn discovery_retrieve_with_two_remaining_status_cards_vs_donu_deca_burns_one_generation() {
+    fn discovery_retrieve_with_two_remaining_status_cards_vs_donu_deca_burns_fifteen_generations() {
         use crate::content::cards::{DAZED_ID, STRIKE_R_ID};
         use crate::content::monsters::{monster_state, DECA_A0, DONU_A0};
         use crate::ids::MonsterId;
@@ -2717,13 +2797,13 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
-            "Donu/Deca two remaining with a status stay one discarded generateCardChoices generation"
+            62,
+            "Donu/Deca two remaining with a status use fifteen discarded generateCardChoices generations"
         );
     }
 
     #[test]
-    fn discovery_retrieve_with_two_remaining_non_status_cards_burns_one_generation() {
+    fn discovery_retrieve_with_two_remaining_non_status_cards_burns_fifteen_generations() {
         use crate::content::cards::STRIKE_R_ID;
 
         let mut run = RunState::combat_fixture();
@@ -2754,13 +2834,13 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
-            "two remaining non-status cards stay one discarded generateCardChoices generation"
+            62,
+            "two remaining non-status cards use fifteen discarded generateCardChoices generations"
         );
     }
 
     #[test]
-    fn discovery_retrieve_with_four_remaining_cards_vs_time_eater_burns_one_generation() {
+    fn discovery_retrieve_with_four_remaining_cards_vs_time_eater_burns_fifteen_generations() {
         use crate::content::cards::STRIKE_R_ID;
         use crate::content::monsters::TIME_EATER_ID;
 
@@ -2795,13 +2875,13 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
-            "four remaining cards versus Time Eater burn one discarded generateCardChoices generation"
+            62,
+            "four remaining cards versus Time Eater burn fifteen discarded generateCardChoices generations"
         );
     }
 
     #[test]
-    fn discovery_retrieve_magnetism_generated_later_in_turn_burns_one_generation() {
+    fn discovery_retrieve_magnetism_generated_later_in_turn_burns_fifteen_generations() {
         use crate::content::cards::{DISCOVERY_ID, STRIKE_R_ID};
 
         let mut run = RunState::combat_fixture();
@@ -2836,13 +2916,13 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
-            "Magnetism-generated Discovery later in the turn burns one discarded generation"
+            62,
+            "Magnetism-generated Discovery later in the turn burns fifteen discarded generations"
         );
     }
 
     #[test]
-    fn discovery_retrieve_combat_only_with_magnetism_burns_one_generation() {
+    fn discovery_retrieve_combat_only_with_magnetism_burns_fifteen_generations() {
         use crate::content::cards::{DISCOVERY_ID, STRIKE_R_ID};
 
         let mut run = RunState::combat_fixture();
@@ -2876,13 +2956,13 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
-            "combat-only Discovery that Magnetism did not generate burns one discarded generation"
+            62,
+            "combat-only Discovery that Magnetism did not generate burns fifteen discarded generations"
         );
     }
 
     #[test]
-    fn discovery_retrieve_early_magnetism_source_from_five_card_hand_burns_one_generation() {
+    fn discovery_retrieve_early_magnetism_source_from_five_card_hand_burns_fifteen_generations() {
         use crate::content::cards::{DISCOVERY_ID, STRIKE_R_ID};
 
         let mut run = RunState::combat_fixture();
@@ -2917,13 +2997,13 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
-            "early-turn Magnetism-generated Discovery from a 5-card remaining hand burns one discarded generation"
+            62,
+            "early-turn Magnetism-generated Discovery from a 5-card remaining hand burns fifteen discarded generations"
         );
     }
 
     #[test]
-    fn discovery_retrieve_combat_only_without_magnetism_burns_one_generation() {
+    fn discovery_retrieve_combat_only_without_magnetism_burns_fifteen_generations() {
         use crate::content::cards::{DISCOVERY_ID, STRIKE_R_ID};
 
         let mut run = RunState::combat_fixture();
@@ -2956,13 +3036,14 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
-            "combat-generated Discovery without Magnetism burns one discarded generation"
+            62,
+            "combat-generated Discovery without Magnetism burns fifteen discarded generations"
         );
     }
 
     #[test]
-    fn discovery_retrieve_with_six_remaining_cards_without_awakened_one_burns_one_generation() {
+    fn discovery_retrieve_with_six_remaining_cards_without_awakened_one_burns_fifteen_generations()
+    {
         use crate::content::cards::STRIKE_R_ID;
 
         let mut run = RunState::combat_fixture();
@@ -2992,8 +3073,8 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
-            "6 remaining cards without Awakened One stay one discarded generation"
+            62,
+            "6 remaining cards without Awakened One use fifteen discarded generations"
         );
     }
 

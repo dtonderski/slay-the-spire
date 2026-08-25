@@ -8,8 +8,8 @@ use crate::{
     combat::{
         draw::{draw_cards_with_combat_rng_deferred_evolve, MAX_HAND_SIZE},
         hand::{
-            discard_end_of_turn_hand, exhaust_unplayed_ethereal_cards,
-            resolve_deferred_dark_embrace_draws, resolve_end_of_turn_autoplay_with_queued,
+            discard_end_of_turn_hand, draw_dark_embrace_with_follow_ups_deferred,
+            exhaust_unplayed_ethereal_cards, resolve_end_of_turn_autoplay_with_queued,
         },
         piles::{
             add_cards_to_discard, add_cards_to_draw_random_spot, add_upgraded_burns_to_discard,
@@ -142,7 +142,6 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         end_of_turn_hand = resolve_end_of_turn_autoplay_then_constricted_then_ethereal(
             &mut next,
             &queued_autoplay,
-            None,
         )?;
         if finish_combat_if_over(&mut next, started_with_living_monster)? {
             return Ok(next);
@@ -297,16 +296,30 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         // AbstractRoom.endTurn applyEndOfTurnTriggers, after those cards and
         // before DiscardAtEndOfTurn ethereal exhaust. Burn must consume block
         // before Constricted THORNS so a blocked Burn does not fire Rupture
-        // (FIDL00061). Combust LoseHP is also AbstractRoom.endTurn, before
-        // DiscardAtEndOfTurn, so its Cube draw sees in-hand ethereals. A
-        // 10-card hand (remaining + Burn Cube + Dazed) skips that draw
-        // (FIDL02183). RunicCube.wasHPLost addToTops DrawCardAction still
+        // (FIDL00061). RunicCube.wasHPLost addToTops DrawCardAction still
         // lands before ethereal exhaust (FIDL02191 two Apparitions).
-        end_of_turn_hand = resolve_end_of_turn_autoplay_then_constricted_then_ethereal(
-            &mut next,
-            &queued_autoplay,
-            defer_combust_until_after_autoplay.then_some(&mut deferred_monster_deaths),
-        )?;
+        if defer_combust_until_after_autoplay {
+            let auto_play_emptied_hand =
+                resolve_end_of_turn_autoplay_then_constricted(&mut next, &queued_autoplay)?;
+            // Combust's LoseHP/Damage actions were queued before
+            // DiscardAtEndOfTurnAction. Runic Cube therefore observes the hand
+            // before unplayed ethereals leave it.
+            crate::combat::turn_powers::apply_deferred_end_of_turn_combust(
+                &mut next,
+                &mut deferred_monster_deaths,
+            )?;
+            if finish_combat_if_over(&mut next, started_with_living_monster)? {
+                return Ok(next);
+            }
+            let mut resolution = exhaust_unplayed_ethereal_cards(&mut next)?;
+            resolution.auto_play_emptied_hand = auto_play_emptied_hand;
+            end_of_turn_hand = resolution;
+        } else {
+            end_of_turn_hand = resolve_end_of_turn_autoplay_then_constricted_then_ethereal(
+                &mut next,
+                &queued_autoplay,
+            )?;
+        }
         // Charon's Ashes (and other on-exhaust damage) can kill a Stasis orb
         // during ethereal settlement, after the pre-hand snapshot. Those
         // cards must return after discard, not ride DiscardAtEndOfTurn into
@@ -365,18 +378,18 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
     // (FIDL02353: DB, draw, DB, draw — not both DBs then both draws).
     next.player.cannot_draw = false;
     let mut deferred_dark_embrace_fire_breathing = Vec::new();
-    if end_of_turn_hand.ethereal_follow_ups.is_empty() {
-        next.piles.hand.extend(end_of_turn_hand.dead_branch_cards);
-    } else {
-        for follow_up in end_of_turn_hand.ethereal_follow_ups {
-            match follow_up {
-                crate::combat::hand::EtherealEndTurnFollowUp::DeadBranch(card) => {
+    for follow_up in end_of_turn_hand.ethereal_follow_ups {
+        match follow_up {
+            crate::combat::hand::EtherealEndTurnFollowUp::DeadBranch(card) => {
+                if next.piles.hand.len() < MAX_HAND_SIZE {
                     next.piles.hand.push(card);
+                } else {
+                    next.piles.discard_pile.push(card);
                 }
-                crate::combat::hand::EtherealEndTurnFollowUp::DarkEmbraceDraw => {
-                    deferred_dark_embrace_fire_breathing
-                        .extend(resolve_deferred_dark_embrace_draws(&mut next, 1)?);
-                }
+            }
+            crate::combat::hand::EtherealEndTurnFollowUp::DarkEmbraceDraw => {
+                deferred_dark_embrace_fire_breathing
+                    .extend(draw_dark_embrace_with_follow_ups_deferred(&mut next, 1)?);
             }
         }
     }
@@ -616,31 +629,30 @@ fn queued_end_turn_autoplay_ids(
         .collect()
 }
 
-/// `callEndOfTurnActions` card autoplay, then Constricted, then optional
-/// Combust, then ethereal exhaust.
+/// `callEndOfTurnActions` card autoplay, then Constricted, then ethereal exhaust.
 ///
 /// Java queues Burn/Decay as `CardQueueItem`s from `callEndOfTurnActions` and
 /// only later `AbstractRoom.endTurn` runs `applyEndOfTurnTriggers` (Constricted
-/// THORNS) and Combust `LoseHPAction` before `DiscardAtEndOfTurnAction`
-/// (ethereal). Combust already applied Constricted in the pre-hand window, so
-/// this skips it in that case. Deferred Combust must still run while ethereal
-/// cards occupy the hand: DrawCardAction no-ops at 10 cards (FIDL02183).
-fn resolve_end_of_turn_autoplay_then_constricted_then_ethereal(
+/// THORNS) before `DiscardAtEndOfTurnAction` (ethereal). Combust already applied
+/// Constricted in the pre-hand window, so this skips it in that case.
+fn resolve_end_of_turn_autoplay_then_constricted(
     state: &mut CombatState,
     queued_autoplay: &std::collections::HashSet<crate::ids::CardId>,
-    deferred_combust: Option<&mut Vec<crate::combat::transition::DeferredMonsterDeath>>,
-) -> SimResult<crate::combat::hand::EndOfTurnHandResolution> {
+) -> SimResult<bool> {
     let auto_play_emptied_hand =
         resolve_end_of_turn_autoplay_with_queued(state, Some(queued_autoplay))?;
     if !crate::combat::turn_powers::constricted_resolved_before_hand_with_combust(state) {
         crate::combat::turn_powers::apply_end_of_turn_constricted(state)?;
     }
-    if let Some(deferred_monster_deaths) = deferred_combust {
-        crate::combat::turn_powers::apply_deferred_end_of_turn_combust(
-            state,
-            deferred_monster_deaths,
-        )?;
-    }
+    Ok(auto_play_emptied_hand)
+}
+
+fn resolve_end_of_turn_autoplay_then_constricted_then_ethereal(
+    state: &mut CombatState,
+    queued_autoplay: &std::collections::HashSet<crate::ids::CardId>,
+) -> SimResult<crate::combat::hand::EndOfTurnHandResolution> {
+    let auto_play_emptied_hand =
+        resolve_end_of_turn_autoplay_then_constricted(state, queued_autoplay)?;
     let mut resolution = exhaust_unplayed_ethereal_cards(state)?;
     resolution.auto_play_emptied_hand = auto_play_emptied_hand;
     Ok(resolution)
@@ -1084,70 +1096,11 @@ fn apply_start_of_turn_mayhem(
     state: &mut CombatState,
     targets: &[Option<MonsterId>],
 ) -> SimResult<VecDeque<crate::InternalAction>> {
-    // MayhemPower.atStartOfTurn addToBots one PlayTopCardAction per stack
-    // before any of them resolve. InkBottle.onUseCard addToBots Draw after
-    // each played card, so a 10th-card Ink draw from the first PlayTop sits
-    // behind the remaining PlayTops (FIDL02199 Intimidate then Wound).
-    // A single stack keeps the sequential path so unplayable tops still
-    // discard without Blue Candle / UseCardAction (FIDL02199 Havoc turn).
-    // Stacked PlayTops only pop into cardQueue; GameActionManager drains the
-    // action queue (Evolve residuals, Fire Breathing) before use().
-    if targets.len() > 1 {
-        return crate::combat::transition::pop_mayhem_play_top_cards(state, targets);
-    }
-    let mut remaining = targets;
-    while let Some((&random_target, rest)) = remaining.split_first() {
-        // PlayTop still executes after the base hand draw and Brutality's extra
-        // draw (FIDL00381). Only the getRandomMonster roll is early.
-        if state.piles.draw_pile.is_empty() && !state.piles.discard_pile.is_empty() {
-            // PlayTopCardAction queues EmptyDeckShuffleAction when its draw
-            // pile is empty, then plays the newly exposed top card.
-            crate::combat::transition::player_shuffle_discard_into_draw(state)?;
-        }
-        let Some(top_card) = state.piles.draw_pile.last() else {
-            return Ok(VecDeque::new());
-        };
-        let definition = crate::content::cards::get_card_definition(top_card.content_id)
-            .ok_or(crate::SimError::UnknownContent(top_card.content_id))?;
-        if definition.keywords.unplayable {
-            // Target PlayTopCardAction removes the top card into limbo before
-            // autoplay checks whether it can be used. If autoplay cannot play
-            // an unplayable curse/status, the card still leaves the draw pile
-            // and resolves to discard.
-            if let Some(card) = state.piles.draw_pile.pop() {
-                state.piles.discard_pile.push(card);
-            }
-            remaining = rest;
-            continue;
-        }
-        if matches!(
-            definition.id,
-            crate::content::cards::DEEP_BREATH_ID | crate::content::cards::DEEP_BREATH_PLUS_ID
-        ) && !rest.is_empty()
-        {
-            // MayhemPower queues every PlayTopCardAction before DeepBreath.use
-            // addToBots ShuffleAction, so later PlayTops take the pre-shuffle
-            // tops (FIDL01709 Dramatic Entrance under Deep Breath).
-            crate::combat::transition::apply_mayhem_play_top_cards(state, remaining)?;
-            return Ok(VecDeque::new());
-        }
-        let target = if definition.target == crate::TargetRequirement::Enemy {
-            random_target
-        } else {
-            None
-        };
-        crate::combat::transition::apply_play_top_draw_card_to_state(state, target)?;
-        if state.player.hp <= 0
-            || state
-                .monsters
-                .iter()
-                .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
-        {
-            return Ok(VecDeque::new());
-        }
-        remaining = rest;
-    }
-    Ok(VecDeque::new())
+    // MayhemPower.atStartOfTurn addToBots every PlayTopCardAction before any
+    // resolve. Each action removes its top into cardQueue; the action queue
+    // then drains the base draw's Evolve/Fire Breathing callbacks before
+    // GameActionManager services queued cards, even with one Mayhem stack.
+    crate::combat::transition::pop_mayhem_play_top_cards(state, targets)
 }
 
 fn mayhem_random_living_target(state: &mut CombatState) -> Option<MonsterId> {
@@ -1436,7 +1389,8 @@ fn execute_generic_monster_intent(
     if time_warp_queued_damage_snapshot {
         state.monsters[index].powers.strength = strength_before_time_warp_snapshot;
     }
-    let damage = damage_result?;
+    let prepared_intent = damage_result?;
+    let damage = prepared_intent.damage;
     if state.monsters[index].content_id == WRITHING_MASS_ID
         && matches!(intent, crate::MonsterIntent::ApplyPlayerFrailAndWeak { .. })
     {
@@ -1467,7 +1421,7 @@ fn execute_generic_monster_intent(
         // does not upgrade existing Burns or add its three new Burns.
         state.piles = piles;
     }
-    let hits = effective_current_move_hits(intent, state.monsters[index].intent);
+    let hits = prepared_intent.hits;
     if matches!(intent, crate::MonsterIntent::Ritual { .. }) {
         skip_ritual_tick.push(actor_id);
     }
@@ -1675,14 +1629,9 @@ fn execute_generic_monster_intent(
     }
     // Every modeled target monster queues RollMoveAction at the end of its
     // takeTurn. That action still runs when reactive thorns kill the monster
-    // during its own attack, as long as combat continues. Preserve that queued
-    // AI draw even though the attacker is no longer alive by the time its
-    // damage resolves.
-    //
-    // Awakened One's first-form death is half-dead, not combat victory. The
-    // already-queued RollMoveAction still consumes aiRng.random(99); getMove
-    // returns REBIRTH while halfDead. Skipping that draw when this is the last
-    // living monster desyncs phase-two 50/50s (FIDL02415 Tackle vs Sludge).
+    // during its own attack, as long as the combat continues for another
+    // living monster. Preserve that queued AI draw even though the attacker
+    // is no longer alive by the time its damage resolves.
     //
     // Fire Breathing from Runic Cube / deferred multi-hit draws runs in
     // apply_monster_pending_effects, after the early death snapshot.
@@ -1690,12 +1639,10 @@ fn execute_generic_monster_intent(
     // (FIDL01313: CHOMP + Cube Wound + FB leaves UNKNOWN/4, not STUN/5).
     let darkling_died_during_intent =
         actor_was_alive && is_half_dead_darkling(&state.monsters[index]);
-    let awakened_one_half_dead_during_intent =
-        actor_was_alive && awakened_one_is_half_dead(&state.monsters[index]);
     let should_roll_queued_next_intent = actor_was_alive
         && state.player.hp > 0
         && (state.monsters[index].alive
-            || awakened_one_half_dead_during_intent
+            || awakened_one_is_half_dead(&state.monsters[index])
             || state
                 .monsters
                 .iter()
@@ -2457,35 +2404,6 @@ fn apply_queued_multi_hit_thorns(
     Ok(())
 }
 
-fn effective_current_move_hits(
-    original: crate::MonsterIntent,
-    after_effects: crate::MonsterIntent,
-) -> i32 {
-    match (original, after_effects) {
-        (
-            crate::MonsterIntent::AttackMultiple { .. },
-            crate::MonsterIntent::AttackMultiple { hits, .. },
-        )
-        | (
-            crate::MonsterIntent::AttackMultipleApplyPlayerWeak { .. },
-            crate::MonsterIntent::AttackMultipleApplyPlayerWeak { hits, .. },
-        )
-        | (
-            crate::MonsterIntent::AttackMultipleAddDazedToDiscard { .. },
-            crate::MonsterIntent::AttackMultipleAddDazedToDiscard { hits, .. },
-        )
-        | (
-            crate::MonsterIntent::AttackMultipleUpgradeBurns { .. },
-            crate::MonsterIntent::AttackMultipleUpgradeBurns { hits, .. },
-        ) => hits,
-        (crate::MonsterIntent::AttackMultiple { hits, .. }, _)
-        | (crate::MonsterIntent::AttackMultipleApplyPlayerWeak { hits, .. }, _)
-        | (crate::MonsterIntent::AttackMultipleAddDazedToDiscard { hits, .. }, _)
-        | (crate::MonsterIntent::AttackMultipleUpgradeBurns { hits, .. }, _) => hits,
-        _ => 1,
-    }
-}
-
 fn apply_turn_transition_block_loss(state: &mut CombatState) {
     if state.player.powers.barricade > 0 {
         return;
@@ -2696,16 +2614,6 @@ fn prepare_next_intents_for_ids(
         if is_half_dead_darkling(monster) {
             let _ = state.rng.monster_rng.random_int(99);
             monster.intent = crate::MonsterIntent::Stun;
-            record_target_move(monster);
-            continue;
-        }
-        if awakened_one_is_half_dead(monster) {
-            // AwakenedOne.getMove while halfDead returns REBIRTH regardless of
-            // the common AI roll. Consume that RollMoveAction draw here so the
-            // last-monster thorns-kill path does not fall through to phase-two
-            // Sludge/Tackle selection (FIDL02415).
-            let _ = state.rng.monster_rng.random_int(99);
-            monster.intent = crate::MonsterIntent::AwakenedOneHalfDead;
             record_target_move(monster);
             continue;
         }
@@ -3403,10 +3311,9 @@ mod tests {
     use crate::combat::hand::resolve_end_of_turn_hand;
     use crate::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BASH_ID, BERSERK_ID, BLOODLETTING_ID, BURNING_PACT_ID, BURN_ID,
-        DAZED_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID, DUAL_WIELD_ID, FLEX_ID,
-        GHOSTLY_ARMOR_ID, INFLAME_ID, INTIMIDATE_ID, IRON_WAVE_ID, PARASITE_ID, POMMEL_STRIKE_ID,
-        REGRET_ID, SHAME_ID, SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, STRIKE_R_ID, THUNDERCLAP_ID, VOID_ID,
-        WARCRY_ID, WOUND_ID,
+        DAZED_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID, GHOSTLY_ARMOR_ID,
+        INFLAME_ID, INTIMIDATE_ID, PARASITE_ID, POMMEL_STRIKE_ID, REGRET_ID, SHAME_ID,
+        SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, STRIKE_R_ID, THUNDERCLAP_ID, VOID_ID, WOUND_ID,
     };
     use crate::content::monsters::{
         donu_deca_boss_monsters_for_ascension, monster_state_for_ascension,
@@ -3415,14 +3322,14 @@ mod tests {
         target_looter_direct_next_intent_after_turn, target_nemesis_next_intent_from_roll,
         target_spheric_guardian_next_intent_from_roll, target_spire_growth_next_intent_from_roll,
         transient_attack_damage, ACID_SLIME_A0, BOOK_OF_STABBING_A0, BRONZE_AUTOMATON_A0,
-        BRONZE_ORB_A0, BYRD_A0, CENTURION_A0, CORRUPT_HEART_A0, DAGGER_A0, DAGGER_EXPLODE_DAMAGE,
-        DAGGER_ID, DARKLING_A0, EXPLODER_A0, FUNGI_BEAST_A0, GIANT_HEAD_A0, GIANT_HEAD_ID,
-        GREMLIN_NOB_A0, GREMLIN_THIEF_A0, GREMLIN_TSUNDERE_A0, GREMLIN_WARRIOR_A0,
-        GREMLIN_WIZARD_A0, GUARDIAN_A0, GUARDIAN_DEFENSIVE_BLOCK, HEALER_A0, HEXAGHOST_A0,
-        JAW_WORM_A0, LAGAVULIN_A0, LOOTER_A0, LOOTER_ID, MAW_A0, MAW_ID, MUGGER_A0, MUGGER_ID,
-        NEMESIS_A0, NEMESIS_ID, SENTRY_A0, SHELLED_PARASITE_A0, SHELLED_PARASITE_ID, SLIME_BOSS_A0,
-        SPHERIC_GUARDIAN_A0, SPHERIC_GUARDIAN_ID, SPIKE_SLIME_A0, SPIRE_GROWTH_A0, SPIRE_GROWTH_ID,
-        TIME_EATER_A0, TRANSIENT_A0,
+        BRONZE_ORB_A0, BYRD_A0, CENTURION_A0, DAGGER_A0, DAGGER_EXPLODE_DAMAGE, DAGGER_ID,
+        DARKLING_A0, EXPLODER_A0, FUNGI_BEAST_A0, GIANT_HEAD_A0, GIANT_HEAD_ID, GREMLIN_NOB_A0,
+        GREMLIN_THIEF_A0, GREMLIN_TSUNDERE_A0, GREMLIN_WARRIOR_A0, GREMLIN_WIZARD_A0, GUARDIAN_A0,
+        GUARDIAN_DEFENSIVE_BLOCK, HEALER_A0, HEXAGHOST_A0, JAW_WORM_A0, LAGAVULIN_A0, LOOTER_A0,
+        LOOTER_ID, MAW_A0, MAW_ID, MUGGER_A0, MUGGER_ID, NEMESIS_A0, NEMESIS_ID, SENTRY_A0,
+        SHELLED_PARASITE_A0, SHELLED_PARASITE_ID, SLIME_BOSS_A0, SPHERIC_GUARDIAN_A0,
+        SPHERIC_GUARDIAN_ID, SPIKE_SLIME_A0, SPIRE_GROWTH_A0, SPIRE_GROWTH_ID, TIME_EATER_A0,
+        TRANSIENT_A0,
     };
     use crate::{CardId, CardInstance, MonsterIntent, Relic};
 
@@ -4939,24 +4846,6 @@ mod tests {
     }
 
     #[test]
-    fn current_move_hits_ignore_next_intent_for_single_hit_cleanup() {
-        assert_eq!(
-            effective_current_move_hits(
-                crate::MonsterIntent::Attack { damage: 9 },
-                crate::MonsterIntent::AttackMultiple { damage: 8, hits: 2 }
-            ),
-            1
-        );
-        assert_eq!(
-            effective_current_move_hits(
-                crate::MonsterIntent::AttackMultiple { damage: 4, hits: 6 },
-                crate::MonsterIntent::AttackMultiple { damage: 4, hits: 1 }
-            ),
-            1
-        );
-    }
-
-    #[test]
     fn time_warp_end_player_turn_head_slam_applies_draw_reduction() {
         // Time Warp leftover PLAY/END still runs Head Slam's ApplyPowerAction.
         // Skipping that while `time_warp_end_turn` is set draws a full next
@@ -5799,79 +5688,6 @@ mod tests {
                 .iter()
                 .map(|c| c.content_id)
                 .collect::<Vec<_>>(),
-        );
-    }
-
-    #[test]
-    fn dark_embrace_dazed_draw_does_not_ride_end_turn_discard_with_cube() {
-        // FIDL02183 step 1611: empty draw, Burn autoplay, Dazed ethereal, Combust,
-        // Runic Cube, Dark Embrace, Heart Echo + Painful Stabs. Combust LoseHP
-        // runs before DiscardAtEndOfTurn ethereal exhaust, so the 10-card hand
-        // (remaining + Burn Cube + Dazed) skips Combust's Cube draw. Dark Embrace
-        // addToBots DrawCardAction after discard, so that card stays in the next
-        // hand instead of riding leftover.
-        let mut state = CombatState::cultist_fixture();
-        state.player.hp = 8427;
-        state.player.max_hp = 10000;
-        state.player.block = 0;
-        state.player.powers.combust = 1;
-        state.player.powers.combust_damage = 7;
-        state.player.powers.dark_embrace = 1;
-        state.player.powers.fire_breathing = 12;
-        state.player.powers.brutality = 1;
-        state.player.powers.berserk = 1;
-        state.player.powers.corruption = 1;
-        state.relics = vec![Relic::RunicCube];
-        state.monsters = vec![monster_state_for_ascension(
-            &CORRUPT_HEART_A0,
-            MonsterId::new(1),
-            0,
-        )];
-        state.piles.hand = vec![
-            CardInstance::new(CardId::new(1), FLEX_ID),
-            CardInstance::new(CardId::new(2), DUAL_WIELD_ID),
-            CardInstance::new(CardId::new(3), WOUND_ID),
-            CardInstance::new(CardId::new(4), DEFEND_R_ID),
-            CardInstance::new(CardId::new(5), WARCRY_ID),
-            CardInstance::new(CardId::new(6), STRIKE_R_ID),
-            CardInstance::new(CardId::new(7), BURN_ID),
-            CardInstance::new(CardId::new(8), BASH_ID),
-            CardInstance::new(CardId::new(9), IRON_WAVE_ID),
-            CardInstance::new(CardId::new(10), DAZED_ID),
-        ];
-        state.piles.draw_pile.clear();
-        state.piles.discard_pile = (20..60)
-            .map(|id| CardInstance::new(CardId::new(id), WOUND_ID))
-            .collect();
-        state.monsters[0].hp = 331;
-        state.monsters[0].powers.strength = 6;
-        state.monsters[0].powers.beat_of_death = 2;
-        state.monsters[0].powers.painful_stabs = 1;
-        state.monsters[0].intent = crate::MonsterIntent::Attack { damage: 40 };
-        state.monsters[0].move_history = vec![1, 4];
-
-        let next = end_player_turn(&state).expect("Cube + Combust + Burn + Dazed + Dark Embrace");
-        let leftover: Vec<_> = next
-            .piles
-            .discard_pile
-            .iter()
-            .map(|card| card.content_id)
-            .collect();
-        let hand: Vec<_> = next.piles.hand.iter().map(|card| card.content_id).collect();
-
-        // Remaining 8 + Burn + Burn-Cube = 10. Combust Cube is skipped because
-        // Dazed still occupies the 10th slot (DiscardAtEndOfTurn ethereal).
-        // Painful Stabs' Wound is the 11th leftover card.
-        assert_eq!(
-            leftover.len(),
-            11,
-            "hp={} leftover={leftover:?} hand={hand:?} draw={}",
-            next.player.hp,
-            next.piles.draw_pile.len()
-        );
-        assert_eq!(
-            leftover[0], BURN_ID,
-            "Burn is first leftover, extra Combust Cube prepends after it: {leftover:?}"
         );
     }
 
@@ -6859,36 +6675,6 @@ mod tests {
     }
 
     #[test]
-    fn last_monster_awakened_one_thorns_death_consumes_queued_roll_move() {
-        // Soul Strike queues RollMoveAction before its hits. Player Thorns can
-        // first-kill form 1 mid-attack while no other monster is alive; combat
-        // continues in the half-dead pose, so that queued AI draw still runs.
-        let mut state = CombatState::initial_fixture();
-        state.player.powers.thorns = 5;
-        let actor_id = MonsterId::new(1);
-        let mut ao =
-            monster_state_for_ascension(&crate::content::monsters::AWAKENED_ONE_A0, actor_id, 0);
-        ao.hp = 4;
-        ao.max_hp = 300;
-        ao.mode_shift = 0;
-        ao.intent = crate::MonsterIntent::AttackMultiple { damage: 6, hits: 4 };
-        ao.move_history = vec![1, 2];
-        state.monsters = vec![ao];
-        state.rng.monster_rng = StsRng::new(123);
-        let mut skip_ritual_tick = Vec::new();
-
-        execute_generic_monster_intent(&mut state, actor_id, 0, 0, &[], &mut skip_ritual_tick)
-            .expect("Awakened One's queued roll is supported");
-
-        assert!(awakened_one_is_half_dead(&state.monsters[0]));
-        assert_eq!(
-            state.monsters[0].intent,
-            crate::MonsterIntent::AwakenedOneHalfDead
-        );
-        assert_eq!(state.rng.monster_rng.counter(), 1);
-    }
-
-    #[test]
     fn frail_ticks_after_a_survived_monster_turn_but_not_after_lethal_damage() {
         let mut state = CombatState::initial_fixture();
         state.player.hp = 10;
@@ -7286,110 +7072,6 @@ mod tests {
         assert!(
             state.player.powers.strength > 0,
             "Inflame must apply Strength"
-        );
-    }
-
-    #[test]
-    fn mayhem_hex_insert_waits_behind_evolve_residual_draw() {
-        // HexPower.onUseCard addToBots MakeTempCardInDrawPile after PlayTop
-        // use(). Evolve residual Draw from the base refill is already on that
-        // bot queue, so the Dazed insert observes the post-Evolve pile.
-        let mut state = CombatState::initial_fixture();
-        state.player.powers.mayhem = 1;
-        state.player.powers.evolve = 1;
-        state.player.powers.hex = 1;
-        state.piles.hand.clear();
-        state.piles.discard_pile.clear();
-        state.piles.exhaust_pile.clear();
-        // last() is the draw-pile top. Five cards are drawn; Wound queues
-        // Evolve. Remaining top is Defend, which Mayhem force-plays.
-        state.piles.draw_pile = vec![
-            CardInstance::new(CardId::new(10), DAZED_ID),
-            CardInstance::new(CardId::new(11), STRIKE_R_ID),
-            CardInstance::new(CardId::new(12), STRIKE_R_ID),
-            CardInstance::new(CardId::new(13), STRIKE_R_ID),
-            CardInstance::new(CardId::new(14), DEFEND_R_ID),
-            CardInstance::new(CardId::new(15), WOUND_ID),
-            CardInstance::new(CardId::new(16), STRIKE_R_ID),
-            CardInstance::new(CardId::new(17), STRIKE_R_ID),
-            CardInstance::new(CardId::new(18), STRIKE_R_ID),
-            CardInstance::new(CardId::new(19), STRIKE_R_ID),
-        ];
-        state.monsters = vec![monster_state_for_ascension(
-            &LOOTER_A0,
-            MonsterId::new(1),
-            0,
-        )];
-
-        let (result, events) = crate::capture_rng_trace(|| start_player_turn(&mut state));
-        result.expect("Mayhem + Evolve + Hex start turn");
-
-        let hex_inserts: Vec<_> = events
-            .iter()
-            .filter(|event| {
-                event.stream == crate::RngTraceStream::CardRandom
-                    && matches!(
-                        event.operation,
-                        crate::RngTraceOperation::RandomInt { max_inclusive, .. }
-                            if max_inclusive > 0
-                    )
-            })
-            .collect();
-        assert_eq!(
-            hex_inserts.len(),
-            1,
-            "Hex should roll once after Evolve consumes the remaining top Strike, events={events:?}"
-        );
-        match &hex_inserts[0].operation {
-            crate::RngTraceOperation::RandomInt { max_inclusive, .. } => {
-                assert_eq!(
-                    *max_inclusive, 2,
-                    "Hex insert must see the 3-card post-Evolve pile, not the 4-card post-Mayhem pile"
-                );
-            }
-            other => panic!("expected random_int, got {other:?}"),
-        }
-        assert!(
-            state
-                .piles
-                .hand
-                .iter()
-                .any(|card| card.id == CardId::new(13)),
-            "Evolve must draw the pre-Hex remaining Strike, hand={:?}",
-            state
-                .piles
-                .hand
-                .iter()
-                .map(|card| card.id)
-                .collect::<Vec<_>>(),
-        );
-        assert!(
-            state
-                .piles
-                .discard_pile
-                .iter()
-                .any(|card| card.id == CardId::new(14)),
-            "Mayhem Defend must settle after Evolve, discard={:?}",
-            state
-                .piles
-                .discard_pile
-                .iter()
-                .map(|card| card.id)
-                .collect::<Vec<_>>(),
-        );
-        assert!(
-            state
-                .piles
-                .draw_pile
-                .iter()
-                .any(|card| card.content_id == DAZED_ID && card.combat_only),
-            "Hex Dazed must land in the post-Evolve draw pile, draw={:?}",
-            state
-                .piles
-                .draw_pile
-                .iter()
-                .map(|card| card.content_id)
-                .collect::<Vec<_>>(),
         );
     }
 

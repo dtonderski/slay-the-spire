@@ -1,35 +1,26 @@
-# Writhing Mass Parasite publication
+# Writhing Mass Parasite settlement
 
-Writhing Mass queues an `AddCardToDeckAction` for Parasite when its Mega Debuff
-triggers. The authoritative simulator keeps that obtain in the typed
-`pending_combat_obtain_cards` queue and settles it on the next combat-owned
-transition. CommunicationMod exposes mixed command-ready frames: FIDL01252,
-FIDL01257, and FIDL01271 publish Parasite on the triggering END, while FIDL01349
-publishes it on the following END.
+Writhing Mass's Mega Debuff queues `AddCardToDeckAction(Parasite)` before its
+later `RollMoveAction`. `AddCardToDeckAction.update()` constructs
+`ShowCardAndObtainEffect`, whose constructor immediately calls
+`CardHelper.obtain`; the master deck mutation and card-obtain relic callbacks
+therefore settle before the next command-ready boundary.
 
-Strict replay compares a source-backed eager-publication projection only when
-the simulator has a pending combat obtain and every other combat field matches.
-The authoritative state remains queued; no observed deck card is inserted into
-it. The next END therefore settles the queue normally and does not duplicate
-the card. This keeps the mixed bridge timing separate from gameplay mechanics.
+The combat core records execution with
+`writhing_mass_mega_debuff_triggered`. The run wrapper transfers that marker to
+`pending_combat_obtain_cards` and drains the typed obtain action in the same
+accepted transition. This ordering is shared by ordinary `END` and by an
+end-turn queue resumed after an interaction such as Nilry's Codex.
 
-A later PLAY can also be the publication boundary: SuperFastMode records a
-command Java rejects while `AddCardToDeckAction` is still settling. The frame
-shows Ceramic Fish gold and the new Parasite, and the combat hand is unchanged.
-Flush the pending obtain and skip that PLAY only when the complete observed
-combat subset matches (FIDL01726 PLAY 1230, FIDL01782 PLAY 1090, FIDL01572
-PLAY 1091). The rejected play stays on Java's action queue; the next captured
-command may resolve that leftover action instead of the recorded END or PLAY
-(FIDL01782 END 1091 Pommel Strike; FIDL01572 PLAY 1092 Defend). Apply the
-parked combat action only when the observed subset matches. If it matches,
-park the recorded command as the next leftover so a following END can settle
-the rejected play's original click (FIDL01782 discarded hand; FIDL01572
-Warcry select).
+Nilry's `onPlayerEndTurn` opens `CodexAction` before the monster turn, so the
+opening card reward correctly has no new Parasite. Closing or skipping the
+Codex offer resumes the queued end turn; if Mega Debuff executes, the common
+post-combat-transition settlement helper obtains exactly one Parasite before
+publishing the resulting state. Omamori and card-obtain relics remain part of
+that normal obtain path.
 
-A duplicate END can be the same publication boundary while the live hand is
-still held (FIDL01515 END 915, FIDL01595 END 1119). Flush Parasite and park
-leftover `EndTurnAction`. Do not run `takeTurn` on that frame: Combust and
-discard can still be ahead of the monster (FIDL01515 STATE 917). A following
-END may either finish the whole leftover turn or continue after the first
-already-settling MonsterQueueItem (FIDL01595 END 1120). An END that already
-started the next player turn must not rebind another EndTurn.
+Observed deck contents never select, flush, or synthesize this transition. A
+trace that publishes an intermediate queue frame must be represented by its
+source-backed queued action state or rejected as invalid input; replay does not
+copy the observed Parasite or condition command execution on a post-state
+match.

@@ -21,9 +21,6 @@ pub(crate) struct EndOfTurnHandResolution {
     /// The visible hand existed at END click but was completely consumed by
     /// auto-play curses before DiscardAtEndOfTurnAction.
     pub(crate) auto_play_emptied_hand: bool,
-    #[allow(dead_code)]
-    pub(crate) deferred_dark_embrace_draws: usize,
-    pub(crate) dead_branch_cards: Vec<CardInstance>,
     /// Per-ethereal addToBot order: Dead Branch then Dark Embrace (FIDL02353).
     pub(crate) ethereal_follow_ups: Vec<EtherealEndTurnFollowUp>,
     pub(crate) deferred_juggernaut_damage: Vec<i32>,
@@ -52,29 +49,16 @@ pub(crate) fn resolve_end_of_turn_hand_with_queued_autoplay(
     Ok(resolution)
 }
 
-pub(crate) fn resolve_deferred_dark_embrace_draws(
+pub(crate) fn draw_dark_embrace_with_follow_ups_deferred(
     state: &mut CombatState,
     count: usize,
 ) -> SimResult<Vec<InternalAction>> {
-    // DarkEmbracePower.onExhaust addToBots DrawCardAction during DiscardAtEndOfTurn.
-    // FireBreathingPower.onCardDraw addToBots DamageAllEnemiesAction, which lands
-    // after AbstractRoom$1's MonsterStartTurnAction loseBlock (FIDL02421).
-    use crate::combat::transition::{
-        player_draw_cards_with_deferred_evolve, resolve_deferred_draw_follow_ups,
-    };
-    let mut fire_breathing = Vec::new();
+    use crate::combat::transition::player_draw_cards_with_deferred_evolve;
+    let mut follow_ups = Vec::new();
     for _ in 0..count {
-        let follow_ups = player_draw_cards_with_deferred_evolve(state, 1)?;
-        let mut immediate = Vec::new();
-        for follow_up in follow_ups {
-            match follow_up {
-                InternalAction::FireBreathingDamage { .. } => fire_breathing.push(follow_up),
-                other => immediate.push(other),
-            }
-        }
-        resolve_deferred_draw_follow_ups(state, immediate)?;
+        follow_ups.extend(player_draw_cards_with_deferred_evolve(state, 1)?);
     }
-    Ok(fire_breathing)
+    Ok(follow_ups)
 }
 
 fn resolve_end_of_turn_hand_inner(
@@ -157,6 +141,7 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
             state.card_in_use = Some(card.id);
         }
 
+        let mut settled_before_draw_follow_ups = false;
         let moves_to_discard = if !auto_played {
             remaining_indices.push(index);
             false
@@ -170,23 +155,41 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
                     };
                     let hp_loss =
                         crate::combat::hp_loss::lose_player_blockable_hp(state, burn_damage);
-                    crate::combat::hp_loss::apply_player_card_hp_loss_hooks_with_pending_hand(
-                        state, hp_loss, &mut hand,
-                    )?;
+                    settled_before_draw_follow_ups =
+                        apply_end_turn_card_hp_loss_hooks_with_live_hand(
+                            state,
+                            hp_loss,
+                            card,
+                            &mut hand,
+                            &remaining_indices,
+                            index,
+                        )?;
                     true
                 }
                 DECAY_ID => {
                     let hp_loss = crate::combat::hp_loss::lose_player_blockable_hp(state, 2);
-                    crate::combat::hp_loss::apply_player_card_hp_loss_hooks_with_pending_hand(
-                        state, hp_loss, &mut hand,
-                    )?;
+                    settled_before_draw_follow_ups =
+                        apply_end_turn_card_hp_loss_hooks_with_live_hand(
+                            state,
+                            hp_loss,
+                            card,
+                            &mut hand,
+                            &remaining_indices,
+                            index,
+                        )?;
                     true
                 }
                 REGRET_ID => {
                     let hp_loss = crate::combat::hp_loss::lose_player_hp(state, hand_size);
-                    crate::combat::hp_loss::apply_player_card_hp_loss_hooks_with_pending_hand(
-                        state, hp_loss, &mut hand,
-                    )?;
+                    settled_before_draw_follow_ups =
+                        apply_end_turn_card_hp_loss_hooks_with_live_hand(
+                            state,
+                            hp_loss,
+                            card,
+                            &mut hand,
+                            &remaining_indices,
+                            index,
+                        )?;
                     true
                 }
                 // Doubt is auto-played via CardQueueItem at end of turn (see
@@ -244,7 +247,9 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
         }
 
         state.card_in_use = previous_card_in_use;
-        state.piles.discard_pile.push(card);
+        if !settled_before_draw_follow_ups {
+            state.piles.discard_pile.push(card);
+        }
     }
     // End-turn card actions can trigger relic draws before the hand cleanup
     // action finishes. Those cards are already in the authoritative hand and
@@ -258,6 +263,60 @@ fn apply_end_of_turn_for_playing_cards_in_hand_order(
     state.piles.hand = remaining;
     state.piles.hand.extend(drawn_during_cleanup);
     Ok(())
+}
+
+fn apply_end_turn_card_hp_loss_hooks_with_live_hand(
+    state: &mut CombatState,
+    hp_loss: i32,
+    settled_card: CardInstance,
+    pending_hand: &mut [CardInstance],
+    retained_indices: &[usize],
+    current_index: usize,
+) -> SimResult<bool> {
+    // CardQueue removes only the current Burn/Decay/Regret. Every other card
+    // remains in the real hand while Runic Cube/Centennial Puzzle draws, so the
+    // ten-card cap must include both earlier retained cards and later queued
+    // cards. The simulator parks that hand slice while iterating; restore it
+    // around the HP-loss hook and keep only newly drawn cards in state storage.
+    let mut live_indices = retained_indices.to_vec();
+    live_indices.extend((current_index + 1)..pending_hand.len());
+    let mut index_by_id = std::collections::HashMap::new();
+    let drawn_before = std::mem::take(&mut state.piles.hand);
+    for index in &live_indices {
+        let card = pending_hand[*index];
+        index_by_id.insert(card.id, *index);
+        state.piles.hand.push(card);
+    }
+    state.piles.hand.extend(drawn_before);
+
+    let prior_follow_up_count = state.pending_hp_loss_draw_follow_ups.len();
+    crate::combat::hp_loss::apply_player_card_hp_loss_hooks_queued_follow_ups(state, hp_loss)?;
+    let settled = state.player.hp > 0;
+    if settled {
+        state.piles.discard_pile.push(settled_card);
+        let follow_ups = state
+            .pending_hp_loss_draw_follow_ups
+            .split_off(prior_follow_up_count);
+        crate::combat::transition::resolve_deferred_draw_follow_ups(
+            state,
+            follow_ups.into_iter().collect(),
+        )?;
+    } else {
+        // The death screen freezes actions queued by the lethal HP-loss event.
+        state
+            .pending_hp_loss_draw_follow_ups
+            .truncate(prior_follow_up_count);
+    }
+
+    let combined = std::mem::take(&mut state.piles.hand);
+    for card in combined {
+        if let Some(index) = index_by_id.get(&card.id).copied() {
+            pending_hand[index] = card;
+        } else {
+            state.piles.hand.push(card);
+        }
+    }
+    Ok(settled)
 }
 
 /// `TheBombPower` can end combat in the pre-hand end-turn window. The target
@@ -292,9 +351,7 @@ pub(crate) fn exhaust_unplayed_ethereal_cards(
     let first_dead_branch_id = (!ethereal_ids.is_empty())
         .then(|| state.reserve_card_instance_ids(ethereal_ids.len()))
         .transpose()?;
-    let mut deferred_dark_embrace_draws: usize = 0;
     let mut deferred_juggernaut_damage = Vec::new();
-    let mut dead_branch_cards = Vec::new();
     let mut ethereal_follow_ups = Vec::new();
     let mut dead_branch_count = 0_u64;
     for card_id in ethereal_ids {
@@ -309,17 +366,10 @@ pub(crate) fn exhaust_unplayed_ethereal_cards(
                     + dead_branch_count,
             );
             if let Some(card) = dead_branch_card_for_end_turn(state, generated_id)? {
-                dead_branch_cards.push(card);
                 ethereal_follow_ups.push(EtherealEndTurnFollowUp::DeadBranch(card));
                 dead_branch_count += 1;
             }
             let embrace = state.player.powers.dark_embrace.max(0) as usize;
-            deferred_dark_embrace_draws =
-                deferred_dark_embrace_draws
-                    .checked_add(embrace)
-                    .ok_or(SimError::InvalidState(
-                        "Dark Embrace deferred draw count overflows usize",
-                    ))?;
             for _ in 0..embrace {
                 ethereal_follow_ups.push(EtherealEndTurnFollowUp::DarkEmbraceDraw);
             }
@@ -327,8 +377,6 @@ pub(crate) fn exhaust_unplayed_ethereal_cards(
     }
     Ok(EndOfTurnHandResolution {
         auto_play_emptied_hand: false,
-        deferred_dark_embrace_draws,
-        dead_branch_cards,
         ethereal_follow_ups,
         deferred_juggernaut_damage,
     })
@@ -405,7 +453,9 @@ fn apply_sands_of_time_end_of_turn_cost(state: &mut CombatState) {
 mod tests {
     use super::*;
     use crate::{
-        content::cards::{BLOOD_FOR_BLOOD_ID, DEFEND_R_ID, WINDMILL_STRIKE_ANY_COLOR_ID},
+        content::cards::{
+            BLOOD_FOR_BLOOD_ID, DEFEND_R_ID, STRIKE_R_ID, WINDMILL_STRIKE_ANY_COLOR_ID, WOUND_ID,
+        },
         ids::CardId,
         CardInstance,
     };
@@ -534,6 +584,45 @@ mod tests {
 
             assert_eq!(state.player.powers.strength, 2, "{content_id:?}");
         }
+    }
+
+    #[test]
+    fn end_turn_burn_cube_draw_counts_the_other_nine_hand_cards() {
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![crate::Relic::RunicCube];
+        state.player.powers.evolve = 2;
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(20), STRIKE_R_ID),
+            CardInstance::new(CardId::new(21), WOUND_ID),
+        ];
+        state.piles.discard_pile.clear();
+        let burn = CardInstance::new(CardId::new(1), BURN_ID);
+        let mut pending_hand = vec![burn];
+        pending_hand.extend((2..=10).map(|id| CardInstance::new(CardId::new(id), DEFEND_R_ID)));
+
+        let hp_loss =
+            crate::combat::hp_loss::lose_player_blockable_hp(&mut state, BURN_END_TURN_DAMAGE);
+        let settled = apply_end_turn_card_hp_loss_hooks_with_live_hand(
+            &mut state,
+            hp_loss,
+            burn,
+            &mut pending_hand,
+            &[],
+            0,
+        )
+        .expect("Burn HP-loss queue settles");
+
+        assert!(settled);
+        assert_eq!(state.piles.hand.len(), 1);
+        assert_eq!(state.piles.hand[0].content_id, WOUND_ID);
+        assert_eq!(
+            state.piles.draw_pile.len(),
+            1,
+            "Evolve draw sees a full live hand"
+        );
+        assert_eq!(state.piles.discard_pile, vec![burn]);
+        assert!(state.pending_hp_loss_draw_follow_ups.is_empty());
     }
 
     #[test]
