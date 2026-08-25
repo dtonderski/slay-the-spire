@@ -4971,8 +4971,11 @@ pub fn target_looter_direct_next_intent_after_turn(
     }
     if last_move(move_history, 1) && moves_executed == 2 {
         // Java `aiRng.randomBoolean(0.5f)`: SMOKE when the float is < 0.5.
-        // Do not invert and do not add a post-ally-death extra draw: collection.2
-        // FIDL02367 Thugs matches this polarity through later Byrd floors.
+        // Do not invert, do not use `randomBoolean()` / `random_bool()` (LSB),
+        // and do not add a post-ally-death extra draw: collection.2 FIDL02367
+        // Thugs matches this polarity through later Byrd floors. LSB form
+        // greened WT FIDL00026/00034 Thugs and failed FIDL02367 at an earlier
+        // solo Looter 50/50 (real SMOKE, sim LUNGE).
         if rng.random_float() < 0.5 {
             return MonsterIntent::Block {
                 block: LOOTER_SMOKE_BOMB_BLOCK,
