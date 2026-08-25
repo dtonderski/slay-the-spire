@@ -3014,6 +3014,23 @@ pub fn apply_monster_vulnerable_with_relics(
     Ok(())
 }
 
+/// `HandDrill.onBlockBroken` queues `VulnerablePower(target, 2, isSourceMonster=false)`
+/// after `AbstractCreature.brokeBlock`. Any `DamageAllEnemiesAction` that hits
+/// block (The Bomb, Combust, Mercury Hourglass, Stone Calendar) notifies it.
+pub fn apply_hand_drill_if_broke_block(
+    monster: &mut crate::combat::MonsterState,
+    relics: &[Relic],
+    still_alive: bool,
+    broke_block: bool,
+) -> SimResult<()> {
+    if !still_alive || !broke_block || !relics.contains(&Relic::HandDrill) {
+        return Ok(());
+    }
+    apply_monster_vulnerable_with_relics(&mut monster.powers, relics, HAND_DRILL_VULNERABLE)?;
+    monster.vulnerable_just_applied = true;
+    Ok(())
+}
+
 pub fn apply_on_card_play_relics(
     state: &mut CombatState,
     card_type: CardType,
@@ -3205,17 +3222,26 @@ fn deal_unmodified_damage_to_living_monsters(
         .filter(|monster| monster.alive)
         .map(|monster| monster.id)
         .collect::<Vec<_>>();
+    let relics = state.relics.clone();
     let mut dead = Vec::new();
     for monster_id in targets {
-        let killed = {
+        let (killed, broke_block) = {
             let monster = state
                 .monsters
                 .iter_mut()
                 .find(|monster| monster.id == monster_id)
                 .expect("Stone Calendar target still exists");
+            let block_before = monster.block;
             crate::combat::damage::deal_unmodified_damage_to_monster(monster, amount);
-            !monster.alive
+            (!monster.alive, block_before > 0 && monster.block == 0)
         };
+        if let Some(monster) = state
+            .monsters
+            .iter_mut()
+            .find(|monster| monster.id == monster_id)
+        {
+            apply_hand_drill_if_broke_block(monster, &relics, !killed, broke_block)?;
+        }
         // Relic damage crosses Slime Boss's split threshold just like card and
         // power damage; the split must queue before the next end-turn phase.
         crate::content::monsters::check_slime_boss_split(state, monster_id);

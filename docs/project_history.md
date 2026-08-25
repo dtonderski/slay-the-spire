@@ -319,6 +319,6 @@ scope, and feedback-loop quality matter more than task duration or agent count.
   The pre-collection.2 corpus is legacy. The active external regression cohort
   now contains 311 reviewed schema-6 traces: the original 208-trace replacement
   plus 103 locally collected traces externally attested to the collection.2
-  artifact despite their stale metadata label. Their unsupported frontiers
-  remain future simulator work. Post-state candidate selection remains
-  prohibited.
+  artifact despite their stale metadata label. The current simulator now
+  replays all 311 through EOF without unsupported frontiers. Post-state
+  candidate selection remains prohibited.

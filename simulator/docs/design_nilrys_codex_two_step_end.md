@@ -25,7 +25,9 @@ is applied when end-turn resumes after that offer.
 ## Model (ordinary-first)
 
 - **Single-offer (default / permanent tips):** first CHOOSE inserts immediately
-  into the draw pile; next combat command resumes discard→monster→draw.
+  into the draw pile; resume continues `callEndOfTurnActions`
+  (`triggerOnEndOfTurnForPlayingCard` exhausts unplayed ethereal, then
+  DiscardAtEndOfTurnAction) before monster→draw (FIDL00108 Ghostly Armor).
 - **Two-step (FIDL00451 / FIDL01772):** first CHOOSE still inserts into the
   draw pile (the 607 frame has the extra card). The following `END` is not a
   full resume: it discards the remaining hand and opens a **second** offer

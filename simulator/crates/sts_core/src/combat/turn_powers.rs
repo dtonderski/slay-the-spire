@@ -3,7 +3,10 @@ use crate::content::cards::COMBUST_HP_LOSS;
 use crate::content::monsters::{
     awakened_one_is_half_dead, check_slime_boss_split, wake_lagavulin_on_damage,
 };
-use crate::relic::{heal_combat_player_with_relics, heal_player_in_combat_with_relics, Relic};
+use crate::relic::{
+    apply_hand_drill_if_broke_block, heal_combat_player_with_relics,
+    heal_player_in_combat_with_relics, Relic,
+};
 use crate::{MonsterId, SimError, SimResult};
 
 /// `DemonFormPower.atStartOfTurnPostDraw` applies Strength after the hand draw.
@@ -83,7 +86,8 @@ fn apply_end_of_player_turn_powers_before_hand_inner(
     // the player, so Constricted THORNS can consume it before Combust LoseHP
     // and the lethal all-enemy hit (FIDL00440: +6 block, Constricted 10, two
     // Combust stacks → −6 HP). Without Combust, Constricted stays after hand
-    // so Metallicize can absorb Decay (FIDL00415).
+    // so Metallicize can absorb Decay (FIDL00415) and leftover block can absorb
+    // Burn before Constricted THORNS (FIDL00061).
     if state.player.powers.combust > 0 {
         apply_end_of_turn_constricted(state)?;
         if state.player.hp <= 0 {
@@ -303,6 +307,7 @@ fn deal_unmodified_damage_to_living_monsters(
         .map(|monster| monster.id)
         .collect::<Vec<MonsterId>>();
 
+    let relics = state.relics.clone();
     for target in targets {
         // Prior death hooks (e.g. Gremlin Horn / multi-enemy) may already have
         // killed a later collected target — skip rather than panic (FIDL00408).
@@ -313,19 +318,27 @@ fn deal_unmodified_damage_to_living_monsters(
         else {
             continue;
         };
-        let killed = {
+        let (killed, broke_block) = {
             // End-of-turn damage (Combust, bombs) must not enter Guardian Mode
             // Shift immediately: defensive block is queued after monster
             // pre-turn loseBlock in the target action manager. Accumulate only
             // here; `resolve_deferred_guardian_mode_shifts` runs after clear.
+            let block_before = monster.block;
             let hp_damage =
                 crate::combat::damage::deal_unmodified_damage_to_monster_deferred_guardian(
                     monster, amount,
                 );
             crate::content::monsters::guardian_accumulate_hp_damage(monster, hp_damage);
             wake_lagavulin_on_damage(monster, hp_damage);
-            !monster.alive
+            (!monster.alive, block_before > 0 && monster.block == 0)
         };
+        if let Some(monster) = state
+            .monsters
+            .iter_mut()
+            .find(|monster| monster.id == target)
+        {
+            apply_hand_drill_if_broke_block(monster, &relics, !killed, broke_block)?;
+        }
         check_slime_boss_split(state, target);
         if killed {
             if let Some(events) = deferred.as_deref_mut() {

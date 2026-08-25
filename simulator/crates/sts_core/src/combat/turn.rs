@@ -8,8 +8,8 @@ use crate::{
     combat::{
         draw::{draw_cards_with_combat_rng_deferred_evolve, MAX_HAND_SIZE},
         hand::{
-            discard_end_of_turn_hand, resolve_deferred_dark_embrace_draws,
-            resolve_end_of_turn_hand_with_queued_autoplay,
+            discard_end_of_turn_hand, draw_dark_embrace_with_follow_ups_deferred,
+            exhaust_unplayed_ethereal_cards, resolve_end_of_turn_autoplay_with_queued,
         },
         piles::{
             add_cards_to_discard, add_cards_to_draw_random_spot, add_upgraded_burns_to_discard,
@@ -127,33 +127,33 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         deferred_stasis_cards = Vec::new();
         end_of_turn_hand = crate::combat::hand::exhaust_unplayed_ethereal_cards(&mut next)?;
     } else if resuming_after_nilrys {
-        // Nilry's Codex already ran the pre-discard half of end-turn. Resume
-        // after the card-reward decision with hand still present.
+        // CodexAction paused `callEndOfTurnActions` at relic onPlayerEndTurn,
+        // before power/orb hooks and `triggerOnEndOfTurnForPlayingCard`. Resume
+        // continues that queue with the hand still held, then the ordinary
+        // DiscardAtEndOfTurnAction path below (FIDL00108 Ghostly Armor).
         next.resume_end_turn_after_nilrys_codex = false;
         apply_pending_nilry_end_powers(&mut next)?;
         crate::relic::nilrys_codex_flush_pending_draw_inserts(&mut next)?;
         deferred_stasis_cards = Vec::new();
-        let dead_branch_cards = std::mem::take(&mut next.pending_end_turn_dead_branch_cards);
-        let deferred_dark_embrace_draws =
-            std::mem::take(&mut next.pending_end_turn_dark_embrace_draws);
-        let mut ethereal_follow_ups = dead_branch_cards
-            .iter()
-            .cloned()
-            .map(crate::combat::hand::EtherealEndTurnFollowUp::DeadBranch)
-            .collect::<Vec<_>>();
-        ethereal_follow_ups.extend(std::iter::repeat_n(
-            crate::combat::hand::EtherealEndTurnFollowUp::DarkEmbraceDraw,
-            deferred_dark_embrace_draws,
-        ));
-        end_of_turn_hand = crate::combat::hand::EndOfTurnHandResolution {
-            auto_play_emptied_hand: false,
-            dead_branch_cards,
-            deferred_dark_embrace_draws,
-            ethereal_follow_ups,
-            deferred_juggernaut_damage: std::mem::take(
-                &mut next.pending_end_turn_juggernaut_damage,
-            ),
-        };
+        // Constricted.atEndOfTurn addToBots THORNS after CodexAction. Without
+        // Combust it is not in the pre-hand power window, so resume must still
+        // apply it after Burn/Decay autoplay (FIDL00108 Spire Growth 10).
+        let queued_autoplay = queued_end_turn_autoplay_ids(&next);
+        end_of_turn_hand = resolve_end_of_turn_autoplay_then_constricted_then_ethereal(
+            &mut next,
+            &queued_autoplay,
+        )?;
+        if finish_combat_if_over(&mut next, started_with_living_monster)? {
+            return Ok(next);
+        }
+        crate::combat::turn_powers::apply_end_of_player_turn_regeneration(&mut next)?;
+        if finish_combat_if_over(&mut next, started_with_living_monster)? {
+            return Ok(next);
+        }
+        crate::relic::apply_end_of_player_turn_relics(&mut next)?;
+        if finish_combat_if_over(&mut next, started_with_living_monster)? {
+            return Ok(next);
+        }
     } else {
         let stasis_cards_before_end_powers = next
             .monsters
@@ -292,16 +292,34 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         } else {
             Vec::new()
         };
-        // Constricted.atEndOfTurn addToBots Damage before DiscardAtEndOfTurn.
-        // RunicCube.wasHPLost addToTops DrawCardAction, so that draw lands
-        // before ethereal exhaust (FIDL02191 two Apparitions).
-        let constricted_before_ethereal = next.player.powers.constricted > 0
-            && !crate::combat::turn_powers::constricted_resolved_before_hand_with_combust(&next);
-        if constricted_before_ethereal {
-            crate::combat::turn_powers::apply_end_of_turn_constricted(&mut next)?;
+        // callEndOfTurnActions autoplays Burn/Decay first. Constricted is
+        // AbstractRoom.endTurn applyEndOfTurnTriggers, after those cards and
+        // before DiscardAtEndOfTurn ethereal exhaust. Burn must consume block
+        // before Constricted THORNS so a blocked Burn does not fire Rupture
+        // (FIDL00061). RunicCube.wasHPLost addToTops DrawCardAction still
+        // lands before ethereal exhaust (FIDL02191 two Apparitions).
+        if defer_combust_until_after_autoplay {
+            let auto_play_emptied_hand =
+                resolve_end_of_turn_autoplay_then_constricted(&mut next, &queued_autoplay)?;
+            // Combust's LoseHP/Damage actions were queued before
+            // DiscardAtEndOfTurnAction. Runic Cube therefore observes the hand
+            // before unplayed ethereals leave it.
+            crate::combat::turn_powers::apply_deferred_end_of_turn_combust(
+                &mut next,
+                &mut deferred_monster_deaths,
+            )?;
+            if finish_combat_if_over(&mut next, started_with_living_monster)? {
+                return Ok(next);
+            }
+            let mut resolution = exhaust_unplayed_ethereal_cards(&mut next)?;
+            resolution.auto_play_emptied_hand = auto_play_emptied_hand;
+            end_of_turn_hand = resolution;
+        } else {
+            end_of_turn_hand = resolve_end_of_turn_autoplay_then_constricted_then_ethereal(
+                &mut next,
+                &queued_autoplay,
+            )?;
         }
-        end_of_turn_hand =
-            resolve_end_of_turn_hand_with_queued_autoplay(&mut next, Some(&queued_autoplay))?;
         // Charon's Ashes (and other on-exhaust damage) can kill a Stasis orb
         // during ethereal settlement, after the pre-hand snapshot. Those
         // cards must return after discard, not ride DiscardAtEndOfTurn into
@@ -313,29 +331,12 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
                 &unreleased_stasis_ids,
             ));
         }
-        if defer_combust_until_after_autoplay {
-            // callEndOfTurnActions plays Burn/Decay/Regret first; Combust
-            // LoseHPAction is queued from AbstractRoom.endTurn after that.
-            crate::combat::turn_powers::apply_deferred_end_of_turn_combust(
-                &mut next,
-                &mut deferred_monster_deaths,
-            )?;
-        }
         // Combust (pre-hand) or ethereal burns can kill the last enemy during the
         // end-turn sequence. Once combat is over, skip later self-loss such as
         // Constricted (FIDL00443 Spire Growth) while still having resolved hand
         // ethereals first (FIDL00443 Hexaghost burns).
         if finish_combat_if_over(&mut next, started_with_living_monster)? {
             return Ok(next);
-        }
-        // Constricted is an end-of-turn power, but the target resolves it after
-        // end-turn card losses when Combust is absent. That lets Metallicize
-        // block Decay before the non-card Constricted loss (FIDL00415). When
-        // Combust is active, Constricted already ran in before_hand (FIDL00440).
-        if !crate::combat::turn_powers::constricted_resolved_before_hand_with_combust(&next)
-            && !constricted_before_ethereal
-        {
-            crate::combat::turn_powers::apply_end_of_turn_constricted(&mut next)?;
         }
         crate::combat::turn_powers::apply_end_of_player_turn_regeneration(&mut next)?;
         if finish_combat_if_over(&mut next, started_with_living_monster)? {
@@ -377,18 +378,18 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
     // (FIDL02353: DB, draw, DB, draw — not both DBs then both draws).
     next.player.cannot_draw = false;
     let mut deferred_dark_embrace_fire_breathing = Vec::new();
-    if end_of_turn_hand.ethereal_follow_ups.is_empty() {
-        next.piles.hand.extend(end_of_turn_hand.dead_branch_cards);
-    } else {
-        for follow_up in end_of_turn_hand.ethereal_follow_ups {
-            match follow_up {
-                crate::combat::hand::EtherealEndTurnFollowUp::DeadBranch(card) => {
+    for follow_up in end_of_turn_hand.ethereal_follow_ups {
+        match follow_up {
+            crate::combat::hand::EtherealEndTurnFollowUp::DeadBranch(card) => {
+                if next.piles.hand.len() < MAX_HAND_SIZE {
                     next.piles.hand.push(card);
+                } else {
+                    next.piles.discard_pile.push(card);
                 }
-                crate::combat::hand::EtherealEndTurnFollowUp::DarkEmbraceDraw => {
-                    deferred_dark_embrace_fire_breathing
-                        .extend(resolve_deferred_dark_embrace_draws(&mut next, 1)?);
-                }
+            }
+            crate::combat::hand::EtherealEndTurnFollowUp::DarkEmbraceDraw => {
+                deferred_dark_embrace_fire_breathing
+                    .extend(draw_dark_embrace_with_follow_ups_deferred(&mut next, 1)?);
             }
         }
     }
@@ -626,6 +627,35 @@ fn queued_end_turn_autoplay_ids(
         })
         .map(|card| card.id)
         .collect()
+}
+
+/// `callEndOfTurnActions` card autoplay, then Constricted, then ethereal exhaust.
+///
+/// Java queues Burn/Decay as `CardQueueItem`s from `callEndOfTurnActions` and
+/// only later `AbstractRoom.endTurn` runs `applyEndOfTurnTriggers` (Constricted
+/// THORNS) before `DiscardAtEndOfTurnAction` (ethereal). Combust already applied
+/// Constricted in the pre-hand window, so this skips it in that case.
+fn resolve_end_of_turn_autoplay_then_constricted(
+    state: &mut CombatState,
+    queued_autoplay: &std::collections::HashSet<crate::ids::CardId>,
+) -> SimResult<bool> {
+    let auto_play_emptied_hand =
+        resolve_end_of_turn_autoplay_with_queued(state, Some(queued_autoplay))?;
+    if !crate::combat::turn_powers::constricted_resolved_before_hand_with_combust(state) {
+        crate::combat::turn_powers::apply_end_of_turn_constricted(state)?;
+    }
+    Ok(auto_play_emptied_hand)
+}
+
+fn resolve_end_of_turn_autoplay_then_constricted_then_ethereal(
+    state: &mut CombatState,
+    queued_autoplay: &std::collections::HashSet<crate::ids::CardId>,
+) -> SimResult<crate::combat::hand::EndOfTurnHandResolution> {
+    let auto_play_emptied_hand =
+        resolve_end_of_turn_autoplay_then_constricted(state, queued_autoplay)?;
+    let mut resolution = exhaust_unplayed_ethereal_cards(state)?;
+    resolution.auto_play_emptied_hand = auto_play_emptied_hand;
+    Ok(resolution)
 }
 
 fn hand_has_end_turn_autoplay_cards(state: &CombatState) -> bool {
@@ -1066,70 +1096,11 @@ fn apply_start_of_turn_mayhem(
     state: &mut CombatState,
     targets: &[Option<MonsterId>],
 ) -> SimResult<VecDeque<crate::InternalAction>> {
-    // MayhemPower.atStartOfTurn addToBots one PlayTopCardAction per stack
-    // before any of them resolve. InkBottle.onUseCard addToBots Draw after
-    // each played card, so a 10th-card Ink draw from the first PlayTop sits
-    // behind the remaining PlayTops (FIDL02199 Intimidate then Wound).
-    // A single stack keeps the sequential path so unplayable tops still
-    // discard without Blue Candle / UseCardAction (FIDL02199 Havoc turn).
-    // Stacked PlayTops only pop into cardQueue; GameActionManager drains the
-    // action queue (Evolve residuals, Fire Breathing) before use().
-    if targets.len() > 1 {
-        return crate::combat::transition::pop_mayhem_play_top_cards(state, targets);
-    }
-    let mut remaining = targets;
-    while let Some((&random_target, rest)) = remaining.split_first() {
-        // PlayTop still executes after the base hand draw and Brutality's extra
-        // draw (FIDL00381). Only the getRandomMonster roll is early.
-        if state.piles.draw_pile.is_empty() && !state.piles.discard_pile.is_empty() {
-            // PlayTopCardAction queues EmptyDeckShuffleAction when its draw
-            // pile is empty, then plays the newly exposed top card.
-            crate::combat::transition::player_shuffle_discard_into_draw(state)?;
-        }
-        let Some(top_card) = state.piles.draw_pile.last() else {
-            return Ok(VecDeque::new());
-        };
-        let definition = crate::content::cards::get_card_definition(top_card.content_id)
-            .ok_or(crate::SimError::UnknownContent(top_card.content_id))?;
-        if definition.keywords.unplayable {
-            // Target PlayTopCardAction removes the top card into limbo before
-            // autoplay checks whether it can be used. If autoplay cannot play
-            // an unplayable curse/status, the card still leaves the draw pile
-            // and resolves to discard.
-            if let Some(card) = state.piles.draw_pile.pop() {
-                state.piles.discard_pile.push(card);
-            }
-            remaining = rest;
-            continue;
-        }
-        if matches!(
-            definition.id,
-            crate::content::cards::DEEP_BREATH_ID | crate::content::cards::DEEP_BREATH_PLUS_ID
-        ) && !rest.is_empty()
-        {
-            // MayhemPower queues every PlayTopCardAction before DeepBreath.use
-            // addToBots ShuffleAction, so later PlayTops take the pre-shuffle
-            // tops (FIDL01709 Dramatic Entrance under Deep Breath).
-            crate::combat::transition::apply_mayhem_play_top_cards(state, remaining)?;
-            return Ok(VecDeque::new());
-        }
-        let target = if definition.target == crate::TargetRequirement::Enemy {
-            random_target
-        } else {
-            None
-        };
-        crate::combat::transition::apply_play_top_draw_card_to_state(state, target)?;
-        if state.player.hp <= 0
-            || state
-                .monsters
-                .iter()
-                .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
-        {
-            return Ok(VecDeque::new());
-        }
-        remaining = rest;
-    }
-    Ok(VecDeque::new())
+    // MayhemPower.atStartOfTurn addToBots every PlayTopCardAction before any
+    // resolve. Each action removes its top into cardQueue; the action queue
+    // then drains the base draw's Evolve/Fire Breathing callbacks before
+    // GameActionManager services queued cards, even with one Mayhem stack.
+    crate::combat::transition::pop_mayhem_play_top_cards(state, targets)
 }
 
 fn mayhem_random_living_target(state: &mut CombatState) -> Option<MonsterId> {
@@ -1418,7 +1389,8 @@ fn execute_generic_monster_intent(
     if time_warp_queued_damage_snapshot {
         state.monsters[index].powers.strength = strength_before_time_warp_snapshot;
     }
-    let damage = damage_result?;
+    let prepared_intent = damage_result?;
+    let damage = prepared_intent.damage;
     if state.monsters[index].content_id == WRITHING_MASS_ID
         && matches!(intent, crate::MonsterIntent::ApplyPlayerFrailAndWeak { .. })
     {
@@ -1449,7 +1421,7 @@ fn execute_generic_monster_intent(
         // does not upgrade existing Burns or add its three new Burns.
         state.piles = piles;
     }
-    let hits = effective_current_move_hits(intent, state.monsters[index].intent);
+    let hits = prepared_intent.hits;
     if matches!(intent, crate::MonsterIntent::Ritual { .. }) {
         skip_ritual_tick.push(actor_id);
     }
@@ -1670,6 +1642,7 @@ fn execute_generic_monster_intent(
     let should_roll_queued_next_intent = actor_was_alive
         && state.player.hp > 0
         && (state.monsters[index].alive
+            || awakened_one_is_half_dead(&state.monsters[index])
             || state
                 .monsters
                 .iter()
@@ -2429,35 +2402,6 @@ fn apply_queued_multi_hit_thorns(
         crate::combat::transition::apply_monster_death_hooks(state, attacker_id)?;
     }
     Ok(())
-}
-
-fn effective_current_move_hits(
-    original: crate::MonsterIntent,
-    after_effects: crate::MonsterIntent,
-) -> i32 {
-    match (original, after_effects) {
-        (
-            crate::MonsterIntent::AttackMultiple { .. },
-            crate::MonsterIntent::AttackMultiple { hits, .. },
-        )
-        | (
-            crate::MonsterIntent::AttackMultipleApplyPlayerWeak { .. },
-            crate::MonsterIntent::AttackMultipleApplyPlayerWeak { hits, .. },
-        )
-        | (
-            crate::MonsterIntent::AttackMultipleAddDazedToDiscard { .. },
-            crate::MonsterIntent::AttackMultipleAddDazedToDiscard { hits, .. },
-        )
-        | (
-            crate::MonsterIntent::AttackMultipleUpgradeBurns { .. },
-            crate::MonsterIntent::AttackMultipleUpgradeBurns { hits, .. },
-        ) => hits,
-        (crate::MonsterIntent::AttackMultiple { hits, .. }, _)
-        | (crate::MonsterIntent::AttackMultipleApplyPlayerWeak { hits, .. }, _)
-        | (crate::MonsterIntent::AttackMultipleAddDazedToDiscard { hits, .. }, _)
-        | (crate::MonsterIntent::AttackMultipleUpgradeBurns { hits, .. }, _) => hits,
-        _ => 1,
-    }
 }
 
 fn apply_turn_transition_block_loss(state: &mut CombatState) {
@@ -4376,6 +4320,30 @@ mod tests {
     }
 
     #[test]
+    fn end_turn_blocked_burn_does_not_trigger_rupture_before_constricted() {
+        // FIDL00061: block 7, Burn 2, Constricted 10, Rupture 1. Java plays Burn
+        // from callEndOfTurnActions before Constricted THORNS, so Burn is fully
+        // blocked and Rupture must not fire. Constricted-first would unblock Burn
+        // and grant +1 Strength, adding 1 damage to later Double Tap Cleave hits.
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 100;
+        state.player.block = 7;
+        state.player.powers.constricted = 10;
+        state.player.powers.rupture = 1;
+        state.monsters[0].intent = MonsterIntent::Sleep;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), BURN_ID)];
+        state.piles.draw_pile = (2..=12)
+            .map(|i| CardInstance::new(CardId::new(i), STRIKE_R_ID))
+            .collect();
+        state.relics.clear();
+
+        let next = end_player_turn(&state).expect("end turn");
+
+        assert_eq!(next.player.powers.strength, 0);
+        assert_eq!(next.player.hp, 95);
+    }
+
+    #[test]
     fn combust_lethal_with_orichalcum_block_absorbs_part_of_constricted() {
         // FIDL00440: Orichalcum 6 → Constricted 10 (4 HP) → Combust stacks 2 (−2).
         let mut state = CombatState::initial_fixture();
@@ -4875,24 +4843,6 @@ mod tests {
             "Bronze Scales death damage applies Spore Cloud after the current monster turn's duration tick"
         );
         assert!(!state.player.vulnerable_just_applied);
-    }
-
-    #[test]
-    fn current_move_hits_ignore_next_intent_for_single_hit_cleanup() {
-        assert_eq!(
-            effective_current_move_hits(
-                crate::MonsterIntent::Attack { damage: 9 },
-                crate::MonsterIntent::AttackMultiple { damage: 8, hits: 2 }
-            ),
-            1
-        );
-        assert_eq!(
-            effective_current_move_hits(
-                crate::MonsterIntent::AttackMultiple { damage: 4, hits: 6 },
-                crate::MonsterIntent::AttackMultiple { damage: 4, hits: 1 }
-            ),
-            1
-        );
     }
 
     #[test]
@@ -6770,6 +6720,99 @@ mod tests {
         assert_eq!(killed.phase, CombatPhase::Lost);
         assert_eq!(killed.player.powers.frail, 0);
         assert_eq!(killed.player.powers.artifact, 1);
+    }
+
+    #[test]
+    fn nilry_resume_exhausts_unplayed_ethereal_before_discard() {
+        // CodexAction pauses at relic onPlayerEndTurn with the hand still held.
+        // Closing the offer continues triggerOnEndOfTurnForPlayingCard, so
+        // unplayed Ghostly Armor exhausts instead of riding DiscardAtEndOfTurn.
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::NilrysCodex];
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), STRIKE_R_ID),
+            CardInstance::new(CardId::new(2), GHOSTLY_ARMOR_ID),
+            CardInstance::new(CardId::new(3), WOUND_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.piles.draw_pile = (10..20)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.monsters[0].alive = true;
+        state.monsters[0].hp = 40;
+
+        let paused = end_player_turn(&state).expect("Nilry pauses before discard");
+        assert!(paused.resume_end_turn_after_nilrys_codex);
+        assert!(paused.decision.is_some(), "Codex offer should be open");
+        assert!(
+            paused
+                .piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == GHOSTLY_ARMOR_ID),
+            "ethereal remains in hand across the Codex pause"
+        );
+
+        let mut closing = paused;
+        closing.decision = None;
+        let next = end_player_turn(&closing).expect("Codex close resumes end-turn");
+
+        assert!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .any(|card| card.content_id == GHOSTLY_ARMOR_ID),
+            "Ghostly Armor should exhaust on Codex resume, exhaust={:?}",
+            next.piles
+                .exhaust_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            next.piles
+                .discard_pile
+                .iter()
+                .all(|card| card.content_id != GHOSTLY_ARMOR_ID),
+            "Ghostly Armor must not ride the bulk hand discard"
+        );
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .all(|card| card.content_id != GHOSTLY_ARMOR_ID));
+    }
+
+    #[test]
+    fn nilry_resume_applies_constricted_when_combust_is_absent() {
+        // ConstrictedPower.atEndOfTurn waits behind CodexAction. Closing the
+        // offer must still queue that THORNS hit before the monster turn.
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::NilrysCodex];
+        state.player.hp = 80;
+        state.player.max_hp = 80;
+        state.player.block = 0;
+        state.player.powers.constricted = 10;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+        state.piles.draw_pile = (10..20)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.monsters[0].alive = true;
+        state.monsters[0].hp = 40;
+        state.monsters[0].intent = MonsterIntent::Stun;
+        state.monsters[0].initial_intent_locked = true;
+
+        let paused = end_player_turn(&state).expect("Nilry pauses before Constricted");
+        assert_eq!(paused.player.hp, 80);
+        assert_eq!(paused.player.powers.constricted, 10);
+
+        let mut closing = paused;
+        closing.decision = None;
+        let next = end_player_turn(&closing).expect("Codex close applies Constricted");
+
+        assert_eq!(next.player.hp, 70, "Constricted 10 is blockable THORNS");
+        assert_eq!(next.player.powers.constricted, 10);
     }
 
     #[test]

@@ -19,8 +19,10 @@ When `combust > 0`, apply Constricted in `apply_end_of_player_turn_powers_before
 **before** Combust (matches older Constricted before later Combust on the power
 list, and full `apply_end_of_player_turn_powers` order).
 
-When `combust == 0`, keep Constricted **after hand** so Metallicize can absorb
-Decay (FIDL00415).
+When `combust == 0`, keep Constricted **after Burn/Decay/Regret autoplay** so
+Metallicize can absorb Decay (FIDL00415) and leftover block can absorb Burn
+before Constricted THORNS (FIDL00061). Ethereal exhaust still follows Constricted
+so Runic Cube draws land first (FIDL02191).
 
 Do not double-apply Constricted on the bomb-lethal pre-hand path if Combust
 already triggered the pre-hand Constricted window.

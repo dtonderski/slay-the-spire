@@ -1168,6 +1168,9 @@ fn seed_start_combat_observed_subset(message: &Value) -> Value {
         "combat_player_block": player.map(|p| int(p, "block")).unwrap_or(0),
         "combat_player_energy": player.map(|p| int(p, "energy")).unwrap_or(0),
         "combat_player_frail": power_amount(player.and_then(|p| p.get("powers")), "Frail"),
+        "combat_player_weak": power_amount(player.and_then(|p| p.get("powers")), "Weakened"),
+        "combat_player_vulnerable": power_amount(player.and_then(|p| p.get("powers")), "Vulnerable"),
+        "combat_player_artifact": power_amount(player.and_then(|p| p.get("powers")), "Artifact"),
         "hand_ids": combat_card_ids(combat.and_then(|combat| combat.get("hand"))),
         "draw_ids": combat_card_ids(combat.and_then(|combat| combat.get("draw_pile"))),
         "discard_ids": combat_card_ids(combat.and_then(|combat| combat.get("discard_pile"))),
@@ -1700,7 +1703,7 @@ fn seed_start_shop_trace_choice_labels(run: &RunState) -> Vec<String> {
         .filter(|pick| !matches!(pick, ShopPick::BuyPotion(_)))
         .map(|pick| match pick {
             ShopPick::Purge => "purge".to_owned(),
-            ShopPick::BuyCard(slot) => shop_card_trace_label(run, shop.cards[slot].card.content_id),
+            ShopPick::BuyCard(slot) => shop_card_trace_label(run, &shop.cards[slot].card),
             ShopPick::BuyRelic(slot) => {
                 relic_key_trace_name(shop.relics[slot].relic_key).to_ascii_lowercase()
             }
@@ -1762,8 +1765,16 @@ fn potion_trace_name(potion: Potion) -> &'static str {
     }
 }
 
-fn shop_card_trace_label(run: &RunState, content_id: ContentId) -> String {
-    shop_card_display_key(run, content_id).to_ascii_lowercase()
+fn shop_card_trace_label(run: &RunState, card: &CardInstance) -> String {
+    if card.searing_blow_upgrades > 0 {
+        return format!("searing blow+{}", card.searing_blow_upgrades);
+    }
+    if egg_preview_upgrade(run, card.content_id)
+        == Some(sts_core::content::cards::SEARING_BLOW_PLUS_ID)
+    {
+        return "searing blow+1".to_owned();
+    }
+    shop_card_display_key(run, card.content_id).to_ascii_lowercase()
 }
 
 fn shop_card_display_key(run: &RunState, content_id: ContentId) -> &'static str {
@@ -2639,6 +2650,9 @@ fn seed_start_simulated_combat_subset(run: &RunState) -> Value {
             "combat_player_block": 0,
             "combat_player_energy": 0,
             "combat_player_frail": 0,
+            "combat_player_weak": 0,
+            "combat_player_vulnerable": 0,
+            "combat_player_artifact": 0,
             "hand_ids": Vec::<String>::new(),
             "draw_ids": Vec::<String>::new(),
             "discard_ids": Vec::<String>::new(),
@@ -2668,6 +2682,9 @@ fn seed_start_simulated_combat_subset(run: &RunState) -> Value {
         "combat_player_block": combat.player.block,
         "combat_player_energy": combat_player_energy,
         "combat_player_frail": combat.player.powers.frail,
+        "combat_player_weak": combat.player.powers.weak,
+        "combat_player_vulnerable": combat.player.powers.vulnerable,
+        "combat_player_artifact": combat.player.powers.artifact,
         "hand_ids": cards_to_comm_mod_visible_order(
             combat
                 .piles

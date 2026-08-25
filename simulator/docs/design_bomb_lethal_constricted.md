@@ -19,7 +19,7 @@ yielding 3876 + 6 = **3882**.
 |------|-------------|
 | Bomb-lethal pre-hand victory (FIDL00244 Regret skip) | **Apply** before Burning Blood (FIDL00403) |
 | Combust/ethereal kill after hand (FIDL00443) | **Skip** (combat already over) |
-| Normal end-turn (FIDL00415 Metallicize/Decay) | After hand ethereals |
+| Normal end-turn (FIDL00415 Metallicize/Decay, FIDL00061 Burn/Rupture) | After Burn/Decay autoplay, before ethereal exhaust |
 
 ## Implementation
 
@@ -27,4 +27,4 @@ In `end_player_turn`, when `had_bomb_timer` and all monsters are dead after
 `apply_end_of_player_turn_powers_before_hand`, call
 `apply_end_of_turn_constricted` then `finish_combat_if_over` (Burning Blood).
 
-Do not move Constricted before hand on the ordinary path.
+Do not move Constricted before Burn/Decay autoplay on the ordinary path.

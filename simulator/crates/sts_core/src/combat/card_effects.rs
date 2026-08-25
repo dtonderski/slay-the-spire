@@ -527,14 +527,20 @@ pub(super) fn play_card_queue(
     };
 
     let mut queue = queue?;
+    // Double Tap, Necronomicon, and Duplication each queue one extra play of
+    // the original card (`purgeOnUse` copies). Wrapping an already-wrapped
+    // queue nests those copies (FIDL00036: Heavy Blade 4 intangible hits
+    // instead of original + Necronomicon + Double Tap).
+    let copied_effects = snapshot_copied_card_effects(&queue, card_id);
+    let duplication_effects = snapshot_duplication_potion_effects(&queue, card_id);
     if state.duplication_potion_pending || state.duplication_potion_stacks > 0 {
-        queue = apply_duplication_potion_to_queue(queue, card_id);
+        queue = apply_duplication_potion_to_queue(queue, card_id, duplication_effects);
     }
     if should_apply_necronomicon(state, card, definition)? {
-        queue = apply_necronomicon_to_queue(queue, card_id);
+        queue = apply_necronomicon_to_queue(queue, card_id, copied_effects.clone());
     }
     if definition.card_type == CardType::Attack && state.double_tap_pending > 0 {
-        queue = apply_double_tap_to_queue(queue, card_id);
+        queue = apply_double_tap_to_queue(queue, card_id, copied_effects);
     }
     // Pen Nib doubles at damage resolution when the 10th attack play wraps the
     // counter (see apply_on_card_play_relics + pen_nib_double_active). Build-time
@@ -1011,16 +1017,33 @@ pub(crate) fn pen_nib_queue_amount(state: &CombatState, amount: i32) -> i32 {
     (amount + additive).max(0) * 2 - additive
 }
 
-fn apply_duplication_potion_to_queue(
-    mut queue: VecDeque<InternalAction>,
+fn snapshot_copied_card_effects(
+    queue: &VecDeque<InternalAction>,
     card_id: CardId,
 ) -> VecDeque<InternalAction> {
-    let mut duplicated_effects = queue
+    queue
+        .iter()
+        .copied()
+        .filter_map(|action| duplicated_card_effect(action, card_id))
+        .collect()
+}
+
+fn snapshot_duplication_potion_effects(
+    queue: &VecDeque<InternalAction>,
+    card_id: CardId,
+) -> VecDeque<InternalAction> {
+    queue
         .iter()
         .copied()
         .filter(|action| is_duplicated_card_effect(*action, card_id))
-        .collect::<VecDeque<_>>();
+        .collect()
+}
 
+fn apply_duplication_potion_to_queue(
+    mut queue: VecDeque<InternalAction>,
+    card_id: CardId,
+    mut duplicated_effects: VecDeque<InternalAction>,
+) -> VecDeque<InternalAction> {
     let final_move = queue
         .back()
         .copied()
@@ -1053,14 +1076,8 @@ fn apply_duplication_potion_to_queue(
 fn apply_double_tap_to_queue(
     mut queue: VecDeque<InternalAction>,
     card_id: CardId,
+    mut duplicated_effects: VecDeque<InternalAction>,
 ) -> VecDeque<InternalAction> {
-    let mut duplicated_effects = VecDeque::new();
-    duplicated_effects.extend(
-        queue
-            .iter()
-            .copied()
-            .filter_map(|action| duplicated_card_effect(action, card_id)),
-    );
     let rampage_growth = duplicated_effects
         .iter()
         .filter_map(|action| match action {
@@ -1111,15 +1128,8 @@ fn apply_double_tap_to_queue(
 fn apply_necronomicon_to_queue(
     mut queue: VecDeque<InternalAction>,
     card_id: CardId,
+    mut duplicated_effects: VecDeque<InternalAction>,
 ) -> VecDeque<InternalAction> {
-    let mut duplicated_effects = VecDeque::new();
-    duplicated_effects.extend(
-        queue
-            .iter()
-            .copied()
-            .filter_map(|action| duplicated_card_effect(action, card_id)),
-    );
-
     let final_move = queue
         .back()
         .copied()

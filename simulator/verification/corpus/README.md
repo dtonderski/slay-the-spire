@@ -15,8 +15,8 @@ string, with the promotion record externally attesting their installed
 SuperFastMode `1.0.9-collection.2` JAR and exact collection artifact hashes.
 Promotion copied the immutable payloads only after structural, fence,
 effect-queue, hand/card retrieval, terminal, repeatability, raw-diff, and hash
-checks passed. The current verifier completely passes 281 traces and stops 30
-at explicit unsupported mechanics, with zero raw unexpected diffs. The earlier
+checks passed. The current verifier completely passes all 311 traces with zero
+unsupported mechanics or raw unexpected diffs. The earlier
 independently audited exact-20 schema-6 pilot is retained unchanged under
 `legacy_schema6_initial_pilot/permanent_traces/`.
 The schema-3 pilot is non-authoritative because a deferred out-of-combat update

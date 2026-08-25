@@ -1,8 +1,8 @@
 //! Production-path regression tests for the hand-played Discovery lifecycle.
 //!
-//! The installed target burns the discarded post-select generateCardChoices
-//! generation on `CHOOSE`, then retrieves the visible card and settles the
-//! source through the ordinary action queue.
+//! The installed target runs fifteen post-select generateCardChoices updates
+//! on `CHOOSE` under collection.2's fixed 1/60-second tick, then retrieves the
+//! visible card and settles the source through the ordinary action queue.
 
 use sts_core::{
     apply_combat_action_on_run, apply_run_action, content::cards::DISCOVERY_ID, CardId,
@@ -109,13 +109,13 @@ fn discovery_choose_retrieves_visible_offer_and_closes_source_through_queue() {
 
     assert_eq!(
         combat.rng.card_random_rng.counter(),
-        open_counter + 3,
-        "CHOOSE burns the discarded post-select generateCardChoices generation"
+        open_counter + 46,
+        "CHOOSE burns fifteen post-select generations, including one duplicate retry"
     );
     assert_eq!(
         combat.rng.card_random_rng.counter(),
-        before_counter + 6,
-        "open plus discarded generation is the only Discovery RNG residual"
+        before_counter + 49,
+        "visible opening plus fifteen post-select generations is the Discovery RNG residual"
     );
     assert!(combat.decision.is_none(), "the reward closes on CHOOSE");
     assert!(combat.queued_decisions.is_empty());

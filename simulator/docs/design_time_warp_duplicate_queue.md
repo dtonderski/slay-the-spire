@@ -29,9 +29,16 @@ match (FIDL01274).
 
 When the 12th card is Havoc / Havoc+, `onUseCard` arms the forced end after
 `use()` has already queued `PlayTopCardAction`. That first PlayTop still runs.
-If the forced card is itself Havoc, its nested leftover PlayTop must not run:
-FIDL01271 exhausts only the force-played Havoc, then Time Warp refills from
-the unplayed Wound/Parasite draw plus the leftover hand Havoc.
+If Time Warp was already armed before the forced card's `use()` — the 12th
+card was the parent Havoc — `ResolveTopDrawCard` exhausts that nested Havoc
+without `use()`, so its leftover PlayTop is never queued: FIDL01271 exhausts
+only the force-played Havoc, then Time Warp refills from the unplayed
+Wound/Parasite draw plus the leftover hand Havoc.
+
+If the parent Havoc is only the 11th card, the nested Havoc is the 12th. Its
+`use()` queues leftover PlayTop before `onAfterUseCard` arms Time Warp, so
+that leftover card is still extracted and force-exhausted without `use()`
+(FIDL00021 Wound / Evolve).
 
 If PlayTop has already parked the top card in limbo before Time Warp arms,
 `ResolveTopDrawCard` still exhausts/settles that card without calling `use()`.

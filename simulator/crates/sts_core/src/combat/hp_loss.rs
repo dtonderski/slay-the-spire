@@ -88,6 +88,17 @@ pub(crate) fn apply_player_card_hp_loss_hooks_deferred_draw_followups(
     )
 }
 
+pub(crate) fn apply_player_card_hp_loss_hooks_queued_follow_ups(
+    state: &mut CombatState,
+    hp_loss: i32,
+) -> SimResult<()> {
+    apply_player_card_hp_loss_hooks_with_policy(
+        state,
+        hp_loss,
+        crate::relic::HpLossDrawPolicy::QueueFollowUps,
+    )
+}
+
 #[allow(dead_code)]
 pub(crate) fn apply_player_card_hp_loss_hooks_deferred_draws(
     state: &mut CombatState,
@@ -97,19 +108,6 @@ pub(crate) fn apply_player_card_hp_loss_hooks_deferred_draws(
         state,
         hp_loss,
         crate::relic::HpLossDrawPolicy::DeferDraws,
-    )
-}
-
-pub(crate) fn apply_player_card_hp_loss_hooks_with_pending_hand(
-    state: &mut CombatState,
-    hp_loss: i32,
-    pending_hand: &mut [CardInstance],
-) -> SimResult<()> {
-    apply_player_card_hp_loss_hooks_with_pending_hand_and_policy(
-        state,
-        hp_loss,
-        pending_hand,
-        crate::relic::HpLossDrawPolicy::Immediate,
     )
 }
 

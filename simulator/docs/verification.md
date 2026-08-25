@@ -127,8 +127,8 @@ metadata was not rewritten; its promotion record instead attests the installed
 SuperFastMode `1.0.9-collection.2` JAR and exact collection artifact hashes.
 Both cohorts use boundary schema 6 and passed structure, command-fence,
 zero-effect, hand/card retrieval, terminal, repeatability, raw-diff, and hash
-audits. Current verifier status is 281 complete passes and 30 explicit
-unsupported frontiers, with zero trace errors and zero raw unexpected diffs.
+audits. Current verifier status is 311 complete passes with zero unsupported
+frontiers, trace errors, or raw unexpected diffs.
 
 Download the external corpus into the active directory:
 

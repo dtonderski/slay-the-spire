@@ -245,6 +245,35 @@ fn draw_cards_batch_in_place(
     count: usize,
     trigger_evolve: bool,
 ) -> SimResult<Vec<DrawFollowUp>> {
+    let count = count.min(MAX_HAND_SIZE.saturating_sub(state.piles.hand.len()));
+    let draw_count = state.piles.draw_pile.len();
+    if count > draw_count
+        && !state.piles.discard_pile.is_empty()
+        && combat_has_living_monster(state)
+    {
+        // DrawCardAction splits an overdraw into addToTop(existing draw),
+        // EmptyDeckShuffleAction, then addToTop(remaining draw). The shuffle
+        // therefore still executes when the existing segment fills the hand;
+        // only the final DrawCardAction no-ops at the ten-card cap.
+        let mut deferred_follow_ups = if draw_count == 0 {
+            Vec::new()
+        } else {
+            draw_cards_batch_in_place(state, draw_count, trigger_evolve)?
+        };
+        deferred_follow_ups.extend(shuffle_follow_ups_from_actions(
+            shuffle_discard_into_draw_with_combat_rng(state)?,
+        )?);
+        let remaining = count - draw_count;
+        if remaining > 0 {
+            deferred_follow_ups.extend(draw_cards_batch_in_place(
+                state,
+                remaining,
+                trigger_evolve,
+            )?);
+        }
+        return Ok(deferred_follow_ups);
+    }
+
     let mut deferred_follow_ups = Vec::new();
     let had_cards_at_start =
         !state.piles.draw_pile.is_empty() || !state.piles.discard_pile.is_empty();

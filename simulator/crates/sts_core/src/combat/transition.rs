@@ -253,6 +253,19 @@ pub(crate) fn process_internal_queue(
     let mut event_log = Vec::new();
 
     while let Some(internal_action) = queue.pop_front() {
+        if let InternalAction::PlayCardCopy { card_id } = internal_action {
+            if copied_card_cannot_use(&next, card_id)? {
+                event_log.push(internal_action);
+                while let Some(skipped_action) = queue.pop_front() {
+                    event_log.push(skipped_action);
+                    if matches!(skipped_action, InternalAction::EndCopiedCardEffects) {
+                        break;
+                    }
+                }
+                next.pen_nib_double_active = false;
+                continue;
+            }
+        }
         if let InternalAction::SkipCopiedCardEffectsIfTargetDead { target } = internal_action {
             event_log.push(internal_action);
             if !living_monster_alive(&next, target) {
@@ -586,6 +599,27 @@ pub(crate) fn process_internal_queue(
     })
 }
 
+fn copied_card_cannot_use(state: &CombatState, card_id: CardId) -> SimResult<bool> {
+    let definition = card_content_definition(state, card_id)?;
+    let normality_blocks = state
+        .piles
+        .hand
+        .iter()
+        .any(|card| card.content_id == NORMALITY_ID)
+        && state.relic_counters.cards_played_this_turn >= 3;
+    let entangled_blocks =
+        state.player.powers.entangled > 0 && definition.card_type == CardType::Attack;
+    let clash_blocks = matches!(definition.id, CLASH_ID | CLASH_PLUS_ID)
+        && state.piles.hand.iter().any(|card| {
+            get_card_definition(card.content_id)
+                .is_none_or(|candidate| candidate.card_type != CardType::Attack)
+        });
+    Ok(normality_blocks
+        || entangled_blocks
+        || clash_blocks
+        || !crate::relic::can_play_card_with_relics(state))
+}
+
 fn card_in_use_is_whirlwind(state: &CombatState) -> bool {
     let Some(card_id) = state.card_in_use else {
         return false;
@@ -631,6 +665,25 @@ fn push_follow_up(
             .iter()
             .position(|action| matches!(action, InternalAction::DealDamageAll { .. }))
         {
+            queue.insert(index, follow_up);
+            return;
+        }
+    }
+
+    if matches!(follow_up, InternalAction::ApplyVulnerable { .. }) {
+        // Hand Drill's onBlockBroken ApplyPowerAction is addToBot from the
+        // original DamageAction. The action queue drains it before the card
+        // queue services a Double Tap/Necronomicon copy, so that later card
+        // sees Vulnerable. Hits already queued by one multi-hit card remain
+        // ahead of this follow-up and do not see it.
+        if let Some(index) = queue.iter().position(|action| {
+            matches!(
+                action,
+                InternalAction::SkipCopiedCardEffectsIfTargetDead { .. }
+                    | InternalAction::SkipCopiedCardEffectsIfCombatDone
+                    | InternalAction::PlayCardCopy { .. }
+            )
+        }) {
             queue.insert(index, follow_up);
             return;
         }
@@ -3252,14 +3305,15 @@ fn apply_play_top_draw_card(
         .then(|| random_living_monster_id(state))
         .flatten();
 
-    // Time Warp's onUseCard increment arms the forced end after Havoc.use()
-    // has already queued PlayTopCardAction. The current card's PlayTop still
-    // runs; a nested leftover PlayTop queued by the forced card must not
-    // (FIDL01271: Havoc+ force-plays top Havoc, then Time Warp cancels that
-    // nested PlayTop).
-    if state.time_warp_end_turn && state.play_top_resolving_depth > 0 {
-        return Ok(Vec::new());
-    }
+    // Time Warp's onAfterUseCard arms the forced end after card.use() has
+    // already queued PlayTopCardAction, so that PlayTop still extracts its
+    // top card. If Time Warp was already armed before this card's use() —
+    // the 12th card was a parent Havoc whose nested resolve starts with
+    // `time_warp_end_turn` set — ResolveTopDrawCard exhausts without use()
+    // and never queues a leftover PlayTop (FIDL01271 / FIDL01285).
+    // Do not skip extraction here: a 12th-card nested Havoc queues leftover
+    // PlayTop during use() before onAfterUseCard, and that card must leave
+    // the draw pile (FIDL00021 Wound).
     if random_living_target
         && !state
             .monsters
@@ -3374,6 +3428,10 @@ fn resolve_top_draw_card(
                 && (monster.alive || awakened_one_is_half_dead(monster))
         })
     });
+    let combat_is_done = state
+        .monsters
+        .iter()
+        .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster));
     let entangled_blocks_attack =
         state.player.powers.entangled > 0 && definition.card_type == CardType::Attack;
     let normality_blocks_play = state
@@ -3393,6 +3451,7 @@ fn resolve_top_draw_card(
         || dual_wield_is_unplayable
         || missing_enemy_target
         || target_is_dead_or_escaped
+        || combat_is_done
         || entangled_blocks_attack
         || normality_blocks_play
         || !crate::relic::can_play_card_with_relics(state)
@@ -3445,7 +3504,10 @@ fn resolve_top_draw_card(
                 state.piles.exhaust_pile.push(card);
                 follow_ups.push(InternalAction::CardExhausted { card_id });
             }
-        } else if !card.combat_only {
+        } else {
+            // PlayTop already removed this card from the draw pile. A failed
+            // autoplay still settles it into discard; temporary statuses such
+            // as Hex Dazed are not dropped merely because they are combat-only.
             state.piles.discard_pile.push(card);
         }
         return Ok(follow_ups);
@@ -5595,9 +5657,20 @@ fn confirm_true_grit_select(
                 CardPile::DrawPile => state.piles.draw_pile.push(source_card),
             }
         } else {
-            // Ordinary hand-played True Grit+ exhausts only the selected card;
-            // its source follows the normal UseCardAction discard settlement.
-            state.piles.discard_pile.push(source_card);
+            // Ordinary hand-played True Grit+ follows UseCardAction settlement.
+            // Corruption (or an intrinsic exhaust keyword) still rewrites that
+            // delayed source move to exhaust after the selection closes.
+            let definition = get_card_definition(source_card.content_id)
+                .ok_or(SimError::UnknownContent(source_card.content_id))?;
+            match delayed_source_card_destination(state, definition) {
+                CardPile::ExhaustPile => {
+                    state.piles.exhaust_pile.push(source_card);
+                    apply_on_exhaust_effects(state, source_id)?;
+                }
+                CardPile::DiscardPile => state.piles.discard_pile.push(source_card),
+                CardPile::Hand => state.piles.hand.push(source_card),
+                CardPile::DrawPile => state.piles.draw_pile.push(source_card),
+            }
         }
     } else if let Some(source_card_id) = source_card_id {
         if let Some(source_position) = state
@@ -5620,7 +5693,17 @@ fn confirm_true_grit_select(
                     CardPile::DrawPile => state.piles.draw_pile.push(source_card),
                 }
             } else {
-                state.piles.discard_pile.push(source_card);
+                let definition = get_card_definition(source_card.content_id)
+                    .ok_or(SimError::UnknownContent(source_card.content_id))?;
+                match delayed_source_card_destination(state, definition) {
+                    CardPile::ExhaustPile => {
+                        state.piles.exhaust_pile.push(source_card);
+                        apply_on_exhaust_effects(state, source_card_id)?;
+                    }
+                    CardPile::DiscardPile => state.piles.discard_pile.push(source_card),
+                    CardPile::Hand => state.piles.hand.push(source_card),
+                    CardPile::DrawPile => state.piles.draw_pile.push(source_card),
+                }
             }
         } else if !state
             .piles
@@ -10003,6 +10086,39 @@ mod tests {
     }
 
     #[test]
+    fn double_tap_and_necronomicon_each_copy_the_original_once() {
+        // Each extra play is an independent purgeOnUse copy of the original
+        // card (FIDL00036 Heavy Blade vs intangible Nemesis: 3 hits of 1).
+        let mut state = CombatState::initial_fixture();
+        state.relics.push(Relic::Necronomicon);
+        state.double_tap_pending = 1;
+        state.player.energy = 2;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HEAVY_BLADE_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.monsters[0].hp = 168;
+        state.monsters[0].max_hp = 185;
+        state.monsters[0].powers.intangible = 1;
+        let target = state.monsters[0].id;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Heavy Blade");
+
+        assert_eq!(
+            next.monsters[0].hp, 165,
+            "original + Necronomicon + Double Tap, not nested copies"
+        );
+        assert!(next.relic_counters.necronomicon_used_this_turn);
+        assert_eq!(next.double_tap_pending, 0);
+    }
+
+    #[test]
     fn iron_wave_juggernaut_kills_before_malleable_block() {
         // Permanent tip 1ac7db2c9f4a3da9 step 670: Iron Wave with Juggernaut 5 vs
         // Snake Plant at 7 HP / Malleable 5. Block first queues Juggernaut
@@ -10274,6 +10390,37 @@ mod tests {
             "Rage grants block on original and copy"
         );
         assert_eq!(next.double_tap_pending, 0);
+    }
+
+    #[test]
+    fn double_tap_anger_hand_drill_applies_vulnerable_before_copy() {
+        // The original 7-damage Anger consumes 3 block and deals 4 HP. Hand
+        // Drill then applies Vulnerable before the card queue uses the copy,
+        // so its 7 damage rounds to 10: 142 - 4 - 10 = 128 (FIDL01945).
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters[0].id = target;
+        state.monsters[0].hp = 142;
+        state.monsters[0].max_hp = 142;
+        state.monsters[0].block = 3;
+        state.player.energy = 1;
+        state.player.powers.strength = 1;
+        state.relics.push(Relic::HandDrill);
+        state.double_tap_pending = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), ANGER_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Double Tap Anger resolves through Hand Drill");
+
+        assert_eq!(next.monsters[0].hp, 128);
+        assert_eq!(next.monsters[0].block, 0);
+        assert_eq!(next.monsters[0].powers.vulnerable, 2);
     }
 
     #[test]
@@ -12896,6 +13043,55 @@ mod tests {
         );
         assert!(next.hand_select().is_none());
         assert!(!next.time_warp_end_turn);
+    }
+
+    #[test]
+    fn time_warp_twelfth_play_top_havoc_still_extracts_leftover_top() {
+        // Hand Havoc is the 11th card. Its PlayTop force-plays draw-pile Havoc
+        // as the 12th. Nested Havoc.use() queues leftover PlayTop before
+        // onAfterUseCard arms Time Warp, so that leftover card is extracted
+        // and force-exhausted without use() (FIDL00021 Wound / Evolve).
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_PLUS_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), WOUND_ID),
+            CardInstance::new(CardId::new(4), HAVOC_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.monsters[0].content_id = crate::content::monsters::TIME_EATER_ID;
+        state.monsters[0].powers.time_warp = 10;
+        state.monsters[0].hp = 200;
+        state.monsters[0].max_hp = 200;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("11th-card Havoc PlayTops Havoc as the 12th card");
+
+        assert!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .any(|card| card.content_id == HAVOC_ID),
+            "the first PlayTop still force-exhausts top Havoc"
+        );
+        assert!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .any(|card| card.content_id == WOUND_ID),
+            "leftover PlayTop queued by the 12th-card Havoc still extracts Wound"
+        );
+        assert!(next.hand_select().is_none());
+        assert!(!next.time_warp_end_turn);
+        assert_eq!(next.monsters[0].powers.time_warp, 0);
     }
 
     #[test]
