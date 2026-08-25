@@ -139,7 +139,8 @@ pub struct CombatState {
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub play_top_resolving_depth: u32,
     /// Start-of-turn Mayhem PlayTop `MakeTempCardInDrawPile` waits behind Evolve
-    /// residual draws from the base hand refill (FIDL01469 Wild Strike Wound).
+    /// residual draws from the base hand refill (FIDL01469 Wild Strike Wound,
+    /// FIDL02303 Hex Dazed from a force-played non-attack).
     #[serde(default, skip_serializing_if = "is_false")]
     pub defer_mayhem_play_top_draw_inserts: bool,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -147,7 +148,8 @@ pub struct CombatState {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deferred_mayhem_play_top_draw_inserts: Vec<InternalAction>,
     /// UseCardAction settlement for start-of-turn Mayhem PlayTops waits behind
-    /// Evolve residual draws (FIDL02303 Strike stays in limbo during shuffle).
+    /// Evolve residual draws so a force-played Power is not sitting in the
+    /// pile Evolve shuffles or draws from (FIDL02303).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deferred_mayhem_play_top_settlements: Vec<(crate::CardInstance, crate::action::CardPile)>,
     /// Letter Opener all-enemy hits still on the action queue (FIDL00428).

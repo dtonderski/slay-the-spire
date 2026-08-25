@@ -7161,6 +7161,110 @@ mod tests {
     }
 
     #[test]
+    fn mayhem_hex_insert_waits_behind_evolve_residual_draw() {
+        // HexPower.onUseCard addToBots MakeTempCardInDrawPile after PlayTop
+        // use(). Evolve residual Draw from the base refill is already on that
+        // bot queue, so the Dazed insert observes the post-Evolve pile.
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.mayhem = 1;
+        state.player.powers.evolve = 1;
+        state.player.powers.hex = 1;
+        state.piles.hand.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        // last() is the draw-pile top. Five cards are drawn; Wound queues
+        // Evolve. Remaining top is Defend, which Mayhem force-plays.
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(10), DAZED_ID),
+            CardInstance::new(CardId::new(11), STRIKE_R_ID),
+            CardInstance::new(CardId::new(12), STRIKE_R_ID),
+            CardInstance::new(CardId::new(13), STRIKE_R_ID),
+            CardInstance::new(CardId::new(14), DEFEND_R_ID),
+            CardInstance::new(CardId::new(15), WOUND_ID),
+            CardInstance::new(CardId::new(16), STRIKE_R_ID),
+            CardInstance::new(CardId::new(17), STRIKE_R_ID),
+            CardInstance::new(CardId::new(18), STRIKE_R_ID),
+            CardInstance::new(CardId::new(19), STRIKE_R_ID),
+        ];
+        state.monsters = vec![monster_state_for_ascension(
+            &LOOTER_A0,
+            MonsterId::new(1),
+            0,
+        )];
+
+        let (result, events) = crate::capture_rng_trace(|| start_player_turn(&mut state));
+        result.expect("Mayhem + Evolve + Hex start turn");
+
+        let hex_inserts: Vec<_> = events
+            .iter()
+            .filter(|event| {
+                event.stream == crate::RngTraceStream::CardRandom
+                    && matches!(
+                        event.operation,
+                        crate::RngTraceOperation::RandomInt { max_inclusive, .. }
+                            if max_inclusive > 0
+                    )
+            })
+            .collect();
+        assert_eq!(
+            hex_inserts.len(),
+            1,
+            "Hex should roll once after Evolve consumes the remaining top Strike, events={events:?}"
+        );
+        match &hex_inserts[0].operation {
+            crate::RngTraceOperation::RandomInt { max_inclusive, .. } => {
+                assert_eq!(
+                    *max_inclusive, 2,
+                    "Hex insert must see the 3-card post-Evolve pile, not the 4-card post-Mayhem pile"
+                );
+            }
+            other => panic!("expected random_int, got {other:?}"),
+        }
+        assert!(
+            state
+                .piles
+                .hand
+                .iter()
+                .any(|card| card.id == CardId::new(13)),
+            "Evolve must draw the pre-Hex remaining Strike, hand={:?}",
+            state
+                .piles
+                .hand
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+        );
+        assert!(
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .any(|card| card.id == CardId::new(14)),
+            "Mayhem Defend must settle after Evolve, discard={:?}",
+            state
+                .piles
+                .discard_pile
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+        );
+        assert!(
+            state
+                .piles
+                .draw_pile
+                .iter()
+                .any(|card| card.content_id == DAZED_ID && card.combat_only),
+            "Hex Dazed must land in the post-Evolve draw pile, draw={:?}",
+            state
+                .piles
+                .draw_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    #[test]
     fn mayhem_play_top_settles_after_evolve_residual_draw() {
         // UseCardAction is behind Evolve's addToBot Draw from the base refill,
         // so the forced card is not in the shuffle Evolve consumes.

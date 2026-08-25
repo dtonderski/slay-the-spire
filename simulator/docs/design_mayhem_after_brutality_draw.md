@@ -17,10 +17,12 @@ force-played `Shrug+` (block 11), and left Anger in the draw pile.
 4. **Mayhem** force-play top of the post-Brutality draw pile.
 5. Flush deferred Evolve draws from the base refill.
 6. Flush PlayTop `MakeTempCardInDrawPile` from that Mayhem card (Wild Strike
-   Wound, Reckless Charge Dazed). Java queues those behind Evolve's residual
+   Wound, Reckless Charge Dazed, and Hex Dazed from `onUseCard` on a
+   force-played Skill/Power). Java queues those behind Evolve's residual
    `DrawCardAction` from the base refill, so `addToRandomSpot` sees the
    post-Evolve pile (FIDL01469: Mayhem PlayTops Wild Strike, Wound is not at
-   index 0 of a 15-card remaining pile).
+   index 0 of a 15-card remaining pile; FIDL02303: Mayhem PlayTops Juggernaut
+   under Hex, Dazed is not inserted into the pre-Evolve 18-card remainder).
 
 ## Implementation
 

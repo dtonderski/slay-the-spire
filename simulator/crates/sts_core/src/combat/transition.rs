@@ -380,6 +380,14 @@ pub(crate) fn process_internal_queue(
             matches!(internal_action, InternalAction::ApplyGremlinHornOnDeath);
         let mut gremlin_horn_insert_index = 0;
         for follow_up in follow_ups {
+            if next.defer_mayhem_play_top_draw_inserts && is_play_top_draw_pile_insert(&follow_up) {
+                // HexPower.onUseCard addToBots MakeTempCardInDrawPile after
+                // PlayTop use(). Evolve residual DrawCardAction from the base
+                // refill is already on that bot queue, so the Dazed insert must
+                // see the post-Evolve pile (FIDL02303 Mayhem Juggernaut).
+                next.deferred_mayhem_play_top_draw_inserts.push(follow_up);
+                continue;
+            }
             if gremlin_horn_expansion {
                 // Gremlin Horn queues GainEnergy then Draw at this exact death.
                 // Put both ahead of later deaths already on the queue; follow-ups
