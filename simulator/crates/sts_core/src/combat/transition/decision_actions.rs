@@ -2,8 +2,8 @@ use super::{finish_warcry_source, remove_card_from_pile};
 use crate::{
     action::CardPile,
     combat::{
-        CombatDecisionState, CombatState, DiscardSelectPurpose, DrawSelectPurpose,
-        ExhaustSelectPurpose, HandSelectPurpose,
+        draw::MAX_HAND_SIZE, CombatDecisionState, CombatState, DiscardSelectPurpose,
+        DrawSelectPurpose, ExhaustSelectPurpose, HandSelectPurpose,
     },
     ids::CardId,
     SimError, SimResult,
@@ -408,16 +408,28 @@ pub(super) fn await_exhaust_select(
     } else {
         None
     };
+    let exhaust_select = crate::combat::ExhaustSelectState {
+        purpose,
+        source_card_id: Some(source_card_id),
+        source_card,
+        source_card_force_exhaust: state.play_top_force_exhaust_active,
+        selected_hand_indices: Vec::new(),
+        interrupted_by_cultist_potion: false,
+        pending_actions: VecDeque::new(),
+    };
+    // ExhumeAction checks the live hand size when the queued action runs, not
+    // when Exhume.use() is queued. Start-of-turn draws (Offering plus Dark
+    // Embrace behind Mayhem, for example) can fill the hand in between. A full
+    // hand makes ExhumeAction finish without opening GRID; UseCardAction still
+    // exhausts the source and runs its on-exhaust callbacks.
+    if purpose == ExhaustSelectPurpose::ExhumeReturnToHand
+        && state.piles.hand.len() >= MAX_HAND_SIZE
+    {
+        super::settle_exhume_source_after_selection(state, exhaust_select, source_card_id)?;
+        return Ok(Vec::new());
+    }
     state.decision = Some(CombatDecisionState::ExhaustSelect {
-        state: crate::combat::ExhaustSelectState {
-            purpose,
-            source_card_id: Some(source_card_id),
-            source_card,
-            source_card_force_exhaust: state.play_top_force_exhaust_active,
-            selected_hand_indices: Vec::new(),
-            interrupted_by_cultist_potion: false,
-            pending_actions: VecDeque::new(),
-        },
+        state: exhaust_select,
     });
     Ok(Vec::new())
 }

@@ -2155,6 +2155,20 @@ fn card_reward_ids_from_value(value: Option<&Value>) -> Vec<Value> {
                         return json!(normalize_card_identity(pool_key));
                     }
                 }
+                // Some target card IDs differ from their pool identities (for
+                // example Steam Barrier uses cardID `Steam`). When an observed
+                // card is not in the modeled registry, canonicalize its display
+                // identity through the complete any-color pool before falling
+                // back to the raw target ID.
+                if sts_core::content::cards::get_card_definition(content_id).is_none() {
+                    if let Some(identity) = identity.as_deref() {
+                        if let Some(pool_key) =
+                            sts_core::run::reward::any_color_reward_card_key_from_identity(identity)
+                        {
+                            return json!(normalize_card_identity(pool_key));
+                        }
+                    }
+                }
                 return json!(content_id.get());
             }
             if let Some(identity) = identity.as_deref() {

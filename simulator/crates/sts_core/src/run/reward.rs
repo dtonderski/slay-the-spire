@@ -1434,6 +1434,10 @@ pub fn any_color_reward_card_key_from_identity(identity: &str) -> Option<&'stati
     if normalized == "redo" {
         normalized = "recursion".to_owned();
     }
+    // Defect Steam Barrier's cardID is `Steam` (SteamBarrier.java ldc).
+    if normalized == "steam" {
+        normalized = "steambarrier".to_owned();
+    }
     ANY_COLOR_COMMON_CARDS
         .iter()
         .chain(ANY_COLOR_UNCOMMON_CARDS.iter())

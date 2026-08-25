@@ -184,8 +184,11 @@ unsupported frontiers. A later audited promotion added 103 locally collected
 schema-6 traces and removed 74 externally collected `working-tree` traces,
 producing a 311-trace regression lock. A subsequent overnight collection added
 77 more reviewed terminal traces (FIDL02009–FIDL02106, excluding one
-under-specified pre-opening Colosseum publication), producing the current
-388-trace lock.
+under-specified pre-opening Colosseum publication), producing a 388-trace lock.
+The next promotion added 43 reviewed FIDL02107–FIDL02154 captures and retained
+two later failure-driving captures, FIDL02161 and FIDL02166. Their source-backed
+repairs covered Steam Barrier's target card ID and Exhume's action-time full-hand
+check, producing the current 433-trace lock.
 
 A larger apparent lifecycle ambiguity was ultimately a collection-speed defect,
 not a missing trace input. The SuperFastMode collection fork multiplied the
@@ -320,12 +323,12 @@ scope, and feedback-loop quality matter more than task duration or agent count.
 - The mixed `ExhaustAction` retrieval outcome was traced to multiplied gameplay
   delta and removed from future collection without adding lifecycle inputs.
   The pre-collection.2 corpus is legacy. The active external regression cohort
-  now contains 388 reviewed schema-6 traces: the original 208-trace replacement,
+  now contains 433 reviewed schema-6 traces: the original 208-trace replacement,
   103 locally collected traces externally attested to the collection.2 artifact
-  despite their stale metadata label, and 77 terminal FIDL02009–FIDL02106
-  captures. One additional capture published Colosseum's second combat before
-  its opening queue was installed; because the trace lacks a pre-action
-  scheduler input that distinguishes that race, it remains immutable outside
-  the authoritative lock. The current simulator replays all 388 through EOF
-  without unsupported frontiers. Post-state candidate selection remains
-  prohibited.
+  despite their stale metadata label, 77 terminal FIDL02009–FIDL02106 captures,
+  and 45 traces from the next review waves. One additional capture published
+  Colosseum's second combat before its opening queue was installed; because the
+  trace lacks a pre-action scheduler input that distinguishes that race, it
+  remains immutable outside the authoritative lock. The current simulator
+  replays all 433 through EOF without unsupported frontiers. Post-state candidate
+  selection remains prohibited.

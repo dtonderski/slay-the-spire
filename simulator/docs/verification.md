@@ -119,20 +119,24 @@ uv run -- cargo run -q -p sts_verify --bin sts_verify -- status --markdown \
 ### Authoritative Hugging Face corpus
 
 The private `dtonderski/sts-permanent-traces` Hugging Face dataset mirrors the
-current reviewed 388-trace corpus, with each immutable payload stored as a
+current reviewed 433-trace corpus, with each immutable payload stored as a
 deterministic `<trace>.jsonl.gz`. The original 208 traces declare
 `source_version="collection.2-schema6"`. The 103-trace FIDL01880–FIDL02008
 cohort has a stale pre-schema-6 `source_version` string, so its immutable
 metadata was not rewritten; its promotion record instead attests the installed
 SuperFastMode `1.0.9-collection.2` JAR and exact collection artifact hashes.
 A third audited cohort adds 77 terminal FIDL02009–FIDL02106 captures with the
-composite source-artifact identity recorded in their immutable metadata. All
-three cohorts use boundary schema 6 and passed structure, command-fence,
-zero-effect, hand/card retrieval, terminal, repeatability, raw-diff, and hash
-audits. Current verifier status is 388 complete passes with zero unsupported
-frontiers, trace errors, or raw unexpected diffs. FIDL02101 remains outside the
-corpus because it publishes Colosseum's second combat before its opening queue
-without a pre-action scheduler input capable of replaying that race.
+composite source-artifact identity recorded in their immutable metadata. A
+fourth promotion adds 43 reviewed FIDL02107–FIDL02154 captures and the unchanged
+failure-driven FIDL02161/FIDL02166 payloads. The two failing payloads became
+permanent regression evidence before source-backed fixes made the full cohort
+green. All active traces use boundary schema 6 and passed structure,
+command-fence, zero-effect, hand/card retrieval, terminal, repeatability,
+raw-diff, and hash audits. Current verifier status is 433 complete passes with
+zero unsupported frontiers, trace errors, or raw unexpected diffs. FIDL02101
+remains outside the corpus because it publishes Colosseum's second combat before
+its opening queue without a pre-action scheduler input capable of replaying that
+race.
 
 Download the external corpus into the active directory:
 
