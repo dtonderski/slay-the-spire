@@ -14,8 +14,9 @@ use std::{
 use sts_verify::{
     assess_verification, assess_verification_with_options, canonical_diff, corpus_path,
     import_communication_mod_trace, import_slaythedata_jsonl_line, import_slaythedata_run_json,
-    load_corpus_file, minimize_communication_mod_trace, replay_communication_mod_trace_reader,
-    slaythedata_replay_plan, slaythedata_replay_preflight, verify_communication_mod_trace,
+    load_corpus_file, load_quarantine_manifest, minimize_communication_mod_trace,
+    replay_communication_mod_trace_reader, slaythedata_replay_plan, slaythedata_replay_preflight,
+    trace_is_quarantined, verify_communication_mod_trace,
     verify_communication_mod_trace_diagnostic_reader, verify_communication_mod_trace_reader,
     AssessmentOptions, MinimizeError, SimRealError, SimRealReport, SlayTheDataDiagnosticSeverity,
     VerificationOutcome, REPLAY_ARTIFACT_SCHEMA,
@@ -796,26 +797,6 @@ struct StatusTraceInput {
     quarantined: bool,
 }
 
-/// Trace-id prefixes retained as evidence but excluded from the parity gate.
-///
-/// The manifest sits beside the corpus root so a corpus directory carries its
-/// own quarantine list. A missing manifest quarantines nothing.
-fn load_quarantine_manifest(root: &Path) -> Vec<String> {
-    let manifest = root
-        .parent()
-        .map(|parent| parent.join("quarantine.txt"))
-        .unwrap_or_else(|| PathBuf::from("quarantine.txt"));
-    let Ok(contents) = fs::read_to_string(&manifest) else {
-        return Vec::new();
-    };
-    contents
-        .lines()
-        .map(|line| line.split('#').next().unwrap_or("").trim())
-        .filter(|line| !line.is_empty())
-        .map(str::to_owned)
-        .collect()
-}
-
 fn status_path(input: &str) -> PathBuf {
     let path = PathBuf::from(input);
     if path.is_absolute() || path.exists() {
@@ -957,9 +938,7 @@ fn status_trace_inputs(root: &Path) -> Result<Vec<StatusTraceInput>, String> {
                 .and_then(|name| name.to_str())
                 .unwrap_or("<unknown>")
                 .to_owned();
-            let quarantined = quarantine
-                .iter()
-                .any(|prefix| trace.starts_with(prefix.as_str()));
+            let quarantined = trace_is_quarantined(&trace, &quarantine);
             StatusTraceInput {
                 trace,
                 path,
@@ -1262,6 +1241,18 @@ mod tests {
     fn missing_quarantine_manifest_quarantines_nothing() {
         let root = std::env::temp_dir().join("sts_quarantine_absent/permanent_traces");
         assert!(load_quarantine_manifest(&root).is_empty());
+    }
+
+    #[test]
+    fn working_tree_leftover_prefixes_match_filenames() {
+        assert!(trace_is_quarantined(
+            "FIDL00026-p26-2026-08-21T16-34-12-353Z-6883.jsonl",
+            &["FIDL00026".to_owned()]
+        ));
+        assert!(!trace_is_quarantined(
+            "FIDL02367-p2367-2026-08-21T11-32-10-140Z-1973297.jsonl",
+            &["FIDL00026".to_owned()]
+        ));
     }
 
     #[test]
