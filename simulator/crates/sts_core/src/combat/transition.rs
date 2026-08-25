@@ -313,14 +313,6 @@ pub(crate) fn process_internal_queue(
         // insertion that can no longer be observed. Keep the gate generic for
         // all random-spot generated cards; surviving and revival paths retain
         // the normal insertion below.
-        //
-        // SharpHidePower / BeatOfDeathPower queue THORNS DamageAction from
-        // UseCardAction after card.use(). Once the last enemy is dead, that
-        // UseCardAction bails (`areMonstersBasicallyDead`) and
-        // clearPostCombatActions drops remaining thorns hits. Queue the
-        // DamageAction while the source is still alive at onUseCard, then
-        // drop it here — do not skip at queue time just because the hit
-        // will be lethal (FIDL00005 Guardian Sharp Hide).
         let combat_is_ending = next.player.hp <= 0
             || next
                 .monsters
@@ -331,7 +323,6 @@ pub(crate) fn process_internal_queue(
                 internal_action,
                 InternalAction::AddGeneratedCardToDrawPileRandomSpot { .. }
                     | InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost { .. }
-                    | InternalAction::DealThornsDamageToPlayer { .. }
             )
         {
             event_log.push(internal_action);
@@ -8366,7 +8357,11 @@ mod tests {
     }
 
     #[test]
-    fn lethal_last_enemy_skips_queued_thorns_to_player() {
+    fn lethal_last_enemy_still_applies_queued_thorns_to_player() {
+        // clearPostCombatActions keeps DAMAGE actions. Collection.2 Guardian /
+        // Heart last-enemy kills still take Sharp Hide / Beat of Death
+        // (FIDL02246, FIDL02369, FIDL02383). Do not drop queued thorns just
+        // because combat is already ending.
         let target = MonsterId::new(1);
         let mut state = CombatState::initial_fixture();
         state.player.hp = 80;
@@ -8385,10 +8380,7 @@ mod tests {
 
         assert!(!next.state.monsters[0].alive);
         assert_eq!(next.state.phase, CombatPhase::Won);
-        assert_eq!(
-            next.state.player.hp, 80,
-            "queued THORNS DamageAction is dropped once combat is ending"
-        );
+        assert_eq!(next.state.player.hp, 77);
     }
 
     #[test]
@@ -9500,10 +9492,10 @@ mod tests {
     }
 
     #[test]
-    fn lethal_last_enemy_strike_skips_guardian_sharp_hide() {
-        // SharpHidePower.onUseCard still queues while Guardian is alive. The
-        // Strike then kills the last enemy, so the queued THORNS hit is
-        // dropped (FIDL00005: real 9750 vs sim 9747 was this extra 3).
+    fn lethal_last_enemy_strike_still_applies_guardian_sharp_hide() {
+        // SharpHidePower.onUseCard queues while Guardian is alive. The Strike
+        // then kills the last enemy; the queued THORNS hit still lands.
+        // Dropping it regresses collection.2 Guardian kills (FIDL02246).
         let target = MonsterId::new(1);
         let mut state = CombatState::initial_fixture();
         state.monsters = vec![monster_state(&GUARDIAN_A0, target)];
@@ -9530,7 +9522,7 @@ mod tests {
 
         assert!(!next.monsters[0].alive);
         assert_eq!(next.phase, CombatPhase::Won);
-        assert_eq!(next.player.hp, 80);
+        assert_eq!(next.player.hp, 77);
     }
 
     #[test]
