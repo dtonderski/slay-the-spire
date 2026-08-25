@@ -1,12 +1,14 @@
 //! Production-path regression tests for the hand-played Discovery lifecycle.
 //!
-//! The installed target burns the discarded post-select generateCardChoices
-//! generation on `CHOOSE`, then retrieves the visible card and settles the
+//! The installed target burns 15 leftover post-select generateCardChoices
+//! generations on `CHOOSE` (ACTION_DUR_FAST 0.25s at 1/60s ticks minus the
+//! opening visible offer), then retrieves the visible card and settles the
 //! source through the ordinary action queue.
 
 use sts_core::{
-    apply_combat_action_on_run, apply_run_action, content::cards::DISCOVERY_ID, CardId,
-    CardInstance, CombatAction, CombatDecisionState, RunAction, RunState,
+    apply_combat_action_on_run, apply_run_action,
+    content::{cards::DISCOVERY_ID, shop_pool::burn_all_discovery_card_choice_generations},
+    CardId, CardInstance, CombatAction, CombatDecisionState, RunAction, RunState,
 };
 
 fn run_with_hand_played_discovery() -> RunState {
@@ -93,6 +95,11 @@ fn discovery_choose_retrieves_visible_offer_and_closes_source_through_queue() {
         .rng
         .card_random_rng
         .counter();
+    assert_eq!(
+        open_counter,
+        before_counter + 3,
+        "opening Discovery consumes exactly its visible three-card offer"
+    );
     let selected_content = opened
         .combat
         .as_ref()
@@ -106,16 +113,22 @@ fn discovery_choose_retrieves_visible_offer_and_closes_source_through_queue() {
     let chosen = apply_run_action(&opened, RunAction::ChooseCombatCardReward { index: 0 })
         .expect("choose the Discovery card");
     let combat = chosen.combat.as_ref().expect("combat remains open");
+    let leftover_counter = {
+        let mut rng = opened
+            .combat
+            .as_ref()
+            .expect("combat remains open")
+            .rng
+            .card_random_rng
+            .clone();
+        burn_all_discovery_card_choice_generations(&mut rng, 3, 15);
+        rng.counter()
+    };
 
     assert_eq!(
         combat.rng.card_random_rng.counter(),
-        open_counter + 3,
-        "CHOOSE burns the discarded post-select generateCardChoices generation"
-    );
-    assert_eq!(
-        combat.rng.card_random_rng.counter(),
-        before_counter + 6,
-        "open plus discarded generation is the only Discovery RNG residual"
+        leftover_counter,
+        "CHOOSE burns 15 leftover generateCardChoices generations (0.25s / 1/60s minus opening tick)"
     );
     assert!(combat.decision.is_none(), "the reward closes on CHOOSE");
     assert!(combat.queued_decisions.is_empty());

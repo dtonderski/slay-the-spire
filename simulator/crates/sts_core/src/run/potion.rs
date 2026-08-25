@@ -47,7 +47,12 @@ use crate::{
 // One ordinary DiscoveryAction update remains after selection under the fixed
 // 1/60-second gameplay lifecycle. Potion-specific picked/skipped pulse tables
 // were legacy pre-collection.2 trace fits and are intentionally not modeled.
-const DISCOVERY_POST_SELECT_GENERATIONS: usize = 1;
+// DiscoveryAction.update() generates a discarded offer at the start of every
+// gameplay tick, including leftover ticks after CHOOSE. Collection-fork
+// tickDuration subtracts 1/60s from ACTION_DUR_FAST (0.25s). The SuperFastMode
+// probe action finishes on tick 16 (`duration < 0`); the opening update spends
+// tick 1 on the visible offer, so CHOOSE burns 15 leftover generations.
+const DISCOVERY_POST_SELECT_GENERATIONS: usize = 15;
 
 pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()> {
     run.validate()?;
@@ -634,10 +639,10 @@ pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResul
                     CardId::new(combat.next_card_instance_id()?)
                 };
                 // DiscoveryAction.update generates a discarded three-card offer at
-                // the start of every leftover SuperFastMode pulse. Encounter- and
-                // hand-shape pulse tables used to guess 0/1/2/6 to match traces;
-                // keep a single leftover pulse so RNG drift stays visible until
-                // leftover action-queue settlement is modeled.
+                // the start of every leftover SuperFastMode pulse. Collection-fork
+                // tickDuration is 1/60s and ACTION_DUR_FAST is 0.25s (16 ticks to
+                // isDone). The opening update spends tick 1 on the visible offer;
+                // CHOOSE burns the remaining 15 leftover generations.
                 let generations = DISCOVERY_POST_SELECT_GENERATIONS;
                 burn_all_discovery_card_choice_generations(
                     &mut combat.rng.card_random_rng,
@@ -1370,6 +1375,12 @@ mod tests {
         content::shop_pool::ironclad_combat_discovery_pool,
         CombatAction,
     };
+
+    fn leftover_discovery_rng_counter(seed: i64, start_counter: u32) -> u32 {
+        let mut rng = StsRng::with_counter(seed, start_counter);
+        burn_all_discovery_card_choice_generations(&mut rng, 3, DISCOVERY_POST_SELECT_GENERATIONS);
+        rng.counter()
+    }
 
     #[test]
     fn burning_pact_confirm_enters_reward_when_feel_no_pain_juggernaut_kills_last() {
@@ -2398,8 +2409,8 @@ mod tests {
         assert_eq!(hand.last().map(|card| card.id), Some(chosen_id));
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            19,
-            "Discovery retrieve burns one discarded generateCardChoices generation"
+            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
+            "Discovery retrieve burns 15 leftover generateCardChoices generations"
         );
     }
 
@@ -2438,7 +2449,7 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            19,
+            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
             "Hex against a single living enemy burns one discarded generateCardChoices generation"
         );
     }
@@ -2481,7 +2492,7 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            19,
+            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
             "Awakened One with another living enemy + 5 remaining cards stay one discarded generation"
         );
     }
@@ -2522,7 +2533,7 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            19,
+            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
             "lone early-turn Magnetism-generated Discovery from a 6-card remaining hand burns one discarded generation"
         );
     }
@@ -2571,7 +2582,7 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            19,
+            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
             "early-turn Magnetism Discovery retrieve from a 5-card remaining hand that still holds another Magnetism card burns one discarded generation"
         );
     }
@@ -2617,7 +2628,7 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            19,
+            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
             "early-turn Magnetism-generated Discovery that leaves another generated card burns one discarded generation"
         );
     }
@@ -2663,7 +2674,7 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            19,
+            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
             "Mayhem PlayTop Magnetism-generated Discovery burns one discarded generation"
         );
     }
@@ -2706,7 +2717,7 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            19,
+            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
             "Donu/Deca two remaining with a status stay one discarded generateCardChoices generation"
         );
     }
@@ -2743,7 +2754,7 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            19,
+            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
             "two remaining non-status cards stay one discarded generateCardChoices generation"
         );
     }
@@ -2784,7 +2795,7 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            19,
+            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
             "four remaining cards versus Time Eater burn one discarded generateCardChoices generation"
         );
     }
@@ -2825,7 +2836,7 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            19,
+            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
             "Magnetism-generated Discovery later in the turn burns one discarded generation"
         );
     }
@@ -2865,7 +2876,7 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            19,
+            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
             "combat-only Discovery that Magnetism did not generate burns one discarded generation"
         );
     }
@@ -2906,7 +2917,7 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            19,
+            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
             "early-turn Magnetism-generated Discovery from a 5-card remaining hand burns one discarded generation"
         );
     }
@@ -2945,7 +2956,7 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            19,
+            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
             "combat-generated Discovery without Magnetism burns one discarded generation"
         );
     }
@@ -2981,7 +2992,7 @@ mod tests {
         let combat = next.combat.expect("combat remains open");
         assert_eq!(
             combat.rng.card_random_rng.counter(),
-            19,
+            leftover_discovery_rng_counter(-571_295_464_674_976_203, 16),
             "6 remaining cards without Awakened One stay one discarded generation"
         );
     }

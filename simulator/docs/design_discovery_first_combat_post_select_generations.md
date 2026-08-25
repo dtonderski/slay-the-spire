@@ -83,8 +83,8 @@ inserts (FIDL01561).
 
 The encounter- and hand-shape pulse table above came from the legacy
 pre-collection.2 cohort and is not an authoritative target rule. Production
-replay now models one resumed post-select `generateCardChoices` call for an
-ordinary retrieved Discovery and none for a skipped retrieval. Any different
-count in a clean trace must remain a visible RNG divergence until source-backed
-action-queue settlement explains it. Do not restore the historical table or
-hydrate an insertion index from an observed pile.
+replay burns 15 resumed post-select `generateCardChoices` calls for an
+ordinary retrieved Discovery (`ACTION_DUR_FAST` 0.25s at 1/60s gameplay
+ticks, minus the opening visible offer) and none for a skipped retrieval.
+Do not restore the historical table or hydrate an insertion index from an
+observed pile.
