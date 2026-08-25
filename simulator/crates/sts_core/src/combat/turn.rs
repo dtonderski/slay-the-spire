@@ -1675,9 +1675,14 @@ fn execute_generic_monster_intent(
     }
     // Every modeled target monster queues RollMoveAction at the end of its
     // takeTurn. That action still runs when reactive thorns kill the monster
-    // during its own attack, as long as the combat continues for another
-    // living monster. Preserve that queued AI draw even though the attacker
-    // is no longer alive by the time its damage resolves.
+    // during its own attack, as long as combat continues. Preserve that queued
+    // AI draw even though the attacker is no longer alive by the time its
+    // damage resolves.
+    //
+    // Awakened One's first-form death is half-dead, not combat victory. The
+    // already-queued RollMoveAction still consumes aiRng.random(99); getMove
+    // returns REBIRTH while halfDead. Skipping that draw when this is the last
+    // living monster desyncs phase-two 50/50s (FIDL02415 Tackle vs Sludge).
     //
     // Fire Breathing from Runic Cube / deferred multi-hit draws runs in
     // apply_monster_pending_effects, after the early death snapshot.
@@ -1685,9 +1690,12 @@ fn execute_generic_monster_intent(
     // (FIDL01313: CHOMP + Cube Wound + FB leaves UNKNOWN/4, not STUN/5).
     let darkling_died_during_intent =
         actor_was_alive && is_half_dead_darkling(&state.monsters[index]);
+    let awakened_one_half_dead_during_intent =
+        actor_was_alive && awakened_one_is_half_dead(&state.monsters[index]);
     let should_roll_queued_next_intent = actor_was_alive
         && state.player.hp > 0
         && (state.monsters[index].alive
+            || awakened_one_half_dead_during_intent
             || state
                 .monsters
                 .iter()
@@ -2688,6 +2696,16 @@ fn prepare_next_intents_for_ids(
         if is_half_dead_darkling(monster) {
             let _ = state.rng.monster_rng.random_int(99);
             monster.intent = crate::MonsterIntent::Stun;
+            record_target_move(monster);
+            continue;
+        }
+        if awakened_one_is_half_dead(monster) {
+            // AwakenedOne.getMove while halfDead returns REBIRTH regardless of
+            // the common AI roll. Consume that RollMoveAction draw here so the
+            // last-monster thorns-kill path does not fall through to phase-two
+            // Sludge/Tackle selection (FIDL02415).
+            let _ = state.rng.monster_rng.random_int(99);
+            monster.intent = crate::MonsterIntent::AwakenedOneHalfDead;
             record_target_move(monster);
             continue;
         }
@@ -6838,6 +6856,36 @@ mod tests {
             crate::MonsterIntent::Attack { damage: 40 }
         );
         assert!(!after_death_end.monsters[0].defer_awakened_one_rebirth);
+    }
+
+    #[test]
+    fn last_monster_awakened_one_thorns_death_consumes_queued_roll_move() {
+        // Soul Strike queues RollMoveAction before its hits. Player Thorns can
+        // first-kill form 1 mid-attack while no other monster is alive; combat
+        // continues in the half-dead pose, so that queued AI draw still runs.
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.thorns = 5;
+        let actor_id = MonsterId::new(1);
+        let mut ao =
+            monster_state_for_ascension(&crate::content::monsters::AWAKENED_ONE_A0, actor_id, 0);
+        ao.hp = 4;
+        ao.max_hp = 300;
+        ao.mode_shift = 0;
+        ao.intent = crate::MonsterIntent::AttackMultiple { damage: 6, hits: 4 };
+        ao.move_history = vec![1, 2];
+        state.monsters = vec![ao];
+        state.rng.monster_rng = StsRng::new(123);
+        let mut skip_ritual_tick = Vec::new();
+
+        execute_generic_monster_intent(&mut state, actor_id, 0, 0, &[], &mut skip_ritual_tick)
+            .expect("Awakened One's queued roll is supported");
+
+        assert!(awakened_one_is_half_dead(&state.monsters[0]));
+        assert_eq!(
+            state.monsters[0].intent,
+            crate::MonsterIntent::AwakenedOneHalfDead
+        );
+        assert_eq!(state.rng.monster_rng.counter(), 1);
     }
 
     #[test]
