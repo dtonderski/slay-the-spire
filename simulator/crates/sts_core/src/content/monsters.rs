@@ -4970,6 +4970,11 @@ pub fn target_looter_direct_next_intent_after_turn(
         };
     }
     if last_move(move_history, 1) && moves_executed == 2 {
+        // Java `aiRng.randomBoolean(0.5f)`: SMOKE when the float is < 0.5.
+        // Do not invert and do not use `randomBoolean()` / `random_bool()` (LSB):
+        // collection.2 FIDL02367 Thugs matches this polarity through later Byrd
+        // floors. LSB greened some working-tree Thugs fights and failed that
+        // collection.2 solo Looter 50/50.
         if rng.random_float() < 0.5 {
             return MonsterIntent::Block {
                 block: LOOTER_SMOKE_BOMB_BLOCK,

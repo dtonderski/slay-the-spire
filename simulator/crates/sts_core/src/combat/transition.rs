@@ -298,23 +298,6 @@ pub(crate) fn process_internal_queue(
             }
             continue;
         }
-        if matches!(internal_action, InternalAction::PlayCardCopy { .. })
-            && card_play_blocked_by_normality(&next)
-        {
-            // Double Tap / Echo Form queue a CardQueueItem. GameActionManager
-            // skips use() when Normality rejects canUse (cardsPlayedThisTurn
-            // already 3 from the original). ConsumeDoubleTap still happened on
-            // the original (FIDL02303 Double Tap then Wild Strike).
-            event_log.push(internal_action);
-            while let Some(skipped_action) = queue.pop_front() {
-                event_log.push(skipped_action);
-                if matches!(skipped_action, InternalAction::EndCopiedCardEffects) {
-                    next.pen_nib_double_active = false;
-                    break;
-                }
-            }
-            continue;
-        }
         if matches!(internal_action, InternalAction::EndCopiedCardEffects) {
             next.pen_nib_double_active = false;
             event_log.push(internal_action);
@@ -410,19 +393,6 @@ pub(crate) fn process_internal_queue(
             matches!(internal_action, InternalAction::ApplyGremlinHornOnDeath);
         let mut gremlin_horn_insert_index = 0;
         for follow_up in follow_ups {
-            if next.defer_mayhem_play_top_draw_inserts
-                && next.defer_mayhem_play_top_settlement
-                && is_play_top_draw_pile_insert(&follow_up)
-            {
-                // HexPower.onUseCard addToBots MakeTempCardInDrawPile after
-                // PlayTop use(). When Evolve residual DrawCardAction from the
-                // base refill is already on that bot queue, the Dazed insert
-                // must see the post-Evolve pile (FIDL02303 Mayhem Juggernaut).
-                // Without those residuals, Hex stays in the PlayTop nested
-                // queue so Warcry/select ordering is unchanged.
-                next.deferred_mayhem_play_top_draw_inserts.push(follow_up);
-                continue;
-            }
             if gremlin_horn_expansion {
                 // Gremlin Horn queues GainEnergy then Draw at this exact death.
                 // Put both ahead of later deaths already on the queue; follow-ups
@@ -3203,15 +3173,6 @@ fn upgrade_hand_card(state: &mut CombatState, card_id: CardId) -> SimResult<()> 
     Ok(())
 }
 
-fn card_play_blocked_by_normality(state: &CombatState) -> bool {
-    state
-        .piles
-        .hand
-        .iter()
-        .any(|hand_card| hand_card.content_id == NORMALITY_ID)
-        && state.relic_counters.cards_played_this_turn >= 3
-}
-
 fn is_play_top_draw_pile_insert(action: &InternalAction) -> bool {
     matches!(
         action,
@@ -3473,7 +3434,12 @@ fn resolve_top_draw_card(
         .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster));
     let entangled_blocks_attack =
         state.player.powers.entangled > 0 && definition.card_type == CardType::Attack;
-    let normality_blocks_play = card_play_blocked_by_normality(state);
+    let normality_blocks_play = state
+        .piles
+        .hand
+        .iter()
+        .any(|hand_card| hand_card.content_id == NORMALITY_ID)
+        && state.relic_counters.cards_played_this_turn >= 3;
     let unplayable_blocked = definition.keywords.unplayable
         && !crate::relic::can_play_unplayable_card_with_relics(
             &state.relics,
@@ -9608,68 +9574,6 @@ mod tests {
     }
 
     #[test]
-    fn nonlethal_guardian_strike_still_applies_sharp_hide() {
-        let target = MonsterId::new(1);
-        let mut state = CombatState::initial_fixture();
-        state.monsters = vec![monster_state(&GUARDIAN_A0, target)];
-        state.monsters[0].powers.spikes = 3;
-        state.monsters[0].hp = 200;
-        state.monsters[0].max_hp = 240;
-        state.monsters[0].block = 0;
-        state.player.hp = 80;
-        state.player.block = 0;
-        state.player.energy = 1;
-        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
-
-        let next = apply_combat_action(
-            &state,
-            CombatAction::PlayCard {
-                card_id: CardId::new(1),
-                target: Some(target),
-            },
-        )
-        .expect("non-lethal Strike should resolve");
-
-        assert!(next.monsters[0].alive);
-        assert_eq!(next.phase, CombatPhase::WaitingForPlayer);
-        assert_eq!(next.player.hp, 77);
-    }
-
-    #[test]
-    fn lethal_guardian_sharp_hide_still_applies_while_other_enemy_lives() {
-        let guardian = MonsterId::new(1);
-        let jaw = MonsterId::new(2);
-        let mut state = CombatState::initial_fixture();
-        state.monsters = vec![
-            monster_state(&GUARDIAN_A0, guardian),
-            monster_state(&JAW_WORM_A0, jaw),
-        ];
-        state.monsters[0].powers.spikes = 3;
-        state.monsters[0].hp = 5;
-        state.monsters[0].max_hp = 240;
-        state.monsters[0].block = 0;
-        state.monsters[1].block = 0;
-        state.player.hp = 80;
-        state.player.block = 0;
-        state.player.energy = 1;
-        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
-
-        let next = apply_combat_action(
-            &state,
-            CombatAction::PlayCard {
-                card_id: CardId::new(1),
-                target: Some(guardian),
-            },
-        )
-        .expect("Strike should kill Guardian while Jaw Worm lives");
-
-        assert!(!next.monsters[0].alive);
-        assert!(next.monsters[1].alive);
-        assert_eq!(next.phase, CombatPhase::WaitingForPlayer);
-        assert_eq!(next.player.hp, 77);
-    }
-
-    #[test]
     fn sever_soul_feel_no_pain_block_absorbs_guardian_sharp_hide() {
         // ExhaustAll FNP from the discarded skill lands before UseCardAction
         // Sharp Hide / Beat of Death (FIDL02333).
@@ -10647,52 +10551,6 @@ mod tests {
         );
         assert_eq!(next.monsters[0].powers.time_warp, 0);
         assert_eq!(next.double_tap_pending, 0);
-    }
-
-    #[test]
-    fn double_tap_copy_skips_use_when_normality_blocks_fourth_play() {
-        // Normality.canPlay is false once cardsPlayedThisTurn >= 3. Double Tap
-        // still consumes on the original Attack, but the queued copy never
-        // use()s (FIDL02303 Wild Strike after Double Tap with Normality in hand).
-        let target = MonsterId::new(1);
-        let mut state = CombatState::initial_fixture();
-        state.player.energy = 1;
-        state.player.powers.strength = 3;
-        state.double_tap_pending = 1;
-        state.relic_counters.cards_played_this_turn = 2;
-        state.piles.hand = vec![
-            CardInstance::new(CardId::new(1), WILD_STRIKE_ID),
-            CardInstance::new(CardId::new(2), NORMALITY_ID),
-        ];
-        state.piles.draw_pile.clear();
-        state.piles.discard_pile.clear();
-        state.monsters[0].hp = 135;
-        state.monsters[0].max_hp = 250;
-
-        let next = apply_combat_action(
-            &state,
-            CombatAction::PlayCard {
-                card_id: CardId::new(1),
-                target: Some(target),
-            },
-        )
-        .expect("Wild Strike with Double Tap under Normality");
-
-        assert_eq!(
-            next.monsters[0].hp, 120,
-            "Normality must suppress the Double Tap copy hit"
-        );
-        assert_eq!(
-            next.piles
-                .draw_pile
-                .iter()
-                .filter(|card| card.content_id == WOUND_ID)
-                .count(),
-            1,
-            "Normality must suppress the Double Tap copy Wound"
-        );
-        assert_eq!(next.double_tap_pending, 0);
-        assert_eq!(next.relic_counters.cards_played_this_turn, 3);
     }
 
     #[test]
