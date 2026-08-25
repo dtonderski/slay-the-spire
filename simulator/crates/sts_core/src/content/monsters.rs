@@ -10446,6 +10446,14 @@ fn apply_monster_intent_with_card_rng_inner(
         }
         MonsterIntent::StrengthSelf { amount } => {
             if monster.content_id == CORRUPT_HEART_ID {
+                // Buff: RemoveSpecificPowerAction on Strength when amount < 0,
+                // then ApplyPower Strength 2. Negative Strength is a DEBUFF
+                // (Disarm); leaving it stacked makes -N+2 instead of +2
+                // (FIDL00108). Shackled (`temp_strength_down`) is a different
+                // power and is not removed.
+                if monster.powers.strength < 0 {
+                    monster.powers.strength = 0;
+                }
                 checked_add_monster_intent_value(&mut monster.powers.strength, amount)?;
                 match monster.powers.heart_buff_count {
                     0 => checked_add_monster_intent_value(&mut monster.powers.artifact, 2)?,
@@ -11313,6 +11321,41 @@ mod tests {
         assert_eq!(player.powers.weak, GUARDIAN_VENT_DEBUFF);
         assert_eq!(player.powers.vulnerable, GUARDIAN_VENT_DEBUFF);
         assert!(player.vulnerable_just_applied);
+    }
+
+    #[test]
+    fn corrupt_heart_buff_clears_negative_strength_before_gaining_two() {
+        let mut state = crate::CombatState::initial_fixture();
+        let mut monster = monster_state(&CORRUPT_HEART_A0, MonsterId::new(1));
+        monster.powers.strength = -2;
+        monster.powers.heart_buff_count = 0;
+        monster.intent = MonsterIntent::StrengthSelf { amount: 2 };
+        let mut player = state.player.clone();
+        let player_before = player.clone();
+        let allocated_card_id_through = state.max_authoritative_card_instance_id();
+
+        apply_monster_intent_with_card_rng(
+            &mut monster,
+            &mut player,
+            &mut state.piles,
+            allocated_card_id_through,
+            0,
+            &player_before,
+            &[],
+            &mut state.rng.card_random_rng,
+        )
+        .expect("Heart Buff resolves");
+
+        assert_eq!(
+            monster.powers.strength, 2,
+            "negative Strength is removed, then +2"
+        );
+        assert_eq!(monster.powers.artifact, 2);
+        assert_eq!(monster.powers.heart_buff_count, 1);
+        assert_eq!(
+            monster.temp_strength_down, 0,
+            "Shackled is not a StrengthPower"
+        );
     }
 
     #[test]
