@@ -8405,6 +8405,33 @@ mod tests {
     }
 
     #[test]
+    fn lethal_last_enemy_still_applies_queued_thorns_to_player() {
+        // clearPostCombatActions keeps DAMAGE actions. Collection.2 Guardian /
+        // Heart last-enemy kills still take Sharp Hide / Beat of Death
+        // (FIDL02246, FIDL02369, FIDL02383). Do not drop queued thorns just
+        // because combat is already ending.
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 80;
+        state.player.block = 0;
+        state.monsters[0].hp = 1;
+        state.monsters[0].block = 0;
+
+        let next = process_internal_queue(
+            &state,
+            VecDeque::from([
+                InternalAction::DealUnmodifiedDamage { target, amount: 1 },
+                InternalAction::DealThornsDamageToPlayer { amount: 3 },
+            ]),
+        )
+        .expect("lethal thorns queue should resolve");
+
+        assert!(!next.state.monsters[0].alive);
+        assert_eq!(next.state.phase, CombatPhase::Won);
+        assert_eq!(next.state.player.hp, 77);
+    }
+
+    #[test]
     fn lethal_pommel_draw_skips_empty_deck_shuffle_and_sundial() {
         // Target: Pommel damage kills the last enemy, then DrawCardAction runs.
         // EmptyDeckShuffleAction / Sundial do not fire once the battle is ending
@@ -9510,6 +9537,40 @@ mod tests {
 
         assert_eq!(next.player.block, 0);
         assert_eq!(next.player.hp, 53);
+    }
+
+    #[test]
+    fn lethal_last_enemy_strike_still_applies_guardian_sharp_hide() {
+        // SharpHidePower.onUseCard queues while Guardian is alive. The Strike
+        // then kills the last enemy; the queued THORNS hit still lands.
+        // Dropping it regresses collection.2 Guardian kills (FIDL02246).
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&GUARDIAN_A0, target)];
+        state.monsters[0].powers.spikes = 3;
+        state.monsters[0].hp = 5;
+        state.monsters[0].max_hp = 240;
+        state.monsters[0].block = 0;
+        state.player.hp = 80;
+        state.player.block = 0;
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("lethal Strike should resolve");
+
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.phase, CombatPhase::Won);
+        assert_eq!(next.player.hp, 77);
     }
 
     #[test]

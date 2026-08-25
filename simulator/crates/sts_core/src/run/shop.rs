@@ -19,6 +19,9 @@ use crate::{
 
 pub const SHOP_BASE_REMOVE_PRICE: i32 = 75;
 pub const SHOP_REMOVE_PRICE_INCREASE: i32 = 25;
+/// `SmilingMask` sets `ShopScreen.actualPurgeCost` to 50 after other shop
+/// discounts. Membership / Courier must not halve that override.
+const SMILING_MASK_PURGE_COST: i32 = 50;
 pub(crate) const MAX_SHOP_REMOVE_COUNT: u32 =
     ((i32::MAX - SHOP_BASE_REMOVE_PRICE) / SHOP_REMOVE_PRICE_INCREASE) as u32;
 
@@ -145,7 +148,7 @@ pub fn shop_remove_cost_for_run(run: &RunState) -> SimResult<i32> {
 pub(crate) fn shop_remove_cost_for_count(run: &RunState, count: u32) -> SimResult<i32> {
     let mut cost = shop_base_remove_cost(count)?;
     if owns_relic_key(run, RelicKey::SmilingMask) {
-        return Ok(50);
+        return Ok(SMILING_MASK_PURGE_COST);
     }
 
     if has_the_courier(run) {
@@ -517,7 +520,7 @@ pub fn generate_shop_screen(run: &mut RunState) -> SimResult<ShopScreen> {
         apply_membership_discount_to_shop(&mut shop);
     }
     if owns_relic_key(run, RelicKey::SmilingMask) {
-        shop.remove_cost = 50;
+        shop.remove_cost = SMILING_MASK_PURGE_COST;
     }
     Ok(shop)
 }
@@ -764,8 +767,17 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
                 queue_orrery_card_reward_choices(&mut next)?;
             }
             if key == RelicKey::MembershipCard {
+                let keep_smiling_mask_purge = owns_relic_key(&next, RelicKey::SmilingMask);
                 if let Some(shop) = next.shop.as_mut() {
                     apply_membership_discount_to_shop(shop);
+                    // generate_shop_screen applies Membership then overwrites
+                    // purge cost with Smiling Mask's flat 50. Buying Membership
+                    // mid-shop must do the same: FIDL00026 floor-30 keeps
+                    // purge_cost 50 after Membership, so Magnetism leaves 29
+                    // gold and purge drops out of the affordable choice list.
+                    if keep_smiling_mask_purge {
+                        shop.remove_cost = SMILING_MASK_PURGE_COST;
+                    }
                 }
             }
             if key == RelicKey::TheCourier || has_the_courier(&next) {
@@ -1250,5 +1262,55 @@ mod tests {
 
         next = apply_shop_action(&next, RunAction::EnterShop).expect("re-open merchant");
         assert!(next.shop_merchant_open);
+    }
+
+    #[test]
+    fn buying_membership_does_not_discount_smiling_mask_purge_cost() {
+        let mut run = RunState::seeded_ironclad(3_840_209_149_409_335_969, 0);
+        run.phase = RunPhase::Shop;
+        run.event = None;
+        run.gold = 999;
+        run.relics.push(Relic::SmilingMask);
+        let shop = generate_shop_screen(&mut run).expect("shop fixture allocation is valid");
+        run.shop = Some(shop);
+        run.shop_merchant_open = true;
+        assert_eq!(
+            run.shop.as_ref().expect("open shop").remove_cost,
+            SMILING_MASK_PURGE_COST
+        );
+        run.shop.as_mut().unwrap().relics[0].relic_key = RelicKey::MembershipCard;
+        run.shop.as_mut().unwrap().relics[0].price = 0;
+
+        let next = apply_shop_action(&run, RunAction::BuyShopRelic { slot: 0 })
+            .expect("Membership purchase succeeds");
+        assert_eq!(
+            next.shop.as_ref().expect("shop remains").remove_cost,
+            SMILING_MASK_PURGE_COST
+        );
+        assert!(next
+            .relics
+            .iter()
+            .any(|relic| *relic == Relic::MembershipCard));
+    }
+
+    #[test]
+    fn buying_membership_still_discounts_purge_without_smiling_mask() {
+        let mut run = RunState::seeded_ironclad(3_840_209_149_409_335_969, 0);
+        run.phase = RunPhase::Shop;
+        run.event = None;
+        run.gold = 999;
+        let shop = generate_shop_screen(&mut run).expect("shop fixture allocation is valid");
+        run.shop = Some(shop);
+        run.shop_merchant_open = true;
+        let purge_before = run.shop.as_ref().expect("open shop").remove_cost;
+        run.shop.as_mut().unwrap().relics[0].relic_key = RelicKey::MembershipCard;
+        run.shop.as_mut().unwrap().relics[0].price = 0;
+
+        let next = apply_shop_action(&run, RunAction::BuyShopRelic { slot: 0 })
+            .expect("Membership purchase succeeds");
+        assert_eq!(
+            next.shop.as_ref().expect("shop remains").remove_cost,
+            round_discount(purge_before, 1, 2)
+        );
     }
 }
