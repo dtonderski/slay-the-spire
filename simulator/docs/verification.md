@@ -119,13 +119,16 @@ uv run -- cargo run -q -p sts_verify --bin sts_verify -- status --markdown \
 ### Authoritative Hugging Face corpus
 
 The private `dtonderski/sts-permanent-traces` Hugging Face dataset mirrors the
-current reviewed corpus. It contains 208 immutable `collection.2-schema6`
-payloads, each stored as a deterministic `<trace>.jsonl.gz`. The cohort passed
-independent structure, command-fence, zero-effect, hand/card retrieval,
-terminal, repeatability, raw-diff, and hash audits before replacement of the
-remote legacy payloads. Current verifier status is 123 complete passes and 85
-explicit unsupported frontiers, with zero trace errors and zero raw unexpected
-diffs.
+current reviewed 311-trace corpus, with each immutable payload stored as a
+deterministic `<trace>.jsonl.gz`. The original 208 traces declare
+`source_version="collection.2-schema6"`. The 103-trace FIDL01880–FIDL02008
+cohort has a stale pre-schema-6 `source_version` string, so its immutable
+metadata was not rewritten; its promotion record instead attests the installed
+SuperFastMode `1.0.9-collection.2` JAR and exact collection artifact hashes.
+Both cohorts use boundary schema 6 and passed structure, command-fence,
+zero-effect, hand/card retrieval, terminal, repeatability, raw-diff, and hash
+audits. Current verifier status is 281 complete passes and 30 explicit
+unsupported frontiers, with zero trace errors and zero raw unexpected diffs.
 
 Download the external corpus into the active directory:
 

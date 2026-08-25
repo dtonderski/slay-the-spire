@@ -21,7 +21,7 @@ GAME_LOG="$OUT/game_supervisor.log"
 CAMP_LOG="$OUT/campaign_supervisor.log"
 INTERVAL="${STS_COLLECTION_MONITOR_INTERVAL_SEC:-120}"
 
-SOURCE_VERSION="${STS_RANDOM_SOURCE_VERSION:-schema-v1-streaming-client-382654aeb22bb69ab961add7a79e03e9f075f1137e6736e6dc86cf3c70d475b7-collector-ca8dcc187ce1fcfadaaaedd3f96403733fc5fabf6c8cdb8ab71b021b995e2022-communicationmod-b8d86499bee7be281002282a2949443d0c57f2ac68988849dd82fe10b08fd37a-verify-release-2ca3daed3c93b988e10be7330b9693eeef3122c0c48a0728142d9962d787e9e5}"
+SOURCE_VERSION="${STS_RANDOM_SOURCE_VERSION:-collection.2-schema6}"
 
 mkdir -p "$OUT"
 
