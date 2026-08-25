@@ -135,9 +135,33 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         apply_pending_nilry_end_powers(&mut next)?;
         crate::relic::nilrys_codex_flush_pending_draw_inserts(&mut next)?;
         deferred_stasis_cards = Vec::new();
+        // Constricted.atEndOfTurn addToBots THORNS after CodexAction. Without
+        // Combust it is not in the pre-hand power window, so resume must still
+        // apply it (FIDL00108 Spire Growth 10).
+        let constricted_before_ethereal = next.player.powers.constricted > 0
+            && !crate::combat::turn_powers::constricted_resolved_before_hand_with_combust(&next);
+        if constricted_before_ethereal {
+            crate::combat::turn_powers::apply_end_of_turn_constricted(&mut next)?;
+        }
         let queued_autoplay = queued_end_turn_autoplay_ids(&next);
         end_of_turn_hand =
             resolve_end_of_turn_hand_with_queued_autoplay(&mut next, Some(&queued_autoplay))?;
+        if finish_combat_if_over(&mut next, started_with_living_monster)? {
+            return Ok(next);
+        }
+        if !crate::combat::turn_powers::constricted_resolved_before_hand_with_combust(&next)
+            && !constricted_before_ethereal
+        {
+            crate::combat::turn_powers::apply_end_of_turn_constricted(&mut next)?;
+        }
+        crate::combat::turn_powers::apply_end_of_player_turn_regeneration(&mut next)?;
+        if finish_combat_if_over(&mut next, started_with_living_monster)? {
+            return Ok(next);
+        }
+        crate::relic::apply_end_of_player_turn_relics(&mut next)?;
+        if finish_combat_if_over(&mut next, started_with_living_monster)? {
+            return Ok(next);
+        }
     } else {
         let stasis_cards_before_end_powers = next
             .monsters
@@ -6816,6 +6840,37 @@ mod tests {
             .hand
             .iter()
             .all(|card| card.content_id != GHOSTLY_ARMOR_ID));
+    }
+
+    #[test]
+    fn nilry_resume_applies_constricted_when_combust_is_absent() {
+        // ConstrictedPower.atEndOfTurn waits behind CodexAction. Closing the
+        // offer must still queue that THORNS hit before the monster turn.
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::NilrysCodex];
+        state.player.hp = 80;
+        state.player.max_hp = 80;
+        state.player.block = 0;
+        state.player.powers.constricted = 10;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+        state.piles.draw_pile = (10..20)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.monsters[0].alive = true;
+        state.monsters[0].hp = 40;
+        state.monsters[0].intent = MonsterIntent::Stun;
+        state.monsters[0].initial_intent_locked = true;
+
+        let paused = end_player_turn(&state).expect("Nilry pauses before Constricted");
+        assert_eq!(paused.player.hp, 80);
+        assert_eq!(paused.player.powers.constricted, 10);
+
+        let mut closing = paused;
+        closing.decision = None;
+        let next = end_player_turn(&closing).expect("Codex close applies Constricted");
+
+        assert_eq!(next.player.hp, 70, "Constricted 10 is blockable THORNS");
+        assert_eq!(next.player.powers.constricted, 10);
     }
 
     #[test]
