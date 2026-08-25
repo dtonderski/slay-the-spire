@@ -3252,14 +3252,15 @@ fn apply_play_top_draw_card(
         .then(|| random_living_monster_id(state))
         .flatten();
 
-    // Time Warp's onUseCard increment arms the forced end after Havoc.use()
-    // has already queued PlayTopCardAction. The current card's PlayTop still
-    // runs; a nested leftover PlayTop queued by the forced card must not
-    // (FIDL01271: Havoc+ force-plays top Havoc, then Time Warp cancels that
-    // nested PlayTop).
-    if state.time_warp_end_turn && state.play_top_resolving_depth > 0 {
-        return Ok(Vec::new());
-    }
+    // Time Warp's onAfterUseCard arms the forced end after card.use() has
+    // already queued PlayTopCardAction, so that PlayTop still extracts its
+    // top card. If Time Warp was already armed before this card's use() —
+    // the 12th card was a parent Havoc whose nested resolve starts with
+    // `time_warp_end_turn` set — ResolveTopDrawCard exhausts without use()
+    // and never queues a leftover PlayTop (FIDL01271 / FIDL01285).
+    // Do not skip extraction here: a 12th-card nested Havoc queues leftover
+    // PlayTop during use() before onAfterUseCard, and that card must leave
+    // the draw pile (FIDL00021 Wound).
     if random_living_target
         && !state
             .monsters
@@ -12929,6 +12930,55 @@ mod tests {
         );
         assert!(next.hand_select().is_none());
         assert!(!next.time_warp_end_turn);
+    }
+
+    #[test]
+    fn time_warp_twelfth_play_top_havoc_still_extracts_leftover_top() {
+        // Hand Havoc is the 11th card. Its PlayTop force-plays draw-pile Havoc
+        // as the 12th. Nested Havoc.use() queues leftover PlayTop before
+        // onAfterUseCard arms Time Warp, so that leftover card is extracted
+        // and force-exhausted without use() (FIDL00021 Wound / Evolve).
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_PLUS_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), WOUND_ID),
+            CardInstance::new(CardId::new(4), HAVOC_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.monsters[0].content_id = crate::content::monsters::TIME_EATER_ID;
+        state.monsters[0].powers.time_warp = 10;
+        state.monsters[0].hp = 200;
+        state.monsters[0].max_hp = 200;
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("11th-card Havoc PlayTops Havoc as the 12th card");
+
+        assert!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .any(|card| card.content_id == HAVOC_ID),
+            "the first PlayTop still force-exhausts top Havoc"
+        );
+        assert!(
+            next.piles
+                .exhaust_pile
+                .iter()
+                .any(|card| card.content_id == WOUND_ID),
+            "leftover PlayTop queued by the 12th-card Havoc still extracts Wound"
+        );
+        assert!(next.hand_select().is_none());
+        assert!(!next.time_warp_end_turn);
+        assert_eq!(next.monsters[0].powers.time_warp, 0);
     }
 
     #[test]
