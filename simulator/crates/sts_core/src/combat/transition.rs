@@ -313,6 +313,14 @@ pub(crate) fn process_internal_queue(
         // insertion that can no longer be observed. Keep the gate generic for
         // all random-spot generated cards; surviving and revival paths retain
         // the normal insertion below.
+        //
+        // SharpHidePower / BeatOfDeathPower queue THORNS DamageAction from
+        // UseCardAction after card.use(). Once the last enemy is dead, that
+        // UseCardAction bails (`areMonstersBasicallyDead`) and
+        // clearPostCombatActions drops remaining thorns hits. Queue the
+        // DamageAction while the source is still alive at onUseCard, then
+        // drop it here — do not skip at queue time just because the hit
+        // will be lethal (FIDL00005 Guardian Sharp Hide).
         let combat_is_ending = next.player.hp <= 0
             || next
                 .monsters
@@ -323,6 +331,7 @@ pub(crate) fn process_internal_queue(
                 internal_action,
                 InternalAction::AddGeneratedCardToDrawPileRandomSpot { .. }
                     | InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost { .. }
+                    | InternalAction::DealThornsDamageToPlayer { .. }
             )
         {
             event_log.push(internal_action);
@@ -8357,6 +8366,32 @@ mod tests {
     }
 
     #[test]
+    fn lethal_last_enemy_skips_queued_thorns_to_player() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 80;
+        state.player.block = 0;
+        state.monsters[0].hp = 1;
+        state.monsters[0].block = 0;
+
+        let next = process_internal_queue(
+            &state,
+            VecDeque::from([
+                InternalAction::DealUnmodifiedDamage { target, amount: 1 },
+                InternalAction::DealThornsDamageToPlayer { amount: 3 },
+            ]),
+        )
+        .expect("lethal thorns queue should resolve");
+
+        assert!(!next.state.monsters[0].alive);
+        assert_eq!(next.state.phase, CombatPhase::Won);
+        assert_eq!(
+            next.state.player.hp, 80,
+            "queued THORNS DamageAction is dropped once combat is ending"
+        );
+    }
+
+    #[test]
     fn lethal_pommel_draw_skips_empty_deck_shuffle_and_sundial() {
         // Target: Pommel damage kills the last enemy, then DrawCardAction runs.
         // EmptyDeckShuffleAction / Sundial do not fire once the battle is ending
@@ -9462,6 +9497,102 @@ mod tests {
 
         assert_eq!(next.player.block, 0);
         assert_eq!(next.player.hp, 53);
+    }
+
+    #[test]
+    fn lethal_last_enemy_strike_skips_guardian_sharp_hide() {
+        // SharpHidePower.onUseCard still queues while Guardian is alive. The
+        // Strike then kills the last enemy, so the queued THORNS hit is
+        // dropped (FIDL00005: real 9750 vs sim 9747 was this extra 3).
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&GUARDIAN_A0, target)];
+        state.monsters[0].powers.spikes = 3;
+        state.monsters[0].hp = 5;
+        state.monsters[0].max_hp = 240;
+        state.monsters[0].block = 0;
+        state.player.hp = 80;
+        state.player.block = 0;
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("lethal Strike should resolve");
+
+        assert!(!next.monsters[0].alive);
+        assert_eq!(next.phase, CombatPhase::Won);
+        assert_eq!(next.player.hp, 80);
+    }
+
+    #[test]
+    fn nonlethal_guardian_strike_still_applies_sharp_hide() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&GUARDIAN_A0, target)];
+        state.monsters[0].powers.spikes = 3;
+        state.monsters[0].hp = 200;
+        state.monsters[0].max_hp = 240;
+        state.monsters[0].block = 0;
+        state.player.hp = 80;
+        state.player.block = 0;
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("non-lethal Strike should resolve");
+
+        assert!(next.monsters[0].alive);
+        assert_eq!(next.phase, CombatPhase::WaitingForPlayer);
+        assert_eq!(next.player.hp, 77);
+    }
+
+    #[test]
+    fn lethal_guardian_sharp_hide_still_applies_while_other_enemy_lives() {
+        let guardian = MonsterId::new(1);
+        let jaw = MonsterId::new(2);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![
+            monster_state(&GUARDIAN_A0, guardian),
+            monster_state(&JAW_WORM_A0, jaw),
+        ];
+        state.monsters[0].powers.spikes = 3;
+        state.monsters[0].hp = 5;
+        state.monsters[0].max_hp = 240;
+        state.monsters[0].block = 0;
+        state.monsters[1].block = 0;
+        state.player.hp = 80;
+        state.player.block = 0;
+        state.player.energy = 1;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(guardian),
+            },
+        )
+        .expect("Strike should kill Guardian while Jaw Worm lives");
+
+        assert!(!next.monsters[0].alive);
+        assert!(next.monsters[1].alive);
+        assert_eq!(next.phase, CombatPhase::WaitingForPlayer);
+        assert_eq!(next.player.hp, 77);
     }
 
     #[test]
