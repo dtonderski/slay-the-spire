@@ -589,114 +589,131 @@ fn settle_discovery_source_without_time_warp_end(
 pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResult<RunState> {
     validate_combat_card_reward_choice(run, index)?;
     let mut next = run.clone();
-    let combat = next.combat.as_mut().expect("validated combat");
-    let played_discovery_card_id = matches!(
-        combat.decision.as_ref(),
-        Some(CombatDecisionState::DiscoveryCardReward {
-            source_card: Some(_),
-            ..
-        })
-    )
-    .then(|| combat.next_card_instance_id())
-    .transpose()?
-    .map(CardId::new);
-    let decision = combat
-        .decision
-        .take()
-        .ok_or(SimError::IllegalAction("no combat card reward is open"))?;
-    match decision {
-        CombatDecisionState::PotionCardReward {
-            choices,
-            reward_kind: _,
-        } => {
-            let card_id = CardId::new(combat.next_card_instance_id()?);
-            let choice = choices[index];
-            let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
-            card.temp_cost_turn_only = true;
-            // CommunicationMod exposes potion-generated cards after the cards that
-            // were already in hand, unlike Toolbox and Discovery rewards.
-            combat.piles.hand.push(card);
-            crate::relic::apply_potion_use_relics_to_combat(combat)?;
-            next.player_hp = combat.player.hp;
-            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
-        }
-        CombatDecisionState::DiscoveryCardReward {
-            choices,
-            source_card,
-            source_card_force_exhaust,
-            source_card_play_top: _,
-            pending_actions,
-        } => {
-            let card_id = if let Some(card_id) = played_discovery_card_id {
-                card_id
-            } else {
-                CardId::new(combat.next_card_instance_id()?)
-            };
-            // DiscoveryAction.update generates a discarded three-card offer at
-            // the start of every leftover SuperFastMode pulse. Encounter- and
-            // hand-shape pulse tables used to guess 0/1/2/6 to match traces;
-            // keep a single leftover pulse so RNG drift stays visible until
-            // leftover action-queue settlement is modeled.
-            let generations = DISCOVERY_POST_SELECT_GENERATIONS;
-            burn_all_discovery_card_choice_generations(
-                &mut combat.rng.card_random_rng,
-                3,
-                generations,
-            );
-            let choice = choices[index];
-            let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
-            card.temp_cost_turn_only = true;
-            // DiscoveryAction adds the generated card after the cards already in hand.
-            combat.piles.hand.push(card);
-            // card.use() follow-ups queued behind DiscoveryAction (for example
-            // Hex's Dazed insertion) resolve after the selected card is
-            // retrieved but before UseCardAction settles the Discovery source.
-            // Time Warp EndTurn stays behind that UseCardAction; CHOOSE must
-            // not flush it (FIDL01799 leftover PLAY).
-            settle_discovery_source_without_time_warp_end(
-                combat,
+    let won = {
+        let combat = next.combat.as_mut().expect("validated combat");
+        let played_discovery_card_id = matches!(
+            combat.decision.as_ref(),
+            Some(CombatDecisionState::DiscoveryCardReward {
+                source_card: Some(_),
+                ..
+            })
+        )
+        .then(|| combat.next_card_instance_id())
+        .transpose()?
+        .map(CardId::new);
+        let decision = combat
+            .decision
+            .take()
+            .ok_or(SimError::IllegalAction("no combat card reward is open"))?;
+        match decision {
+            CombatDecisionState::PotionCardReward {
+                choices,
+                reward_kind: _,
+            } => {
+                let card_id = CardId::new(combat.next_card_instance_id()?);
+                let choice = choices[index];
+                let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
+                card.temp_cost_turn_only = true;
+                // CommunicationMod exposes potion-generated cards after the cards that
+                // were already in hand, unlike Toolbox and Discovery rewards.
+                combat.piles.hand.push(card);
+                crate::relic::apply_potion_use_relics_to_combat(combat)?;
+                next.player_hp = combat.player.hp;
+                next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+            }
+            CombatDecisionState::DiscoveryCardReward {
+                choices,
                 source_card,
                 source_card_force_exhaust,
+                source_card_play_top: _,
                 pending_actions,
-            )?;
-            combat.play_top_force_exhaust_active = false;
-            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+            } => {
+                let card_id = if let Some(card_id) = played_discovery_card_id {
+                    card_id
+                } else {
+                    CardId::new(combat.next_card_instance_id()?)
+                };
+                // DiscoveryAction.update generates a discarded three-card offer at
+                // the start of every leftover SuperFastMode pulse. Encounter- and
+                // hand-shape pulse tables used to guess 0/1/2/6 to match traces;
+                // keep a single leftover pulse so RNG drift stays visible until
+                // leftover action-queue settlement is modeled.
+                let generations = DISCOVERY_POST_SELECT_GENERATIONS;
+                burn_all_discovery_card_choice_generations(
+                    &mut combat.rng.card_random_rng,
+                    3,
+                    generations,
+                );
+                let choice = choices[index];
+                let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
+                card.temp_cost_turn_only = true;
+                // DiscoveryAction adds the generated card after the cards already in hand.
+                combat.piles.hand.push(card);
+                // card.use() follow-ups queued behind DiscoveryAction (for example
+                // Hex's Dazed insertion) resolve after the selected card is
+                // retrieved but before UseCardAction settles the Discovery source.
+                // Time Warp EndTurn stays behind that UseCardAction; CHOOSE must
+                // not flush it (FIDL01799 leftover PLAY).
+                settle_discovery_source_without_time_warp_end(
+                    combat,
+                    source_card,
+                    source_card_force_exhaust,
+                    pending_actions,
+                )?;
+                combat.play_top_force_exhaust_active = false;
+                next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+            }
+            CombatDecisionState::ToolboxCardReward { choices } => {
+                let choice = choices[index];
+                let card_id = CardId::new(combat.next_card_instance_id()?);
+                combat.piles.hand.insert(
+                    0,
+                    CardInstance {
+                        combat_only: true,
+                        ..CardInstance::new(card_id, choice.content_id)
+                    },
+                );
+                next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+                crate::relic::settle_pending_opening_combat_actions(combat)?;
+                crate::relic::settle_pending_start_of_turn_relic_actions(combat)?;
+                next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+            }
+            CombatDecisionState::NilrysCodexCardReward { choices } => {
+                let choice = choices[index];
+                // Shuffle the chosen card into a random draw-pile spot (combat-only).
+                crate::combat::transition::add_generated_card_to_draw_pile_random_spot_public(
+                    combat,
+                    choice.content_id,
+                )?;
+                next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+                // Closing the offer resumes the paused end-turn queue: no further
+                // END command is emitted before the monster turn.
+                *combat = crate::combat::turn::end_player_turn(combat)?;
+                next.player_hp = combat.player.hp;
+                next.player_max_hp = combat.player.max_hp;
+                next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+            }
+            other => {
+                combat.decision = Some(other);
+                return Err(SimError::IllegalAction("no combat card reward is open"));
+            }
         }
-        CombatDecisionState::ToolboxCardReward { choices } => {
-            let choice = choices[index];
-            let card_id = CardId::new(combat.next_card_instance_id()?);
-            combat.piles.hand.insert(
-                0,
-                CardInstance {
-                    combat_only: true,
-                    ..CardInstance::new(card_id, choice.content_id)
-                },
-            );
-            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
-            crate::relic::settle_pending_opening_combat_actions(combat)?;
-            crate::relic::settle_pending_start_of_turn_relic_actions(combat)?;
-            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+        let won = combat.phase == CombatPhase::Won;
+        if !won {
+            combat.activate_next_queued_decision_if_idle();
         }
-        CombatDecisionState::NilrysCodexCardReward { choices } => {
-            let choice = choices[index];
-            // Shuffle the chosen card into a random draw-pile spot (combat-only).
-            crate::combat::transition::add_generated_card_to_draw_pile_random_spot_public(
-                combat,
-                choice.content_id,
-            )?;
-            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
-            // Closing the offer resumes the paused end-turn queue: no further
-            // END command is emitted before the monster turn.
-            *combat = crate::combat::turn::end_player_turn(combat)?;
-            next.player_hp = combat.player.hp;
-            next.player_max_hp = combat.player.max_hp;
+        won
+    };
+    if won {
+        let card_random = next
+            .combat
+            .as_ref()
+            .map(|combat| combat.rng.card_random_rng.clone());
+        if let Some(card_random) = card_random {
+            next.store_rng_counter(RunRngStream::CardRandom, &card_random);
         }
-        other => {
-            combat.decision = Some(other);
-            return Err(SimError::IllegalAction("no combat card reward is open"));
-        }
+        enter_combat_reward_for_current_room(&mut next)?;
     }
-    combat.activate_next_queued_decision_if_idle();
     Ok(next)
 }
 
@@ -719,8 +736,14 @@ pub fn apply_combat_card_reward_skip(run: &RunState) -> SimResult<RunState> {
             next.player_hp = finished.player.hp;
             next.player_max_hp = finished.player.max_hp;
             next.card_random_rng_counter = finished.rng.card_random_rng.counter();
+            let won = finished.phase == CombatPhase::Won;
+            if won {
+                next.store_rng_counter(RunRngStream::CardRandom, &finished.rng.card_random_rng);
+            }
             next.combat = Some(finished);
-            if let Some(combat) = next.combat.as_mut() {
+            if won {
+                enter_combat_reward_for_current_room(&mut next)?;
+            } else if let Some(combat) = next.combat.as_mut() {
                 combat.activate_next_queued_decision_if_idle();
             }
             Ok(next)
@@ -1399,6 +1422,47 @@ mod tests {
             "lethal Juggernaut from FNP block on exhaust select CONFIRM must open rewards"
         );
         assert!(after_confirm.reward.is_some());
+    }
+
+    #[test]
+    fn nilry_choose_enters_reward_when_metallicize_juggernaut_kills_last() {
+        // Closing CodexAction continues end-turn powers. Metallicize's
+        // Juggernaut hit can empty the field; the run must open combat rewards
+        // the same way PlayCard / exhaust CONFIRM do (FIDL00108 step 1621).
+        let mut run = RunState::combat_fixture_with_relics(vec![crate::relic::Relic::NilrysCodex]);
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.player.powers.metallicize = 3;
+            combat.player.powers.juggernaut = 5;
+            combat.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID)];
+            combat.piles.draw_pile = (10..20)
+                .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+                .collect();
+            combat.monsters.truncate(1);
+            combat.monsters[0].hp = 5;
+            combat.monsters[0].block = 0;
+            combat.monsters[0].alive = true;
+        }
+
+        let paused = apply_combat_action_on_run(&run, CombatAction::EndTurn)
+            .expect("Nilry pauses at Codex offer");
+        assert!(matches!(
+            paused
+                .combat
+                .as_ref()
+                .and_then(|combat| combat.decision.as_ref()),
+            Some(CombatDecisionState::NilrysCodexCardReward { .. })
+        ));
+
+        let after_choose =
+            apply_run_action(&paused, RunAction::ChooseCombatCardReward { index: 0 })
+                .expect("Codex choose resumes end-turn");
+        assert_eq!(
+            after_choose.phase,
+            RunPhase::Reward,
+            "lethal Juggernaut from Metallicize on Codex close must open rewards"
+        );
+        assert!(after_choose.reward.is_some());
     }
 
     #[test]
