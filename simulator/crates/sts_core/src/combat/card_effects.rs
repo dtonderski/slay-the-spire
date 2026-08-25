@@ -675,6 +675,16 @@ pub(super) fn play_top_draw_card_queue(
                 source_card_id,
                 purpose: crate::combat::DiscardSelectPurpose::HeadbuttPutOnDraw,
             } if *source_card_id == card.id
+        ) || matches!(
+            action,
+            // Secret Technique/Weapon queue their filtered draw action before
+            // UseCardAction settles the source. Top-play envelopes must leave
+            // the source staged until that draw selection closes as well.
+            InternalAction::AwaitDrawSelect {
+                source_card_id,
+                purpose: crate::combat::DrawSelectPurpose::SecretTechniqueSkillToHand
+                    | crate::combat::DrawSelectPurpose::SecretWeaponAttackToHand,
+            } if *source_card_id == card.id
         )
     });
     let force_exhaust_opens_deferred_source_select = selection_defers_source_settlement

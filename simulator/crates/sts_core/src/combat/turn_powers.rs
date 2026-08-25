@@ -88,7 +88,7 @@ fn apply_end_of_player_turn_powers_before_hand_inner(
     // Combust stacks → −6 HP). Without Combust, Constricted stays after hand
     // so Metallicize can absorb Decay (FIDL00415) and leftover block can absorb
     // Burn before Constricted THORNS (FIDL00061).
-    if state.player.powers.combust > 0 {
+    if apply_combust && state.player.powers.combust > 0 {
         apply_end_of_turn_constricted(state)?;
         if state.player.hp <= 0 {
             return Ok(false);

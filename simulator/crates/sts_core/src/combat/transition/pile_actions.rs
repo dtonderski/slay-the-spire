@@ -5,6 +5,7 @@ use super::{
     move_forethought_card_to_draw_bottom, player_draw_cards,
     player_draw_cards_with_deferred_evolve, player_draw_cards_without_evolve,
     random_colorless_card, random_hand_card_id_except, remove_card_from_pile,
+    with_card_in_use_out_of_hand,
 };
 use crate::{
     action::{CardPile, InternalAction},
@@ -380,8 +381,16 @@ fn draw_cards_while_played_card_is_in_limbo_with_mode(
     let follow_ups = if trigger_evolve {
         player_draw_cards_with_deferred_evolve(state, count)?
     } else {
-        player_draw_cards_without_evolve(state, count)?;
-        Vec::new()
+        // Battle Trance suppresses Evolve, but Fire Breathing and the death
+        // actions it creates remain addToBot behind the already-queued No Draw
+        // and UseCardAction. Returning them preserves that queue boundary.
+        if state.player.cannot_draw {
+            Vec::new()
+        } else {
+            with_card_in_use_out_of_hand(state, |next| {
+                crate::combat::draw::draw_cards_with_combat_rng_deferred_without_evolve(next, count)
+            })?
+        }
     };
     if let Some(played_card) = played_card {
         // Keep the source in hand after the limbo draw so later card effects

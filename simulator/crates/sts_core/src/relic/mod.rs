@@ -2423,18 +2423,29 @@ pub fn apply_player_hp_loss_relics_with_draw_policy(
     Ok(())
 }
 
-/// Resolve Centennial Puzzle / Runic Cube draws queued during a multi-hit attack.
-pub fn settle_deferred_hp_loss_draw_relics(state: &mut CombatState) -> SimResult<()> {
+/// Resolve Centennial Puzzle / Runic Cube DrawCardActions queued during an
+/// attack, returning on-draw addToBot actions (Evolve, Fire Breathing, etc.).
+/// Those follow-ups remain behind status-card actions already queued by the
+/// monster intent.
+pub fn settle_deferred_hp_loss_draw_relics(
+    state: &mut CombatState,
+) -> SimResult<Vec<InternalAction>> {
     if state.player.hp <= 0 {
         state.relic_counters.deferred_centennial_puzzle_draw = false;
         state.relic_counters.deferred_runic_cube_draws = 0;
-        return Ok(());
+        return Ok(Vec::new());
     }
     let mut next = state.clone();
+    let mut follow_ups = Vec::new();
     if next.relic_counters.deferred_centennial_puzzle_draw {
         next.relic_counters.deferred_centennial_puzzle_draw = false;
         if next.relics.contains(&Relic::CentennialPuzzle) {
-            crate::combat::transition::player_draw_cards(&mut next, CENTENNIAL_PUZZLE_DRAW)?;
+            follow_ups.extend(
+                crate::combat::transition::player_draw_cards_with_deferred_evolve(
+                    &mut next,
+                    CENTENNIAL_PUZZLE_DRAW,
+                )?,
+            );
         }
     }
     let runic_draws = std::mem::take(&mut next.relic_counters.deferred_runic_cube_draws);
@@ -2443,11 +2454,16 @@ pub fn settle_deferred_hp_loss_draw_relics(state: &mut CombatState) -> SimResult
             if next.player.hp <= 0 {
                 break;
             }
-            crate::combat::transition::player_draw_cards(&mut next, RUNIC_CUBE_DRAW)?;
+            follow_ups.extend(
+                crate::combat::transition::player_draw_cards_with_deferred_evolve(
+                    &mut next,
+                    RUNIC_CUBE_DRAW,
+                )?,
+            );
         }
     }
     *state = next;
-    Ok(())
+    Ok(follow_ups)
 }
 
 pub fn sync_red_skull_strength(state: &mut CombatState) -> SimResult<()> {
@@ -2606,6 +2622,28 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<V
     Ok(deferred_juggernaut_blocks)
 }
 
+/// Queue first-turn post-draw choices/upgrades that must run before Toolbox
+/// replaces the active decision. Target relic callbacks are visited in
+/// acquisition order: Warped Tongs before Gambling Chip upgrades immediately;
+/// the opposite order parks the upgrade until the Chip selection closes.
+pub(crate) fn apply_opening_post_draw_choice_relics(state: &mut CombatState) -> SimResult<()> {
+    let mut gambling_chip_opened = false;
+    for relic in state.relics.clone() {
+        match relic {
+            Relic::GamblingChip => {
+                crate::combat::open_gambling_chip_select(state)?;
+                gambling_chip_opened = true;
+            }
+            Relic::WarpedTongs if gambling_chip_opened => {
+                state.relic_counters.deferred_warped_tongs = true;
+            }
+            Relic::WarpedTongs => upgrade_random_non_status_hand_card(state)?,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 pub fn apply_start_of_player_turn_post_draw_relics(state: &mut CombatState) -> SimResult<()> {
     if state.relics.contains(&Relic::MercuryHourglass) {
         if matches!(
@@ -2636,14 +2674,31 @@ pub fn apply_start_of_player_turn_post_draw_relics(state: &mut CombatState) -> S
                 crate::combat::transition::player_draw_cards(state, POCKETWATCH_DRAW)?;
             }
             Relic::WarpedTongs => {
-                // Both relics are atTurnStartPostDraw addToBot. Chip is earlier
-                // in acquisition order, so its discard/draw screen resolves
-                // before UpgradeRandomCardAction (FIDL02335).
-                if state.relics.contains(&Relic::GamblingChip)
-                    && state.relic_counters.player_turns_started <= 1
-                {
-                    state.relic_counters.deferred_warped_tongs = true;
-                } else {
+                // While the one-shot Gambling Chip action is active or queued,
+                // the opening ordered pass already applied/deferred Tongs.
+                // Once that action is gone, later turns upgrade normally; do
+                // not infer this from player_turns_started because a relic set
+                // with no atTurnStart hooks need not advance that counter.
+                let gambling_chip_pending = matches!(
+                    state.decision,
+                    Some(crate::combat::CombatDecisionState::ExhaustSelect {
+                        state: crate::combat::ExhaustSelectState {
+                            purpose: crate::combat::ExhaustSelectPurpose::GamblingChip,
+                            ..
+                        }
+                    })
+                ) || state.queued_decisions.iter().any(|decision| {
+                    matches!(
+                        decision,
+                        crate::combat::CombatDecisionState::ExhaustSelect {
+                            state: crate::combat::ExhaustSelectState {
+                                purpose: crate::combat::ExhaustSelectPurpose::GamblingChip,
+                                ..
+                            }
+                        }
+                    )
+                });
+                if !gambling_chip_pending {
                     upgrade_random_non_status_hand_card(state)?;
                 }
             }

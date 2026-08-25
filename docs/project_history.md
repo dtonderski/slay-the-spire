@@ -182,7 +182,10 @@ selections. It replaced the initial pilot as the active local and Hugging Face
 cohort at that point; 123 traces passed completely and 85 retained honest
 unsupported frontiers. A later audited promotion added 103 locally collected
 schema-6 traces and removed 74 externally collected `working-tree` traces,
-producing the current 311-trace regression lock.
+producing a 311-trace regression lock. A subsequent overnight collection added
+77 more reviewed terminal traces (FIDL02009–FIDL02106, excluding one
+under-specified pre-opening Colosseum publication), producing the current
+388-trace lock.
 
 A larger apparent lifecycle ambiguity was ultimately a collection-speed defect,
 not a missing trace input. The SuperFastMode collection fork multiplied the
@@ -317,8 +320,12 @@ scope, and feedback-loop quality matter more than task duration or agent count.
 - The mixed `ExhaustAction` retrieval outcome was traced to multiplied gameplay
   delta and removed from future collection without adding lifecycle inputs.
   The pre-collection.2 corpus is legacy. The active external regression cohort
-  now contains 311 reviewed schema-6 traces: the original 208-trace replacement
-  plus 103 locally collected traces externally attested to the collection.2
-  artifact despite their stale metadata label. The current simulator now
-  replays all 311 through EOF without unsupported frontiers. Post-state
-  candidate selection remains prohibited.
+  now contains 388 reviewed schema-6 traces: the original 208-trace replacement,
+  103 locally collected traces externally attested to the collection.2 artifact
+  despite their stale metadata label, and 77 terminal FIDL02009–FIDL02106
+  captures. One additional capture published Colosseum's second combat before
+  its opening queue was installed; because the trace lacks a pre-action
+  scheduler input that distinguishes that race, it remains immutable outside
+  the authoritative lock. The current simulator replays all 388 through EOF
+  without unsupported frontiers. Post-state candidate selection remains
+  prohibited.

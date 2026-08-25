@@ -532,6 +532,11 @@ pub(super) fn apply_special_event_action(
                         .ok_or(SimError::InvalidState(
                             "Secret Portal floor increment overflows i32",
                         ))?;
+                // AbstractDungeon.nextRoomTransition invokes every relic's
+                // onEnterRoom hook after incrementing floorNum, including this
+                // synthetic boss-floor transition. Keep Secret Portal on the
+                // same floor-entry lifecycle as an ordinary map edge.
+                next.apply_floor_entry_relics()?;
                 enter_secret_portal_boss_combat(next)?;
             }
             2 if choice_index == 0 => {

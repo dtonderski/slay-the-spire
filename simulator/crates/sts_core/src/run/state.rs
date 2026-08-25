@@ -2701,8 +2701,7 @@ impl RunState {
             add_enchiridion_power_to_hand(&mut combat)?;
         }
         if !combat.opening_turn_pending && self.relics.contains(&Relic::GamblingChip) {
-            crate::combat::open_gambling_chip_select(&mut combat)
-                .expect("Gambling Chip selection opens without validation side effects");
+            crate::relic::apply_opening_post_draw_choice_relics(&mut combat)?;
         }
         if !combat.opening_turn_pending && self.relics.contains(&Relic::Toolbox) {
             let next_card_id = combat.reserve_card_instance_ids(3)?;
@@ -3478,7 +3477,9 @@ impl RunState {
             // heal(amount, true). MagicFlower.onPlayerHeal applies only while
             // the current room is COMBAT (6 * 1.5 → 9).
             self.player_max_hp = checked_run_add(self.player_max_hp, DARKSTONE_PERIAPT_MAX_HP)?;
-            let heal = if self.phase == RunPhase::Combat {
+            let heal = if self.has_mark_of_bloom() {
+                0
+            } else if self.phase == RunPhase::Combat {
                 combat_healing_amount_with_relics(DARKSTONE_PERIAPT_MAX_HP, &self.relics)
             } else {
                 DARKSTONE_PERIAPT_MAX_HP

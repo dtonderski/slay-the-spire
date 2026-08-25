@@ -497,6 +497,10 @@ pub struct PlayerState {
     pub powers: PlayerPowers,
     #[serde(default)]
     pub cannot_draw: bool,
+    /// Relative target power-list order for NoDrawPower and CombustPower.
+    /// Their queued end-of-round actions resolve in insertion order.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub no_draw_precedes_combust: bool,
     #[serde(default)]
     pub temp_strength: i32,
     #[serde(default)]
@@ -536,6 +540,7 @@ impl PlayerState {
             damage_events_this_combat: 0,
             powers: PlayerPowers::default(),
             cannot_draw: false,
+            no_draw_precedes_combust: false,
             temp_strength: 0,
             temp_dexterity: 0,
             temp_thorns: 0,
@@ -552,6 +557,7 @@ impl PlayerState {
     pub(crate) fn remove_debuffs(&mut self) -> SimResult<()> {
         crate::power::clear_player_debuffs(&mut self.powers);
         self.cannot_draw = false;
+        self.no_draw_precedes_combust = false;
         let temp_strength = std::mem::take(&mut self.temp_strength);
         self.powers.strength =
             self.powers
@@ -1108,6 +1114,7 @@ impl CombatState {
                 damage_events_this_combat: 0,
                 powers: PlayerPowers::default(),
                 cannot_draw: false,
+                no_draw_precedes_combust: false,
                 temp_strength: 0,
                 temp_dexterity: 0,
                 temp_thorns: 0,
@@ -1594,6 +1601,7 @@ impl CombatState {
                     .filter_map(|monster| monster.stasis_card.as_ref()),
             )
             .map(|card| card.id.get())
+            .chain(self.card_in_use.map(CardId::get))
             .max()
             .unwrap_or(0)
     }

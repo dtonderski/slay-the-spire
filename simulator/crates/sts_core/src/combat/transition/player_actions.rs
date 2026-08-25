@@ -44,6 +44,9 @@ pub(super) fn set_cannot_draw(state: &mut CombatState) -> SimResult<Vec<Internal
         state.player.powers.artifact -= 1;
         return Ok(Vec::new());
     }
+    if !state.player.cannot_draw {
+        state.player.no_draw_precedes_combust = state.player.powers.combust == 0;
+    }
     state.player.cannot_draw = true;
     Ok(Vec::new())
 }
@@ -164,6 +167,9 @@ pub(super) fn gain_panache(state: &mut CombatState, amount: i32) -> SimResult<Ve
 }
 
 pub(super) fn gain_combust(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
+    if state.player.powers.combust == 0 && state.player.cannot_draw {
+        state.player.no_draw_precedes_combust = true;
+    }
     let combust = checked_combat_sum(state.player.powers.combust, 1)?;
     let combust_damage = checked_combat_sum(state.player.powers.combust_damage, amount)?;
     state.player.powers.combust = combust;

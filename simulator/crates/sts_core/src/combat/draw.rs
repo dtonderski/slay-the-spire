@@ -185,6 +185,19 @@ pub(crate) fn draw_cards_with_combat_rng_deferred_evolve(
         .collect())
 }
 
+pub(crate) fn draw_cards_with_combat_rng_deferred_without_evolve(
+    state: &mut CombatState,
+    count: usize,
+) -> SimResult<Vec<InternalAction>> {
+    let mut next = state.clone();
+    let follow_ups = draw_cards_batch_in_place(&mut next, count, false)?;
+    *state = next;
+    Ok(follow_ups
+        .into_iter()
+        .map(DrawFollowUp::into_internal_action)
+        .collect())
+}
+
 pub(crate) fn draw_cards_with_combat_rng_without_evolve(
     state: &mut CombatState,
     count: usize,

@@ -219,6 +219,12 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         }
         let queued_autoplay = queued_end_turn_autoplay_ids(&next);
         let defer_combust_until_after_autoplay = hand_has_end_turn_autoplay_cards(&next);
+        // Burn/Decay card actions were already queued before NoDrawPower's
+        // removal. Combust and No Draw then queue in target power-list order.
+        // Only expire No Draw here when it was inserted before Combust.
+        if !defer_combust_until_after_autoplay && next.player.no_draw_precedes_combust {
+            next.player.cannot_draw = false;
+        }
         let bomb_caused_terminal = crate::combat::turn_powers::apply_end_of_player_turn_powers_before_hand_deferred_with_combust(
             &mut next,
             &mut deferred_monster_deaths,
@@ -300,7 +306,17 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         // lands before ethereal exhaust (FIDL02191 two Apparitions).
         if defer_combust_until_after_autoplay {
             let auto_play_emptied_hand =
-                resolve_end_of_turn_autoplay_then_constricted(&mut next, &queued_autoplay)?;
+                resolve_end_of_turn_autoplay_with_queued(&mut next, Some(&queued_autoplay))?;
+            if next.player.no_draw_precedes_combust {
+                next.player.cannot_draw = false;
+            }
+            // callEndOfTurnActions queued Burn/Decay before AbstractRoom's
+            // Constricted and Combust actions. Both power actions therefore see
+            // the block/hand after autoplay has settled.
+            crate::combat::turn_powers::apply_end_of_turn_constricted(&mut next)?;
+            if finish_combat_if_over(&mut next, started_with_living_monster)? {
+                return Ok(next);
+            }
             // Combust's LoseHP/Damage actions were queued before
             // DiscardAtEndOfTurnAction. Runic Cube therefore observes the hand
             // before unplayed ethereals leave it.
@@ -320,6 +336,10 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
                 &queued_autoplay,
             )?;
         }
+        // No Draw is gone before DiscardAtEndOfTurnAction and the monster turn,
+        // even when its removal was ordered behind Combust.
+        next.player.cannot_draw = false;
+        next.player.no_draw_precedes_combust = false;
         // Charon's Ashes (and other on-exhaust damage) can kill a Stasis orb
         // during ethereal settlement, after the pre-hand snapshot. Those
         // cards must return after discard, not ride DiscardAtEndOfTurn into
@@ -373,10 +393,14 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         next.piles.discard_pile.extend(pending);
         next.pending_hidden_hand_card_exhausts_with_fiend_fire = false;
     }
+    // Nilry's Codex pauses before the ordinary power-list expiry above. Its
+    // resume reaches this shared queue boundary directly, where No Draw has
+    // expired before ethereal Dark Embrace callbacks resolve.
+    next.player.cannot_draw = false;
+    next.player.no_draw_precedes_combust = false;
     // Dead Branch onExhaust and DarkEmbrace onExhaust are both addToBot per
     // ethereal. After the hand discard they resolve in that interleaved order
     // (FIDL02353: DB, draw, DB, draw — not both DBs then both draws).
-    next.player.cannot_draw = false;
     let mut deferred_dark_embrace_fire_breathing = Vec::new();
     for follow_up in end_of_turn_hand.ethereal_follow_ups {
         match follow_up {
@@ -403,6 +427,10 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         &mut next,
         deferred_monster_deaths,
     )?;
+    // Charon's Ashes from unplayed ethereals queues Gremlin Horn behind
+    // DiscardAtEndOfTurnAction. Flush those callbacks only now so the Horn draw
+    // survives into the next hand instead of being bulk-discarded.
+    crate::combat::transition::flush_pending_monster_death_relics_if_ready(&mut next)?;
     apply_pending_player_spikes_damage(&mut next)?;
     if next.player.hp <= 0 {
         next.player.hp = 0;
@@ -599,6 +627,9 @@ pub fn apply_pending_nilry_end_powers(state: &mut CombatState) -> SimResult<()> 
         return Ok(());
     }
     let mut deferred_monster_deaths = Vec::new();
+    if state.player.no_draw_precedes_combust {
+        state.player.cannot_draw = false;
+    }
     crate::combat::turn_powers::apply_end_of_player_turn_powers_before_hand_deferred(
         state,
         &mut deferred_monster_deaths,
@@ -659,17 +690,19 @@ fn resolve_end_of_turn_autoplay_then_constricted_then_ethereal(
 }
 
 fn hand_has_end_turn_autoplay_cards(state: &CombatState) -> bool {
-    // callEndOfTurnActions queues Burn/Decay/Regret before AbstractRoom.endTurn
-    // addToBot Combust LoseHP. A 1-card draw pile is emptied by the first
+    // callEndOfTurnActions queues Burn/Decay/Regret/Doubt/Shame before
+    // AbstractRoom.endTurn addToBot Combust LoseHP. Even non-damaging curses
+    // can free a full-hand slot before Runic Cube draws from Combust.
+    // A 1-card draw pile is emptied by the first
     // autoplay Cube, so Combust's later Cube shuffles the settled Burn
     // (FIDL01641). Combust still runs first when the hand has no HP-loss
     // autoplay (FIDL01335 Evolve).
-    if !state
-        .piles
-        .hand
-        .iter()
-        .any(|card| matches!(card.content_id, BURN_ID | DECAY_ID | REGRET_ID))
-    {
+    if !state.piles.hand.iter().any(|card| {
+        matches!(
+            card.content_id,
+            BURN_ID | DECAY_ID | REGRET_ID | DOUBT_ID | SHAME_ID
+        )
+    }) {
         return false;
     }
     // Dark Embrace + ethereal on top of draw: Combust's addToTop Cube pulls
@@ -753,6 +786,7 @@ fn start_player_turn_in_place(
     }
     state.player.energy = checked_turn_add(state.player.energy, energy_next_turn)?;
     state.player.cannot_draw = false;
+    state.player.no_draw_precedes_combust = false;
     if state.preserve_temp_strength_on_next_start {
         state.preserve_temp_strength_on_next_start = false;
     } else {
@@ -2299,7 +2333,14 @@ fn apply_monster_pending_effects(
             }
         }
     } else if damage > 0 {
-        let hp_damage = deal_damage_to_player(state, damage)?;
+        // Orb Walker's Burn action is already queued behind its DamageAction.
+        // Runic Cube's DrawCardAction runs first, but Evolve/Fire Breathing
+        // actions created by that draw append behind the pending Burn insert.
+        let hp_damage = if burn_to_discard > 0 || burn_to_discard_and_draw > 0 {
+            deal_damage_to_player_with_draw_policy(state, damage, HpLossDrawPolicy::DeferDraws)?
+        } else {
+            deal_damage_to_player(state, damage)?
+        };
         if hp_damage > 0 && painful_stabs > 0 {
             painful_stabs_triggers = painful_stabs;
         }
@@ -2324,7 +2365,7 @@ fn apply_monster_pending_effects(
     // observable when the opening draw requires a shuffle: newly generated
     // Wounds must remain in discard while the deferred draws consume the
     // pre-existing pile (FIDL01519 step 345).
-    crate::relic::settle_deferred_hp_loss_draw_relics(state)?;
+    let hp_loss_draw_follow_ups = crate::relic::settle_deferred_hp_loss_draw_relics(state)?;
     settle_deferred_painful_stabs_wounds(state, painful_stabs_triggers)?;
     if weak > 0 {
         let had_no_weak = state.player.powers.weak == 0;
@@ -2377,6 +2418,7 @@ fn apply_monster_pending_effects(
             allocated_card_id_through,
         )?;
     }
+    crate::combat::transition::resolve_deferred_draw_follow_ups(state, hp_loss_draw_follow_ups)?;
     Ok(())
 }
 
@@ -6825,6 +6867,24 @@ mod tests {
         assert_eq!(state.player.powers.weak, 2);
         assert_eq!(state.player.powers.frail, 2);
         assert!(!state.nilrys_end_powers_pending);
+    }
+
+    #[test]
+    fn nilry_resume_expires_earlier_no_draw_before_combust_cube_draw() {
+        let mut state = CombatState::initial_fixture();
+        state.nilrys_end_powers_pending = true;
+        state.player.cannot_draw = true;
+        state.player.no_draw_precedes_combust = true;
+        state.player.powers.combust = 1;
+        state.player.powers.combust_damage = 5;
+        state.relics = vec![Relic::RunicCube];
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(20), STRIKE_R_ID)];
+
+        apply_pending_nilry_end_powers(&mut state).expect("pending powers");
+
+        assert_eq!(state.piles.hand.len(), 1);
+        assert_eq!(state.piles.hand[0].id, CardId::new(20));
     }
 
     #[test]

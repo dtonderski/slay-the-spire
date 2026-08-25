@@ -2009,6 +2009,24 @@ fn combat_continues_after_monster_death(state: &CombatState) -> bool {
         .any(|monster| monster.alive || awakened_one_is_half_dead(monster))
 }
 
+fn apply_monster_death_hooks_deferred_relics(
+    state: &mut CombatState,
+    monster_id: MonsterId,
+) -> SimResult<()> {
+    let mut next = state.clone();
+    apply_monster_death_non_relic_hooks(&mut next, monster_id)?;
+    if combat_continues_after_monster_death(&next) && next.relics.contains(&Relic::GremlinHorn) {
+        next.pending_monster_death_relic_triggers = next
+            .pending_monster_death_relic_triggers
+            .checked_add(1)
+            .ok_or(SimError::InvalidState(
+                "pending monster-death relic triggers overflow u32",
+            ))?;
+    }
+    *state = next;
+    Ok(())
+}
+
 pub(crate) fn apply_monster_death_hooks(
     state: &mut CombatState,
     monster_id: MonsterId,
@@ -2629,7 +2647,11 @@ fn apply_on_exhaust_effects_inner(
             }
             check_slime_boss_split(state, target);
             if !still_alive {
-                apply_monster_death_hooks(state, target)?;
+                if defer_juggernaut {
+                    apply_monster_death_hooks_deferred_relics(state, target)?;
+                } else {
+                    apply_monster_death_hooks(state, target)?;
+                }
             }
         }
     }
@@ -5494,6 +5516,16 @@ pub(crate) fn confirm_exhaust_select_with_dead_branch_count(
     }
     let purpose = exhaust_select.purpose;
     let pending_actions = exhaust_select.pending_actions.clone();
+    // HandCardSelectScreen keeps the played source as target cardInUse while
+    // selected-card callbacks, draws, Hex, and Dead Branch may allocate IDs.
+    // Reserve that ID without duplicating the full card into a second pile.
+    // Purity has its own explicit limbo transfer inside specialized settlement.
+    let previous_card_in_use = state.card_in_use;
+    if purpose != crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3 {
+        if let Some(source) = exhaust_select.source_card {
+            state.card_in_use = Some(source.id);
+        }
+    }
     let mut dead_branch_count = 0;
     let burning_pact_drains_pending = matches!(
         purpose,
@@ -5550,6 +5582,7 @@ pub(crate) fn confirm_exhaust_select_with_dead_branch_count(
             }
         }
     }
+    state.card_in_use = previous_card_in_use;
     // When deferred Hex MakeTempCardInDrawPile lands on an empty draw pile,
     // CardGroup.addToRandomSpot just group.add(c) — no cardRandomRng roll
     // (see desktop-1.0 CardGroup.addToRandomSpot). Do not burn a phantom

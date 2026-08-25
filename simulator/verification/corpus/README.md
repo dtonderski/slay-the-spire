@@ -8,14 +8,17 @@ are gitignored and must not be committed.
 `permanent_traces/` contains only traces captured under the current collection
 epoch: fixed gameplay delta (`collection.2`) and boundary schema 6 exactly.
 A later boundary schema requires an explicit verifier/corpus epoch update.
-The current authoritative regression cohort contains 311 independently audited
+The current authoritative regression cohort contains 388 independently audited
 traces. Its original 208 payloads declare `collection.2-schema6`; the additional
 103 FIDL01880–FIDL02008 payloads retain a stale pre-schema-6 `source_version`
 string, with the promotion record externally attesting their installed
-SuperFastMode `1.0.9-collection.2` JAR and exact collection artifact hashes.
-Promotion copied the immutable payloads only after structural, fence,
+SuperFastMode `1.0.9-collection.2` JAR and exact collection artifact hashes. A
+third cohort contains 77 terminal FIDL02009–FIDL02106 captures and retains its
+composite source-artifact metadata. FIDL02101 remains immutable outside the lock
+because it exposes a pre-opening Colosseum publication without a pre-action
+scheduler input. Promotion copied payloads only after structural, fence,
 effect-queue, hand/card retrieval, terminal, repeatability, raw-diff, and hash
-checks passed. The current verifier completely passes all 311 traces with zero
+checks passed. The current verifier completely passes all 388 traces with zero
 unsupported mechanics or raw unexpected diffs. The earlier
 independently audited exact-20 schema-6 pilot is retained unchanged under
 `legacy_schema6_initial_pilot/permanent_traces/`.
@@ -53,7 +56,7 @@ Hugging Face dataset. Do not copy this cohort back into `permanent_traces/`.
 ## External authoritative mirror
 
 The private `dtonderski/sts-permanent-traces` Hugging Face dataset contains the
-311 active schema-6 traces as deterministic `<trace>.jsonl.gz` files. It is the
+388 active schema-6 traces as deterministic `<trace>.jsonl.gz` files. It is the
 external mirror used by Cursor Cloud and clean local checkouts; uploads remain
 an explicit audited local operation.
 
