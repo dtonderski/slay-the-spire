@@ -8,8 +8,8 @@ use crate::{
     combat::{
         draw::{draw_cards_with_combat_rng_deferred_evolve, MAX_HAND_SIZE},
         hand::{
-            discard_end_of_turn_hand, resolve_deferred_dark_embrace_draws,
-            resolve_end_of_turn_hand_with_queued_autoplay,
+            discard_end_of_turn_hand, exhaust_unplayed_ethereal_cards,
+            resolve_deferred_dark_embrace_draws, resolve_end_of_turn_autoplay_with_queued,
         },
         piles::{
             add_cards_to_discard, add_cards_to_draw_random_spot, add_upgraded_burns_to_discard,
@@ -137,22 +137,14 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         deferred_stasis_cards = Vec::new();
         // Constricted.atEndOfTurn addToBots THORNS after CodexAction. Without
         // Combust it is not in the pre-hand power window, so resume must still
-        // apply it (FIDL00108 Spire Growth 10).
-        let constricted_before_ethereal = next.player.powers.constricted > 0
-            && !crate::combat::turn_powers::constricted_resolved_before_hand_with_combust(&next);
-        if constricted_before_ethereal {
-            crate::combat::turn_powers::apply_end_of_turn_constricted(&mut next)?;
-        }
+        // apply it after Burn/Decay autoplay (FIDL00108 Spire Growth 10).
         let queued_autoplay = queued_end_turn_autoplay_ids(&next);
-        end_of_turn_hand =
-            resolve_end_of_turn_hand_with_queued_autoplay(&mut next, Some(&queued_autoplay))?;
+        end_of_turn_hand = resolve_end_of_turn_autoplay_then_constricted_then_ethereal(
+            &mut next,
+            &queued_autoplay,
+        )?;
         if finish_combat_if_over(&mut next, started_with_living_monster)? {
             return Ok(next);
-        }
-        if !crate::combat::turn_powers::constricted_resolved_before_hand_with_combust(&next)
-            && !constricted_before_ethereal
-        {
-            crate::combat::turn_powers::apply_end_of_turn_constricted(&mut next)?;
         }
         crate::combat::turn_powers::apply_end_of_player_turn_regeneration(&mut next)?;
         if finish_combat_if_over(&mut next, started_with_living_monster)? {
@@ -300,16 +292,16 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         } else {
             Vec::new()
         };
-        // Constricted.atEndOfTurn addToBots Damage before DiscardAtEndOfTurn.
-        // RunicCube.wasHPLost addToTops DrawCardAction, so that draw lands
-        // before ethereal exhaust (FIDL02191 two Apparitions).
-        let constricted_before_ethereal = next.player.powers.constricted > 0
-            && !crate::combat::turn_powers::constricted_resolved_before_hand_with_combust(&next);
-        if constricted_before_ethereal {
-            crate::combat::turn_powers::apply_end_of_turn_constricted(&mut next)?;
-        }
-        end_of_turn_hand =
-            resolve_end_of_turn_hand_with_queued_autoplay(&mut next, Some(&queued_autoplay))?;
+        // callEndOfTurnActions autoplays Burn/Decay first. Constricted is
+        // AbstractRoom.endTurn applyEndOfTurnTriggers, after those cards and
+        // before DiscardAtEndOfTurn ethereal exhaust. Burn must consume block
+        // before Constricted THORNS so a blocked Burn does not fire Rupture
+        // (FIDL00061). RunicCube.wasHPLost addToTops DrawCardAction still
+        // lands before ethereal exhaust (FIDL02191 two Apparitions).
+        end_of_turn_hand = resolve_end_of_turn_autoplay_then_constricted_then_ethereal(
+            &mut next,
+            &queued_autoplay,
+        )?;
         // Charon's Ashes (and other on-exhaust damage) can kill a Stasis orb
         // during ethereal settlement, after the pre-hand snapshot. Those
         // cards must return after discard, not ride DiscardAtEndOfTurn into
@@ -335,15 +327,6 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         // ethereals first (FIDL00443 Hexaghost burns).
         if finish_combat_if_over(&mut next, started_with_living_monster)? {
             return Ok(next);
-        }
-        // Constricted is an end-of-turn power, but the target resolves it after
-        // end-turn card losses when Combust is absent. That lets Metallicize
-        // block Decay before the non-card Constricted loss (FIDL00415). When
-        // Combust is active, Constricted already ran in before_hand (FIDL00440).
-        if !crate::combat::turn_powers::constricted_resolved_before_hand_with_combust(&next)
-            && !constricted_before_ethereal
-        {
-            crate::combat::turn_powers::apply_end_of_turn_constricted(&mut next)?;
         }
         crate::combat::turn_powers::apply_end_of_player_turn_regeneration(&mut next)?;
         if finish_combat_if_over(&mut next, started_with_living_monster)? {
@@ -634,6 +617,26 @@ fn queued_end_turn_autoplay_ids(
         })
         .map(|card| card.id)
         .collect()
+}
+
+/// `callEndOfTurnActions` card autoplay, then Constricted, then ethereal exhaust.
+///
+/// Java queues Burn/Decay as `CardQueueItem`s from `callEndOfTurnActions` and
+/// only later `AbstractRoom.endTurn` runs `applyEndOfTurnTriggers` (Constricted
+/// THORNS) before `DiscardAtEndOfTurnAction` (ethereal). Combust already applied
+/// Constricted in the pre-hand window, so this skips it in that case.
+fn resolve_end_of_turn_autoplay_then_constricted_then_ethereal(
+    state: &mut CombatState,
+    queued_autoplay: &std::collections::HashSet<crate::ids::CardId>,
+) -> SimResult<crate::combat::hand::EndOfTurnHandResolution> {
+    let auto_play_emptied_hand =
+        resolve_end_of_turn_autoplay_with_queued(state, Some(queued_autoplay))?;
+    if !crate::combat::turn_powers::constricted_resolved_before_hand_with_combust(state) {
+        crate::combat::turn_powers::apply_end_of_turn_constricted(state)?;
+    }
+    let mut resolution = exhaust_unplayed_ethereal_cards(state)?;
+    resolution.auto_play_emptied_hand = auto_play_emptied_hand;
+    Ok(resolution)
 }
 
 fn hand_has_end_turn_autoplay_cards(state: &CombatState) -> bool {
@@ -4381,6 +4384,30 @@ mod tests {
         assert!(!next.monsters[0].alive);
         assert_eq!(next.phase, CombatPhase::Won);
         assert_eq!(next.player.hp, 9277 - 10 - 5, "hp={}", next.player.hp);
+    }
+
+    #[test]
+    fn end_turn_blocked_burn_does_not_trigger_rupture_before_constricted() {
+        // FIDL00061: block 7, Burn 2, Constricted 10, Rupture 1. Java plays Burn
+        // from callEndOfTurnActions before Constricted THORNS, so Burn is fully
+        // blocked and Rupture must not fire. Constricted-first would unblock Burn
+        // and grant +1 Strength, adding 1 damage to later Double Tap Cleave hits.
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 100;
+        state.player.block = 7;
+        state.player.powers.constricted = 10;
+        state.player.powers.rupture = 1;
+        state.monsters[0].intent = MonsterIntent::Sleep;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), BURN_ID)];
+        state.piles.draw_pile = (2..=12)
+            .map(|i| CardInstance::new(CardId::new(i), STRIKE_R_ID))
+            .collect();
+        state.relics.clear();
+
+        let next = end_player_turn(&state).expect("end turn");
+
+        assert_eq!(next.player.powers.strength, 0);
+        assert_eq!(next.player.hp, 95);
     }
 
     #[test]

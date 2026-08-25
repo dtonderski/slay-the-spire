@@ -86,7 +86,8 @@ fn apply_end_of_player_turn_powers_before_hand_inner(
     // the player, so Constricted THORNS can consume it before Combust LoseHP
     // and the lethal all-enemy hit (FIDL00440: +6 block, Constricted 10, two
     // Combust stacks → −6 HP). Without Combust, Constricted stays after hand
-    // so Metallicize can absorb Decay (FIDL00415).
+    // so Metallicize can absorb Decay (FIDL00415) and leftover block can absorb
+    // Burn before Constricted THORNS (FIDL00061).
     if state.player.powers.combust > 0 {
         apply_end_of_turn_constricted(state)?;
         if state.player.hp <= 0 {

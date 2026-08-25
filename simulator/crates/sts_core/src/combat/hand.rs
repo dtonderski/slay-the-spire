@@ -81,6 +81,29 @@ fn resolve_end_of_turn_hand_inner(
     state: &mut CombatState,
     queued_autoplay: Option<&std::collections::HashSet<CardId>>,
 ) -> SimResult<EndOfTurnHandResolution> {
+    let auto_play_emptied_hand = resolve_end_of_turn_autoplay_in_place(state, queued_autoplay)?;
+    let mut resolution = exhaust_unplayed_ethereal_cards(state)?;
+    resolution.auto_play_emptied_hand = auto_play_emptied_hand;
+    Ok(resolution)
+}
+
+/// Play Burn/Decay/Regret/Doubt/Shame queued by `callEndOfTurnActions`.
+/// Constricted and ethereal exhaust belong to later `AbstractRoom.endTurn`
+/// actions and must not run here.
+pub(crate) fn resolve_end_of_turn_autoplay_with_queued(
+    state: &mut CombatState,
+    queued_autoplay: Option<&std::collections::HashSet<CardId>>,
+) -> SimResult<bool> {
+    let mut next = state.clone();
+    let auto_play_emptied_hand = resolve_end_of_turn_autoplay_in_place(&mut next, queued_autoplay)?;
+    *state = next;
+    Ok(auto_play_emptied_hand)
+}
+
+fn resolve_end_of_turn_autoplay_in_place(
+    state: &mut CombatState,
+    queued_autoplay: Option<&std::collections::HashSet<CardId>>,
+) -> SimResult<bool> {
     let hand_was_nonempty = !state.piles.hand.is_empty();
     let hand_size_for_regret = state.piles.hand.len() as i32;
     apply_end_of_turn_for_playing_cards_in_hand_order(
@@ -89,10 +112,7 @@ fn resolve_end_of_turn_hand_inner(
         queued_autoplay,
         false,
     )?;
-    let auto_play_emptied_hand = hand_was_nonempty && state.piles.hand.is_empty();
-    let mut resolution = exhaust_unplayed_ethereal_cards(state)?;
-    resolution.auto_play_emptied_hand = auto_play_emptied_hand;
-    Ok(resolution)
+    Ok(hand_was_nonempty && state.piles.hand.is_empty())
 }
 
 pub(crate) fn discard_end_of_turn_hand(state: &mut CombatState) -> SimResult<()> {
