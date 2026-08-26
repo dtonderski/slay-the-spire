@@ -141,6 +141,31 @@ assert.strictEqual(
   communicationBoundary({ message: { ...boundaryMessage, end_turn_queued: true } }).kind,
   "interaction_ready",
 );
+assert.strictEqual(
+  communicationBoundary({
+    message: {
+      ...boundaryMessage,
+      boundary_kind: "terminal",
+      in_game: true,
+      game_state: { screen_type: "GAME_OVER" },
+      end_turn_queued: true,
+      card_queue_size: 2,
+    },
+  }).kind,
+  "terminal",
+);
+assert.throws(
+  () => communicationBoundary({
+    message: {
+      ...boundaryMessage,
+      boundary_kind: "terminal",
+      in_game: true,
+      game_state: { screen_type: "NONE" },
+      end_turn_queued: true,
+    },
+  }),
+  /cannot have an end turn queued/,
+);
 assert.throws(
   () => communicationBoundary({
     message: {

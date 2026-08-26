@@ -66,13 +66,17 @@ is expected output and cannot select content, repair RNG, reconstruct a screen,
 or otherwise mutate authoritative simulation state. Every action must complete
 immediately with its same-step authoritative state or error. `STATE` completes
 only on `poll`; gameplay completes only on `interaction_ready`, `quiescent`, or
-`terminal`. Quiescent and terminal boundaries cannot retain a queued end turn.
-An `interaction_ready` boundary may retain one while a source-backed decision
+`terminal`. A quiescent boundary cannot retain a queued end turn. An
+`interaction_ready` boundary may retain one while a source-backed decision
 pauses that turn—for example, Nilry's Codex opens its card reward inside
-`END`; the command-execution fence must still advance before that state can
-complete the command. Schema 6 also requires all published gameplay-affecting
-effect counts to be zero. Intermediate, transient, delayed, or later-frame
-completion is invalid input rather than deferred verification.
+`END`. A terminal death boundary may also retain the current damage action,
+queued end turn, and residual combat queues because the target publishes
+`GAME_OVER` before those queues drain; they are diagnostic expected output and
+are never imported into simulator state. In both cases the command-execution
+fence must still advance before the state can complete the command. Schema 6
+also requires all published gameplay-affecting effect counts to be zero.
+Intermediate, transient, delayed, or later-frame completion is invalid input
+rather than deferred verification.
 
 Full CommunicationMod payloads are external to Git. The active authoritative
 corpus contains only the current collection epoch: fixed gameplay delta

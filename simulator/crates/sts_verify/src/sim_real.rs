@@ -937,8 +937,12 @@ fn validate_boundary_state(
                 reason: format!("{kind} boundary is not ready for input"),
             });
         }
+        let terminal_death_with_residual_end_turn = kind == "terminal"
+            && message.get("in_game").and_then(Value::as_bool) == Some(true)
+            && screen_type(message) == Some("GAME_OVER");
         if metadata_boundary_schema >= 2
             && kind != "interaction_ready"
+            && !terminal_death_with_residual_end_turn
             && message.get("end_turn_queued").and_then(Value::as_bool) != Some(false)
         {
             return Err(SimRealError::InvalidBoundaryContract {

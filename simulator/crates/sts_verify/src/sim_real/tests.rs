@@ -418,6 +418,36 @@ fn interaction_ready_state_allows_queued_end_turn() {
 }
 
 #[test]
+fn death_terminal_state_allows_queued_end_turn_and_residual_combat_work() {
+    let mut message = boundary_message("terminal");
+    message["boundary_schema"] = json!(6);
+    message["in_game"] = json!(true);
+    message["game_state"] = json!({"screen_type":"GAME_OVER"});
+    message["end_turn_queued"] = json!(true);
+    message["current_action"] = json!("DamageAction");
+    message["current_action_instance"] = json!(5);
+    message["current_action_update_count"] = json!(7);
+    message["actions_queued"] = json!(1);
+    message["card_queue_size"] = json!(3);
+    let mut state = TraceState {
+        step: 1,
+        received_at: None,
+        message,
+    };
+
+    assert_eq!(
+        validate_boundary_state(&state, 6)
+            .expect("the target publishes GAME_OVER before its combat queues drain"),
+        "terminal"
+    );
+
+    state.message["game_state"]["screen_type"] = json!("NONE");
+    let error = validate_boundary_state(&state, 6)
+        .expect_err("a non-death terminal label cannot bypass end-turn quiescence");
+    assert!(error.to_string().contains("cannot have an end turn queued"));
+}
+
+#[test]
 fn profile_must_be_explicit_typed_metadata() {
     let content = trace(vec![
         metadata(Some(1), false),

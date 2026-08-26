@@ -318,17 +318,42 @@ function stateCompletesCommand(command, summary, acceptedCommandExecutionSeq = n
   if (verb === "profile") return summary?.type === "profile";
   if (!SUPPORTED_BOUNDARY_SCHEMAS.has(summary?.boundary_schema)) return false;
   if (
-    summary.boundary_schema >= 2
-    && summary.end_turn_queued !== false
-    && summary.boundary_kind !== "interaction_ready"
-  ) {
-    return false;
-  }
-  if (
     summary.boundary_schema >= 6
     && (summary.effects_size !== 0
       || summary.top_level_effects_size !== 0
       || summary.queued_top_level_effects_size !== 0)
+  ) {
+    return false;
+  }
+  if (verb !== "state" && summary.boundary_kind === "terminal") {
+    if (
+      summary.boundary_schema >= 2 &&
+      typeof summary.end_turn_queued !== "boolean"
+    ) {
+      return false;
+    }
+    const terminalDeathWithResidualEndTurn =
+      summary.in_game === true &&
+      String(summary.screen_type ?? "").toUpperCase() === "GAME_OVER";
+    if (summary.end_turn_queued === true && !terminalDeathWithResidualEndTurn) {
+      return false;
+    }
+    if (
+      summary.boundary_schema >= 5
+      && (!Number.isInteger(summary.command_execution_seq)
+        || !Number.isInteger(acceptedCommandExecutionSeq)
+        || summary.command_execution_seq <= acceptedCommandExecutionSeq)
+    ) {
+      return false;
+    }
+    // Death/out-of-run states can retain the combat queues that produced the
+    // terminal screen. They still complete the accepted gameplay command.
+    return true;
+  }
+  if (
+    summary.boundary_schema >= 2
+    && summary.end_turn_queued !== false
+    && summary.boundary_kind !== "interaction_ready"
   ) {
     return false;
   }

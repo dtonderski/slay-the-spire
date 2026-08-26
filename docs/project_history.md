@@ -168,11 +168,14 @@ that quiescent action queues were still insufficient: `ObtainKeyEffect` and
 queues. Their duration-dependent completion varied across otherwise equivalent
 reward choices. Schema 6 waits for pending `ObtainKeyEffect` and
 `ShowCardAndObtainEffect` instances across the dungeon effect queues and
-publishes their zero counts for audit. Its pilot also clarified that the
-no-queued-end-turn rule belongs to quiescent and terminal boundaries: Nilry's
-Codex legitimately exposes an `interaction_ready` card reward while its source
-`END` remains queued, and the command fence still proves which command reached
-that decision. An independently audited exact-20 schema-6 pilot had valid
+publishes their zero counts for audit. Its pilot clarified that the
+no-queued-end-turn rule belongs to quiescent boundaries: Nilry's Codex
+legitimately exposes an `interaction_ready` card reward while its source `END`
+remains queued, and later lethal-end-turn traces proved that the target can
+publish a terminal `GAME_OVER` boundary before its current damage action and
+combat queues drain. In both cases the command fence still proves which command
+reached the decision; residual target queues remain expected diagnostic output,
+not simulator input. An independently audited exact-20 schema-6 pilot had valid
 strict pairs, zero retrieval failures, zero pending gameplay effects, stable
 repeated verifier output, and zero raw unexpected diffs; those immutable
 payloads became the first post-legacy authoritative cohort. A later 208-trace

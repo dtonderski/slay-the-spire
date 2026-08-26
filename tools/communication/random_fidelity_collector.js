@@ -406,7 +406,16 @@ function communicationBoundary(protocolState, { allowUnsettled = false } = {}) {
     if (message?.ready_for_command !== true) {
       throw new Error(`${kind} CommunicationMod boundary is not ready for input`);
     }
-    if (message.end_turn_queued && kind !== "interaction_ready") {
+    const terminalDeathWithResidualEndTurn =
+      kind === "terminal" &&
+      message?.in_game === true &&
+      String(message?.game_state?.screen_type ?? message?.screen_type ?? "").toUpperCase() ===
+        "GAME_OVER";
+    if (
+      message.end_turn_queued &&
+      kind !== "interaction_ready" &&
+      !terminalDeathWithResidualEndTurn
+    ) {
       throw new Error(`${kind} CommunicationMod boundary cannot have an end turn queued`);
     }
   }

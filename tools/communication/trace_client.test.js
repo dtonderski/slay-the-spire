@@ -1537,6 +1537,187 @@ async function testTcpControlAllowsStartupStartBeforeObservedState() {
   }
 }
 
+async function testTcpControlCompletesGameplayOnTerminalStateWithResidualCombatQueues() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-terminal-queues-"));
+  const sessionDir = path.join(root, "session");
+  const outDir = path.join(root, "out");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+
+  const child = spawn(process.execPath, [traceClientPath], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      TRACE_SESSION_DIR: sessionDir,
+      TRACE_OUT_DIR: outDir,
+      TRACE_CONTROL_PORT: "0",
+      TRACE_AUTO_STATE_MS: "0",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+  child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+
+  try {
+    await waitFor(() => stdout.includes("ready\n"));
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["end", "state"],
+      boundary_schema: 6,
+      boundary_kind: "quiescent",
+      end_turn_queued: false,
+      game_update_seq: 100,
+      dungeon_update_seq: 90,
+      command_execution_seq: 378,
+      effects_size: 0,
+      top_level_effects_size: 0,
+      queued_top_level_effects_size: 0,
+      current_action: null,
+      current_action_instance: null,
+      current_action_update_count: null,
+      actions_queued: 0,
+      card_queue_size: 0,
+      pre_turn_actions_size: 0,
+      game_state: { screen_type: "COMBAT", floor: 16 },
+    })}\n`);
+
+    const status = await waitFor(() => {
+      const statusPath = path.join(sessionDir, "status.json");
+      if (!fs.existsSync(statusPath)) return null;
+      const parsed = JSON.parse(fs.readFileSync(statusPath, "utf8"));
+      return parsed.status === "waiting" && parsed.control?.port ? parsed : null;
+    });
+    const acquired = await controlRequest(status.control.port, {
+      type: "acquire",
+      owner_id: "terminal-test-controller",
+    });
+    const liveState = await controlRequest(status.control.port, { type: "state" });
+    const end = controlRequest(status.control.port, {
+      type: "command",
+      command: "END",
+      expected_state_id: liveState.state_id,
+      expected_state_seq: liveState.state_seq,
+      owner_token: acquired.owner_token,
+      wait_for_state_update: true,
+      update_timeout_ms: 3000,
+    });
+    await waitFor(() => stdout.includes("END\n"), 3000, "END output");
+
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["proceed", "state"],
+      boundary_schema: 6,
+      boundary_kind: "terminal",
+      end_turn_queued: null,
+      game_update_seq: 101,
+      dungeon_update_seq: 91,
+      command_execution_seq: 379,
+      effects_size: 0,
+      top_level_effects_size: 0,
+      queued_top_level_effects_size: 0,
+      current_action: "DamageAction",
+      current_action_instance: 4707,
+      current_action_update_count: 7,
+      actions_queued: 1,
+      card_queue_size: 2,
+      pre_turn_actions_size: 0,
+      game_state: { screen_type: "GAME_OVER", floor: 16 },
+    })}\n`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const pendingWithoutEndTurnFlag = await controlRequest(status.control.port, { type: "state" });
+    assert.strictEqual(pendingWithoutEndTurnFlag.pending_command, true);
+
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["proceed", "state"],
+      boundary_schema: 6,
+      boundary_kind: "terminal",
+      end_turn_queued: true,
+      game_update_seq: 102,
+      dungeon_update_seq: 92,
+      command_execution_seq: 379,
+      effects_size: 1,
+      top_level_effects_size: 0,
+      queued_top_level_effects_size: 0,
+      current_action: "DamageAction",
+      current_action_instance: 4707,
+      current_action_update_count: 7,
+      actions_queued: 1,
+      card_queue_size: 2,
+      pre_turn_actions_size: 0,
+      game_state: { screen_type: "GAME_OVER", floor: 16 },
+    })}\n`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const pendingOnEffect = await controlRequest(status.control.port, { type: "state" });
+    assert.strictEqual(pendingOnEffect.pending_command, true);
+
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["proceed", "state"],
+      boundary_schema: 6,
+      boundary_kind: "terminal",
+      end_turn_queued: true,
+      game_update_seq: 103,
+      dungeon_update_seq: 93,
+      command_execution_seq: 379,
+      effects_size: 0,
+      top_level_effects_size: 0,
+      queued_top_level_effects_size: 0,
+      current_action: "DamageAction",
+      current_action_instance: 4707,
+      current_action_update_count: 7,
+      actions_queued: 1,
+      card_queue_size: 2,
+      pre_turn_actions_size: 0,
+      game_state: { screen_type: "NONE", floor: 16 },
+    })}\n`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const stillPending = await controlRequest(status.control.port, { type: "state" });
+    assert.strictEqual(stillPending.pending_command, true);
+
+    child.stdin.write(`${JSON.stringify({
+      in_game: true,
+      ready_for_command: true,
+      available_commands: ["proceed", "state"],
+      boundary_schema: 6,
+      boundary_kind: "terminal",
+      end_turn_queued: true,
+      game_update_seq: 104,
+      dungeon_update_seq: 94,
+      command_execution_seq: 379,
+      effects_size: 0,
+      top_level_effects_size: 0,
+      queued_top_level_effects_size: 0,
+      current_action: "DamageAction",
+      current_action_instance: 4707,
+      current_action_update_count: 10,
+      actions_queued: 1,
+      card_queue_size: 2,
+      pre_turn_actions_size: 0,
+      game_state: { screen_type: "GAME_OVER", floor: 16 },
+    })}\n`);
+
+    const result = await end;
+    assert.strictEqual(result.ok, true, result.error);
+    assert.strictEqual(result.observed_update.ok, true);
+    assert.strictEqual(result.observed_update.state.summary.boundary_kind, "terminal");
+    assert.strictEqual(result.observed_update.state.pending_command, false);
+
+    child.stdin.end();
+    await new Promise((resolve) => child.on("exit", resolve));
+  } finally {
+    if (!child.killed && child.exitCode === null) child.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 async function testTcpControlPreemptsInFlightCommandWithAbandon() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-tcp-preempt-abandon-"));
   const sessionDir = path.join(root, "session");
@@ -1668,6 +1849,7 @@ Promise.resolve()
   .then(() => runTest(testTcpControlDisablesLegacyFileCommandsByDefault))
   .then(() => runTest(testTcpControlRecordsObservedUpdateTimeout))
   .then(() => runTest(testTcpControlRejectsAbandonBehindDispatchedCommand))
+  .then(() => runTest(testTcpControlCompletesGameplayOnTerminalStateWithResidualCombatQueues))
   .then(() => runTest(testTcpControlPreemptsInFlightCommandWithAbandon))
   .then(() => runTest(testTcpControlAbandonRunBypassesAvailableCommands))
   .then(() => runTest(testTcpControlProfileRestoresGuardMetadataForNextStart))
