@@ -140,7 +140,12 @@ raw-diff, and hash audits. Current verifier status is 433 complete passes with
 zero unsupported frontiers, trace errors, or raw unexpected diffs. FIDL02101
 remains outside the corpus because it publishes Colosseum's second combat before
 its opening queue without a pre-action scheduler input capable of replaying that
-race.
+race. The hash-frozen 2026-08-26 overnight cohort is likewise not promotable:
+its global 100× delta advanced dungeon playtime and therefore Act 3 event-pool
+eligibility. Eight failure-driving payloads now replay after generic fixes, but
+FIDL02333 consumes Omamori and still adds Writhing Mass's Parasite, contradicting
+vanilla source and an earlier same-seed/action capture. The nine unchanged
+payloads remain local quarantine evidence until clean-clock recollection.
 
 Download the external corpus into the active directory:
 

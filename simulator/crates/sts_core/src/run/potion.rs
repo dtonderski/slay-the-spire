@@ -789,7 +789,10 @@ fn distilled_chaos_target(
     Ok(Some(living[index]))
 }
 
-fn randomize_playable_hand_costs_for_snecko_oil(combat: &mut CombatState, rng: &mut StsRng) {
+fn randomize_playable_hand_costs_for_snecko_oil(
+    combat: &mut CombatState,
+    rng: &mut StsRng,
+) -> SimResult<()> {
     for card in &mut combat.piles.hand {
         let Some(definition) = get_card_definition(card.content_id) else {
             continue;
@@ -797,8 +800,15 @@ fn randomize_playable_hand_costs_for_snecko_oil(combat: &mut CombatState, rng: &
         if definition.keywords.unplayable || definition.cost < 0 {
             continue;
         }
-        card.temp_cost = Some(rng.random_int(3) as u8);
+        let rolled = rng.random_int(3) as u8;
+        if card.temp_cost_turn_only {
+            crate::combat::cost::set_randomized_combat_cost_if_changed(card, rolled)?;
+        } else {
+            card.temp_cost = Some(rolled);
+            card.combat_cost_under_turn_override = None;
+        }
     }
+    Ok(())
 }
 
 fn potion_multiplier(run: &RunState) -> i32 {
@@ -1035,7 +1045,7 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                     let mut rng = next.card_random_rng();
                     let combat = next.combat.as_mut().expect("validated combat state");
                     player_draw_cards(combat, SNECKO_OIL_DRAW * multiplier as usize)?;
-                    randomize_playable_hand_costs_for_snecko_oil(combat, &mut rng);
+                    randomize_playable_hand_costs_for_snecko_oil(combat, &mut rng)?;
                     combat.rng.card_random_rng = rng.clone();
                     next.card_random_rng_counter = rng.counter();
                 }
@@ -2439,7 +2449,8 @@ mod tests {
         ];
         let mut rng = StsRng::new(3);
 
-        randomize_playable_hand_costs_for_snecko_oil(&mut combat, &mut rng);
+        randomize_playable_hand_costs_for_snecko_oil(&mut combat, &mut rng)
+            .expect("Snecko Oil randomizes playable hand costs");
 
         assert_eq!(combat.piles.hand[0].temp_cost, None);
         assert_eq!(combat.piles.hand[1].temp_cost, Some(0));

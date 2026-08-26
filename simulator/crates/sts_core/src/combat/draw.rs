@@ -3,7 +3,7 @@ use crate::{
     card::CardType,
     combat::{damage::deal_unmodified_damage_to_monster_deferred_guardian, CombatState},
     content::{
-        cards::{get_card_definition, is_curse_content_id, VOID_ID},
+        cards::{get_card_definition, is_curse_content_id, EVISCERATE_ANY_COLOR_ID, VOID_ID},
         monsters::{
             check_slime_boss_split, guardian_accumulate_hp_damage, wake_lagavulin_on_damage,
         },
@@ -113,7 +113,7 @@ fn draw_cards_with_sts_rng_batch_deferred(
         if let Some(mut card) = draw_card_from_pile_top(state) {
             let content_id = card.content_id;
             let extra_draws = evolve_extra_draw_count(state, content_id);
-            apply_on_card_draw_cost_effects(state, &mut card);
+            apply_on_card_draw_cost_effects(state, &mut card)?;
             state.piles.hand.push(card);
             if content_id == VOID_ID {
                 // VoidCard.triggerWhenDrawn addToBot's LoseEnergyAction.
@@ -323,7 +323,7 @@ fn draw_cards_batch_in_place(
             } else {
                 0
             };
-            apply_on_card_draw_cost_effects(state, &mut card);
+            apply_on_card_draw_cost_effects(state, &mut card)?;
             state.piles.hand.push(card);
             if content_id == VOID_ID {
                 // VoidCard.triggerWhenDrawn addToBot's LoseEnergyAction.
@@ -462,33 +462,63 @@ fn is_status_or_curse(content_id: crate::ContentId) -> bool {
             .is_some_and(|definition| definition.card_type == CardType::Status)
 }
 
-pub(crate) fn apply_on_card_draw_cost_effects(state: &mut CombatState, card: &mut CardInstance) {
-    apply_confusion_cost_randomization(state, card);
-    apply_corruption_skill_cost_for_turn(state, card);
+pub(crate) fn apply_on_card_draw_cost_effects(
+    state: &mut CombatState,
+    card: &mut CardInstance,
+) -> SimResult<()> {
+    apply_eviscerate_draw_cost(state, card)?;
+    apply_confusion_cost_randomization(state, card)?;
+    apply_corruption_skill_cost_for_turn(state, card)?;
+    Ok(())
+}
+
+fn apply_eviscerate_draw_cost(state: &CombatState, card: &mut CardInstance) -> SimResult<()> {
+    if card.content_id != EVISCERATE_ANY_COLOR_ID || state.total_discarded_this_turn == 0 {
+        return Ok(());
+    }
+    let printed = crate::combat::cost::printed_card_cost(card)?;
+    let reduced = printed
+        .saturating_sub(state.total_discarded_this_turn)
+        .max(0) as u8;
+    // Eviscerate.triggerWhenDrawn runs before power onCardDraw callbacks such as
+    // Confusion and Corruption.
+    crate::combat::cost::set_card_cost_for_turn(card, reduced)
 }
 
 /// `CorruptionPower.onCardDraw` calls `setCostForTurn(-9)` on skills after
 /// Confusion writes `cost`/`costForTurn`. MadnessAction then sees
 /// `costForTurn == 0` and retries onto a remaining attack (FIDL01528, FIDL01687).
-fn apply_corruption_skill_cost_for_turn(state: &CombatState, card: &mut CardInstance) {
+fn apply_corruption_skill_cost_for_turn(
+    state: &CombatState,
+    card: &mut CardInstance,
+) -> SimResult<()> {
     if state.player.powers.corruption <= 0 {
-        return;
+        return Ok(());
     }
     let Some(definition) = get_card_definition(card.content_id) else {
-        return;
+        return Ok(());
     };
     if definition.card_type != CardType::Skill || definition.cost < 0 {
-        return;
+        return Ok(());
     }
+    // Preserve the established combat representation: Corruption's zero is
+    // refreshed whenever the Skill is drawn, so no later player decision can
+    // observe an intervening nonzero cost.
     card.temp_cost = Some(0);
+    card.combat_cost_under_turn_override = None;
+    card.temp_cost_turn_only = false;
+    Ok(())
 }
 
-pub(crate) fn apply_confusion_cost_randomization(state: &mut CombatState, card: &mut CardInstance) {
+pub(crate) fn apply_confusion_cost_randomization(
+    state: &mut CombatState,
+    card: &mut CardInstance,
+) -> SimResult<()> {
     // Snecko Eye applies Confusion once at pre-battle. If another effect (for
     // example Orange Pellets) removes that power, owning the relic alone does
     // not keep randomizing future draws.
     if state.player.powers.confusion <= 0 {
-        return;
+        return Ok(());
     }
     // ConfusionPower.onCardDraw randomizes any playable non-X card. Missing
     // definitions are still real prismatic cards; skipping them drops
@@ -496,14 +526,23 @@ pub(crate) fn apply_confusion_cost_randomization(state: &mut CombatState, card: 
     if get_card_definition(card.content_id)
         .is_some_and(|definition| definition.keywords.unplayable || definition.cost < 0)
     {
-        return;
+        return Ok(());
     }
     let rng = &mut state.rng.card_random_rng;
-    card.temp_cost = Some(rng.random_int(3) as u8);
+    let rolled = rng.random_int(3) as u8;
+    if card.temp_cost_turn_only {
+        crate::combat::cost::set_randomized_combat_cost_if_changed(card, rolled)?;
+    } else {
+        // Preserve the established combat-long Confusion representation when
+        // no separate turn override exists.
+        card.temp_cost = Some(rolled);
+        card.combat_cost_under_turn_override = None;
+    }
     // Confusion's draw-time cost replaces Forethought's one-play free flag;
     // the target's cost calculation does not let the older override win over
     // this newly randomized cost.
     card.free_to_play_once = false;
+    Ok(())
 }
 
 fn shuffle_follow_ups_from_actions(actions: Vec<InternalAction>) -> SimResult<Vec<DrawFollowUp>> {
@@ -605,7 +644,7 @@ mod tests {
         state.player.powers.corruption = 1;
         state.rng.card_random_rng = StsRng::new(1);
         let mut havoc = CardInstance::new(CardId::new(1), crate::content::cards::HAVOC_ID);
-        apply_on_card_draw_cost_effects(&mut state, &mut havoc);
+        apply_on_card_draw_cost_effects(&mut state, &mut havoc).expect("draw cost effects resolve");
         assert_eq!(havoc.temp_cost, Some(0));
         assert!(
             state.rng.card_random_rng.counter() > 0,

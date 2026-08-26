@@ -250,6 +250,14 @@ pub(super) fn resolve_fiend_fire(
 ) -> SimResult<Vec<InternalAction>> {
     use crate::action::CardPile;
 
+    // A queued Necronomicon/Double Tap copy whose original target died before
+    // the CardQueueItem is played is discarded without calling card.use().
+    // In particular, it must not snapshot/exhaust a Soulbound return or burn
+    // cardRandomRng for a Fiend Fire action that was never constructed.
+    if living_monster_mut_opt(state, target).is_none() {
+        return Ok(Vec::new());
+    }
+
     // Snapshot the other hand cards at resolve time. Dead Branch refills must
     // not be exhausted by Fiend Fire (and must not steal exhaust slots from
     // Sentinel / etc. — FIDL584b energy from Sentinel on-exhaust). Double Tap
@@ -475,6 +483,78 @@ pub(super) fn deal_damage_and_heal_unblocked(
         malleable_block,
     );
     crate::relic::heal_combat_player_with_relics(state, hp_damage)?;
+    if still_alive && hand_drill_applies {
+        follow_ups.push(InternalAction::ApplyVulnerable {
+            target: info.target,
+            amount: crate::relic::HAND_DRILL_VULNERABLE,
+        });
+    }
+    check_slime_boss_split(state, info.target);
+    if !still_alive {
+        follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
+    }
+    apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+    Ok(follow_ups)
+}
+
+pub(super) fn deal_damage_and_gain_block_unblocked(
+    state: &mut CombatState,
+    info: DamageInfo,
+) -> SimResult<Vec<InternalAction>> {
+    if living_monster_mut_opt(state, info.target).is_none() {
+        return Ok(Vec::new());
+    }
+    let info = apply_pen_nib_to_card_damage_info(state, info);
+    let player_powers = state.player.powers;
+    let temp_strength = state.player.temp_strength;
+    let relics = state.relics.clone();
+    let (
+        hp_damage,
+        spikes,
+        monster_content_id,
+        still_alive,
+        hand_drill_applies,
+        curl_up_block,
+        malleable_block,
+    ) = {
+        let monster = living_monster_mut(state, info.target)?;
+        let spikes = monster.powers.spikes;
+        let monster_content_id = monster.content_id;
+        let damage = deal_damage_info_to_monster_with_result(
+            monster,
+            info,
+            player_powers,
+            temp_strength,
+            &relics,
+        );
+        wake_lagavulin_on_damage(monster, damage.hp_damage);
+        guardian_accumulate_hp_damage(monster, damage.hp_damage);
+        (
+            damage.hp_damage,
+            spikes,
+            monster_content_id,
+            monster.alive,
+            relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
+            damage.curl_up_block,
+            damage.malleable_block,
+        )
+    };
+    let mut follow_ups = Vec::new();
+    push_attack_block_follow_ups(
+        state,
+        &mut follow_ups,
+        info.target,
+        monster_content_id,
+        still_alive,
+        curl_up_block,
+        malleable_block,
+    );
+    if hp_damage > 0 {
+        // WallopAction passes DamageInfo.lastDamageTaken directly to an
+        // ordinary GainBlockAction. No Block and Juggernaut still apply, but
+        // Dexterity/Frail must not modify the already-final damage amount.
+        follow_ups.push(InternalAction::GainPrecomputedCardBlock { amount: hp_damage });
+    }
     if still_alive && hand_drill_applies {
         follow_ups.push(InternalAction::ApplyVulnerable {
             target: info.target,

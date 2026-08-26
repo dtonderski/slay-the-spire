@@ -795,6 +795,7 @@ fn start_player_turn_in_place(
     state.player.temp_thorns = 0;
     state.player.temp_rage_block = 0;
     state.player.powers.panache_cards_played = 0;
+    state.total_discarded_this_turn = 0;
     state.double_tap_pending = 0;
     state.pen_nib_double_active = false;
     for monster in state
@@ -1190,7 +1191,7 @@ fn reset_turn_only_temp_costs(state: &mut CombatState) {
     ] {
         for card in pile {
             if card.temp_cost_turn_only {
-                card.temp_cost = None;
+                card.temp_cost = card.combat_cost_under_turn_override.take();
                 card.temp_cost_turn_only = false;
             }
         }
@@ -2299,12 +2300,14 @@ fn apply_monster_pending_effects(
     // Count unblocked hits here, settle Wounds only if the player is still alive
     // after the full attack sequence, and cancel remaining multi-hits on death.
     //
-    // RunicCube / CentennialPuzzle also addToBot DrawCardAction. Resolving those
-    // draws mid multi-hit lets The Abacus grant block between stabs (aef32ab6:
-    // 5 hits + mid-hit Abacus instead of 6 full stabs). Defer draws until after
-    // the whole multi-hit DamageAction sequence, matching GameActionManager.
+    // Runic Cube uses addToTop(DrawCardAction), so each trigger draws before
+    // the next queued hit. On-draw Evolve/Fire Breathing actions remain
+    // addToBot behind the remaining hits. This distinction is observable when
+    // a later hit is lethal: cards drawn by earlier hits remain in hand while
+    // the queued on-draw callbacks are abandoned by the death screen.
     let mut total_hp_damage = 0;
     let mut painful_stabs_triggers = 0;
+    let mut inter_hit_draw_follow_ups = Vec::new();
     let hit_count = hits.max(1);
     // Legacy thorns-only preparation has already reduced `hits` to the exact
     // normal DamageActions that were queued before the owner died. The combined
@@ -2319,11 +2322,29 @@ fn apply_monster_pending_effects(
             if !precomputed_thorns_owner_death && attacker_is_dying_or_dead(state, attacker_index) {
                 break;
             }
+            let cube_draws_before = state.relic_counters.deferred_runic_cube_draws;
             let hp_damage = deal_damage_to_player_with_draw_policy(
                 state,
                 hit_damage,
                 HpLossDrawPolicy::DeferDraws,
             )?;
+            let queued_cube_draws = state
+                .relic_counters
+                .deferred_runic_cube_draws
+                .saturating_sub(cube_draws_before);
+            if state.player.hp > 0 && queued_cube_draws > 0 {
+                // Runic Cube's DrawCardAction is addToTop and therefore moves
+                // the card before the next queued hit. Draw-trigger callbacks
+                // are addToBot, so retain them until every hit has drained.
+                state.relic_counters.deferred_runic_cube_draws -= queued_cube_draws;
+                for _ in 0..queued_cube_draws {
+                    inter_hit_draw_follow_ups.extend(
+                        crate::combat::transition::player_draw_cards_with_deferred_evolve(
+                            state, 1,
+                        )?,
+                    );
+                }
+            }
             if hp_damage > 0 && painful_stabs > 0 {
                 painful_stabs_triggers = checked_turn_add(painful_stabs_triggers, painful_stabs)?;
             }
@@ -2351,6 +2372,7 @@ fn apply_monster_pending_effects(
         // queue after the lethal DamageAction.
         state.relic_counters.deferred_centennial_puzzle_draw = false;
         state.relic_counters.deferred_runic_cube_draws = 0;
+        state.pending_hp_loss_draw_follow_ups.clear();
         return Ok(());
     }
     apply_queued_post_attack_player_debuffs(intent, &mut state.player, &state.relics)?;
@@ -2365,7 +2387,7 @@ fn apply_monster_pending_effects(
     // observable when the opening draw requires a shuffle: newly generated
     // Wounds must remain in discard while the deferred draws consume the
     // pre-existing pile (FIDL01519 step 345).
-    let hp_loss_draw_follow_ups = crate::relic::settle_deferred_hp_loss_draw_relics(state)?;
+    inter_hit_draw_follow_ups.extend(crate::relic::settle_deferred_hp_loss_draw_relics(state)?);
     settle_deferred_painful_stabs_wounds(state, painful_stabs_triggers)?;
     if weak > 0 {
         let had_no_weak = state.player.powers.weak == 0;
@@ -2418,7 +2440,7 @@ fn apply_monster_pending_effects(
             allocated_card_id_through,
         )?;
     }
-    crate::combat::transition::resolve_deferred_draw_follow_ups(state, hp_loss_draw_follow_ups)?;
+    crate::combat::transition::resolve_deferred_draw_follow_ups(state, inter_hit_draw_follow_ups)?;
     Ok(())
 }
 
@@ -3374,6 +3396,20 @@ mod tests {
         TRANSIENT_A0,
     };
     use crate::{CardId, CardInstance, MonsterIntent, Relic};
+
+    #[test]
+    fn turn_reset_restores_combat_cost_beneath_turn_override() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand[0].temp_cost = Some(0);
+        state.piles.hand[0].combat_cost_under_turn_override = Some(1);
+        state.piles.hand[0].temp_cost_turn_only = true;
+
+        reset_turn_only_temp_costs(&mut state);
+
+        assert_eq!(state.piles.hand[0].temp_cost, Some(1));
+        assert_eq!(state.piles.hand[0].combat_cost_under_turn_override, None);
+        assert!(!state.piles.hand[0].temp_cost_turn_only);
+    }
 
     #[test]
     fn explicit_medium_spike_slime_profile_wins_over_split_hp_threshold() {
@@ -5555,9 +5591,9 @@ mod tests {
 
     #[test]
     fn book_of_stabbing_multi_hit_defers_runic_cube_so_abacus_cannot_block_later_hits() {
-        // Target: multi-hit DamageAction runs to completion before RunicCube's
-        // addToBot DrawCardAction. Mid-hit draws + Abacus would otherwise grant
-        // block between stabs (permanent aef32ab6: 6!=30+6 after mid-hit shuffle).
+        // Each Runic Cube draw moves a card before the next queued hit, but its
+        // shuffle callbacks remain addToBot behind the hit sequence. Mid-hit
+        // Abacus block would otherwise absorb later stabs (permanent aef32ab6).
         let actor_id = MonsterId::new(1);
         let mut state = CombatState::initial_fixture();
         state.ascension = 0;
@@ -5600,6 +5636,36 @@ mod tests {
             .filter(|card| card.content_id == WOUND_ID)
             .count();
         assert_eq!(wounds, 6);
+    }
+
+    #[test]
+    fn lethal_multi_hit_preserves_only_pre_lethal_runic_cube_draws() {
+        let actor_id = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 20;
+        state.player.max_hp = 20;
+        state.player.block = 0;
+        state.relics = vec![Relic::RunicCube];
+        state.monsters = vec![monster_state_for_ascension(
+            &BOOK_OF_STABBING_A0,
+            actor_id,
+            0,
+        )];
+        state.monsters[0].intent = crate::MonsterIntent::AttackMultiple { damage: 6, hits: 6 };
+        state.piles.hand.clear();
+        state.piles.draw_pile = (100..110)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.discard_pile.clear();
+        state.rng.monster_rng = StsRng::new(1);
+
+        let next = end_player_turn(&state).expect("lethal multi-hit with Runic Cube");
+
+        assert_eq!(next.phase, CombatPhase::Lost);
+        assert_eq!(next.player.hp, 0);
+        assert_eq!(next.piles.hand.len(), 3, "three survived hits queued draws");
+        assert_eq!(next.piles.draw_pile.len(), 7);
+        assert_eq!(next.relic_counters.deferred_runic_cube_draws, 0);
     }
 
     #[test]

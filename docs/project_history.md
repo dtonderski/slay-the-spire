@@ -193,6 +193,15 @@ two later failure-driving captures, FIDL02161 and FIDL02166. Their source-backed
 repairs covered Steam Barrier's target card ID and Exhume's action-time full-hand
 check, producing the current 433-trace lock.
 
+A later 222-trace overnight cohort was frozen before its 213 passing payloads
+were removed from live staging. Eight of its nine failure-driving traces exposed
+generic combat gaps and now replay completely, but none entered the authoritative
+lock: the collection fork's global 100× delta had also advanced dungeon playtime,
+changing Act 3 Secret Portal eligibility, and one same-seed/action capture consumed
+Omamori while still adding Writhing Mass's Parasite. That payload contradicts both
+vanilla source and the earlier authoritative capture. All nine remain immutable
+quarantined evidence pending recollection with an unmultiplied gameplay clock.
+
 A larger apparent lifecycle ambiguity was ultimately a collection-speed defect,
 not a missing trace input. The SuperFastMode collection fork multiplied the
 delta used by gameplay `tickDuration`. `ExhaustAction` opens its hand screen on

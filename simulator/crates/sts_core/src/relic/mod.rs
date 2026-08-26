@@ -2336,9 +2336,9 @@ pub fn apply_player_hp_loss_relics(state: &mut CombatState, hp_loss: i32) -> Sim
 pub enum HpLossDrawPolicy {
     /// Resolve draw relics now (single-hit attacks, card HP loss, etc.).
     Immediate,
-    /// Mark counters / count Runic Cube events only. Caller settles draws after
-    /// the full multi-hit attack finishes — matching addToBot ordering so mid-hit
-    /// shuffles cannot grant Abacus block between stabs (aef32ab6).
+    /// Mark draw counters without resolving them here. Multi-hit callers move
+    /// Runic Cube cards between queued hits but retain addToBot draw callbacks
+    /// (including Abacus block) until the complete hit sequence has drained.
     DeferDraws,
     /// Draw the trigger card immediately, but park Evolve/Fire Breathing
     /// callbacks behind the enclosing END queue's hand-discard action.

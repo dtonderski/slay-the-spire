@@ -55,7 +55,7 @@ pub(super) fn play_card(
         definition.card_type,
     )?);
     state.last_played_card_type = Some(definition.card_type);
-    apply_mummified_hand_on_power_play(state, card_id, definition.card_type);
+    apply_mummified_hand_on_power_play(state, card_id, definition.card_type)?;
     follow_ups.extend(apply_on_card_play_powers(
         state,
         definition.card_type,
@@ -137,8 +137,7 @@ pub(super) fn set_hand_card_cost_for_turn(
     cost: u8,
 ) -> SimResult<Vec<InternalAction>> {
     let card = find_hand_card_mut(state, card_id)?;
-    card.temp_cost = Some(cost);
-    card.temp_cost_turn_only = true;
+    crate::combat::cost::set_card_cost_for_turn(card, cost)?;
     Ok(Vec::new())
 }
 
@@ -149,6 +148,17 @@ pub(super) fn set_hand_card_cost_for_combat(
 ) -> SimResult<Vec<InternalAction>> {
     let card = find_hand_card_mut(state, card_id)?;
     card.temp_cost = Some(cost);
+    card.combat_cost_under_turn_override = None;
     card.temp_cost_turn_only = false;
+    Ok(Vec::new())
+}
+
+pub(super) fn reduce_hand_card_cost_for_combat(
+    state: &mut CombatState,
+    card_id: CardId,
+    amount: u8,
+) -> SimResult<Vec<InternalAction>> {
+    let card = find_hand_card_mut(state, card_id)?;
+    crate::combat::cost::reduce_card_cost_for_combat(card, amount)?;
     Ok(Vec::new())
 }

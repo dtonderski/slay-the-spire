@@ -60,6 +60,12 @@ pub enum InternalAction {
         card_id: CardId,
         cost: u8,
     },
+    /// `AbstractCard.modifyCostForCombat`: reduce the combat-long cost while
+    /// preserving any distinct current-turn override.
+    ReduceHandCardCostForCombat {
+        card_id: CardId,
+        amount: u8,
+    },
     DealDamage {
         info: DamageInfo,
     },
@@ -117,6 +123,9 @@ pub enum InternalAction {
     DealDamageAllAndHealUnblocked {
         source: CardId,
         amount: i32,
+    },
+    DealDamageAndGainBlockUnblocked {
+        info: crate::combat::DamageInfo,
     },
     /// Guardian Sharp Hide (`onUseCard`) damage. It is queued by card-use
     /// powers before UseCardAction settles the source card.
@@ -189,6 +198,10 @@ pub enum InternalAction {
         temp_cost: Option<u8>,
         temp_cost_turn_only: bool,
     },
+    AddGeneratedUpgradedCardToPile {
+        content_id: crate::ContentId,
+        to: CardPile,
+    },
     AddGeneratedCardsToHandWhileSourceInLimbo {
         content_id: crate::ContentId,
         source_card_id: CardId,
@@ -234,6 +247,11 @@ pub enum InternalAction {
         from: CardPile,
         to: CardPile,
     },
+    /// Move one hand card to discard and run the target's manual-discard
+    /// counter and card callbacks.
+    ManualDiscardCard {
+        card_id: CardId,
+    },
     ReturnExhaustCardToHand {
         card_id: CardId,
     },
@@ -249,6 +267,12 @@ pub enum InternalAction {
     /// second use() exhausts them (FIDL01518 Feel No Pain 9).
     ExhaustAllNonAttackCards {
         excluded_card_id: CardId,
+    },
+    /// Storm of Steel resolves against the hand present when BladeFuryAction
+    /// updates, so copied plays re-read the hand after the original made Shivs.
+    ResolveStormOfSteel {
+        source_card_id: CardId,
+        upgraded: bool,
     },
     /// Exhaust every other hand card, then deal `amount` once per exhausted card.
     /// Hit count is decided at resolve time so Double Tap / Necronomicon copies
@@ -322,6 +346,12 @@ pub enum InternalAction {
     IncreaseRampageDamage {
         card_id: CardId,
         amount: i32,
+    },
+    ResolveSteamBarrier {
+        card_id: CardId,
+    },
+    ResolveFollowUpEnergy {
+        should_gain: bool,
     },
     GainFeelNoPain {
         amount: i32,

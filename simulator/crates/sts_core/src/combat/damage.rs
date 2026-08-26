@@ -372,6 +372,10 @@ fn mark_darkling_half_dead(monster: &mut MonsterState) {
     monster.escaped = true;
     monster.intent = crate::MonsterIntent::DarklingCount;
     monster.powers = Default::default();
+    // Darkling.damage clears every power on first death. Dark Shackles'
+    // GainStrengthPower is therefore removed with ShackledPower and must not
+    // restore Strength after REINCARNATE.
+    monster.temp_strength_down = 0;
     if queues_count_move {
         crate::content::monsters::record_target_move(monster);
     }

@@ -80,6 +80,75 @@ pub(super) fn move_card_between_piles(
     Ok(follow_ups)
 }
 
+pub(super) fn resolve_storm_of_steel(
+    state: &CombatState,
+    source_card_id: CardId,
+    upgraded: bool,
+) -> SimResult<Vec<InternalAction>> {
+    let discarded = state
+        .piles
+        .hand
+        .iter()
+        .rev()
+        .filter(|card| card.id != source_card_id)
+        .map(|card| card.id)
+        .collect::<Vec<_>>();
+    let mut actions = Vec::with_capacity(discarded.len() * 2);
+    actions.extend(
+        discarded
+            .iter()
+            .map(|card_id| InternalAction::ManualDiscardCard { card_id: *card_id }),
+    );
+    for _ in 0..discarded.len() {
+        if upgraded {
+            actions.push(InternalAction::AddGeneratedUpgradedCardToPile {
+                content_id: crate::content::cards::SHIV_ANY_COLOR_ID,
+                to: CardPile::Hand,
+            });
+        } else {
+            actions.push(InternalAction::AddGeneratedCardToPile {
+                content_id: crate::content::cards::SHIV_ANY_COLOR_ID,
+                to: CardPile::Hand,
+                temp_cost: None,
+                temp_cost_turn_only: false,
+            });
+        }
+    }
+    Ok(actions)
+}
+
+pub(super) fn manual_discard_card(
+    state: &mut CombatState,
+    card_id: CardId,
+) -> SimResult<Vec<InternalAction>> {
+    let follow_ups =
+        move_card_between_piles(state, card_id, CardPile::Hand, CardPile::DiscardPile)?;
+    state.total_discarded_this_turn = state
+        .total_discarded_this_turn
+        .checked_add(1)
+        .ok_or(SimError::InvalidState("discard counter overflows i32"))?;
+
+    // AbstractPlayer.updateCardsOnDiscard calls didDiscard on hand, discard,
+    // then draw after each manual discard. Eviscerate's callback reduces its
+    // current-turn cost regardless of which of those piles contains it.
+    for pile in [
+        &mut state.piles.hand,
+        &mut state.piles.discard_pile,
+        &mut state.piles.draw_pile,
+    ] {
+        for card in pile
+            .iter_mut()
+            .filter(|card| card.content_id == crate::content::cards::EVISCERATE_ANY_COLOR_ID)
+        {
+            let current = crate::combat::cost::effective_card_cost(card)?;
+            let reduced = u8::try_from(current.saturating_sub(1).max(0))
+                .map_err(|_| SimError::InvalidState("card cost is outside the supported range"))?;
+            crate::combat::cost::set_card_cost_for_turn(card, reduced)?;
+        }
+    }
+    Ok(follow_ups)
+}
+
 pub(super) fn discard_to_hand(
     state: &mut CombatState,
     card_id: CardId,
@@ -171,6 +240,23 @@ pub(super) fn add_generated_card(
     temp_cost_turn_only: bool,
 ) -> SimResult<Vec<InternalAction>> {
     add_generated_card_to_pile(state, content_id, to, temp_cost, temp_cost_turn_only)?;
+    Ok(Vec::new())
+}
+
+pub(super) fn add_generated_upgraded_card(
+    state: &mut CombatState,
+    content_id: ContentId,
+    to: CardPile,
+) -> SimResult<Vec<InternalAction>> {
+    let mut card = super::make_generated_card(state, content_id)?;
+    card.upgrades = 1;
+    let destination =
+        if to == CardPile::Hand && state.piles.hand.len() >= crate::combat::draw::MAX_HAND_SIZE {
+            CardPile::DiscardPile
+        } else {
+            to
+        };
+    super::push_card_to_pile(state, card, destination);
     Ok(Vec::new())
 }
 

@@ -112,6 +112,20 @@ pub const BANE_ANY_COLOR_ID: ContentId = ContentId::new(2_031_758);
 pub const JUDGEMENT_ANY_COLOR_ID: ContentId = ContentId::new(65_514_957_976_365);
 /// Prismatic/Defect Creative AI — id matches `shop_card_content_id("CREATIVE_AI")`.
 pub const CREATIVE_AI_ANY_COLOR_ID: ContentId = ContentId::new(57_143_858_768_198_928);
+/// Prismatic/Silent Eviscerate — id matches `shop_card_content_id("EVISCERATE")`.
+pub const EVISCERATE_ANY_COLOR_ID: ContentId = ContentId::new(1_899_766_626_326_517);
+/// Prismatic/Silent Skewer — id matches `shop_card_content_id("SKEWER")`.
+pub const SKEWER_ANY_COLOR_ID: ContentId = ContentId::new(2_447_625_615);
+/// Prismatic/Silent Storm of Steel — id matches `shop_card_content_id("STORM_OF_STEEL")`.
+pub const STORM_OF_STEEL_ANY_COLOR_ID: ContentId = ContentId::new(10_414_534_505_321_483_857);
+/// Prismatic/Watcher Wallop — id matches `shop_card_content_id("WALLOP")`.
+pub const WALLOP_ANY_COLOR_ID: ContentId = ContentId::new(2_553_105_283);
+/// Prismatic/Defect Streamline — id matches `shop_card_content_id("STREAMLINE")`.
+pub const STREAMLINE_ANY_COLOR_ID: ContentId = ContentId::new(2_268_450_692_935_116);
+/// Prismatic/Watcher Follow-Up — id matches `shop_card_content_id("FOLLOW_UP")`.
+pub const FOLLOW_UP_ANY_COLOR_ID: ContentId = ContentId::new(61_945_570_875_457);
+/// Prismatic/Defect Steam Barrier — id matches `shop_card_content_id("STEAM_BARRIER")`.
+pub const STEAM_BARRIER_ANY_COLOR_ID: ContentId = ContentId::new(12_228_432_166_683_705_824);
 /// Curse granted by [crate::relic::Relic::Necronomicon] on equip. Unpurgeable.
 pub const NECRONOMICURSE_ID: ContentId = ContentId::new(74);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
@@ -5262,6 +5276,13 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | BANE_ANY_COLOR_ID
             | JUDGEMENT_ANY_COLOR_ID
             | CREATIVE_AI_ANY_COLOR_ID
+            | EVISCERATE_ANY_COLOR_ID
+            | SKEWER_ANY_COLOR_ID
+            | STORM_OF_STEEL_ANY_COLOR_ID
+            | WALLOP_ANY_COLOR_ID
+            | STREAMLINE_ANY_COLOR_ID
+            | FOLLOW_UP_ANY_COLOR_ID
+            | STEAM_BARRIER_ANY_COLOR_ID
     ) || (get_card_definition(id).is_none()
         && crate::run::reward::any_color_reward_card_key(id).is_some())
 }
@@ -6181,6 +6202,131 @@ pub static EVALUATE_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static EVISCERATE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: EVISCERATE_ANY_COLOR_ID,
+    key: "EVISCERATE",
+    name: "Eviscerate",
+    cost: 3,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        // Eviscerate.baseDamage is 7; upgradeDamage(2).
+        damage: Some(7),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static SKEWER_ANY_COLOR: CardDefinition = CardDefinition {
+    id: SKEWER_ANY_COLOR_ID,
+    key: "SKEWER",
+    name: "Skewer",
+    cost: -1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        // Skewer.baseDamage is 7; upgradeDamage(3).
+        damage: Some(7),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static STORM_OF_STEEL_ANY_COLOR: CardDefinition = CardDefinition {
+    id: STORM_OF_STEEL_ANY_COLOR_ID,
+    key: "STORM_OF_STEEL",
+    name: "Storm of Steel",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static STEAM_BARRIER_ANY_COLOR: CardDefinition = CardDefinition {
+    id: STEAM_BARRIER_ANY_COLOR_ID,
+    key: "STEAM_BARRIER",
+    name: "Steam Barrier",
+    cost: 0,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        // Steam.baseBlock is 6; upgradeBlock(2).
+        block: Some(6),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static FOLLOW_UP_ANY_COLOR: CardDefinition = CardDefinition {
+    id: FOLLOW_UP_ANY_COLOR_ID,
+    key: "FOLLOW_UP",
+    name: "Follow-Up",
+    cost: 1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        // FollowUp.baseDamage is 7; upgradeDamage(4).
+        damage: Some(7),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static STREAMLINE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: STREAMLINE_ANY_COLOR_ID,
+    key: "STREAMLINE",
+    name: "Streamline",
+    cost: 2,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        // Streamline.baseDamage is 15; upgradeDamage(5).
+        damage: Some(15),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static WALLOP_ANY_COLOR: CardDefinition = CardDefinition {
+    id: WALLOP_ANY_COLOR_ID,
+    key: "WALLOP",
+    name: "Wallop",
+    cost: 2,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        // Wallop.baseDamage is 9; upgradeDamage(3).
+        damage: Some(9),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub static CRUSH_JOINTS_ANY_COLOR: CardDefinition = CardDefinition {
     id: CRUSH_JOINTS_ANY_COLOR_ID,
     key: "CRUSH_JOINTS",
@@ -6254,6 +6400,13 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == BANE_ANY_COLOR_ID).then_some(&BANE_ANY_COLOR))
         .or_else(|| (id == JUDGEMENT_ANY_COLOR_ID).then_some(&JUDGEMENT_ANY_COLOR))
         .or_else(|| (id == CREATIVE_AI_ANY_COLOR_ID).then_some(&CREATIVE_AI_ANY_COLOR))
+        .or_else(|| (id == EVISCERATE_ANY_COLOR_ID).then_some(&EVISCERATE_ANY_COLOR))
+        .or_else(|| (id == SKEWER_ANY_COLOR_ID).then_some(&SKEWER_ANY_COLOR))
+        .or_else(|| (id == STORM_OF_STEEL_ANY_COLOR_ID).then_some(&STORM_OF_STEEL_ANY_COLOR))
+        .or_else(|| (id == WALLOP_ANY_COLOR_ID).then_some(&WALLOP_ANY_COLOR))
+        .or_else(|| (id == STREAMLINE_ANY_COLOR_ID).then_some(&STREAMLINE_ANY_COLOR))
+        .or_else(|| (id == FOLLOW_UP_ANY_COLOR_ID).then_some(&FOLLOW_UP_ANY_COLOR))
+        .or_else(|| (id == STEAM_BARRIER_ANY_COLOR_ID).then_some(&STEAM_BARRIER_ANY_COLOR))
 }
 
 /// Returns the vanilla `AbstractCard.cardID` spelling for a modeled card.

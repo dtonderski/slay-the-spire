@@ -236,6 +236,15 @@ mod tests {
                 "run card retains combat-local Blood for Blood cost reduction"
             ))
         );
+
+        let mut steam = RunState::map_fixture();
+        steam.deck[0].steam_barrier_block_reduction = 1;
+        assert_eq!(
+            steam.validate(),
+            Err(SimError::InvalidState(
+                "run card retains combat-local Steam Barrier block reduction"
+            ))
+        );
     }
 
     #[test]
@@ -1624,7 +1633,10 @@ fn validate_run_choice_card_content(card: &CardInstance) -> SimResult<()> {
 
 fn validate_run_card_metadata(card: &CardInstance) -> SimResult<()> {
     validate_searing_blow_metadata(card)?;
-    if card.temp_cost.is_some() || card.temp_cost_turn_only {
+    if card.temp_cost.is_some()
+        || card.combat_cost_under_turn_override.is_some()
+        || card.temp_cost_turn_only
+    {
         return Err(SimError::InvalidState(
             "run card retains combat-local temporary cost metadata",
         ));
@@ -1640,6 +1652,11 @@ fn validate_run_card_metadata(card: &CardInstance) -> SimResult<()> {
     if card.rampage_damage_bonus != 0 {
         return Err(SimError::InvalidState(
             "run card retains a combat-local Rampage damage bonus",
+        ));
+    }
+    if card.steam_barrier_block_reduction != 0 {
+        return Err(SimError::InvalidState(
+            "run card retains combat-local Steam Barrier block reduction",
         ));
     }
     Ok(())

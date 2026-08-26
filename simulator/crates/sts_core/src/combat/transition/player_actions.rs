@@ -1,5 +1,5 @@
 use super::{
-    add_rampage_damage_bonus, checked_add_combat_value, checked_combat_sum,
+    add_rampage_damage_bonus, checked_add_combat_value, checked_combat_sum, find_combat_card_mut,
     set_random_hand_card_cost_for_combat, upgrade_combat_cards, upgrade_hand_card,
     upgrade_hand_cards_except,
 };
@@ -88,6 +88,34 @@ pub(super) fn increase_rampage_damage(
 ) -> SimResult<Vec<InternalAction>> {
     add_rampage_damage_bonus(state, card_id, amount)?;
     Ok(Vec::new())
+}
+
+pub(super) fn resolve_steam_barrier(
+    state: &mut CombatState,
+    card_id: CardId,
+) -> SimResult<Vec<InternalAction>> {
+    let card = find_combat_card_mut(state, card_id).ok_or(crate::SimError::UnknownCard(card_id))?;
+    let definition = crate::content::cards::get_card_definition(card.content_id)
+        .ok_or(crate::SimError::UnknownContent(card.content_id))?;
+    let printed_block = definition
+        .values
+        .block
+        .ok_or(crate::SimError::InvalidState(
+            "Steam Barrier definition is missing block",
+        ))?
+        + if card.upgrades > 0 { 2 } else { 0 };
+    let block = printed_block
+        .saturating_sub(card.steam_barrier_block_reduction)
+        .max(0);
+    card.steam_barrier_block_reduction = checked_combat_sum(card.steam_barrier_block_reduction, 1)?;
+    Ok(vec![InternalAction::GainBlock { amount: block }])
+}
+
+pub(super) fn resolve_follow_up_energy(should_gain: bool) -> SimResult<Vec<InternalAction>> {
+    Ok(should_gain
+        .then_some(InternalAction::GainEnergy { amount: 1 })
+        .into_iter()
+        .collect())
 }
 
 pub(super) fn gain_feel_no_pain(

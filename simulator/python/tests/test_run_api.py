@@ -41,7 +41,7 @@ def test_run_env_has_one_action_list_and_one_step_method() -> None:
     assert isinstance(result.decision.observation, FairCombatObservation)
 
 
-def test_schema_two_orbs_and_windmill_dynamic_value_are_typed() -> None:
+def test_schema_two_orbs_and_card_dynamic_values_are_typed() -> None:
     env = RunEnv.combat_fixture()
     state = env.full_state()
     combat = cast(dict[str, object], state["combat"])
@@ -61,8 +61,26 @@ def test_schema_two_orbs_and_windmill_dynamic_value_are_typed() -> None:
         == 8
     )
     assert (
+        FairCardDynamicValues._from_payload(
+            {"steam_barrier_block_reduction": 2}
+        ).steam_barrier_block_reduction
+        == 2
+    )
+    assert (
         FairCardDynamicValues._from_payload({}).windmill_retain_damage is None
     ), "stored V1 card payloads remain readable"
+    assert (
+        FairCardDynamicValues._from_payload({}).steam_barrier_block_reduction is None
+    )
+    assert (
+        FairCardDynamicValues._from_payload(
+            {"combat_cost_under_turn_override": 1}
+        ).combat_cost_under_turn_override
+        == 1
+    )
+    assert (
+        FairCardDynamicValues._from_payload({}).combat_cost_under_turn_override is None
+    )
 
 
 def test_action_from_old_decision_is_stale() -> None:

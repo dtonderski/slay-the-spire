@@ -1212,6 +1212,17 @@ fn seed_start_reward_observed_subset(message: &Value) -> Value {
         .get("screen_type")
         .and_then(Value::as_str)
         .unwrap_or("");
+    let mut choices = choice_list_from_value(game.get("choice_list"));
+    if screen_type == "CARD_REWARD" {
+        // Pool key FOLLOW_UP and CommunicationMod display name Follow-Up are
+        // the same card choice; card reward labels are presentation, while
+        // card_reward_ids below remain the authoritative identity comparison.
+        for choice in &mut choices {
+            if choice.eq_ignore_ascii_case("follow-up") {
+                *choice = "follow up".to_owned();
+            }
+        }
+    }
     let mut out = json!({
         "screen_type": screen_type,
         "floor": game.get("floor").and_then(Value::as_u64).unwrap_or(0),
@@ -1220,7 +1231,7 @@ fn seed_start_reward_observed_subset(message: &Value) -> Value {
         "max_hp": int(game, "max_hp"),
         "deck_ids": deck_keys_from_value(game.get("deck")),
         "relic_ids": relic_keys_from_value(game.get("relics")),
-        "choices": choice_list_from_value(game.get("choice_list")),
+        "choices": choices,
     });
 
     if let Value::Object(map) = &mut out {

@@ -4,8 +4,8 @@ use crate::{
     combat::cost::validate_combat_card_cost_metadata,
     content::cards::{
         get_card_definition, validate_searing_blow_metadata, BASH_ID, COMBUST_DAMAGE,
-        COMBUST_PLUS_DAMAGE, DEFEND_R_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, STRIKE_R_ID,
-        WINDMILL_STRIKE_ANY_COLOR_ID,
+        COMBUST_PLUS_DAMAGE, DEFEND_R_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, STEAM_BARRIER_ANY_COLOR_ID,
+        STRIKE_R_ID, WINDMILL_STRIKE_ANY_COLOR_ID,
     },
     content::character::IRONCLAD_A0_BASE_HP,
     content::monsters::{
@@ -121,12 +121,16 @@ pub struct CombatState {
     /// Whip read the previous card (`size-2`) after the current play is queued.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_played_card_type: Option<CardType>,
-    /// UseCardAction applies Strange Spoon when the played card actually
-    /// `moveToExhaustPile`s, after that card's `addToBot` effects. Violence
-    /// builds its attack tmp group with `cardRandomRng` in ViolenceAction,
-    /// which runs before settlement (FIDL01427).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub defer_strange_spoon_until_source_move: Option<CardId>,
+    /// `GameActionManager.totalDiscardedThisTurn`, used by discard-sensitive
+    /// cards such as Eviscerate.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub total_discarded_this_turn: i32,
+    /// Cards whose UseCardAction must apply Strange Spoon when they actually
+    /// `moveToExhaustPile`, after their `addToBot` effects. This is a collection
+    /// rather than a single slot because nested PlayTop cards can both await
+    /// settlement.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub defer_strange_spoon_until_source_move: Vec<CardId>,
     /// Set while expanding `PlayTopDrawCard` with `exhaust_played_card` so nested
     /// Dual Wield select knows to force-exhaust on CONFIRM (no exhaust keyword).
     #[serde(default, skip_serializing_if = "is_false")]
@@ -1174,7 +1178,8 @@ impl CombatState {
             pending_player_spikes_damage: 0,
             card_in_use: None,
             last_played_card_type: None,
-            defer_strange_spoon_until_source_move: None,
+            total_discarded_this_turn: 0,
+            defer_strange_spoon_until_source_move: Vec::new(),
             play_top_force_exhaust_active: false,
             deferred_play_top_monster_blocks: Vec::new(),
             play_top_resolving_depth: 0,
@@ -1472,6 +1477,7 @@ impl CombatState {
             || self.pending_opening_combat_block < 0
             || self.pending_start_of_turn_relic_energy < 0
             || self.pending_start_of_turn_relic_damage < 0
+            || self.total_discarded_this_turn < 0
             || self.combat_gold_gained < 0
         {
             return Err(SimError::InvalidState("combat pending counter is negative"));
@@ -1541,6 +1547,16 @@ fn validate_combat_card(card: &CardInstance) -> SimResult<()> {
     if card.windmill_retain_damage != 0 && card.content_id != WINDMILL_STRIKE_ANY_COLOR_ID {
         return Err(SimError::InvalidState(
             "non-Windmill-Strike card carries retain damage",
+        ));
+    }
+    if card.steam_barrier_block_reduction < 0 {
+        return Err(SimError::InvalidState(
+            "Steam Barrier block reduction cannot be negative",
+        ));
+    }
+    if card.steam_barrier_block_reduction != 0 && card.content_id != STEAM_BARRIER_ANY_COLOR_ID {
+        return Err(SimError::InvalidState(
+            "non-Steam-Barrier card carries block reduction",
         ));
     }
     Ok(())
@@ -1966,6 +1982,28 @@ mod tests {
             wrong_card.validate(),
             Err(SimError::InvalidState(
                 "non-Windmill-Strike card carries retain damage"
+            ))
+        );
+
+        let mut negative_steam = CombatState::initial_fixture();
+        negative_steam.piles.hand = vec![CardInstance::new(
+            CardId::new(100),
+            STEAM_BARRIER_ANY_COLOR_ID,
+        )];
+        negative_steam.piles.hand[0].steam_barrier_block_reduction = -1;
+        assert_eq!(
+            negative_steam.validate(),
+            Err(SimError::InvalidState(
+                "Steam Barrier block reduction cannot be negative"
+            ))
+        );
+
+        let mut wrong_steam = CombatState::initial_fixture();
+        wrong_steam.piles.hand[0].steam_barrier_block_reduction = 1;
+        assert_eq!(
+            wrong_steam.validate(),
+            Err(SimError::InvalidState(
+                "non-Steam-Barrier card carries block reduction"
             ))
         );
     }

@@ -15,7 +15,7 @@ use crate::{
     content::{cards::get_card_definition, monsters::get_monster_definition},
     potion::Potion,
     power::PlayerPowers,
-    relic::{Relic, RelicCounters, MATRYOSHKA_MAX_CHESTS, OMAMORI_CHARGES},
+    relic::{Relic, MATRYOSHKA_MAX_CHESTS, OMAMORI_CHARGES},
     run::{RunPhase, RunState},
 };
 use serde::{Deserialize, Serialize};
@@ -131,6 +131,12 @@ pub struct FairCardDynamicValues {
     pub ritual_dagger_damage_bonus: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub windmill_retain_damage: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub steam_barrier_block_reduction: Option<i32>,
+    /// Combat-long cost that will reappear when the displayed turn-only cost
+    /// expires (for example Streamline played under a zero-cost override).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub combat_cost_under_turn_override: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -390,7 +396,7 @@ pub fn fair_combat_observation(
             })
             .collect(),
         selection: project_selection(combat, corruption_active)?,
-        public_counters: project_public_counters(&combat.relic_counters),
+        public_counters: project_public_counters(combat),
     })
 }
 
@@ -423,6 +429,8 @@ pub(crate) fn project_card(
             rampage_damage_bonus: nonzero(card.rampage_damage_bonus),
             ritual_dagger_damage_bonus: nonzero(card.ritual_dagger_damage_bonus),
             windmill_retain_damage: nonzero(card.windmill_retain_damage),
+            steam_barrier_block_reduction: nonzero(card.steam_barrier_block_reduction),
+            combat_cost_under_turn_override: card.combat_cost_under_turn_override.map(i32::from),
         },
     })
 }
@@ -831,18 +839,25 @@ fn project_relic_state(relic: Relic, run: &RunState, combat: &CombatState) -> Ve
     state
 }
 
-fn project_public_counters(counters: &RelicCounters) -> Vec<FairCounter> {
+fn project_public_counters(combat: &CombatState) -> Vec<FairCounter> {
     [
-        ("cards_played_this_turn", counters.cards_played_this_turn),
+        (
+            "cards_played_this_turn",
+            i64::from(combat.relic_counters.cards_played_this_turn),
+        ),
         (
             "attacks_played_this_turn",
-            counters.attacks_played_this_turn,
+            i64::from(combat.relic_counters.attacks_played_this_turn),
+        ),
+        (
+            "cards_discarded_this_turn",
+            i64::from(combat.total_discarded_this_turn),
         ),
     ]
     .into_iter()
     .map(|(key, value)| FairCounter {
         key: key.to_owned(),
-        value: i64::from(value),
+        value,
     })
     .collect()
 }
@@ -1503,10 +1518,26 @@ mod tests {
         let combat = run.combat.as_mut().expect("combat");
         combat.relic_counters.ink_bottle_cards_played = 7;
         combat.relic_counters.cards_played_this_turn = 2;
+        combat.piles.hand[0].content_id = crate::content::cards::STEAM_BARRIER_ANY_COLOR_ID;
+        combat.piles.hand[0].steam_barrier_block_reduction = 2;
         combat.piles.hand[0].temp_cost = Some(0);
+        combat.piles.hand[0].temp_cost_turn_only = true;
+        combat.piles.hand[0].combat_cost_under_turn_override = Some(1);
+        combat.total_discarded_this_turn = 3;
 
         let projected = observation(&run);
         assert_eq!(projected.hand[0].card.cost, 0);
+        assert_eq!(
+            projected.hand[0].card.dynamic.steam_barrier_block_reduction,
+            Some(2)
+        );
+        assert_eq!(
+            projected.hand[0]
+                .card
+                .dynamic
+                .combat_cost_under_turn_override,
+            Some(1)
+        );
         assert_eq!(projected.relics[0].content_key, "Ink Bottle");
         assert_eq!(projected.relics[0].state[0].value, 7);
         assert_eq!(
@@ -1518,6 +1549,14 @@ mod tests {
             vec![Some("fire"), None, Some("block")]
         );
         assert_eq!(projected.public_counters[0].value, 2);
+        assert_eq!(
+            projected
+                .public_counters
+                .iter()
+                .find(|counter| counter.key == "cards_discarded_this_turn")
+                .map(|counter| counter.value),
+            Some(3)
+        );
     }
 
     #[test]

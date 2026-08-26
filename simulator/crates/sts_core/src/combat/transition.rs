@@ -389,6 +389,20 @@ pub(crate) fn process_internal_queue(
             apply_internal_action_with_defer(&mut next, internal_action, defer_time_warp_card_play)?
         };
         event_log.push(internal_action);
+        if matches!(
+            internal_action,
+            InternalAction::ResolveStormOfSteel { .. }
+                | InternalAction::ResolveSteamBarrier { .. }
+                | InternalAction::ResolveFollowUpEnergy { .. }
+        ) {
+            // These source actions compute from live card/hand history at their
+            // action-manager boundary. Drain their newly queued actions before
+            // a later copied CardQueueItem re-evaluates the same card.
+            for action in follow_ups.into_iter().rev() {
+                queue.push_front(action);
+            }
+            continue;
+        }
         if matches!(internal_action, InternalAction::ResolveTopDrawCard { .. }) {
             // ResolveTopDrawCard expands one card-queue item into its ordered
             // action sequence. Insert that sequence as a lane ahead of existing
@@ -421,7 +435,14 @@ pub(crate) fn process_internal_queue(
             matches!(internal_action, InternalAction::ApplyGremlinHornOnDeath);
         let mut gremlin_horn_insert_index = 0;
         for follow_up in follow_ups {
-            if gremlin_horn_expansion {
+            if matches!(
+                internal_action,
+                InternalAction::DealDamageAndGainBlockUnblocked { .. }
+            ) && matches!(follow_up, InternalAction::GainPrecomputedCardBlock { .. })
+            {
+                // WallopAction addToTop's its GainBlockAction after damage.
+                queue.push_front(follow_up);
+            } else if gremlin_horn_expansion {
                 // Gremlin Horn queues GainEnergy then Draw at this exact death.
                 // Put both ahead of later deaths already on the queue; follow-ups
                 // created by Draw remain addToBot behind those later deaths.
@@ -441,11 +462,10 @@ pub(crate) fn process_internal_queue(
                     .expect("Reaper healing action remains queued");
                 queue.insert(index, follow_up);
             } else if exhaust_follow_up {
-                // ExhaustAll / selected-card exhaust happens in card.use() before
-                // UseCardAction's Beat of Death and Sharp Hide callbacks. FNP
-                // from those other cards must land before that damage (FIDL02333
-                // and Sever Soul under Sharp Hide). The played card's own exhaust
-                // is UseCardAction settlement after BoD (Havoc/Slimed/Pummel).
+                // ExhaustAll runs before UseCardAction settlement. Feel No
+                // Pain's addToBot GainBlock therefore precedes Beat of Death's
+                // onAfterUseCard damage, but remains behind Sharp Hide damage
+                // already queued from onUseCard.
                 let exhausted_is_card_in_use = match internal_action {
                     InternalAction::CardExhausted { card_id }
                     | InternalAction::HandCardExhausted { card_id } => {
@@ -457,11 +477,7 @@ pub(crate) fn process_internal_queue(
                     && matches!(follow_up, InternalAction::GainBlockFromExhaust { .. })
                 {
                     if let Some(index) = queue.iter().position(|action| {
-                        matches!(
-                            action,
-                            InternalAction::DealSharpHideDamageToPlayer { .. }
-                                | InternalAction::DealThornsDamageToPlayer { .. }
-                        )
+                        matches!(action, InternalAction::DealThornsDamageToPlayer { .. })
                     }) {
                         queue.insert(index, follow_up);
                         continue;
@@ -1248,6 +1264,9 @@ fn apply_internal_action_with_defer(
         InternalAction::SetHandCardCostForCombat { card_id, cost } => {
             card_actions::set_hand_card_cost_for_combat(state, card_id, cost)
         }
+        InternalAction::ReduceHandCardCostForCombat { card_id, amount } => {
+            card_actions::reduce_hand_card_cost_for_combat(state, card_id, amount)
+        }
         InternalAction::DealDamage { info } => damage_actions::deal_damage(state, info),
         InternalAction::PrepareCardDamage { info } => {
             damage_actions::prepare_card_damage(state, info)
@@ -1290,6 +1309,9 @@ fn apply_internal_action_with_defer(
         } => damage_actions::deal_damage_all_repeated(state, source, amount, times),
         InternalAction::DealDamageAllAndHealUnblocked { source, amount } => {
             damage_actions::deal_damage_all_and_heal_unblocked(state, source, amount)
+        }
+        InternalAction::DealDamageAndGainBlockUnblocked { info } => {
+            damage_actions::deal_damage_and_gain_block_unblocked(state, info)
         }
         InternalAction::DealSharpHideDamageToPlayer { amount }
         | InternalAction::DealThornsDamageToPlayer { amount } => {
@@ -1354,6 +1376,9 @@ fn apply_internal_action_with_defer(
             let to = apply_deferred_played_card_strange_spoon(state, card_id, to);
             pile_actions::move_card_between_piles(state, card_id, from, to)
         }
+        InternalAction::ManualDiscardCard { card_id } => {
+            pile_actions::manual_discard_card(state, card_id)
+        }
         InternalAction::ReturnExhaustCardToHand { card_id } => {
             pile_actions::return_exhaust_card_to_hand(state, card_id)
         }
@@ -1383,6 +1408,10 @@ fn apply_internal_action_with_defer(
             }
             Ok(follow_ups)
         }
+        InternalAction::ResolveStormOfSteel {
+            source_card_id,
+            upgraded,
+        } => pile_actions::resolve_storm_of_steel(state, source_card_id, upgraded),
         InternalAction::ResolveFiendFire {
             source_card_id,
             target,
@@ -1401,6 +1430,9 @@ fn apply_internal_action_with_defer(
             temp_cost_turn_only,
         } => {
             pile_actions::add_generated_card(state, content_id, to, temp_cost, temp_cost_turn_only)
+        }
+        InternalAction::AddGeneratedUpgradedCardToPile { content_id, to } => {
+            pile_actions::add_generated_upgraded_card(state, content_id, to)
         }
         InternalAction::AddGeneratedCardsToHandWhileSourceInLimbo {
             content_id,
@@ -1516,6 +1548,12 @@ fn apply_internal_action_with_defer(
         }
         InternalAction::IncreaseRampageDamage { card_id, amount } => {
             player_actions::increase_rampage_damage(state, card_id, amount)
+        }
+        InternalAction::ResolveSteamBarrier { card_id } => {
+            player_actions::resolve_steam_barrier(state, card_id)
+        }
+        InternalAction::ResolveFollowUpEnergy { should_gain } => {
+            player_actions::resolve_follow_up_energy(should_gain)
         }
         InternalAction::GainFeelNoPain { amount } => {
             player_actions::gain_feel_no_pain(state, amount)
@@ -1709,9 +1747,9 @@ fn apply_mummified_hand_on_power_play(
     state: &mut CombatState,
     played_card_id: CardId,
     card_type: CardType,
-) {
+) -> SimResult<()> {
     if card_type != CardType::Power || !state.relics.contains(&Relic::MummifiedHand) {
-        return;
+        return Ok(());
     }
 
     // Mummified Hand's on-use hook observes the hand after a newly played
@@ -1748,7 +1786,7 @@ fn apply_mummified_hand_on_power_play(
         .collect::<Vec<_>>();
 
     if candidates.is_empty() {
-        return;
+        return Ok(());
     }
 
     let pick = state
@@ -1756,8 +1794,7 @@ fn apply_mummified_hand_on_power_play(
         .card_random_rng
         .random_int_range(0, (candidates.len() - 1) as i32) as usize;
     let card = &mut state.piles.hand[candidates[pick]];
-    card.temp_cost = Some(0);
-    card.temp_cost_turn_only = true;
+    crate::combat::cost::set_card_cost_for_turn(card, 0)
 }
 
 fn apply_deferred_time_warp_card_play(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
@@ -3115,6 +3152,9 @@ pub(crate) fn apply_corruption_cost_to_generated_hand_card(
         return;
     };
     if definition.card_type == CardType::Skill && definition.cost >= 0 {
+        if !card.temp_cost_turn_only {
+            card.combat_cost_under_turn_override = card.temp_cost;
+        }
         card.temp_cost = Some(0);
         card.temp_cost_turn_only = true;
     }
@@ -3243,6 +3283,7 @@ fn set_random_hand_card_cost_for_combat(
     let chosen = random_madness_remaining_index(state, &remaining, better_possible)?;
     let card = &mut state.piles.hand[chosen];
     card.temp_cost = Some(amount);
+    card.combat_cost_under_turn_override = None;
     card.temp_cost_turn_only = false;
     Ok(())
 }
@@ -3356,9 +3397,13 @@ pub(crate) fn flush_deferred_mayhem_play_top_draw_inserts(
         // callbacks, Pen Nib cleanup, and Unceasing Top exactly as a normal play.
         next.piles.hand.push(card);
         next.card_in_use = Some(card_id);
-        if destination == CardPile::ExhaustPile && next.relics.contains(&crate::Relic::StrangeSpoon)
+        if destination == CardPile::ExhaustPile
+            && next.relics.contains(&crate::Relic::StrangeSpoon)
+            && !next
+                .defer_strange_spoon_until_source_move
+                .contains(&card_id)
         {
-            next.defer_strange_spoon_until_source_move = Some(card_id);
+            next.defer_strange_spoon_until_source_move.push(card_id);
         }
         let movement = InternalAction::MoveCard {
             card_id,
@@ -3599,7 +3644,7 @@ fn resolve_top_draw_card(
                 definition.card_type,
             )?);
             state.last_played_card_type = Some(definition.card_type);
-            apply_mummified_hand_on_power_play(state, card_id, definition.card_type);
+            apply_mummified_hand_on_power_play(state, card_id, definition.card_type)?;
             follow_ups.extend(apply_on_card_play_powers(
                 state,
                 definition.card_type,
@@ -4547,10 +4592,14 @@ fn apply_deferred_played_card_strange_spoon(
     card_id: CardId,
     to: CardPile,
 ) -> CardPile {
-    if state.defer_strange_spoon_until_source_move != Some(card_id) {
+    let Some(index) = state
+        .defer_strange_spoon_until_source_move
+        .iter()
+        .position(|pending| *pending == card_id)
+    else {
         return to;
-    }
-    state.defer_strange_spoon_until_source_move = None;
+    };
+    state.defer_strange_spoon_until_source_move.remove(index);
     if to != CardPile::ExhaustPile {
         return to;
     }
@@ -4908,8 +4957,7 @@ fn move_forethought_selected_card_to_draw_bottom(
     card_id: CardId,
 ) -> SimResult<()> {
     let mut card = remove_card_from_pile(state, card_id, CardPile::Hand)?;
-    card.temp_cost = Some(0);
-    card.temp_cost_turn_only = true;
+    crate::combat::cost::set_card_cost_for_turn(&mut card, 0)?;
     card.free_to_play_once = true;
     state.piles.draw_pile.insert(0, card);
     Ok(())
@@ -5261,8 +5309,7 @@ pub fn confirm_liquid_memories_select(state: &mut CombatState) -> SimResult<()> 
     let mut cards = Vec::new();
     for index in selected.into_iter().rev() {
         let mut card = state.piles.discard_pile.remove(index);
-        card.temp_cost = Some(0);
-        card.temp_cost_turn_only = true;
+        crate::combat::cost::set_card_cost_for_turn(&mut card, 0)?;
         cards.push(card);
     }
     cards.reverse();
@@ -6814,7 +6861,7 @@ mod tests {
         let (mut queued, queue) = card_effects::play_top_draw_card_queue(&state, card, None, false)
             .expect("deferred Mayhem Slimed queue");
         assert_eq!(queued.rng.card_random_rng.counter(), counter_before);
-        assert_eq!(queued.defer_strange_spoon_until_source_move, Some(card.id));
+        assert_eq!(queued.defer_strange_spoon_until_source_move, vec![card.id]);
         assert!(queue.iter().any(|action| {
             matches!(
                 action,
@@ -6856,6 +6903,49 @@ mod tests {
             events[1].operation,
             crate::RngTraceOperation::RandomBool { .. }
         ));
+    }
+
+    #[test]
+    fn nested_play_top_spoon_settlements_keep_both_card_owners() {
+        let outer = CardInstance::new(CardId::new(100), SLIMED_ID);
+        let inner = CardInstance::new(CardId::new(101), SEEING_RED_ID);
+        let mut state = CombatState::initial_fixture();
+        state.relics = vec![Relic::StrangeSpoon];
+        state.piles.hand = vec![outer, inner];
+        state.piles.exhaust_pile.clear();
+        state.piles.discard_pile.clear();
+        state.defer_strange_spoon_until_source_move = vec![outer.id, inner.id];
+        let counter_before = state.rng.card_random_rng.counter();
+
+        let transition = process_internal_queue(
+            &state,
+            VecDeque::from([
+                InternalAction::MoveCard {
+                    card_id: inner.id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+                InternalAction::MoveCard {
+                    card_id: outer.id,
+                    from: CardPile::Hand,
+                    to: CardPile::ExhaustPile,
+                },
+            ]),
+        )
+        .expect("nested forced sources settle independently");
+
+        assert!(transition
+            .state
+            .defer_strange_spoon_until_source_move
+            .is_empty());
+        assert_eq!(
+            transition.state.rng.card_random_rng.counter(),
+            counter_before + 2
+        );
+        assert_eq!(
+            transition.state.piles.exhaust_pile.len() + transition.state.piles.discard_pile.len(),
+            2
+        );
     }
 
     #[test]
@@ -9660,9 +9750,9 @@ mod tests {
     }
 
     #[test]
-    fn sever_soul_feel_no_pain_block_absorbs_guardian_sharp_hide() {
-        // ExhaustAll FNP from the discarded skill lands before UseCardAction
-        // Sharp Hide / Beat of Death (FIDL02333).
+    fn sever_soul_sharp_hide_lands_before_feel_no_pain_block() {
+        // SharpHidePower.onUseCard queues its damage before ExhaustAll runs;
+        // FeelNoPainPower.onExhaust addToBot's block behind it (FIDL02470).
         let target = MonsterId::new(1);
         let mut state = CombatState::initial_fixture();
         state.monsters = vec![monster_state(&GUARDIAN_A0, target)];
@@ -9688,10 +9778,10 @@ mod tests {
                 target: Some(target),
             },
         )
-        .expect("Sever Soul should resolve exhaust FNP before Sharp Hide");
+        .expect("Sever Soul should resolve Sharp Hide before exhaust FNP");
 
-        assert_eq!(next.player.hp, 80);
-        assert_eq!(next.player.block, 0);
+        assert_eq!(next.player.hp, 77);
+        assert_eq!(next.player.block, 3);
         assert_eq!(
             next.piles
                 .exhaust_pile
@@ -10695,6 +10785,40 @@ mod tests {
         assert_eq!(next.relic_counters.pen_nib_attacks_played, 0);
         assert_eq!(next.double_tap_pending, 0);
         assert!(!next.pen_nib_double_active);
+    }
+
+    #[test]
+    fn dead_target_necronomicon_fiend_fire_copy_skips_card_play_triggers() {
+        let target = MonsterId::new(1);
+        let mut first = monster_state(&JAW_WORM_A0, target);
+        first.hp = 1;
+        first.max_hp = 1;
+        let second = monster_state(&JAW_WORM_A0, MonsterId::new(2));
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![first, second];
+        state.player.energy = 3;
+        state.relics = vec![Relic::Necronomicon, Relic::ArtOfWar];
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), FIEND_FIRE_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+        ];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("dead-target Fiend Fire copy is discarded without use");
+
+        assert!(!next.monsters[0].alive);
+        assert!(next.monsters[1].alive);
+        assert_eq!(next.relic_counters.cards_played_this_turn, 1);
+        assert_eq!(next.relic_counters.attacks_played_this_turn, 1);
     }
 
     #[test]

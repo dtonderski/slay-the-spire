@@ -20,8 +20,15 @@ FIDL02166. The latter two were admitted unchanged while failing, then retained
 after source-backed fixes for Steam Barrier identity and full-hand Exhume action
 timing. FIDL02101 remains immutable outside the lock because it exposes a
 pre-opening Colosseum publication without a pre-action scheduler input. The
-current verifier completely passes all 433 traces with zero unsupported
-mechanics or raw unexpected diffs. The earlier
+2026-08-26 overnight cohort also remains outside the lock: all 222 captures were
+hash-frozen before 213 passing live-staging files were removed, and its nine
+failure-driving payloads are retained unchanged under
+`quarantined_traces/collection-2026-08-26-superfast-clock-and-bridge-divergence/`.
+Eight now pass after generic fixes, but the collection's multiplied dungeon
+clock changed Act 3 event eligibility and FIDL02333 contradicts vanilla Omamori
+behavior plus an earlier same-seed/action authoritative trace. Recollection is
+required before promotion. The current verifier completely passes all 433
+active traces with zero unsupported mechanics or raw unexpected diffs. The earlier
 independently audited exact-20 schema-6 pilot is retained unchanged under
 `legacy_schema6_initial_pilot/permanent_traces/`.
 The schema-3 pilot is non-authoritative because a deferred out-of-combat update

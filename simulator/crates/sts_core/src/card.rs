@@ -73,6 +73,11 @@ pub struct CardInstance {
     /// Combat-only generated cards (for example Power Potion) may override printed cost.
     #[serde(default)]
     pub temp_cost: Option<u8>,
+    /// Combat-long cost hidden beneath a current-turn override. The target keeps
+    /// `cost` and `costForTurn` separately; `temp_cost` is the latter while
+    /// this field preserves the former.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub combat_cost_under_turn_override: Option<u8>,
     /// Temporary cost only lasts until the next player turn.
     #[serde(default, skip_serializing_if = "is_false")]
     pub temp_cost_turn_only: bool,
@@ -103,6 +108,9 @@ pub struct CardInstance {
     /// WindmillStrike.onRetained calls upgradeDamage(magicNumber) each retain.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub windmill_retain_damage: i32,
+    /// Steam Barrier loses one base Block each time this instance is played.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub steam_barrier_block_reduction: i32,
 }
 
 impl CardInstance {
@@ -113,6 +121,7 @@ impl CardInstance {
             content_id,
             bottled: false,
             temp_cost: None,
+            combat_cost_under_turn_override: None,
             temp_cost_turn_only: false,
             free_to_play_once: false,
             combat_only: false,
@@ -122,6 +131,7 @@ impl CardInstance {
             upgrades: 0,
             searing_blow_upgrades: 0,
             windmill_retain_damage: 0,
+            steam_barrier_block_reduction: 0,
         }
     }
 
@@ -132,6 +142,7 @@ impl CardInstance {
             content_id,
             bottled: false,
             temp_cost: Some(temp_cost),
+            combat_cost_under_turn_override: None,
             temp_cost_turn_only: false,
             free_to_play_once: false,
             combat_only: true,
@@ -141,6 +152,7 @@ impl CardInstance {
             upgrades: 0,
             searing_blow_upgrades: 0,
             windmill_retain_damage: 0,
+            steam_barrier_block_reduction: 0,
         }
     }
 }

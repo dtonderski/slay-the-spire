@@ -27,41 +27,43 @@ use crate::{
         DOPPELGANGER_ANY_COLOR_ID, DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DRAMATIC_ENTRANCE_ID,
         DRAMATIC_ENTRANCE_PLUS_ID, DROPKICK_ID, DROPKICK_PLUS_ID, DUAL_WIELD_ID,
         DUAL_WIELD_PLUS_ID, EMPTY_MIND_ANY_COLOR_ID, ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID,
-        ENTRENCH_ID, ENTRENCH_PLUS_ID, EQUILIBRIUM_ANY_COLOR_ID, EVOLVE_ID, EVOLVE_PLUS_ID,
-        EXHUME_ID, EXHUME_PLUS_ID, FASTING_ANY_COLOR_ID, FEED_ID, FEED_PLUS_ID, FEEL_NO_PAIN_ID,
-        FEEL_NO_PAIN_PLUS_ID, FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID, FINESSE_ID, FINESSE_PLUS_ID,
-        FIRE_BREATHING_ID, FIRE_BREATHING_PLUS_ID, FLAME_BARRIER_ID, FLAME_BARRIER_PLUS_ID,
-        FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID, FLEX_ID, FLEX_PLUS_ID, FORETHOUGHT_ID,
-        FORETHOUGHT_PLUS_ID, GO_FOR_THE_EYES_ANY_COLOR_ID, HAND_OF_GREED_ID, HAND_OF_GREED_PLUS_ID,
-        HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEADBUTT_PLUS_ID, HEAVY_BLADE_ID,
-        HEAVY_BLADE_PLUS_ID, HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID,
-        IMPATIENCE_ID, IMPATIENCE_PLUS_ID, INFERNAL_BLADE_ID, INFERNAL_BLADE_PLUS_ID, INFLAME_ID,
-        INFLAME_PLUS_ID, INTIMIDATE_ID, INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID,
-        JACK_OF_ALL_TRADES_ID, JACK_OF_ALL_TRADES_PLUS_ID, JAX_ID, JAX_PLUS_ID, JUGGERNAUT_ID,
-        JUGGERNAUT_PLUS_ID, JUST_LUCKY_ANY_COLOR_ID, LIMIT_BREAK_ID, LIMIT_BREAK_PLUS_ID,
-        MADNESS_ID, MADNESS_PLUS_ID, MAGNETISM_ID, MAGNETISM_PLUS_ID, MASTER_OF_STRATEGY_ID,
-        MASTER_OF_STRATEGY_PLUS_ID, MAYHEM_ID, MAYHEM_PLUS_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID,
-        METAMORPHOSIS_ID, METAMORPHOSIS_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID, OFFERING_ID,
-        OFFERING_PLUS_ID, PANACEA_ID, PANACEA_PLUS_ID, PANACHE_ID, PANACHE_PLUS_ID,
-        PANIC_BUTTON_ID, PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID,
-        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID,
-        PRESSURE_POINTS_ANY_COLOR_ID, PROSTRATE_ANY_COLOR_ID, PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_ID,
-        PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, REAPER_ID,
-        REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, RECYCLE_ANY_COLOR_ID,
-        RITUAL_DAGGER_ID, RUPTURE_ID, RUPTURE_PLUS_ID, SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID,
-        SANDS_OF_TIME_ID, SANDS_OF_TIME_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
-        SECOND_WIND_ID, SECOND_WIND_PLUS_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID,
-        SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
+        ENTRENCH_ID, ENTRENCH_PLUS_ID, EQUILIBRIUM_ANY_COLOR_ID, EVISCERATE_ANY_COLOR_ID,
+        EVOLVE_ID, EVOLVE_PLUS_ID, EXHUME_ID, EXHUME_PLUS_ID, FASTING_ANY_COLOR_ID, FEED_ID,
+        FEED_PLUS_ID, FEEL_NO_PAIN_ID, FEEL_NO_PAIN_PLUS_ID, FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID,
+        FINESSE_ID, FINESSE_PLUS_ID, FIRE_BREATHING_ID, FIRE_BREATHING_PLUS_ID, FLAME_BARRIER_ID,
+        FLAME_BARRIER_PLUS_ID, FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID, FLEX_ID, FLEX_PLUS_ID,
+        FOLLOW_UP_ANY_COLOR_ID, FORETHOUGHT_ID, FORETHOUGHT_PLUS_ID, GO_FOR_THE_EYES_ANY_COLOR_ID,
+        HAND_OF_GREED_ID, HAND_OF_GREED_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID,
+        HEADBUTT_PLUS_ID, HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID, HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID,
+        IMMOLATE_ID, IMMOLATE_PLUS_ID, IMPATIENCE_ID, IMPATIENCE_PLUS_ID, INFERNAL_BLADE_ID,
+        INFERNAL_BLADE_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID, INTIMIDATE_PLUS_ID,
+        IRON_WAVE_ID, IRON_WAVE_PLUS_ID, JACK_OF_ALL_TRADES_ID, JACK_OF_ALL_TRADES_PLUS_ID, JAX_ID,
+        JAX_PLUS_ID, JUGGERNAUT_ID, JUGGERNAUT_PLUS_ID, JUST_LUCKY_ANY_COLOR_ID, LIMIT_BREAK_ID,
+        LIMIT_BREAK_PLUS_ID, MADNESS_ID, MADNESS_PLUS_ID, MAGNETISM_ID, MAGNETISM_PLUS_ID,
+        MASTER_OF_STRATEGY_ID, MASTER_OF_STRATEGY_PLUS_ID, MAYHEM_ID, MAYHEM_PLUS_ID,
+        METALLICIZE_ID, METALLICIZE_PLUS_ID, METAMORPHOSIS_ID, METAMORPHOSIS_PLUS_ID,
+        MIND_BLAST_ID, MIND_BLAST_PLUS_ID, OFFERING_ID, OFFERING_PLUS_ID, PANACEA_ID,
+        PANACEA_PLUS_ID, PANACHE_ID, PANACHE_PLUS_ID, PANIC_BUTTON_ID, PANIC_BUTTON_PLUS_ID,
+        PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID,
+        POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID, PRESSURE_POINTS_ANY_COLOR_ID,
+        PROSTRATE_ANY_COLOR_ID, PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_ID, PURITY_PLUS_ID, RAGE_ID,
+        RAGE_PLUS_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID,
+        RECKLESS_CHARGE_PLUS_ID, RECYCLE_ANY_COLOR_ID, RITUAL_DAGGER_ID, RUPTURE_ID,
+        RUPTURE_PLUS_ID, SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID, SANDS_OF_TIME_ID,
+        SANDS_OF_TIME_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECOND_WIND_ID,
+        SECOND_WIND_PLUS_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID,
+        SECRET_WEAPON_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
         SEVER_SOUL_PLUS_ID, SHIV_ANY_COLOR_ID, SHOCKWAVE_ID, SHOCKWAVE_PLUS_ID, SHRUG_IT_OFF_ID,
-        SHRUG_IT_OFF_PLUS_ID, SKIM_ANY_COLOR_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        SPOT_WEAKNESS_PLUS_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
+        SHRUG_IT_OFF_PLUS_ID, SKEWER_ANY_COLOR_ID, SKIM_ANY_COLOR_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STEAM_BARRIER_ANY_COLOR_ID, STORM_OF_STEEL_ANY_COLOR_ID,
+        STREAMLINE_ANY_COLOR_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
         SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID, THE_BOMB_ID,
         THE_BOMB_PLUS_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID, THINKING_AHEAD_PLUS_ID,
         THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID, TRANQUILITY_ANY_COLOR_ID, TRANSMUTATION_ID,
         TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID, TRUE_GRIT_ID, TRUE_GRIT_PLUS_ID,
         TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, UPPERCUT_PLUS_ID, VIOLENCE_ID,
-        VIOLENCE_PLUS_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID,
-        WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID, WOUND_ID,
+        VIOLENCE_PLUS_ID, WALLOP_ANY_COLOR_ID, WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID,
+        WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::shop_pool::{
         colorless_discovery_pool, ironclad_combat_attack_discovery_pool,
@@ -387,6 +389,41 @@ pub(super) fn play_card_queue(
         SWORD_BOOMERANG_ID | SWORD_BOOMERANG_PLUS_ID => {
             sword_boomerang_queue(state, card_id, definition)
         }
+        EVISCERATE_ANY_COLOR_ID => eviscerate_queue(
+            state,
+            card_id,
+            target.expect("validated Eviscerate has a target"),
+            *card,
+            definition,
+        ),
+        SKEWER_ANY_COLOR_ID => skewer_queue(
+            state,
+            card_id,
+            target.expect("validated Skewer has a target"),
+            *card,
+            definition,
+        ),
+        STORM_OF_STEEL_ANY_COLOR_ID => storm_of_steel_queue(state, card_id, *card, definition),
+        STEAM_BARRIER_ANY_COLOR_ID => steam_barrier_queue(card_id, *card, definition),
+        FOLLOW_UP_ANY_COLOR_ID => follow_up_queue(
+            state,
+            card_id,
+            target.expect("validated Follow-Up has a target"),
+            *card,
+            definition,
+        ),
+        STREAMLINE_ANY_COLOR_ID => streamline_queue(
+            card_id,
+            target.expect("validated Streamline has a target"),
+            *card,
+            definition,
+        ),
+        WALLOP_ANY_COLOR_ID => wallop_queue(
+            card_id,
+            target.expect("validated Wallop has a target"),
+            *card,
+            definition,
+        ),
         WHIRLWIND_ID | WHIRLWIND_PLUS_ID => whirlwind_queue(state, card_id, definition),
         TRANSMUTATION_ID | TRANSMUTATION_PLUS_ID => transmutation_queue(state, card_id, definition),
         SECRET_TECHNIQUE_ID | SECRET_TECHNIQUE_PLUS_ID => {
@@ -511,6 +548,18 @@ pub(super) fn play_card_queue(
         DOPPELGANGER_ANY_COLOR_ID => doppelganger_queue(card_id),
         BACKFLIP_ANY_COLOR_ID => backflip_queue(card_id, definition),
         CLOAK_AND_DAGGER_ANY_COLOR_ID => cloak_and_dagger_queue(card_id, definition),
+        SHIV_ANY_COLOR_ID => {
+            let mut shiv = *definition;
+            if card.upgrades > 0 {
+                shiv.values.damage = Some(required_damage(definition)? + 2);
+            }
+            generic_attack_queue(
+                state,
+                card_id,
+                target.expect("validated Shiv has a target"),
+                &shiv,
+            )
+        }
         _ if definition.values.damage.is_some()
             && definition.target == crate::TargetRequirement::Enemy =>
         {
@@ -741,13 +790,24 @@ pub(super) fn play_top_draw_card_queue(
     {
         CardPile::ExhaustPile
     } else {
-        top_draw_card_destination(
-            &mut queued_state,
-            definition,
-            force_exhaust,
-            shared_destination,
-        )
+        top_draw_card_destination(definition, force_exhaust, shared_destination, state)
     };
+    // PlayTop sets exhaustOnUseOnce, but Strange Spoon's onExhaust callback
+    // does not roll until UseCardAction settles the forced card. Keep that roll
+    // behind every action produced by the card (random hits and generated-card
+    // inserts included) instead of deciding the destination while expanding
+    // the card-queue item.
+    if destination == CardPile::ExhaustPile
+        && definition.card_type != CardType::Power
+        && queued_state.relics.contains(&Relic::StrangeSpoon)
+        && !queued_state
+            .defer_strange_spoon_until_source_move
+            .contains(&card.id)
+    {
+        queued_state
+            .defer_strange_spoon_until_source_move
+            .push(card.id);
+    }
     queue.retain(|action| !is_card_move_for(*action, card.id));
     let movement = InternalAction::MoveCard {
         card_id: card.id,
@@ -846,10 +906,10 @@ fn coalesce_top_draw_all_enemy_hits(
 }
 
 fn top_draw_card_destination(
-    state: &mut CombatState,
     definition: &CardDefinition,
     force_exhaust: bool,
     shared_destination: Option<CardPile>,
+    state: &CombatState,
 ) -> CardPile {
     if definition.card_type == CardType::Power {
         return CardPile::DiscardPile;
@@ -869,11 +929,7 @@ fn top_draw_card_destination(
     if !exhaust {
         return CardPile::DiscardPile;
     }
-    if state.relics.contains(&Relic::StrangeSpoon) && state.rng.card_random_rng.random_bool() {
-        CardPile::DiscardPile
-    } else {
-        CardPile::ExhaustPile
-    }
+    CardPile::ExhaustPile
 }
 
 fn apply_effective_cost_to_played_card_queue(
@@ -987,7 +1043,12 @@ fn apply_strange_spoon_to_played_card_move(
     // HexPower.onUseCard addToBots MakeTempCardInDrawPile before that UseCardAction,
     // so the Dazed insert must consume cardRandomRng first (FIDL02399 Limit Break).
     // Violence/Madness already needed the same deferral (FIDL01427 / FIDL02356).
-    state.defer_strange_spoon_until_source_move = Some(card_id);
+    if !state
+        .defer_strange_spoon_until_source_move
+        .contains(&card_id)
+    {
+        state.defer_strange_spoon_until_source_move.push(card_id);
+    }
 }
 
 fn apply_vigor_consumption_to_attack_queue(
@@ -1046,7 +1107,7 @@ fn snapshot_duplication_potion_effects(
     queue
         .iter()
         .copied()
-        .filter(|action| is_duplicated_card_effect(*action, card_id))
+        .filter_map(|action| duplicated_card_effect(action, card_id))
         .collect()
 }
 
@@ -1196,7 +1257,8 @@ fn action_required_living_target(action: InternalAction) -> Option<MonsterId> {
         | InternalAction::PrepareCardDamage { info }
         | InternalAction::DealDamageAndHealUnblocked { info }
         | InternalAction::DealFeedDamage { info, .. } => Some(info.target),
-        InternalAction::DealBodySlamDamage { target, .. } => Some(target),
+        InternalAction::DealBodySlamDamage { target, .. }
+        | InternalAction::ResolveFiendFire { target, .. } => Some(target),
         InternalAction::GainMonsterBlock { target, .. }
         | InternalAction::ApplyVulnerable { target, .. }
         | InternalAction::ReduceMonsterStrength { target, .. }
@@ -1261,6 +1323,9 @@ fn duplicated_card_effect(action: InternalAction, card_id: CardId) -> Option<Int
         } if source_card_id == card_id => Some(InternalAction::AwaitCopiedDiscardSelect {
             purpose: crate::combat::DiscardSelectPurpose::HeadbuttPutOnDraw,
         }),
+        InternalAction::ResolveFollowUpEnergy { .. } => {
+            Some(InternalAction::ResolveFollowUpEnergy { should_gain: true })
+        }
         action if is_duplicated_card_effect(action, card_id) => Some(action),
         _ => None,
     }
@@ -4617,6 +4682,202 @@ fn malaise_queue(
     Ok(queue)
 }
 
+fn eviscerate_queue(
+    _state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let damage = required_damage(definition)? + if card.upgrades > 0 { 2 } else { 0 };
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+    ]);
+    for _ in 0..3 {
+        queue.push_back(InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: damage,
+            },
+        });
+    }
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: CardPile::DiscardPile,
+    });
+    Ok(queue)
+}
+
+fn skewer_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let uses = x_cost_uses_with_chemical_x(state).max(0);
+    let damage = required_damage(definition)? + if card.upgrades > 0 { 3 } else { 0 };
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: if card.free_to_play_once {
+                0
+            } else {
+                state.player.energy
+            },
+        },
+    ]);
+    for _ in 0..uses {
+        queue.push_back(InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: damage,
+            },
+        });
+    }
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: CardPile::DiscardPile,
+    });
+    Ok(queue)
+}
+
+fn steam_barrier_queue(
+    card_id: CardId,
+    _card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::ResolveSteamBarrier { card_id },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn follow_up_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let damage = required_damage(definition)? + if card.upgrades > 0 { 4 } else { 0 };
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: damage,
+            },
+        },
+    ]);
+    queue.push_back(InternalAction::ResolveFollowUpEnergy {
+        should_gain: state.last_played_card_type == Some(CardType::Attack),
+    });
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: CardPile::DiscardPile,
+    });
+    Ok(queue)
+}
+
+fn streamline_queue(
+    card_id: CardId,
+    target: MonsterId,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let damage = required_damage(definition)? + if card.upgrades > 0 { 5 } else { 0 };
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: damage,
+            },
+        },
+        InternalAction::ReduceHandCardCostForCombat { card_id, amount: 1 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn wallop_queue(
+    card_id: CardId,
+    target: MonsterId,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let damage = required_damage(definition)? + if card.upgrades > 0 { 3 } else { 0 };
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::DealDamageAndGainBlockUnblocked {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: damage,
+            },
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn storm_of_steel_queue(
+    _state: &CombatState,
+    card_id: CardId,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy {
+            amount: i32::from(definition.cost),
+        },
+        InternalAction::ResolveStormOfSteel {
+            source_card_id: card_id,
+            upgraded: card.upgrades > 0,
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
 fn whirlwind_queue(
     state: &CombatState,
     card_id: CardId,
@@ -5970,6 +6231,229 @@ mod tests {
             monster_intends_attack(&state, target),
             "attack+block with damage is attack intent"
         );
+    }
+
+    #[test]
+    fn steam_barrier_uses_common_rarity() {
+        assert_eq!(
+            get_card_definition(STEAM_BARRIER_ANY_COLOR_ID)
+                .expect("Steam Barrier definition")
+                .rarity,
+            Some(crate::card::CardRarity::Common)
+        );
+    }
+
+    #[test]
+    fn eviscerate_draw_and_manual_discard_update_turn_cost() {
+        let eviscerate = CardInstance::new(CardId::new(100), EVISCERATE_ANY_COLOR_ID);
+        let discard = CardInstance::new(CardId::new(101), STRIKE_R_ID);
+        let mut state = CombatState::initial_fixture();
+        state.total_discarded_this_turn = 1;
+        state.piles.hand = vec![discard];
+        state.piles.draw_pile = vec![eviscerate];
+        state.piles.discard_pile.clear();
+
+        crate::combat::draw::draw_cards_with_combat_rng(&mut state, 1)
+            .expect("Eviscerate draw resolves");
+        assert_eq!(
+            crate::combat::cost::effective_card_cost(&state.piles.hand[1]),
+            Ok(2)
+        );
+
+        let transition = crate::combat::transition::process_internal_queue(
+            &state,
+            VecDeque::from([InternalAction::ManualDiscardCard {
+                card_id: CardId::new(101),
+            }]),
+        )
+        .expect("manual discard resolves callbacks");
+        assert_eq!(transition.state.total_discarded_this_turn, 2);
+        let eviscerate = transition
+            .state
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.content_id == EVISCERATE_ANY_COLOR_ID)
+            .expect("Eviscerate remains in hand");
+        assert_eq!(crate::combat::cost::effective_card_cost(eviscerate), Ok(1));
+        assert!(eviscerate.temp_cost_turn_only);
+    }
+
+    #[test]
+    fn upgraded_storm_of_steel_manually_discards_and_makes_upgraded_shivs() {
+        let mut storm = CardInstance::new(CardId::new(100), STORM_OF_STEEL_ANY_COLOR_ID);
+        storm.upgrades = 1;
+        let eviscerate = CardInstance::new(CardId::new(101), EVISCERATE_ANY_COLOR_ID);
+        let strike = CardInstance::new(CardId::new(102), STRIKE_R_ID);
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![storm, eviscerate, strike];
+        state.piles.discard_pile.clear();
+        let definition =
+            get_card_definition(STORM_OF_STEEL_ANY_COLOR_ID).expect("Storm definition");
+        let queue = storm_of_steel_queue(&state, storm.id, storm, definition).expect("Storm queue");
+
+        let transition = crate::combat::transition::process_internal_queue(&state, queue)
+            .expect("Storm resolves");
+        assert_eq!(transition.state.total_discarded_this_turn, 2);
+        let shivs = transition
+            .state
+            .piles
+            .hand
+            .iter()
+            .filter(|card| card.content_id == SHIV_ANY_COLOR_ID)
+            .collect::<Vec<_>>();
+        assert_eq!(shivs.len(), 2);
+        assert!(shivs.iter().all(|card| card.upgrades == 1));
+        let eviscerate = transition
+            .state
+            .piles
+            .discard_pile
+            .iter()
+            .find(|card| card.content_id == EVISCERATE_ANY_COLOR_ID)
+            .expect("Eviscerate was manually discarded");
+        assert_eq!(crate::combat::cost::effective_card_cost(eviscerate), Ok(1));
+
+        let shiv_id = shivs[0].id;
+        let target = transition.state.monsters[0].id;
+        let hp_before = transition.state.monsters[0].hp;
+        let (_, queue) =
+            play_card_queue(&transition.state, shiv_id, Some(target)).expect("upgraded Shiv queue");
+        let after_shiv =
+            crate::combat::transition::process_internal_queue(&transition.state, queue)
+                .expect("upgraded Shiv resolves");
+        assert_eq!(after_shiv.state.monsters[0].hp, hp_before - 6);
+    }
+
+    #[test]
+    fn streamline_preserves_zero_turn_override_over_reduced_combat_cost() {
+        let mut streamline = CardInstance::new(CardId::new(100), STREAMLINE_ANY_COLOR_ID);
+        streamline.temp_cost = Some(0);
+        streamline.temp_cost_turn_only = true;
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![streamline];
+        state.piles.discard_pile.clear();
+        let target = state.monsters[0].id;
+        let definition =
+            get_card_definition(STREAMLINE_ANY_COLOR_ID).expect("Streamline definition");
+        let queue = streamline_queue(streamline.id, target, streamline, definition)
+            .expect("Streamline queue");
+
+        let transition = crate::combat::transition::process_internal_queue(&state, queue)
+            .expect("Streamline resolves");
+        let streamline = transition
+            .state
+            .piles
+            .discard_pile
+            .iter()
+            .find(|card| card.content_id == STREAMLINE_ANY_COLOR_ID)
+            .expect("Streamline discarded");
+        assert_eq!(crate::combat::cost::effective_card_cost(streamline), Ok(0));
+        assert_eq!(crate::combat::cost::printed_card_cost(streamline), Ok(1));
+        assert!(streamline.temp_cost_turn_only);
+        assert_eq!(streamline.combat_cost_under_turn_override, Some(1));
+    }
+
+    #[test]
+    fn copied_dynamic_cards_recompute_at_each_card_use_boundary() {
+        let target = MonsterId::new(1);
+
+        let mut storm = CardInstance::new(CardId::new(100), STORM_OF_STEEL_ANY_COLOR_ID);
+        storm.upgrades = 1;
+        let mut storm_state = CombatState::initial_fixture();
+        storm_state.duplication_potion_pending = true;
+        storm_state.piles.hand = vec![
+            storm,
+            CardInstance::new(CardId::new(101), EVISCERATE_ANY_COLOR_ID),
+            CardInstance::new(CardId::new(102), STRIKE_R_ID),
+        ];
+        storm_state.piles.discard_pile.clear();
+        let storm_next = crate::combat::transition::apply_combat_action(
+            &storm_state,
+            crate::CombatAction::PlayCard {
+                card_id: storm.id,
+                target: None,
+            },
+        )
+        .expect("copied Storm re-reads its replacement Shiv hand");
+        assert_eq!(storm_next.total_discarded_this_turn, 4);
+        assert_eq!(
+            storm_next
+                .piles
+                .hand
+                .iter()
+                .filter(|card| card.content_id == SHIV_ANY_COLOR_ID && card.upgrades == 1)
+                .count(),
+            2
+        );
+
+        let steam = CardInstance::new(CardId::new(200), STEAM_BARRIER_ANY_COLOR_ID);
+        let mut steam_state = CombatState::initial_fixture();
+        steam_state.duplication_potion_pending = true;
+        steam_state.piles.hand = vec![steam];
+        steam_state.piles.discard_pile.clear();
+        let steam_next = crate::combat::transition::apply_combat_action(
+            &steam_state,
+            crate::CombatAction::PlayCard {
+                card_id: steam.id,
+                target: None,
+            },
+        )
+        .expect("copied Steam Barrier uses its reduced second value");
+        assert_eq!(steam_next.player.block, 11);
+        assert_eq!(
+            steam_next.piles.discard_pile[0].steam_barrier_block_reduction,
+            2
+        );
+
+        let follow_up = CardInstance::new(CardId::new(300), FOLLOW_UP_ANY_COLOR_ID);
+        let mut follow_state = CombatState::initial_fixture();
+        follow_state.player.energy = 2;
+        follow_state.duplication_potion_pending = true;
+        follow_state.piles.hand = vec![follow_up];
+        follow_state.piles.discard_pile.clear();
+        let follow_next = crate::combat::transition::apply_combat_action(
+            &follow_state,
+            crate::CombatAction::PlayCard {
+                card_id: follow_up.id,
+                target: Some(target),
+            },
+        )
+        .expect("copied Follow-Up sees the original Attack before it");
+        assert_eq!(follow_next.player.energy, 2);
+        assert_eq!(follow_next.relic_counters.cards_played_this_turn, 2);
+    }
+
+    #[test]
+    fn wallop_block_uses_ordinary_gain_block_semantics() {
+        let wallop = CardInstance::new(CardId::new(100), WALLOP_ANY_COLOR_ID);
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![wallop];
+        state.piles.discard_pile.clear();
+        state.player.no_block_turns = 1;
+        state.player.powers.juggernaut = 5;
+        let target = state.monsters[0].id;
+        let hp_before = state.monsters[0].hp;
+        let definition = get_card_definition(WALLOP_ANY_COLOR_ID).expect("Wallop definition");
+        let queue = wallop_queue(wallop.id, target, wallop, definition).expect("Wallop queue");
+
+        let transition = crate::combat::transition::process_internal_queue(&state, queue)
+            .expect("Wallop resolves");
+        assert_eq!(transition.state.player.block, 0);
+        assert_eq!(transition.state.monsters[0].hp, hp_before - 9);
+
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![wallop];
+        state.piles.discard_pile.clear();
+        state.player.powers.juggernaut = 5;
+        state.player.powers.dexterity = 2;
+        state.player.powers.frail = 1;
+        let target = state.monsters[0].id;
+        let hp_before = state.monsters[0].hp;
+        let queue = wallop_queue(wallop.id, target, wallop, definition).expect("Wallop queue");
+        let transition = crate::combat::transition::process_internal_queue(&state, queue)
+            .expect("Wallop and Juggernaut resolve");
+        assert_eq!(transition.state.player.block, 9);
+        assert_eq!(transition.state.monsters[0].hp, hp_before - 14);
     }
 
     #[test]

@@ -56,6 +56,8 @@ class FairCardDynamicValues:
     rampage_damage_bonus: int | None
     ritual_dagger_damage_bonus: int | None
     windmill_retain_damage: int | None
+    steam_barrier_block_reduction: int | None
+    combat_cost_under_turn_override: int | None
 
     @classmethod
     def _from_payload(cls, payload: object) -> FairCardDynamicValues:
@@ -67,6 +69,12 @@ class FairCardDynamicValues:
             ),
             windmill_retain_damage=cast(
                 int | None, value.get("windmill_retain_damage")
+            ),
+            steam_barrier_block_reduction=cast(
+                int | None, value.get("steam_barrier_block_reduction")
+            ),
+            combat_cost_under_turn_override=cast(
+                int | None, value.get("combat_cost_under_turn_override")
             ),
         )
 
