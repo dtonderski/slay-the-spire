@@ -179,7 +179,7 @@ def test_typed_debug_content_helpers_mutate_the_run_and_revision() -> None:
 
 
 def test_content_catalogues_are_complete_python_enums() -> None:
-    assert len(Card) == 245
+    assert len(Card) == 251
     assert len(Relic) == 157
     assert len(Potion) == 33
     assert Card.BASH.value == "Bash"

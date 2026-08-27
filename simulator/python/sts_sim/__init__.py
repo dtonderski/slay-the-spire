@@ -16,7 +16,16 @@ from ._native import (
     slaythedata_preflight_json,
     sts_seed_long_to_string,
 )
-from .content import Card, Potion, Relic
+from .content import (
+    CARD_CATALOGUE,
+    CARD_DEFINITIONS,
+    Card,
+    CardDefinition,
+    CardKeywords,
+    CardValues,
+    Potion,
+    Relic,
+)
 from .fair import (
     DecisionRevision,
     FairCard,
@@ -45,8 +54,13 @@ from .fair import (
 from .run import Action, Decision, Observation, RunEnv, Snapshot, StepResult
 
 __all__ = [
+    "CARD_CATALOGUE",
+    "CARD_DEFINITIONS",
     "Action",
     "Card",
+    "CardDefinition",
+    "CardKeywords",
+    "CardValues",
     "Decision",
     "DecisionRevision",
     "DecisionUnavailableError",

@@ -1,5 +1,40 @@
+from collections.abc import Mapping
+from dataclasses import dataclass
 from enum import StrEnum
-from typing import ClassVar
+from typing import ClassVar, Literal
+
+type CardType = Literal["attack", "skill", "power", "status"]
+type CardRarity = Literal["common", "uncommon", "rare"]
+type CardTarget = Literal["enemy", "all_enemies", "none"]
+
+@dataclass(frozen=True, slots=True)
+class CardValues:
+    damage: int | None
+    block: int | None
+    vulnerable: int | None
+
+@dataclass(frozen=True, slots=True)
+class CardKeywords:
+    innate: bool
+    ethereal: bool
+    exhaust: bool
+    retain: bool
+    unplayable: bool
+
+@dataclass(frozen=True, slots=True)
+class CardDefinition:
+    content_key: str
+    display_name: str
+    printed_cost: int
+    card_type: CardType
+    rarity: CardRarity | None
+    target: CardTarget
+    values: CardValues
+    keywords: CardKeywords
+    is_curse: bool
+
+CARD_CATALOGUE: tuple[CardDefinition, ...]
+CARD_DEFINITIONS: Mapping[str, CardDefinition]
 
 class Card(StrEnum):
     STRIKE_R: ClassVar[Card]
@@ -12,9 +47,11 @@ class Card(StrEnum):
     DAZED: ClassVar[Card]
     BURN: ClassVar[Card]
     SLIMED: ClassVar[Card]
+    VOID: ClassVar[Card]
     REGRET: ClassVar[Card]
     DOUBT: ClassVar[Card]
     CURSE_OF_THE_BELL: ClassVar[Card]
+    NECRONOMICURSE: ClassVar[Card]
     CLUMSY: ClassVar[Card]
     DECAY: ClassVar[Card]
     INJURY: ClassVar[Card]
@@ -161,6 +198,10 @@ class Card(StrEnum):
     SECRET_TECHNIQUE_PLUS: ClassVar[Card]
     SECRET_WEAPON: ClassVar[Card]
     SECRET_WEAPON_PLUS: ClassVar[Card]
+    BLASPHEMY: ClassVar[Card]
+    BLASPHEMY_PLUS: ClassVar[Card]
+    SANDS_OF_TIME: ClassVar[Card]
+    SANDS_OF_TIME_PLUS: ClassVar[Card]
     VIOLENCE: ClassVar[Card]
     VIOLENCE_PLUS: ClassVar[Card]
     THE_BOMB: ClassVar[Card]

@@ -6,11 +6,12 @@ use sts_core::potion::IRONCLAD_POTION_POOL;
 use sts_core::{
     apply_combat_action_with_events, apply_run_decision_action, fair_combat_observation,
     fair_run_observation, legal_combat_actions, legal_run_decision_actions, player_choices,
-    resolve_player_choice, restore_combat_snapshot_json, restore_run_snapshot_json, CardId,
-    CombatAction, CombatPhase, CombatState, DecisionRevision, EventAction, FairCombatObservation,
-    FairObservationError, MapAction, MonsterId, MonsterIntent, PlayerChoice, PlayerChoiceError,
-    PlayerChoiceRequest, Potion, Relic, RestAction, RunAction, RunDecisionAction, RunPhase,
-    RunState, Snapshot, ALL_RELICS, SNAPSHOT_SCHEMA_VERSION,
+    resolve_player_choice, restore_combat_snapshot_json, restore_run_snapshot_json, CardDefinition,
+    CardId, CardKeywords, CardType, CardValues, CombatAction, CombatPhase, CombatState,
+    DecisionRevision, EventAction, FairCombatObservation, FairObservationError, MapAction,
+    MonsterId, MonsterIntent, PlayerChoice, PlayerChoiceError, PlayerChoiceRequest, Potion, Relic,
+    RestAction, RunAction, RunDecisionAction, RunPhase, RunState, Snapshot, TargetRequirement,
+    ALL_RELICS, SNAPSHOT_SCHEMA_VERSION,
 };
 
 const AGENT_REWARD_GOLD_PER_HP: f64 = 10.0;
@@ -23,6 +24,57 @@ create_exception!(_native, NotInCombatError, PyValueError);
 create_exception!(_native, DecisionUnavailableError, PyValueError);
 create_exception!(_native, StaleDecisionError, PyValueError);
 create_exception!(_native, InvalidChoiceError, PyValueError);
+
+#[derive(serde::Serialize)]
+struct CardCatalogueEntry<'a> {
+    content_key: &'a str,
+    display_name: &'a str,
+    printed_cost: i8,
+    card_type: &'static str,
+    rarity: Option<&'static str>,
+    target: &'static str,
+    values: CardValues,
+    keywords: CardKeywords,
+    is_curse: bool,
+}
+
+impl<'a> From<&'a CardDefinition> for CardCatalogueEntry<'a> {
+    fn from(definition: &'a CardDefinition) -> Self {
+        Self {
+            content_key: definition.key,
+            display_name: definition.name,
+            printed_cost: definition.cost,
+            card_type: match definition.card_type {
+                CardType::Attack => "attack",
+                CardType::Skill => "skill",
+                CardType::Power => "power",
+                CardType::Status => "status",
+            },
+            rarity: definition.rarity.map(|rarity| match rarity {
+                sts_core::CardRarity::Common => "common",
+                sts_core::CardRarity::Uncommon => "uncommon",
+                sts_core::CardRarity::Rare => "rare",
+            }),
+            target: match definition.target {
+                TargetRequirement::Enemy => "enemy",
+                TargetRequirement::AllEnemies => "all_enemies",
+                TargetRequirement::None => "none",
+            },
+            values: definition.values,
+            keywords: definition.keywords,
+            is_curse: sts_core::content::cards::is_curse_content_id(definition.id),
+        }
+    }
+}
+
+fn card_catalogue_entries() -> Vec<CardCatalogueEntry<'static>> {
+    let mut definitions = sts_core::content::cards::ALL_CARDS
+        .iter()
+        .map(CardCatalogueEntry::from)
+        .collect::<Vec<_>>();
+    definitions.sort_by_key(|definition| definition.content_key);
+    definitions
+}
 
 #[derive(serde::Serialize)]
 struct FairDecisionWire {
@@ -814,6 +866,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(slaythedata_preflight_json, module)?)?;
     module.add_function(wrap_pyfunction!(sts_seed_long_to_string, module)?)?;
     module.add_function(wrap_pyfunction!(card_keys, module)?)?;
+    module.add_function(wrap_pyfunction!(card_catalogue_json, module)?)?;
     module.add_function(wrap_pyfunction!(relic_names, module)?)?;
     module.add_function(wrap_pyfunction!(potion_names, module)?)?;
     Ok(())
@@ -830,6 +883,11 @@ fn card_keys() -> Vec<&'static str> {
         .iter()
         .map(|definition| definition.key)
         .collect()
+}
+
+#[pyfunction]
+fn card_catalogue_json() -> PyResult<String> {
+    to_json(&card_catalogue_entries())
 }
 
 #[pyfunction]
@@ -1771,6 +1829,43 @@ fn terminal_reason(phase: CombatPhase) -> Option<&'static str> {
 mod tests {
     use super::*;
     use sts_core::Potion;
+
+    #[test]
+    fn card_catalogue_is_complete_sorted_unique_and_public() {
+        let catalogue = card_catalogue_entries();
+        assert_eq!(catalogue.len(), sts_core::content::cards::ALL_CARDS.len());
+        assert_eq!(catalogue.len(), 251);
+        assert!(catalogue
+            .windows(2)
+            .all(|pair| pair[0].content_key < pair[1].content_key));
+
+        let payload = serde_json::to_value(&catalogue).expect("catalogue serializes");
+        let records = payload.as_array().expect("catalogue is an array");
+        assert!(records.iter().all(|record| {
+            let object = record.as_object().expect("catalogue entry is an object");
+            !object.contains_key("id")
+                && !object.contains_key("content_id")
+                && !object.contains_key("upgrade")
+        }));
+    }
+
+    #[test]
+    fn card_catalogue_marks_curses_without_changing_card_type() {
+        let catalogue = card_catalogue_entries();
+        let parasite = catalogue
+            .iter()
+            .find(|definition| definition.content_key == "Parasite")
+            .expect("Parasite is catalogued");
+        assert!(parasite.is_curse);
+        assert_eq!(parasite.card_type, "status");
+
+        let wound = catalogue
+            .iter()
+            .find(|definition| definition.content_key == "Wound")
+            .expect("Wound is catalogued");
+        assert!(!wound.is_curse);
+        assert_eq!(wound.card_type, "status");
+    }
 
     #[test]
     fn schema_one_combat_snapshot_migrates_when_state_is_valid() {
