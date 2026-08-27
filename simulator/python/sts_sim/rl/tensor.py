@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, is_dataclass
@@ -79,6 +80,14 @@ ENTITY_KINDS: Final = (
     "selection",
 )
 ZONES: Final = ("none", "hand", "draw", "discard", "exhaust", "stasis", "selection")
+CATEGORY_NAMESPACES: Final = (
+    "card_type",
+    "card_rarity",
+    "card_target",
+    "intent_visibility",
+    "intent_category",
+    "slime_size",
+)
 SCALAR_NAMES: Final = (
     "observation_schema_version",
     "ascension",
@@ -468,6 +477,16 @@ class BatchedCombatDecision:
     action_mask: torch.Tensor
 
 
+def _float32_value(value: float | bool, label: str) -> float:
+    try:
+        converted = float(value)
+    except OverflowError as error:
+        raise ValueError(f"{label} is not representable as float32") from error
+    if not math.isfinite(converted) or abs(converted) > torch.finfo(torch.float32).max:
+        raise ValueError(f"{label} must be finite and representable as float32")
+    return converted
+
+
 class _Encoder:
     def __init__(self, vocabularies: Vocabularies) -> None:
         self.vocabularies = vocabularies
@@ -509,23 +528,15 @@ class _Encoder:
         self.kind.append(self.code("entity_kind", kind))
         self.content.append(self.code(content_namespace, content))
         self.zone.append(self.code("zone", zone))
-        category_namespaces = (
-            "card_type",
-            "card_rarity",
-            "card_target",
-            "intent_visibility",
-            "intent_category",
-            "slime_size",
-        )
-        categories = [self.code(namespace, None) for namespace in category_namespaces]
+        categories = [self.code(namespace, None) for namespace in CATEGORY_NAMESPACES]
         for namespace, value in category_values:
-            categories[category_namespaces.index(namespace)] = self.code(namespace, value)
+            categories[CATEGORY_NAMESPACES.index(namespace)] = self.code(namespace, value)
         self.categories.append(categories)
         values = [0.0] * len(SCALAR_NAMES)
         masks = [False] * len(SCALAR_NAMES)
         for name, value in (scalar_values or {}).items():
             if value is not None:
-                values[SCALAR_INDEX[name]] = float(value)
+                values[SCALAR_INDEX[name]] = _float32_value(value, name)
                 masks[SCALAR_INDEX[name]] = True
         self.scalars.append(values)
         self.scalar_mask.append(masks)
@@ -534,7 +545,10 @@ class _Encoder:
         power_counts = [0] * len(power_values)
         for power in powers:
             power_index = self.code("power", power.key)
-            power_values[power_index] += float(power.amount)
+            power_values[power_index] = _float32_value(
+                power_values[power_index] + _float32_value(power.amount, power.key),
+                power.key,
+            )
             power_counts[power_index] += 1
             power_masks[power_index] = True
         self.powers.append(power_values)
@@ -545,7 +559,10 @@ class _Encoder:
         counter_counts = [0] * len(counter_values)
         for counter in counters:
             counter_index = self.code("counter", counter.key)
-            counter_values[counter_index] += float(counter.value)
+            counter_values[counter_index] = _float32_value(
+                counter_values[counter_index] + _float32_value(counter.value, counter.key),
+                counter.key,
+            )
             counter_counts[counter_index] += 1
             counter_masks[counter_index] = True
         self.counters.append(counter_values)
