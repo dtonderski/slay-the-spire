@@ -9,6 +9,12 @@ description = "Typed Python bindings for the Slay the Spire simulator"
 requires-python = ">=3.12"
 dependencies = []
 
+[project.optional-dependencies]
+rl = [
+    "numpy>=2",
+    "torch>=2.7",
+]
+
 [dependency-groups]
 dev = [
     "jupyterlab>=4.0",

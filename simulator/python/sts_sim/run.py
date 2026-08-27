@@ -21,6 +21,23 @@ def _mapping(value: object) -> dict[str, object]:
 
 
 @dataclass(frozen=True, slots=True)
+class ActionDescriptor:
+    """Pure public action value with no revision or native command handle."""
+
+    family: str
+    kind: str
+    hand_slot: int | None = None
+    potion_slot: int | None = None
+    option_slot: int | None = None
+    target_slot: int | None = None
+    card_slot: int | None = None
+    node_slot: int | None = None
+    reward_slot: int | None = None
+    shop_slot: int | None = None
+    slot: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Action:
     """One legal player action bound to the decision that produced it."""
 
@@ -70,6 +87,23 @@ class Action:
         # single action passed to print().  Retain the public type name so a
         # collection is still recognizably a collection of Action objects.
         return f"Action({self._display_text()})"
+
+    def descriptor(self) -> ActionDescriptor:
+        """Strip the stateful action down to visibility-safe symbolic fields."""
+
+        return ActionDescriptor(
+            family=self.family,
+            kind=self.kind,
+            hand_slot=self.hand_slot,
+            potion_slot=self.potion_slot,
+            option_slot=self.option_slot,
+            target_slot=self.target_slot,
+            card_slot=self.card_slot,
+            node_slot=self.node_slot,
+            reward_slot=self.reward_slot,
+            shop_slot=self.shop_slot,
+            slot=self.slot,
+        )
 
     @classmethod
     def _from_native(cls, native: _native.Action) -> Action:
@@ -233,14 +267,11 @@ class RunEnv:
 
         self._native.step_action(action._handle)
         decision = self.decision()
-        combat_terminal = (
-            isinstance(decision.observation, FairCombatObservation)
-            and decision.observation.phase in ("won", "lost")
-        )
+        combat_terminal = isinstance(
+            decision.observation, FairCombatObservation
+        ) and decision.observation.phase in ("won", "lost")
         return StepResult(
-            terminal=decision.phase == "complete"
-            or combat_terminal
-            or not decision.actions,
+            terminal=decision.phase == "complete" or combat_terminal or not decision.actions,
             decision=decision,
         )
 

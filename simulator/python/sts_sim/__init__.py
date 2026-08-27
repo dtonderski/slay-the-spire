@@ -51,12 +51,13 @@ from .fair import (
     FairSelectionKind,
     FairSelectionOption,
 )
-from .run import Action, Decision, Observation, RunEnv, Snapshot, StepResult
+from .run import Action, ActionDescriptor, Decision, Observation, RunEnv, Snapshot, StepResult
 
 __all__ = [
     "CARD_CATALOGUE",
     "CARD_DEFINITIONS",
     "Action",
+    "ActionDescriptor",
     "Card",
     "CardDefinition",
     "CardKeywords",

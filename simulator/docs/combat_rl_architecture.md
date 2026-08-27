@@ -1,7 +1,7 @@
 # Combat RL Architecture
 
-Status: design contract; neural and tensor implementation is deferred.
-Last updated: 2026-07-23.
+Status: design contract; the initial fair tensorizer and tiny policy/value model are implemented.
+Last updated: 2026-08-27.
 
 The first learned combat agent uses AlphaZero-style Expert Iteration over
 collected combat roots. Its policy/value network receives only fair public
@@ -12,9 +12,9 @@ later replaced by particle-belief search.
 
 See [`fair_combat_api_design.md`](fair_combat_api_design.md) for the symbolic
 Rust boundary and [`combat_search_benchmark_2026-07.md`](combat_search_benchmark_2026-07.md)
-for the July 2026 fixed-budget planner conclusions. This document specifies
-the later model and training direction; it does not authorize tensor code in
-the simulator.
+for the July 2026 fixed-budget planner conclusions. This document specifies the
+model and training direction. Tensor code remains an optional Python RL layer;
+it does not become simulator mechanics or part of the durable symbolic API.
 
 ## Terminology
 
@@ -78,17 +78,25 @@ reliable targets so the learned agent is not capped by the handcrafted teacher.
 ## State Encoder
 
 Do not use a sparse vector indexed by every possible card, relic, potion, or
-power. Encode the entities actually present as dense tokens:
+monster. Encode the entities actually present as dense tokens:
 
 ```text
 [STATE] [PLAYER]
 [PILE summaries] [one token per visible card record]
 [one token per monster]
-[one token per visible power]
 [one token per relic]
 [one token per potion/empty slot]
 [PUBLIC HISTORY summary]
 ```
+
+The initial implementation pools visible powers and counters onto their owner
+entity as deterministic vocabulary-indexed aggregate value, presence-mask, and
+occurrence-count features. This deliberately preserves owner association and
+aggregate duplicate/OOV statistics without adding separate tokens whose owner
+references must be maintained. Exact power/counter vocabulary identity is
+checkpoint-owned; changing it changes the model input width and therefore
+requires a new checkpoint. Separate power/counter tokens remain a valid future
+experiment, not the current tensor contract.
 
 A small Transformer or equivalent permutation-aware set encoder contextualizes
 the tokens. The `[STATE]` output feeds the value head; contextual entity outputs
@@ -122,11 +130,13 @@ pooling so duplicate-card multiplicity is not erased by normalized attention.
 
 ### Other entity tokens
 
-- Player: HP/max HP, block, energy, turn, and public counters.
-- Monster: identity, HP/max HP, block, targetability, visible intent, and
-  public status. Hidden intent is represented as unknown.
-- Power: identity, visible owner, visible amount/secondary state.
-- Relic: identity and explicitly public counter/state only.
+- Player: HP/max HP, block, energy, turn, and pooled public powers/counters.
+- Monster: identity, HP/max HP, block, targetability, visible intent, public
+  status, and pooled public powers/counters. Hidden intent is represented as
+  unknown.
+- Relic: identity and explicitly public counter/state only, pooled on the relic
+  token.
+- Card: visible instance counters are pooled on the card token.
 - Potion: identity and visible slot; represent empty capacity as well.
 
 Public slots are references used by choices, not semantic positions. Permuting
@@ -226,17 +236,15 @@ The fair planner must aggregate decisions across particles; independently
 optimizing each hidden state and averaging actions would leak information
 through strategy fusion.
 
-## Deferred Tensor Decisions
+## Implemented Initial Tensor Decisions and Deferred Experiments
 
-The PyTorch session must specify and version:
+The initial optional RL tensor layer now specifies checkpoint-owned
+vocabularies, normalization and missing-value encoding, dynamic batch padding,
+and action references. It deliberately does not persist a tensor schema version.
+The stacked model layer owns the tiny Transformer configuration and tensorizes
+durable symbolic records on demand.
 
-- exact token fields, vocabularies, normalization, and missing-value encoding;
-- padding/packing bounds and overflow behavior;
-- public-history sequence representation;
-- Transformer dimensions and pooling;
-- action descriptor tensors and entity-reference indices;
-- permutation invariance/equivariance tests;
-- scalar utility normalization and auxiliary loss weights.
-
-None of these choices belongs in simulator mechanics. The symbolic fair API is
-the prerequisite and is intentionally implemented first.
+Public-history representation, alternative power/counter tokenization,
+Transformer/pooling experiments, scalar utility objectives, and auxiliary loss
+weights remain experiment decisions. None of these choices belongs in simulator
+mechanics; the symbolic fair API remains the durable prerequisite.

@@ -867,6 +867,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(sts_seed_long_to_string, module)?)?;
     module.add_function(wrap_pyfunction!(card_keys, module)?)?;
     module.add_function(wrap_pyfunction!(card_catalogue_json, module)?)?;
+    module.add_function(wrap_pyfunction!(combat_player_choice_kinds, module)?)?;
     module.add_function(wrap_pyfunction!(relic_names, module)?)?;
     module.add_function(wrap_pyfunction!(potion_names, module)?)?;
     Ok(())
@@ -888,6 +889,11 @@ fn card_keys() -> Vec<&'static str> {
 #[pyfunction]
 fn card_catalogue_json() -> PyResult<String> {
     to_json(&card_catalogue_entries())
+}
+
+#[pyfunction]
+fn combat_player_choice_kinds() -> Vec<&'static str> {
+    PlayerChoice::KIND_NAMES.to_vec()
 }
 
 #[pyfunction]

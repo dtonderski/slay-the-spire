@@ -76,6 +76,47 @@ pub enum PlayerChoice {
     SkipSelection,
 }
 
+impl PlayerChoice {
+    /// Canonical serialized kind names exposed to consumers that mirror this enum.
+    pub const KIND_NAMES: [&'static str; 8] = [
+        Self::PlayHandSlot {
+            hand_slot: 0,
+            target_slot: None,
+        }
+        .kind(),
+        Self::EndTurn.kind(),
+        Self::UsePotionSlot {
+            potion_slot: 0,
+            target_slot: None,
+        }
+        .kind(),
+        Self::DiscardPotionSlot { potion_slot: 0 }.kind(),
+        Self::ToggleVisibleCard { option_slot: 0 }.kind(),
+        Self::ChooseVisibleOption { option_slot: 0 }.kind(),
+        Self::ConfirmSelection.kind(),
+        Self::SkipSelection.kind(),
+    ];
+
+    /// Return the canonical serialized kind for this choice.
+    ///
+    /// The exhaustive match forces a compiler error when a new enum variant is
+    /// added without defining its public kind, while `KIND_NAMES` provides the
+    /// ordered schema inventory for language bindings.
+    #[must_use]
+    pub const fn kind(self) -> &'static str {
+        match self {
+            Self::PlayHandSlot { .. } => "play_hand_slot",
+            Self::EndTurn => "end_turn",
+            Self::UsePotionSlot { .. } => "use_potion_slot",
+            Self::DiscardPotionSlot { .. } => "discard_potion_slot",
+            Self::ToggleVisibleCard { .. } => "toggle_visible_card",
+            Self::ChooseVisibleOption { .. } => "choose_visible_option",
+            Self::ConfirmSelection => "confirm_selection",
+            Self::SkipSelection => "skip_selection",
+        }
+    }
+}
+
 /// Atomic public legal-choice result for one combat decision boundary.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlayerChoiceSet {
