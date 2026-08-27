@@ -48,12 +48,13 @@ import javassist.expr.MethodCall;
 public class DefaultDeltaPatches {
 	// @formatter:off
 
-	// COLLECTION FORK: do NOT pin CardCrawlGame.updateFade,
-	// AbstractDungeon.update, or monster death/escape animations to raw delta.
-	// Upstream SuperFastMode keeps those at 1x to reduce UI flicker, but
-	// CommunicationMod blocks ready_for_command while isFadingOut/In and while
-	// dead monsters are still animating — that becomes the post-combat tax.
-	// Those paths intentionally use the global multiplied getDeltaTime().
+	// COLLECTION FORK: keep CardCrawlGame.updateFade and monster death/escape
+	// animations on multiplied delta so they do not block CommunicationMod.
+	// AbstractDungeon.update is different: its only direct getDeltaTime call
+	// advances CardCrawlGame.playtime, which is gameplay input for Secret Portal.
+	// Pin that call to raw wall-clock delta so rendering speed cannot alter event
+	// eligibility. Target desktop-1.0 bytecode confirms there is one such call.
+	@SpirePatch(clz = AbstractDungeon.class, method = "update")
 
 	// Fixes mouse events not registering on map and flickering "Select a Starting Room"
 	@SpirePatch(clz = com.megacrit.cardcrawl.screens.DungeonMapScreen.class, method = "update")

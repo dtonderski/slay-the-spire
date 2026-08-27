@@ -145,7 +145,11 @@ its global 100× delta advanced dungeon playtime and therefore Act 3 event-pool
 eligibility. Eight failure-driving payloads now replay after generic fixes, but
 FIDL02333 consumes Omamori and still adds Writhing Mass's Parasite, contradicting
 vanilla source and an earlier same-seed/action capture. The nine unchanged
-payloads remain local quarantine evidence until clean-clock recollection.
+payloads remain local quarantine evidence until clean-clock recollection. A
+second FIDL02473–FIDL02677 attempt produced 163 immutable captures, but the
+installed `.2` fork still multiplied `AbstractDungeon.update` and drove target
+playtime far faster than wall time. That cohort is hash-frozen outside the lock;
+collection `.3` must be installed before recollection.
 
 Download the external corpus into the active directory:
 

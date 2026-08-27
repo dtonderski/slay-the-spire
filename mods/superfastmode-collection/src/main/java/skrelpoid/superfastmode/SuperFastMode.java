@@ -24,7 +24,7 @@ public class SuperFastMode {
 
 	public static final String AUTHOR = "Skrelpoid + davton collection fork";
 	public static final String MOD_NAME = "SuperFastMode";
-	public static final String DESCRIPTION = "Collection fork: multiplies dungeon fades and death animations.";
+	public static final String DESCRIPTION = "Collection fork: accelerated visuals with wall-clock playtime and deterministic gameplay ticks.";
 
 	public static final Logger logger = LogManager.getLogger(SuperFastMode.class.getName());
 

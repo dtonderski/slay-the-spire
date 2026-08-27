@@ -20,6 +20,12 @@ animations. That is the post-combat “wait for fade” tax during collection.
 Dungeon fades and monster death/escape paths are **removed** from the raw-delta
 exemption list so they use the global multiplied `getDeltaTime()`.
 
+`AbstractDungeon.update` remains on raw wall-clock delta. Its only direct
+`getDeltaTime()` call in desktop 1.0 advances `CardCrawlGame.playtime`, and that
+value controls Secret Portal eligibility. Accelerated rendering must not change
+which events are legal. Collection `.1` and `.2` multiplied this clock and are
+therefore not valid evidence for time-gated event selection.
+
 Gameplay action state machines are different: they run with a fixed synthetic
 `1/60` delta. The game is configured without VSync and executes those canonical
 60 Hz updates much faster than wall-clock 60 Hz, while remaining independent of
@@ -57,6 +63,8 @@ Or from WSL after ensuring `javac`/`jar` are on PATH and the STS path is mounted
 
 Restart the game/watchdog after install. Existing SuperFastMode config under
 `%LOCALAPPDATA%/ModTheSpire/SuperFastMode/` is reused (`deltaMultiplier=100`).
+The installed manifest must report `1.0.9-collection.3` before collecting a
+promotable trace.
 
 ## License
 

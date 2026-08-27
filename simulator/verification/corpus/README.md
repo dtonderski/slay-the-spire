@@ -26,8 +26,11 @@ failure-driving payloads are retained unchanged under
 `quarantined_traces/collection-2026-08-26-superfast-clock-and-bridge-divergence/`.
 Eight now pass after generic fixes, but the collection's multiplied dungeon
 clock changed Act 3 event eligibility and FIDL02333 contradicts vanilla Omamori
-behavior plus an earlier same-seed/action authoritative trace. Recollection is
-required before promotion. The current verifier completely passes all 433
+behavior plus an earlier same-seed/action authoritative trace. A later
+FIDL02473–FIDL02677 attempt produced 163 more immutable captures, but fork `.2`
+still multiplied `AbstractDungeon.update` and target playtime; it too is frozen
+outside the lock. Clean recollection requires fork `.3`. The current verifier
+completely passes all 433
 active traces with zero unsupported mechanics or raw unexpected diffs. The earlier
 independently audited exact-20 schema-6 pilot is retained unchanged under
 `legacy_schema6_initial_pilot/permanent_traces/`.

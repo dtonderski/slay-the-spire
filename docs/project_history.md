@@ -209,11 +209,12 @@ one update and retrieves selected cards on a later update; at 100×, an opening
 frame over 2.5 ms expired its 0.25-second duration immediately. The same
 failure shape affected PutOnDeck, Gambling Chip, Forethought, Armaments, Dual
 Wield, and Recycle. Across the expanded 602-file corpus, 2,222 of 8,288 audited
-selected-card confirms skipped retrieval, contaminating 328 traces. Those
-payloads were quarantined unchanged. Collection fork `.2` instead gives all
-gameplay action state machines a fixed 60 Hz delta while leaving visual
-transitions accelerated, so uncapped frames preserve canonical update ordering
-without paying wall-clock 60 Hz speed.
+selected-card confirms skipped retrieval, contaminating 328 traces. Fork `.2`
+gave gameplay action state machines fixed 60 Hz ticks, but mistakenly left
+`AbstractDungeon.update` on multiplied delta. A later 163-trace cohort again
+advanced playtime far faster than wall time and remains frozen, not promoted.
+Fork `.3` restores raw wall-clock delta only for that dungeon clock while
+leaving action ticks deterministic and visual transitions accelerated.
 
 The hand-selection audit was subsequently shown to be only a narrow detector:
 an unquarantined Discovery reward had the same skipped-retrieval artifact, and

@@ -725,9 +725,14 @@ DualWieldAction 10, and RecycleAction 1. Those immutable payloads are
 quarantined. Collection fork `.2` patches `AbstractGameAction.tickDuration` to
 a synthetic 1/60 delta and patches all nine target action classes that directly
 call `getDeltaTime`, based on a complete constant-pool audit under
-`com.megacrit.cardcrawl.actions`. Uncapped frames retain collection throughput
-while gameplay action update counts no longer depend on host frame time or the
-visual multiplier.
+`com.megacrit.cardcrawl.actions`. That fixed action update ordering but did not
+fix the separate dungeon clock: target bytecode shows the only direct
+`getDeltaTime()` call in `AbstractDungeon.update` advances
+`CardCrawlGame.playtime`. Fork `.2` left that method on multiplied delta, and
+FIDL02473/FIDL02676 reached 5,151/8,662 gameplay seconds in only 56/936 wall
+seconds. The hash-frozen FIDL02473–FIDL02677 cohort is therefore
+non-authoritative. Fork `.3` patches that one method through the raw-delta path,
+while keeping action ticks deterministic and visual transitions accelerated.
 
 ## Act 4 progression and encounter evidence
 

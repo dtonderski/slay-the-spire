@@ -21,7 +21,7 @@ GAME_LOG="$OUT/game_supervisor.log"
 CAMP_LOG="$OUT/campaign_supervisor.log"
 INTERVAL="${STS_COLLECTION_MONITOR_INTERVAL_SEC:-120}"
 
-SOURCE_VERSION="${STS_RANDOM_SOURCE_VERSION:-collection.2-schema6}"
+SOURCE_VERSION="${STS_RANDOM_SOURCE_VERSION:-collection.3-schema6}"
 
 mkdir -p "$OUT"
 
