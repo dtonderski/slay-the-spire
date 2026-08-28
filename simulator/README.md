@@ -50,8 +50,10 @@ changes the exported snapshot.
 ## Beam-cloning training
 
 The optional Python RL package can generate deterministic legal simulator roots,
-label them with the incumbent production beam planner, train with exact
-batch-boundary resume, and evaluate a fixed development shard. From
+label them with a beam policy that intentionally replans at every public decision,
+train with exact batch-boundary resume, and evaluate a fixed development shard.
+The teacher reuses the live beam search core but does not claim the live
+automation warm-suffix execution policy. From
 `simulator/python` after `uv sync --extra rl && uv run maturin develop --uv`:
 
 ```bash
@@ -66,9 +68,8 @@ uv run sts-combat-data label \
 uv run sts-combat-train \
   --dataset /tmp/sts-train/dataset-manifest.json \
   --checkpoint /tmp/sts-checkpoint.pt --steps 1000
-uv run sts-combat-train \
-  --dataset /tmp/sts-train/dataset-manifest.json \
-  --checkpoint /tmp/sts-checkpoint.pt --steps 1000 --resume
+# If that run is interrupted, repeat the same immutable schedule with --resume.
+# A completed 1000-step checkpoint resumed toward 1000 is already complete.
 uv run sts-combat-evaluate \
   --dataset /tmp/sts-development/dataset-manifest.json \
   --checkpoint /tmp/sts-checkpoint.pt --split development \
@@ -78,10 +79,13 @@ uv run sts-combat-evaluate \
 Root generation advances seeded runs only through accepted public legal actions.
 Root files and dataset shards are canonical SHA-256 artifacts. Training records
 contain fair observations and public action descriptors, never native handles,
-internal IDs, RNG state, or snapshots. `sealed_test` and `real_trace_audit`
-loaders fail closed unless an audited caller opts in. PUCT and candidate
-promotion remain later phases; the commands above implement deterministic beam
-imitation only.
+internal IDs, RNG state, or snapshots. Default root generation withholds audited
+split snapshots and membership. Materializing them requires
+`roots --materialize-audited-splits`; labeling or loading them separately requires
+`--allow-audited-split`, and all paths are split-isolated. These are fail-closed
+tool defaults and audit metadata, not cryptographic authorization against the
+local filesystem owner. PUCT and candidate promotion remain later phases; the
+commands above implement deterministic public-decision replanning beam imitation only.
 
 ## Live CLI
 

@@ -9,7 +9,7 @@ scoped to combat. Run-level learning, belief/particle search, and the A20H
 evaluation protocol are out of scope.
 
 The first training-ready slice now implements deterministic legal simulator
-roots, the incumbent production beam teacher, symbolic Record V2 datasets,
+roots, a public-decision replanning teacher that reuses the live beam core, symbolic Record V2 datasets,
 masked terminal values, exact CPU checkpoint/resume, and development evaluation.
 It intentionally does not claim PUCT, candidate promotion, or trace-derived root
 extraction. The native episode payload currently reports the full HP/max-HP/gold,
@@ -65,11 +65,12 @@ absorb 24 threads.
    its duplicate-metadata fix and verifier-owned streaming root capture. Until
    then, trace roots are evaluation anchors in the design, not accepted training
    artifacts produced by the new CLI.
-2. **Beam cloning uses one teacher, but extraction remains deferred.** Offline
-   labeling calls a narrow public entry point around the incumbent
-   `sts_live::automation` beam with a deterministic transition budget and no
-   deadline. The legacy PyO3 objective-string beam remains for compatibility and
-   is excluded from labeling. Moving the incumbent to `sts_search` remains a
+2. **Beam cloning uses one replanning teacher, but extraction remains deferred.**
+   Offline labeling calls a narrow public entry point around the
+   `sts_live::automation` beam core with a deterministic transition budget, no
+   deadline, and no warm suffix at every public decision. This is not the live
+   automation execution policy. The legacy PyO3 objective-string beam remains
+   for compatibility and is excluded from labeling. Moving the incumbent to `sts_search` remains a
    later behavior-attested refactor.
 3. **Supervised training is ready; Expert Iteration is not.** The implemented
    CLI generates manifest-bound records, fits training-only vocabularies,
@@ -435,8 +436,9 @@ count. Report wall-clock cost, paired confidence intervals, every per-root
 regression, and the pre-frozen number of candidate-selection attempts. This
 selects a candidate; it is not promotion.
 
-**Stage 8 — One-shot sealed evaluation.** Open `sealed_test` once through the
-audited command and record its report hash. Apply the same paired rule without
+**Stage 8 — Audited sealed evaluation.** Open `sealed_test` through the explicit
+audited command and record its report hash. The tool records audited intent but
+cannot enforce one-shot access against the local filesystem owner. Apply the same paired rule without
 retuning. Then run `real_trace_audit` as an independent diagnostic gate. A
 candidate that fails is rejected; the sealed split is not reused for tuning.
 Only a passing Stage 8 agent may be described as beating or replacing the beam
@@ -455,5 +457,6 @@ incumbent.
 - Training does not start below 225 roots and 100 distinct lineages. This floor
   is fixed from the historical benchmark before regeneration, not selected from
   the resulting learning curves.
-- Stage 7 uses development only. `sealed_test` is opened once in Stage 8;
-  `real_trace_audit` remains a separately reported final diagnostic.
+- Stage 7 uses development only. `sealed_test` is opened under the explicit
+  Stage 8 audit protocol; `real_trace_audit` remains a separately reported final
+  diagnostic. Filesystem controls are operational, not cryptographic.

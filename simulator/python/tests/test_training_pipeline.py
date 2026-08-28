@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
@@ -13,6 +15,7 @@ from sts_sim.rl import (
     CombatModelConfig,
     CombatOutcome,
     FairCombatPolicyValueNet,
+    PolicyValueOutput,
     RepositoryVersion,
     SymbolicCombatDataset,
     SymbolicTrainingRecord,
@@ -68,6 +71,40 @@ def test_native_episode_classifies_terminal_before_next_model_decision() -> None
     assert len(cast(list[object], payload["steps"])) == 1
 
 
+def test_native_episode_classifies_restored_terminal_roots_before_search_and_not_cleanup_as_win() -> (
+    None
+):
+    state = RunEnv.combat_fixture().full_state()
+    combat = cast(dict[str, object], state["combat"])
+    player = cast(dict[str, object], combat["player"])
+    combat["phase"] = "Lost"
+    player["hp"] = 0
+    state["player_hp"] = 0
+    lost = RunEnv.from_state_json_for_debugging(json.dumps(state))
+    payload = lost.beam_clone_episode_payload(
+        depth=2, width=4, transition_budget=100, max_decisions=1, max_player_turns=1
+    )
+    outcome = cast(dict[str, object], payload["outcome"])
+    assert outcome["status"] == "lost"
+    assert outcome["accepted_decisions"] == 0
+    assert outcome["terminal"] is True
+    assert cast(list[object], payload["steps"]) == []
+    assert lost.step(lost.decision().actions[0]).combat_outcome is None
+
+    won_state = RunEnv.combat_fixture().full_state()
+    won_combat = cast(dict[str, object], won_state["combat"])
+    won_monsters = cast(list[dict[str, object]], won_combat["monsters"])
+    won_combat["phase"] = "Won"
+    won_monsters[0]["hp"] = 0
+    won_monsters[0]["alive"] = False
+    won = RunEnv.from_state_json_for_debugging(json.dumps(won_state))
+    won_payload = won.beam_clone_episode_payload(
+        depth=2, width=4, transition_budget=100, max_decisions=1, max_player_turns=1
+    )
+    assert cast(dict[str, object], won_payload["outcome"])["status"] == "won"
+    assert cast(list[object], won_payload["steps"]) == []
+
+
 def test_native_episode_uses_explicit_truncation_outcome() -> None:
     payload = RunEnv.combat_fixture().beam_clone_episode_payload(
         depth=2, width=4, transition_budget=100, max_decisions=1, max_player_turns=100
@@ -117,16 +154,14 @@ def test_root_and_beam_dataset_generation_is_byte_deterministic(tmp_path: Path) 
         max_player_turns=10,
     )
     assert first.manifest_digest == second.manifest_digest
-    assert (tmp_path / "data-left/train.jsonl").read_bytes() == (
-        tmp_path / "data-right/train.jsonl"
+    assert (tmp_path / "data-left/train/train.jsonl").read_bytes() == (
+        tmp_path / "data-right/train/train.jsonl"
     ).read_bytes()
-    records = tuple(read_jsonl(tmp_path / "data-left/train.jsonl"))
+    records = tuple(read_jsonl(tmp_path / "data-left/train/train.jsonl"))
     assert records
     assert all(record.record_version == 2 for record in records)
     assert all(sum(record.teacher_visit_counts) == 1 for record in records)
-    assert all(
-        record.teacher_visit_counts[record.chosen_action_index] == 1 for record in records
-    )
+    assert all(record.teacher_visit_counts[record.chosen_action_index] == 1 for record in records)
     assert all(
         record.actions[record.chosen_action_index] == record.chosen_action for record in records
     )
@@ -166,7 +201,7 @@ def test_truncated_value_rows_are_masked_from_loss() -> None:
         root_id="legacy",
         split_group_id="legacy",
         teacher_pair_id=None,
-        repository=RepositoryVersion("abc", True),
+        repository=RepositoryVersion("a" * 40, True),
         observation_digest=fair_observation_digest(observation),
         value_target_mask=False,
     )
@@ -174,6 +209,8 @@ def test_truncated_value_rows_are_masked_from_loss() -> None:
     builder.add(observation, actions)
     vocab = builder.freeze()
     batch = collate_training_examples((SymbolicCombatDataset((legacy,), vocab)[0],))
+    assert not hasattr(batch.decision, "records")
+    assert batch.records == (legacy,)  # diagnostics only; never passed to the model
     model = FairCombatPolicyValueNet(
         vocab, CombatModelConfig(width=16, heads=4, layers=1, feedforward_width=32)
     )
@@ -187,6 +224,45 @@ def test_truncated_value_rows_are_masked_from_loss() -> None:
     )
     assert torch.isfinite(loss)
     loss.backward()
+
+    logits = torch.tensor([[0.2, -0.1], [0.4, 0.3]], requires_grad=True)
+    action_mask = torch.ones_like(logits, dtype=torch.bool)
+    policy = torch.tensor([[1.0, 0.0], [0.0, 1.0]])
+    entities = torch.empty(0)
+    masked_values = torch.tensor([-0.9, 0.8], requires_grad=True)
+    all_masked = torch.zeros(2, dtype=torch.bool)
+    first_loss = policy_value_loss(
+        PolicyValueOutput(logits, masked_values, entities),
+        policy,
+        torch.zeros(2),
+        action_mask,
+        all_masked,
+    )
+    changed_values = torch.tensor([0.1, -0.2], requires_grad=True)
+    second_loss = policy_value_loss(
+        PolicyValueOutput(logits, changed_values, entities),
+        policy,
+        torch.zeros(2),
+        action_mask,
+        all_masked,
+    )
+    assert torch.equal(first_loss, second_loss)
+    first_loss.backward(retain_graph=True)
+    assert masked_values.grad is not None
+    assert torch.equal(masked_values.grad, torch.zeros_like(masked_values))
+
+    mixed_values = torch.tensor([0.5, -0.8], requires_grad=True)
+    mixed_loss = policy_value_loss(
+        PolicyValueOutput(logits, mixed_values, entities),
+        policy,
+        torch.tensor([0.0, 0.0]),
+        action_mask,
+        torch.tensor([True, False]),
+    )
+    mixed_loss.backward()
+    assert mixed_values.grad is not None
+    assert mixed_values.grad[0] != 0
+    assert mixed_values.grad[1] == 0
 
 
 def _assert_nested_equal(left: object, right: object) -> None:
@@ -266,6 +342,17 @@ def test_training_resume_and_development_report_are_deterministic(tmp_path: Path
         "torch_rng_state",
     ):
         _assert_nested_equal(left[key], right[key])
+    malformed = tmp_path / "malformed.pt"
+    invalid = dict(right)
+    invalid["cursor"] = (cast(int, invalid["cursor"]) + 1) % len(cast(list[int], invalid["order"]))
+    torch.save(invalid, malformed)
+    with pytest.raises(ValueError, match="cursor/global step"):
+        train_beam_clone(tmp_path / "train/dataset-manifest.json", malformed, config, resume=True)
+    with pytest.raises(ValueError, match="cursor/global step"):
+        evaluate_beam_clone(
+            tmp_path / "development/dataset-manifest.json", malformed, split="development"
+        )
+
     first = evaluate_beam_clone(
         tmp_path / "development/dataset-manifest.json", resumed, split="development"
     )
@@ -274,12 +361,42 @@ def test_training_resume_and_development_report_are_deterministic(tmp_path: Path
     )
     assert first == second
     assert first["errors"] == 0
+    for key in (
+        "checkpoint_file_digest",
+        "checkpoint_model_state_digest",
+        "checkpoint_config_digest",
+        "source_digest",
+        "vocabulary_fingerprint",
+        "encoder_contract_digest",
+        "reward_config_digest",
+        "root_manifest_digest",
+        "dataset_manifest_digest",
+        "dataset_shard_digest",
+    ):
+        assert len(cast(str, first[key])) == 64
 
 
-def test_sealed_dataset_access_fails_closed(tmp_path: Path) -> None:
-    generate_legal_roots(tmp_path / "roots", ["BEAMCLONE17"], max_run_steps=128)
+def test_sealed_roots_are_withheld_by_default_and_audited_materialization_is_explicit(
+    tmp_path: Path,
+) -> None:
+    ordinary = generate_legal_roots(tmp_path / "ordinary-roots", ["BEAMCLONE17"], max_run_steps=128)
+    assert ordinary.audited_splits_materialized is False
+    assert ordinary.roots == ()
+    assert list((tmp_path / "ordinary-roots").rglob("*.json")) == [
+        tmp_path / "ordinary-roots/root-manifest.json"
+    ]
+
+    audited = generate_legal_roots(
+        tmp_path / "audited-roots",
+        ["BEAMCLONE17"],
+        max_run_steps=128,
+        materialize_audited_splits=True,
+    )
+    assert audited.audited_splits_materialized is True
+    assert {root.split for root in audited.roots} == {"sealed_test"}
+    assert all(root.relative_path.startswith("sealed_test/roots/") for root in audited.roots)
     generate_beam_dataset(
-        tmp_path / "roots/root-manifest.json",
+        tmp_path / "audited-roots/root-manifest.json",
         tmp_path / "sealed",
         split="sealed_test",
         allow_audited_split=True,
@@ -293,3 +410,64 @@ def test_sealed_dataset_access_fails_closed(tmp_path: Path) -> None:
         load_dataset_manifest(
             tmp_path / "sealed/dataset-manifest.json", requested_split="sealed_test"
         )
+
+
+def test_dataset_loader_recomputes_value_targets_and_record_identity_is_substantive(
+    tmp_path: Path,
+) -> None:
+    generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
+    generate_beam_dataset(
+        tmp_path / "roots/root-manifest.json",
+        tmp_path / "data",
+        split="train",
+        depth=2,
+        width=4,
+        transition_budget=100,
+        max_decisions=32,
+        max_player_turns=10,
+    )
+    shard = tmp_path / "data/train/train.jsonl"
+    payloads = [json.loads(line) for line in shard.read_text().splitlines()]
+    original_id = payloads[0]["record_id"]
+    assert payloads[0]["value_target_mask"] is True
+    payloads[0]["target_value"] = 0.0
+    payloads[0]["record_id"] = None
+    changed = SymbolicTrainingRecord.from_dict(payloads[0])
+    assert changed.record_id != original_id
+    payloads[0] = changed.to_dict()
+    content = b"".join(
+        json.dumps(item, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+        for item in payloads
+    )
+    shard.write_bytes(content)
+    manifest_path = tmp_path / "data/dataset-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["shard_digest"] = hashlib.sha256(content).hexdigest()
+    manifest["record_ids"][0] = changed.record_id
+    unsigned = dict(manifest)
+    unsigned.pop("manifest_digest")
+    manifest["manifest_digest"] = hashlib.sha256(
+        json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")))
+    with pytest.raises(ValueError, match="value target"):
+        load_dataset_manifest(manifest_path, requested_split="train")
+
+
+def test_v2_record_rejects_forbidden_search_state_keys(tmp_path: Path) -> None:
+    generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
+    generate_beam_dataset(
+        tmp_path / "roots/root-manifest.json",
+        tmp_path / "data",
+        split="train",
+        depth=2,
+        width=4,
+        transition_budget=100,
+        max_decisions=4,
+        max_player_turns=3,
+    )
+    shard = tmp_path / "data/train/train.jsonl"
+    payload = json.loads(shard.read_text().splitlines()[0])
+    payload["search_config"]["snapshot"] = {"rng_state": "private"}
+    with pytest.raises(ValueError, match="search config"):
+        SymbolicTrainingRecord.from_dict(payload)

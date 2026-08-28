@@ -20,14 +20,20 @@ class RepositoryVersion:
     dirty_diff_digest: str | None = None
 
     def __post_init__(self) -> None:
-        if type(self.git_sha) is not str or not self.git_sha:
-            raise TypeError("git SHA must be a nonempty string")
+        if (
+            type(self.git_sha) is not str
+            or len(self.git_sha) not in {40, 64}
+            or any(character not in "0123456789abcdef" for character in self.git_sha)
+        ):
+            raise ValueError("git SHA must be a lowercase object digest")
         if type(self.clean) is not bool:
             raise TypeError("clean flag must be boolean")
         if self.dirty_diff_digest is not None and (
-            type(self.dirty_diff_digest) is not str or not self.dirty_diff_digest
+            type(self.dirty_diff_digest) is not str
+            or len(self.dirty_diff_digest) != 64
+            or any(character not in "0123456789abcdef" for character in self.dirty_diff_digest)
         ):
-            raise TypeError("dirty digest must be null or a nonempty string")
+            raise ValueError("dirty digest must be a lowercase SHA-256 digest")
         if self.clean == (self.dirty_diff_digest is not None):
             raise ValueError(
                 "clean repositories must omit a dirty digest and dirty ones must include it"

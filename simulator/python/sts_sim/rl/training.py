@@ -7,6 +7,7 @@ import json
 import os
 import random
 import tempfile
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -25,6 +26,29 @@ from .records import (
 from .tensor import Vocabularies, VocabularyBuilder, encoder_contract_digest
 
 TRAINING_CHECKPOINT_FORMAT = 1
+_CHECKPOINT_KEYS = {
+    "checkpoint_format",
+    "config",
+    "config_digest",
+    "dataset_manifest_digest",
+    "dataset_shard_digest",
+    "root_manifest_digest",
+    "reward_config_digest",
+    "source_digest",
+    "vocabularies",
+    "vocabulary_fingerprint",
+    "encoder_contract_digest",
+    "model_config",
+    "model_state",
+    "optimizer_state",
+    "scheduler_state",
+    "global_step",
+    "cursor",
+    "order",
+    "python_rng_state",
+    "numpy_rng_state",
+    "torch_rng_state",
+}
 
 
 def _canonical_bytes(payload: object) -> bytes:
@@ -54,6 +78,81 @@ def _source_digest() -> str:
     files = ("data.py", "model.py", "records.py", "rewards.py", "tensor.py", "training.py")
     payload = {name: hashlib.sha256((directory / name).read_bytes()).hexdigest() for name in files}
     return _digest(payload)
+
+
+def _model_state_digest(state: object) -> str:
+    if not isinstance(state, Mapping):
+        raise TypeError("checkpoint model state must be an object")
+    digest = hashlib.sha256()
+    for name, value in sorted(cast(Mapping[str, object], state).items()):
+        if type(name) is not str or not isinstance(value, torch.Tensor):
+            raise TypeError("checkpoint model state must contain named tensors")
+        tensor = value.detach().cpu().contiguous()
+        digest.update(name.encode())
+        digest.update(b"\0")
+        digest.update(str(tensor.dtype).encode())
+        digest.update(_canonical_bytes(list(tensor.shape)))
+        digest.update(tensor.numpy().tobytes())
+    return digest.hexdigest()
+
+
+def _validate_checkpoint_envelope(payload: object) -> tuple[dict[str, Any], TrainingConfig]:
+    if type(payload) is not dict:
+        raise TypeError("training checkpoint must be an object")
+    checkpoint = cast(dict[str, Any], payload)
+    if (
+        set(checkpoint) != _CHECKPOINT_KEYS
+        or checkpoint["checkpoint_format"] != TRAINING_CHECKPOINT_FORMAT
+    ):
+        raise ValueError("unsupported or malformed training checkpoint")
+    if type(checkpoint["config"]) is not dict or type(checkpoint["model_config"]) is not dict:
+        raise TypeError("training checkpoint configurations must be objects")
+    try:
+        stored_config = TrainingConfig(**checkpoint["config"])
+    except (TypeError, ValueError) as error:
+        raise ValueError("training checkpoint config is invalid") from error
+    if checkpoint["config_digest"] != stored_config.digest:
+        raise ValueError("training checkpoint config digest mismatch")
+    if checkpoint["model_config"] != asdict(stored_config.model_config()):
+        raise ValueError("training checkpoint model config mismatch")
+    for name in (
+        "dataset_manifest_digest",
+        "dataset_shard_digest",
+        "root_manifest_digest",
+        "reward_config_digest",
+        "source_digest",
+        "vocabulary_fingerprint",
+        "encoder_contract_digest",
+    ):
+        value = checkpoint[name]
+        if (
+            type(value) is not str
+            or len(value) != 64
+            or any(character not in "0123456789abcdef" for character in value)
+        ):
+            raise ValueError(f"training checkpoint {name} is not a SHA-256 digest")
+    global_step = checkpoint["global_step"]
+    cursor = checkpoint["cursor"]
+    order = checkpoint["order"]
+    if type(global_step) is not int or not 0 <= global_step <= stored_config.total_steps:
+        raise ValueError("training checkpoint global step is invalid")
+    if type(order) is not list or not order or any(type(index) is not int for index in order):
+        raise ValueError("training checkpoint sample order is invalid")
+    if sorted(order) != list(range(len(order))):
+        raise ValueError("training checkpoint sample order is not a permutation")
+    if type(cursor) is not int or not 0 <= cursor < len(order):
+        raise ValueError("training checkpoint cursor is invalid")
+    if cursor != global_step * stored_config.batch_size % len(order):
+        raise ValueError("training checkpoint cursor/global step mismatch")
+    vocabularies = Vocabularies.from_dict(checkpoint["vocabularies"])
+    if checkpoint["vocabulary_fingerprint"] != vocabularies.fingerprint:
+        raise ValueError("training checkpoint vocabulary mismatch")
+    if checkpoint["encoder_contract_digest"] != encoder_contract_digest(vocabularies):
+        raise ValueError("training checkpoint encoder contract mismatch")
+    _model_state_digest(checkpoint["model_state"])
+    if not isinstance(checkpoint["torch_rng_state"], torch.Tensor):
+        raise TypeError("training checkpoint torch RNG state is invalid")
+    return checkpoint, stored_config
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,34 +266,9 @@ def train_beam_clone(
     metrics: list[dict[str, float | int]] = []
 
     if resume:
-        payload = cast(
-            dict[str, Any], torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        payload, stored_config = _validate_checkpoint_envelope(
+            torch.load(checkpoint_path, map_location="cpu", weights_only=False)
         )
-        expected = {
-            "checkpoint_format",
-            "config",
-            "config_digest",
-            "dataset_manifest_digest",
-            "dataset_shard_digest",
-            "root_manifest_digest",
-            "reward_config_digest",
-            "source_digest",
-            "vocabularies",
-            "vocabulary_fingerprint",
-            "encoder_contract_digest",
-            "model_config",
-            "model_state",
-            "optimizer_state",
-            "scheduler_state",
-            "global_step",
-            "cursor",
-            "order",
-            "python_rng_state",
-            "numpy_rng_state",
-            "torch_rng_state",
-        }
-        if set(payload) != expected or payload["checkpoint_format"] != TRAINING_CHECKPOINT_FORMAT:
-            raise ValueError("unsupported or malformed training checkpoint")
         checks = {
             "config_digest": config.digest,
             "dataset_manifest_digest": manifest.manifest_digest,
@@ -206,11 +280,9 @@ def train_beam_clone(
         for name, expected_value in checks.items():
             if payload[name] != expected_value:
                 raise ValueError(f"training checkpoint {name} mismatch")
+        if stored_config != config:
+            raise ValueError("training checkpoint config mismatch")
         vocabularies = Vocabularies.from_dict(payload["vocabularies"])
-        if payload["vocabulary_fingerprint"] != vocabularies.fingerprint:
-            raise ValueError("training checkpoint vocabulary mismatch")
-        if payload["encoder_contract_digest"] != encoder_contract_digest(vocabularies):
-            raise ValueError("training checkpoint encoder contract mismatch")
         model = FairCombatPolicyValueNet(vocabularies, config.model_config())
         model.load_state_dict(payload["model_state"], strict=True)
         optimizer = torch.optim.AdamW(
@@ -222,7 +294,7 @@ def train_beam_clone(
         global_step = cast(int, payload["global_step"])
         cursor = cast(int, payload["cursor"])
         order = tuple(cast(list[int], payload["order"]))
-        if order != _training_order(len(records), config.seed):
+        if len(order) != len(records) or order != _training_order(len(records), config.seed):
             raise ValueError("training checkpoint sample order mismatch")
         random.setstate(payload["python_rng_state"])
         np.random.set_state(payload["numpy_rng_state"])
@@ -318,18 +390,18 @@ def evaluate_beam_clone(
         requested_split=split,
         allow_audited_split=allow_audited_split,
     )
-    payload = cast(
-        dict[str, Any], torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    checkpoint_bytes = checkpoint_path.read_bytes()
+    payload, stored_config = _validate_checkpoint_envelope(
+        torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     )
-    if payload.get("source_digest") != _source_digest():
+    _configure_cpu(stored_config.torch_threads)
+    if payload["source_digest"] != _source_digest():
         raise ValueError("evaluation checkpoint source digest mismatch")
-    if payload.get("root_manifest_digest") != manifest.root_manifest_digest:
+    if payload["root_manifest_digest"] != manifest.root_manifest_digest:
         raise ValueError("evaluation root manifest mismatch")
-    if payload.get("reward_config_digest") != manifest.reward_config_digest:
+    if payload["reward_config_digest"] != manifest.reward_config_digest:
         raise ValueError("evaluation reward config mismatch")
     vocabularies = Vocabularies.from_dict(payload["vocabularies"])
-    if payload.get("encoder_contract_digest") != encoder_contract_digest(vocabularies):
-        raise ValueError("evaluation encoder contract mismatch")
     config = CombatModelConfig(**payload["model_config"])
     model = FairCombatPolicyValueNet(vocabularies, config)
     model.load_state_dict(payload["model_state"], strict=True)
@@ -348,7 +420,6 @@ def evaluate_beam_clone(
                 batch = collate_training_examples((example,))
                 output = model(batch.decision)
                 logits = output.logits[0, : example.decision.action_count]
-                # torch.argmax returns the first row on ties, matching canonical action order.
                 selected = int(torch.argmax(logits).item())
                 expected = records[index].chosen_action_index
                 correct += int(selected == expected)
@@ -369,10 +440,20 @@ def evaluate_beam_clone(
                 errors += 1
                 per_record.append({"record_id": records[index].record_id, "error": str(error)})
     report: dict[str, object] = {
-        "report_version": 1,
+        "report_version": 2,
         "split": split,
         "checkpoint_step": payload["global_step"],
+        "checkpoint_file_digest": hashlib.sha256(checkpoint_bytes).hexdigest(),
+        "checkpoint_model_state_digest": _model_state_digest(payload["model_state"]),
+        "checkpoint_config_digest": payload["config_digest"],
+        "checkpoint_training_dataset_manifest_digest": payload["dataset_manifest_digest"],
+        "checkpoint_training_dataset_shard_digest": payload["dataset_shard_digest"],
+        "source_digest": payload["source_digest"],
+        "vocabulary_fingerprint": payload["vocabulary_fingerprint"],
+        "encoder_contract_digest": payload["encoder_contract_digest"],
+        "reward_config_digest": manifest.reward_config_digest,
         "dataset_manifest_digest": manifest.manifest_digest,
+        "dataset_shard_digest": manifest.shard_digest,
         "root_manifest_digest": manifest.root_manifest_digest,
         "records": len(records),
         "correct": correct,

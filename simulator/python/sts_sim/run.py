@@ -296,11 +296,12 @@ class RunEnv:
         max_player_turns: int = 100,
         deduplicate_search_states: bool = True,
     ) -> dict[str, object]:
-        """Run the native incumbent beam teacher on a detached combat clone.
+        """Run the native public-decision replanning beam teacher.
 
-        The returned payload contains fair observations, ordered public choices,
-        aligned one-hot teacher counts, and an authoritative terminal outcome.
-        It contains no private action handles or authoritative IDs.
+        The teacher shares the live beam search core but replans without a warm
+        suffix at every public boundary. The payload contains fair observations,
+        ordered choices, aligned one-hot counts, and an authoritative outcome;
+        it contains no private action handles or authoritative IDs.
         """
 
         return _mapping(

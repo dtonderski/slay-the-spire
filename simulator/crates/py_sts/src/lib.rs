@@ -1219,18 +1219,29 @@ fn run_player_hp(state: &RunState) -> (i32, i32) {
         .unwrap_or((state.player_hp, state.player_max_hp))
 }
 
+fn classify_combat_state(state: &RunState) -> Option<&'static str> {
+    let combat = state.combat.as_ref()?;
+    if combat.phase == CombatPhase::Lost || combat.player.hp <= 0 {
+        Some("lost")
+    } else if combat.phase == CombatPhase::Won {
+        Some("won")
+    } else {
+        None
+    }
+}
+
 fn classify_combat_episode_transition(
     before: &RunState,
     action: &RunDecisionAction,
     after: &RunState,
 ) -> Option<&'static str> {
-    if let Some(combat) = after.combat.as_ref() {
-        if combat.phase == CombatPhase::Lost || combat.player.hp <= 0 {
-            return Some("lost");
-        }
-        if combat.phase == CombatPhase::Won {
-            return Some("won");
-        }
+    // Proceed is run-screen cleanup after an already terminal combat, not a
+    // second combat outcome. In particular, lost -> Proceed must not become a win.
+    if classify_combat_state(before).is_some() {
+        return None;
+    }
+    if let Some(status) = classify_combat_state(after) {
+        return Some(status);
     }
     if after.phase == RunPhase::Combat {
         return None;
@@ -1241,6 +1252,49 @@ fn classify_combat_episode_transition(
             if before.potion_at_slot(*slot) == Some(Potion::SmokeBomb)
     );
     Some(if escaped { "escaped" } else { "won" })
+}
+
+fn player_turn_advances(before: &RunState, action: &RunDecisionAction, after: &RunState) -> usize {
+    let (Some(before_combat), Some(after_combat)) = (before.combat.as_ref(), after.combat.as_ref())
+    else {
+        return 0;
+    };
+    if after_combat.phase != CombatPhase::WaitingForPlayer {
+        return 0;
+    }
+
+    // This counter is authoritative when maintained, and preserves deltas
+    // greater than one. It is not the sole signal because some relic sets do
+    // not maintain it.
+    let counter_delta = after_combat
+        .relic_counters
+        .player_turns_started
+        .saturating_sub(before_combat.relic_counters.player_turns_started)
+        as usize;
+    if counter_delta > 0 {
+        return counter_delta;
+    }
+    if matches!(action, RunDecisionAction::Combat(CombatAction::EndTurn)) {
+        return 1;
+    }
+
+    // Time Warp can execute end_player_turn from the twelfth card transition
+    // or from a later selection transition. Both are authoritative state
+    // evidence that the forced turn completed.
+    let time_warp_wrapped = before_combat.monsters.iter().any(|before_monster| {
+        before_monster.alive
+            && before_monster.content_id == sts_core::content::monsters::TIME_EATER_ID
+            && before_monster.powers.time_warp == 11
+            && after_combat.monsters.iter().any(|after_monster| {
+                after_monster.content_id == before_monster.content_id
+                    && after_monster.powers.time_warp == 0
+            })
+    });
+    let forced_end_settled = (before_combat.time_warp_end_turn
+        || before_combat.defer_time_warp_end_turn)
+        && !after_combat.time_warp_end_turn
+        && !after_combat.defer_time_warp_end_turn;
+    usize::from(time_warp_wrapped || forced_end_settled)
 }
 
 fn beam_clone_episode_json(
@@ -1275,10 +1329,10 @@ fn beam_clone_episode_json(
     let mut steps = Vec::new();
     let mut accepted_decisions = 0usize;
     let mut player_turns = 1usize;
-    let mut terminal_status = None;
+    let mut terminal_status = classify_combat_state(root);
     let mut truncation_trigger = None;
 
-    loop {
+    while terminal_status.is_none() {
         let observation = fair_combat_observation(&state).map_err(fair_observation_error)?;
         let revision = DecisionRevision::new(accepted_decisions as u64);
         let choice_set = player_choices(&state, revision).map_err(fair_choice_error)?;
@@ -1356,18 +1410,11 @@ fn beam_clone_episode_json(
             state = next;
             break;
         }
-        let starts_next_turn = matches!(action, RunDecisionAction::Combat(CombatAction::EndTurn))
-            && next
-                .combat
-                .as_ref()
-                .is_some_and(|combat| combat.phase == CombatPhase::WaitingForPlayer);
-        if starts_next_turn {
-            if player_turns >= max_player_turns {
-                truncation_trigger = Some("player_turns");
-                state = next;
-                break;
-            }
-            player_turns += 1;
+        player_turns = player_turns.saturating_add(player_turn_advances(&state, &action, &next));
+        if player_turns > max_player_turns {
+            truncation_trigger = Some("player_turns");
+            state = next;
+            break;
         }
         state = next;
     }
@@ -1380,8 +1427,8 @@ fn beam_clone_episode_json(
     let terminal = terminal_status.is_some();
     to_json(&BeamCloneEpisodeWire {
         schema_version: 1,
-        teacher_name: "sts_live_incumbent_beam",
-        teacher_version: "beam_clone_v1",
+        teacher_name: "public_decision_replanning_beam",
+        teacher_version: "replan_each_public_decision_v1",
         steps,
         outcome: CombatEpisodeOutcomeWire {
             status,
@@ -2611,5 +2658,69 @@ mod tests {
         assert!(PyOmniRunEnv::new_ironclad("", Some(0)).is_err());
         assert!(PyOmniRunEnv::new_ironclad("   ", Some(0)).is_err());
         assert!(PyOmniRunEnv::new_ironclad("TEST", Some(21)).is_err());
+    }
+
+    #[test]
+    fn terminal_cleanup_does_not_create_a_second_combat_outcome() {
+        let mut lost = RunState::combat_fixture();
+        let combat = lost.combat.as_mut().expect("combat fixture");
+        combat.phase = CombatPhase::Lost;
+        combat.player.hp = 0;
+        lost.player_hp = 0;
+        let after = lost.clone();
+
+        assert_eq!(classify_combat_state(&lost), Some("lost"));
+        assert_eq!(
+            classify_combat_episode_transition(
+                &lost,
+                &RunDecisionAction::Run(RunAction::Proceed),
+                &after,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn forced_time_warp_turn_evidence_covers_card_and_selection_paths() {
+        let mut before_card = RunState::combat_fixture();
+        let before_combat = before_card.combat.as_mut().expect("combat fixture");
+        before_combat.monsters[0].content_id = sts_core::content::monsters::TIME_EATER_ID;
+        before_combat.monsters[0].powers.time_warp = 11;
+        let mut after_card = before_card.clone();
+        after_card.combat.as_mut().expect("combat fixture").monsters[0]
+            .powers
+            .time_warp = 0;
+        assert_eq!(
+            player_turn_advances(
+                &before_card,
+                &RunDecisionAction::Combat(CombatAction::PlayCard {
+                    card_id: sts_core::CardId::new(1),
+                    target: None,
+                }),
+                &after_card,
+            ),
+            1
+        );
+
+        let mut before_selection = RunState::combat_fixture();
+        before_selection
+            .combat
+            .as_mut()
+            .expect("combat fixture")
+            .time_warp_end_turn = true;
+        let mut after_selection = before_selection.clone();
+        after_selection
+            .combat
+            .as_mut()
+            .expect("combat fixture")
+            .time_warp_end_turn = false;
+        assert_eq!(
+            player_turn_advances(
+                &before_selection,
+                &RunDecisionAction::GridConfirm,
+                &after_selection,
+            ),
+            1
+        );
     }
 }

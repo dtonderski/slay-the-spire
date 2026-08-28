@@ -60,6 +60,26 @@ _RECORD_KEYS = _LEGACY_RECORD_KEYS | {
     "record_id",
 }
 _ACTION_FIELDS = set(ActionDescriptor.__dataclass_fields__)
+_V2_SEARCH_CONFIG_KEYS = {
+    "depth",
+    "width",
+    "transition_budget",
+    "max_decisions",
+    "max_player_turns",
+    "deadline",
+    "replan",
+    "deduplicate_search_states",
+}
+_COMBAT_ACTION_SLOTS: dict[str, tuple[set[str], set[str]]] = {
+    "play_hand_slot": ({"hand_slot"}, {"target_slot"}),
+    "end_turn": (set(), set()),
+    "use_potion_slot": ({"potion_slot"}, {"target_slot"}),
+    "discard_potion_slot": ({"potion_slot"}, set()),
+    "toggle_visible_card": ({"option_slot"}, set()),
+    "choose_visible_option": ({"option_slot"}, set()),
+    "confirm_selection": (set(), set()),
+    "skip_selection": (set(), set()),
+}
 _LEGACY_OUTCOME_KEYS = {
     "status",
     "terminal_hp",
@@ -278,6 +298,16 @@ def action_descriptor_from_payload(payload: object) -> ActionDescriptor:
     family = _string(source["family"], "action family")
     kind = _string(source["kind"], "action kind")
     assert family is not None and kind is not None
+    if family != "combat" or kind not in _COMBAT_ACTION_SLOTS:
+        raise ValueError("action descriptor is not tensorizable combat schema")
+    required, optional = _COMBAT_ACTION_SLOTS[kind]
+    supplied = set(source) - {"family", "kind"}
+    if not required <= supplied or not supplied <= required | optional:
+        raise ValueError("action descriptor slots disagree with combat action kind")
+    for slot in supplied:
+        value = _integer(source[slot], slot)
+        if value < 0:
+            raise ValueError("action descriptor slots must be nonnegative")
     return ActionDescriptor(
         family=family,
         kind=kind,
@@ -285,12 +315,26 @@ def action_descriptor_from_payload(payload: object) -> ActionDescriptor:
         potion_slot=_optional_integer(source, "potion_slot"),
         option_slot=_optional_integer(source, "option_slot"),
         target_slot=_optional_integer(source, "target_slot"),
-        card_slot=_optional_integer(source, "card_slot"),
-        node_slot=_optional_integer(source, "node_slot"),
-        reward_slot=_optional_integer(source, "reward_slot"),
-        shop_slot=_optional_integer(source, "shop_slot"),
-        slot=_optional_integer(source, "slot"),
+        card_slot=None,
+        node_slot=None,
+        reward_slot=None,
+        shop_slot=None,
+        slot=None,
     )
+
+
+def validate_v2_search_config(payload: Mapping[str, object]) -> None:
+    if set(payload) != _V2_SEARCH_CONFIG_KEYS:
+        raise ValueError("V2 search config has missing or unknown fields")
+    for key in ("depth", "width", "transition_budget", "max_decisions", "max_player_turns"):
+        if type(payload[key]) is not int or cast(int, payload[key]) <= 0:
+            raise TypeError(f"search config {key} must be a positive integer")
+    if payload["deadline"] is not None:
+        raise ValueError("offline teacher deadline must be null")
+    if payload["replan"] != "every_public_decision":
+        raise ValueError("unknown teacher replanning policy")
+    if type(payload["deduplicate_search_states"]) is not bool:
+        raise TypeError("deduplicate_search_states must be boolean")
 
 
 def _optional_integer(payload: Mapping[str, object], key: str) -> int | None:
@@ -531,6 +575,12 @@ class SymbolicTrainingRecord:
             if type(getattr(self, name)) is not str or not getattr(self, name):
                 raise TypeError(f"{name} must be a nonempty string")
         if self.record_version == 2:
+            validate_v2_search_config(cast(Mapping[str, object], self.search_config))
+        frozen = _freeze_json(dict(self.search_config), "search config")
+        if not isinstance(frozen, Mapping):
+            raise TypeError("search config must be an object")
+        object.__setattr__(self, "search_config", frozen)
+        if self.record_version == 2:
             for name in ("root_id", "root_manifest_digest", "reward_config_digest"):
                 value = getattr(self, name)
                 if (
@@ -540,18 +590,7 @@ class SymbolicTrainingRecord:
                 ):
                     raise ValueError(f"{name} must be a lowercase SHA-256 digest")
             identity = hashlib.sha256(
-                "\0".join(
-                    (
-                        cast(str, self.root_manifest_digest),
-                        self.root_id,
-                        self.episode_id,
-                        str(self.decision_index),
-                        self.observation_digest,
-                        str(self.chosen_action_index),
-                        self.planner_name,
-                        self.planner_version,
-                    )
-                ).encode()
+                _canonical_json(self._substantive_payload()).encode()
             ).hexdigest()
             if self.record_id is None:
                 object.__setattr__(self, "record_id", identity)
@@ -559,10 +598,11 @@ class SymbolicTrainingRecord:
                 raise ValueError("record ID is invalid")
         if fair_observation_digest(self.observation) != self.observation_digest:
             raise ValueError("fair observation digest is invalid")
-        frozen = _freeze_json(dict(self.search_config), "search config")
-        if not isinstance(frozen, Mapping):
-            raise TypeError("search config must be an object")
-        object.__setattr__(self, "search_config", frozen)
+
+    def _substantive_payload(self) -> dict[str, object]:
+        payload = self.to_dict()
+        payload.pop("record_id", None)
+        return payload
 
     def to_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {

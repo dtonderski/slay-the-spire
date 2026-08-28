@@ -1,4 +1,4 @@
-"""Deterministic legal combat roots and immutable beam-cloning datasets."""
+"""Deterministic legal combat roots and immutable replanning-beam datasets."""
 
 from __future__ import annotations
 
@@ -8,11 +8,11 @@ import os
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from ..fair import FairCombatObservation
 from ..run import Action, RunEnv
-from .provenance import capture_repository_version
+from .provenance import RepositoryVersion, capture_repository_version
 from .records import (
     CombatOutcome,
     JsonValue,
@@ -22,23 +22,34 @@ from .records import (
     fair_observation_from_payload,
     fair_observation_payload,
     read_jsonl,
+    validate_v2_search_config,
 )
 from .rewards import COMBAT_PROXY_V1, CombatRewardConfig
 
-ROOT_MANIFEST_VERSION = 1
-DATASET_MANIFEST_VERSION = 1
+ROOT_MANIFEST_VERSION = 2
+DATASET_MANIFEST_VERSION = 2
 _SPLIT_SALT = "combat-agent-phase2-v1"
 _ALLOWED_SPLITS = {"train", "development", "sealed_test", "real_trace_audit"}
+_AUDITED_SPLITS = {"sealed_test", "real_trace_audit"}
+_SOURCE_KIND = "simulator_legal_v1"
 
 
 def _canonical_bytes(payload: object) -> bytes:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
-        "utf-8"
-    )
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
 
 def _sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def _require_digest(value: object, label: str) -> str:
+    if (
+        type(value) is not str
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError(f"{label} must be a lowercase SHA-256 digest")
+    return value
 
 
 def _atomic_write(path: Path, content: bytes) -> None:
@@ -93,8 +104,11 @@ class RootManifest:
     manifest_version: int
     generator_name: str
     generator_version: str
+    generator_source_digest: str
+    repository: RepositoryVersion
     ascension: int
     max_run_steps: int
+    audited_splits_materialized: bool
     roots: tuple[RootEntry, ...]
     exclusions: tuple[RootExclusion, ...]
     manifest_digest: str
@@ -104,8 +118,11 @@ class RootManifest:
             "manifest_version": self.manifest_version,
             "generator_name": self.generator_name,
             "generator_version": self.generator_version,
+            "generator_source_digest": self.generator_source_digest,
+            "repository": self.repository.to_dict(),
             "ascension": self.ascension,
             "max_run_steps": self.max_run_steps,
+            "audited_splits_materialized": self.audited_splits_materialized,
             "roots": [
                 {
                     **asdict(root),
@@ -123,67 +140,102 @@ class RootManifest:
         if type(payload) is not dict:
             raise TypeError("root manifest must be an object")
         source = cast(dict[str, object], payload)
-        expected = {
-            "manifest_version",
-            "generator_name",
-            "generator_version",
-            "ascension",
-            "max_run_steps",
-            "roots",
-            "exclusions",
-            "manifest_digest",
-        }
-        if set(source) != expected or source["manifest_version"] != ROOT_MANIFEST_VERSION:
+        if (
+            set(source) != set(cls.__dataclass_fields__)
+            or source["manifest_version"] != ROOT_MANIFEST_VERSION
+        ):
             raise ValueError("unsupported or malformed root manifest")
-        roots_payload = cast(list[dict[str, object]], source["roots"])
-        exclusions_payload = cast(list[dict[str, object]], source["exclusions"])
-        roots = tuple(
-            RootEntry(
-                root_id=cast(str, item["root_id"]),
-                split=cast(str, item["split"]),
-                split_group_id=cast(str, item["split_group_id"]),
-                relative_path=cast(str, item["relative_path"]),
-                lineages=tuple(cast(list[str], item["lineages"])),
-                source_seeds=tuple(cast(list[str], item["source_seeds"])),
+        if type(source["roots"]) is not list or type(source["exclusions"]) is not list:
+            raise TypeError("root manifest collections must be arrays")
+        roots: list[RootEntry] = []
+        for raw in cast(list[object], source["roots"]):
+            if type(raw) is not dict:
+                raise TypeError("root entry must be an object")
+            item = cast(dict[str, object], raw)
+            if set(item) != set(RootEntry.__dataclass_fields__):
+                raise ValueError("root entry has missing or unknown fields")
+            if type(item["lineages"]) is not list or type(item["source_seeds"]) is not list:
+                raise TypeError("root provenance must be arrays")
+            roots.append(
+                RootEntry(
+                    cast(str, item["root_id"]),
+                    cast(str, item["split"]),
+                    cast(str, item["split_group_id"]),
+                    cast(str, item["relative_path"]),
+                    tuple(cast(list[str], item["lineages"])),
+                    tuple(cast(list[str], item["source_seeds"])),
+                )
             )
-            for item in roots_payload
-        )
-        exclusions = tuple(
-            RootExclusion(
-                source_seed=cast(str, item["source_seed"]),
-                reason=cast(str, item["reason"]),
-                detail=cast(str, item["detail"]),
+        exclusions: list[RootExclusion] = []
+        for raw in cast(list[object], source["exclusions"]):
+            if type(raw) is not dict or set(cast(dict[str, object], raw)) != set(
+                RootExclusion.__dataclass_fields__
+            ):
+                raise ValueError("root exclusion is malformed")
+            item = cast(dict[str, object], raw)
+            exclusions.append(
+                RootExclusion(
+                    cast(str, item["source_seed"]),
+                    cast(str, item["reason"]),
+                    cast(str, item["detail"]),
+                )
             )
-            for item in exclusions_payload
-        )
         manifest = cls(
-            manifest_version=cast(int, source["manifest_version"]),
-            generator_name=cast(str, source["generator_name"]),
-            generator_version=cast(str, source["generator_version"]),
-            ascension=cast(int, source["ascension"]),
-            max_run_steps=cast(int, source["max_run_steps"]),
-            roots=roots,
-            exclusions=exclusions,
-            manifest_digest=cast(str, source["manifest_digest"]),
+            cast(int, source["manifest_version"]),
+            cast(str, source["generator_name"]),
+            cast(str, source["generator_version"]),
+            _require_digest(source["generator_source_digest"], "generator source digest"),
+            RepositoryVersion.from_dict(source["repository"]),
+            cast(int, source["ascension"]),
+            cast(int, source["max_run_steps"]),
+            cast(bool, source["audited_splits_materialized"]),
+            tuple(roots),
+            tuple(exclusions),
+            _require_digest(source["manifest_digest"], "root manifest digest"),
         )
+        if type(manifest.ascension) is not int or not 0 <= manifest.ascension <= 20:
+            raise ValueError("root manifest ascension is invalid")
+        if type(manifest.max_run_steps) is not int or manifest.max_run_steps <= 0:
+            raise ValueError("root manifest step limit is invalid")
+        if type(manifest.audited_splits_materialized) is not bool:
+            raise TypeError("audited materialization flag must be boolean")
         if manifest.manifest_digest != _digest_payload(manifest.to_dict(), "manifest_digest"):
             raise ValueError("root manifest digest is invalid")
-        seen: dict[str, str] = {}
+        if tuple(roots) != tuple(sorted(roots, key=lambda root: root.root_id)):
+            raise ValueError("root entries are not canonically ordered")
+        seen: set[str] = set()
         for root in roots:
+            _require_digest(root.root_id, "root ID")
+            _require_digest(root.split_group_id, "split group ID")
+            if root.root_id in seen:
+                raise ValueError("duplicate root ID")
+            seen.add(root.root_id)
             if root.split not in _ALLOWED_SPLITS:
                 raise ValueError("root manifest contains an unknown split")
-            previous = seen.setdefault(root.root_id, root.split)
-            if previous != root.split:
-                raise ValueError("identical root occurs in multiple splits")
-            if root.relative_path != f"roots/{root.root_id}.json":
-                raise ValueError("root path is not canonical")
+            if root.split in _AUDITED_SPLITS and not manifest.audited_splits_materialized:
+                raise ValueError("ordinary root manifest exposes audited membership")
+            if root.relative_path != f"{root.split}/roots/{root.root_id}.json":
+                raise ValueError("root path is not split-isolated and canonical")
+            if not root.lineages or root.lineages != tuple(sorted(set(root.lineages))):
+                raise ValueError("root lineages are not canonical")
+            if not root.source_seeds or root.source_seeds != tuple(sorted(set(root.source_seeds))):
+                raise ValueError("root source seeds are not canonical")
+            expected_group = _sha256_bytes("\0".join(root.lineages).encode())
+            if root.split_group_id != expected_group:
+                raise ValueError("split group does not match canonical lineages")
+            if {_split_for_lineage(lineage) for lineage in root.lineages} != {root.split}:
+                raise ValueError("root provenance crosses splits")
         return manifest
 
 
-def load_root_manifest(path: Path, *, verify_roots: bool = True) -> RootManifest:
+def load_root_manifest(
+    path: Path, *, verify_roots: bool = True, allow_audited_materialization: bool = False
+) -> RootManifest:
     manifest = RootManifest.from_dict(json.loads(path.read_text(encoding="utf-8")))
     if verify_roots:
         for root in manifest.roots:
+            if root.split in _AUDITED_SPLITS and not allow_audited_materialization:
+                continue
             root_path = path.parent / root.relative_path
             content = root_path.read_bytes()
             try:
@@ -191,21 +243,25 @@ def load_root_manifest(path: Path, *, verify_roots: bool = True) -> RootManifest
             except json.JSONDecodeError as error:
                 raise ValueError(f"root {root.root_id} is not JSON") from error
             canonical = _canonical_bytes(snapshot)
-            if content != canonical:
-                raise ValueError(f"root {root.root_id} bytes are not canonical")
-            if _sha256_bytes(canonical) != root.root_id:
-                raise ValueError(f"root {root.root_id} hash is invalid")
-            restored = RunEnv.from_snapshot(canonical.decode("utf-8"))
+            if content != canonical or _sha256_bytes(canonical) != root.root_id:
+                raise ValueError(f"root {root.root_id} is not canonical")
+            restored = RunEnv.from_snapshot(canonical.decode())
             decision = restored.decision()
-            if not isinstance(decision.observation, FairCombatObservation) or not decision.actions:
-                raise ValueError(f"root {root.root_id} is not an actionable combat decision")
+            if (
+                not isinstance(decision.observation, FairCombatObservation)
+                or decision.observation.phase != "waiting_for_player"
+                or not decision.actions
+                or all(action.kind == "proceed" for action in decision.actions)
+            ):
+                raise ValueError(
+                    f"root {root.root_id} is not an actionable ongoing combat decision"
+                )
     return manifest
 
 
 def _policy_index(seed: str, step: int, actions: tuple[Action, ...]) -> int:
-    descriptors = [action.descriptor() for action in actions]
     payload = json.dumps(
-        [seed, step, [asdict(descriptor) for descriptor in descriptors]],
+        [seed, step, [asdict(action.descriptor()) for action in actions]],
         sort_keys=True,
         separators=(",", ":"),
     ).encode()
@@ -218,33 +274,45 @@ def generate_legal_roots(
     *,
     ascension: int = 0,
     max_run_steps: int = 256,
+    materialize_audited_splits: bool = False,
+    repository_root: Path | None = None,
 ) -> RootManifest:
     """Advance seeded runs only through accepted public legal transitions."""
 
     if not seeds or len(seeds) != len(set(seeds)):
         raise ValueError("root seeds must be nonempty and unique")
+    if any(type(seed) is not str or not seed for seed in seeds):
+        raise TypeError("root seeds must be nonempty strings")
     if not 0 <= ascension <= 20 or max_run_steps <= 0:
         raise ValueError("invalid root generation bounds")
-    root_payloads: dict[str, tuple[dict[str, object], list[str], list[str], str]] = {}
+    if type(materialize_audited_splits) is not bool:
+        raise TypeError("audited materialization flag must be boolean")
+    if repository_root is None:
+        repository_root = Path(__file__).resolve().parents[4]
+    repository = capture_repository_version(repository_root, allow_dirty=True)
+    source_digest = _sha256_bytes(_canonical_bytes(repository.to_dict()))
+    root_payloads: dict[str, tuple[dict[str, object], list[str], list[str]]] = {}
     exclusions: list[RootExclusion] = []
-    for seed in seeds:
-        if type(seed) is not str or not seed:
-            raise TypeError("root seeds must be nonempty strings")
+    for seed in sorted(seeds):
         env = RunEnv.new_ironclad(seed, ascension)
         try:
             for step in range(max_run_steps + 1):
                 decision = env.decision()
                 if isinstance(decision.observation, FairCombatObservation):
-                    if not decision.actions:
-                        raise ValueError("combat root has no public actions")
+                    if decision.observation.phase != "waiting_for_player" or not decision.actions:
+                        exclusions.append(
+                            RootExclusion(
+                                seed, "terminal_combat", "combat is not an ongoing policy root"
+                            )
+                        )
+                        break
                     snapshot = json.loads(env.snapshot().json)
                     canonical = _canonical_bytes(snapshot)
                     root_id = _sha256_bytes(canonical)
                     lineage = f"sim-seed:{seed}"
-                    split = _split_for_lineage(lineage)
                     existing = root_payloads.get(root_id)
                     if existing is None:
-                        root_payloads[root_id] = (snapshot, [lineage], [seed], split)
+                        root_payloads[root_id] = (snapshot, [lineage], [seed])
                     else:
                         existing[1].append(lineage)
                         existing[2].append(seed)
@@ -258,31 +326,48 @@ def generate_legal_roots(
                 if not decision.actions:
                     exclusions.append(RootExclusion(seed, "terminal_run", "no combat reached"))
                     break
-                index = _policy_index(seed, step, decision.actions)
-                env.step(decision.actions[index])
+                env.step(decision.actions[_policy_index(seed, step, decision.actions)])
         except (RuntimeError, TypeError, ValueError) as error:
             exclusions.append(RootExclusion(seed, "generation_error", str(error)))
 
     entries: list[RootEntry] = []
-    for root_id, (snapshot, lineages, source_seeds, split) in sorted(root_payloads.items()):
-        relative_path = f"roots/{root_id}.json"
+    for root_id, (snapshot, raw_lineages, raw_seeds) in sorted(root_payloads.items()):
+        lineages = tuple(sorted(set(raw_lineages)))
+        source_seeds = tuple(sorted(set(raw_seeds)))
+        splits = {_split_for_lineage(lineage) for lineage in lineages}
+        if len(splits) != 1:
+            exclusions.extend(
+                RootExclusion(seed, "cross_split_provenance", root_id) for seed in source_seeds
+            )
+            continue
+        split = next(iter(splits))
+        if split in _AUDITED_SPLITS and not materialize_audited_splits:
+            exclusions.extend(
+                RootExclusion(seed, "withheld_audited_split", split) for seed in source_seeds
+            )
+            continue
+        relative_path = f"{split}/roots/{root_id}.json"
         _atomic_write(output_dir / relative_path, _canonical_bytes(snapshot))
         entries.append(
             RootEntry(
                 root_id,
                 split,
-                _sha256_bytes("\0".join(sorted(set(lineages))).encode()),
+                _sha256_bytes("\0".join(lineages).encode()),
                 relative_path,
-                tuple(sorted(set(lineages))),
-                tuple(sorted(set(source_seeds))),
+                lineages,
+                source_seeds,
             )
         )
+    exclusions.sort(key=lambda item: (item.source_seed, item.reason, item.detail))
     unsigned: dict[str, object] = {
         "manifest_version": ROOT_MANIFEST_VERSION,
         "generator_name": "legal_run_policy",
-        "generator_version": "sha256_action_policy_v1",
+        "generator_version": "sha256_action_policy_v2",
+        "generator_source_digest": source_digest,
+        "repository": repository.to_dict(),
         "ascension": ascension,
         "max_run_steps": max_run_steps,
+        "audited_splits_materialized": materialize_audited_splits,
         "roots": [
             {
                 **asdict(root),
@@ -293,29 +378,47 @@ def generate_legal_roots(
         ],
         "exclusions": [asdict(exclusion) for exclusion in exclusions],
     }
-    digest = _sha256_bytes(_canonical_bytes(unsigned))
     manifest = RootManifest(
         ROOT_MANIFEST_VERSION,
         "legal_run_policy",
-        "sha256_action_policy_v1",
+        "sha256_action_policy_v2",
+        source_digest,
+        repository,
         ascension,
         max_run_steps,
+        materialize_audited_splits,
         tuple(entries),
         tuple(exclusions),
-        digest,
+        _sha256_bytes(_canonical_bytes(unsigned)),
     )
     _atomic_write(output_dir / "root-manifest.json", _canonical_bytes(manifest.to_dict()))
-    return load_root_manifest(output_dir / "root-manifest.json")
+    return load_root_manifest(
+        output_dir / "root-manifest.json",
+        allow_audited_materialization=materialize_audited_splits,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class DatasetRootMembership:
+    root_id: str
+    split_group_id: str
+    split: str
 
 
 @dataclass(frozen=True, slots=True)
 class DatasetManifest:
     manifest_version: int
     root_manifest_digest: str
+    roots: tuple[DatasetRootMembership, ...]
     split: str
+    audited_access: bool
+    reward_config: dict[str, object]
     reward_config_digest: str
     teacher_name: str
     teacher_version: str
+    source_kind: str
+    search_config: dict[str, object]
+    repository: RepositoryVersion
     shard_path: str
     shard_digest: str
     record_count: int
@@ -324,38 +427,115 @@ class DatasetManifest:
 
     def to_dict(self) -> dict[str, object]:
         return {
-            **asdict(self),
+            "manifest_version": self.manifest_version,
+            "root_manifest_digest": self.root_manifest_digest,
+            "roots": [asdict(root) for root in self.roots],
+            "split": self.split,
+            "audited_access": self.audited_access,
+            "reward_config": self.reward_config,
+            "reward_config_digest": self.reward_config_digest,
+            "teacher_name": self.teacher_name,
+            "teacher_version": self.teacher_version,
+            "source_kind": self.source_kind,
+            "search_config": self.search_config,
+            "repository": self.repository.to_dict(),
+            "shard_path": self.shard_path,
+            "shard_digest": self.shard_digest,
+            "record_count": self.record_count,
             "record_ids": list(self.record_ids),
+            "manifest_digest": self.manifest_digest,
         }
 
 
 def load_dataset_manifest(
-    path: Path,
-    *,
-    requested_split: str,
-    allow_audited_split: bool = False,
+    path: Path, *, requested_split: str, allow_audited_split: bool = False
 ) -> DatasetManifest:
-    source = cast(dict[str, object], json.loads(path.read_text(encoding="utf-8")))
-    expected = set(DatasetManifest.__dataclass_fields__)
-    if set(source) != expected or source["manifest_version"] != DATASET_MANIFEST_VERSION:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if type(raw) is not dict:
+        raise TypeError("dataset manifest must be an object")
+    source = cast(dict[str, object], raw)
+    if (
+        set(source) != set(DatasetManifest.__dataclass_fields__)
+        or source["manifest_version"] != DATASET_MANIFEST_VERSION
+    ):
         raise ValueError("unsupported or malformed dataset manifest")
+    if type(source["roots"]) is not list or type(source["record_ids"]) is not list:
+        raise TypeError("dataset manifest collections must be arrays")
+    roots: list[DatasetRootMembership] = []
+    for raw_root in cast(list[object], source["roots"]):
+        if type(raw_root) is not dict or set(cast(dict[str, object], raw_root)) != set(
+            DatasetRootMembership.__dataclass_fields__
+        ):
+            raise ValueError("dataset root membership is malformed")
+        item = cast(dict[str, object], raw_root)
+        roots.append(
+            DatasetRootMembership(
+                cast(str, item["root_id"]),
+                cast(str, item["split_group_id"]),
+                cast(str, item["split"]),
+            )
+        )
+    if type(source["reward_config"]) is not dict or type(source["search_config"]) is not dict:
+        raise TypeError("dataset configurations must be objects")
     manifest = DatasetManifest(
-        manifest_version=cast(int, source["manifest_version"]),
-        root_manifest_digest=cast(str, source["root_manifest_digest"]),
-        split=cast(str, source["split"]),
-        reward_config_digest=cast(str, source["reward_config_digest"]),
-        teacher_name=cast(str, source["teacher_name"]),
-        teacher_version=cast(str, source["teacher_version"]),
-        shard_path=cast(str, source["shard_path"]),
-        shard_digest=cast(str, source["shard_digest"]),
-        record_count=cast(int, source["record_count"]),
-        record_ids=tuple(cast(list[str], source["record_ids"])),
-        manifest_digest=cast(str, source["manifest_digest"]),
+        cast(int, source["manifest_version"]),
+        _require_digest(source["root_manifest_digest"], "root manifest digest"),
+        tuple(roots),
+        cast(str, source["split"]),
+        cast(bool, source["audited_access"]),
+        cast(dict[str, object], source["reward_config"]),
+        _require_digest(source["reward_config_digest"], "reward config digest"),
+        cast(str, source["teacher_name"]),
+        cast(str, source["teacher_version"]),
+        cast(str, source["source_kind"]),
+        cast(dict[str, object], source["search_config"]),
+        RepositoryVersion.from_dict(source["repository"]),
+        cast(str, source["shard_path"]),
+        _require_digest(source["shard_digest"], "shard digest"),
+        cast(int, source["record_count"]),
+        tuple(cast(list[str], source["record_ids"])),
+        _require_digest(source["manifest_digest"], "dataset manifest digest"),
     )
-    if manifest.split != requested_split:
+    if manifest.split != requested_split or manifest.split not in _ALLOWED_SPLITS:
         raise ValueError("dataset split does not match requested split")
-    if requested_split in {"sealed_test", "real_trace_audit"} and not allow_audited_split:
+    if manifest.source_kind != _SOURCE_KIND:
+        raise ValueError("dataset source kind is unsupported")
+    if (
+        type(manifest.teacher_name) is not str
+        or not manifest.teacher_name
+        or type(manifest.teacher_version) is not str
+        or not manifest.teacher_version
+    ):
+        raise TypeError("dataset teacher identity must be nonempty strings")
+    if type(manifest.audited_access) is not bool or manifest.audited_access != (
+        manifest.split in _AUDITED_SPLITS
+    ):
+        raise ValueError("dataset audited-access declaration is invalid")
+    if manifest.audited_access and not allow_audited_split:
         raise PermissionError("sealed and audit splits require explicit audited access")
+    if manifest.shard_path != f"{manifest.split}/{manifest.split}.jsonl":
+        raise ValueError("dataset shard path is not split-isolated and canonical")
+    if (
+        manifest.record_count <= 0
+        or len(manifest.record_ids) != manifest.record_count
+        or len(set(manifest.record_ids)) != manifest.record_count
+    ):
+        raise ValueError("dataset record IDs are not unique and complete")
+    for record_id in manifest.record_ids:
+        _require_digest(record_id, "record ID")
+    if tuple(roots) != tuple(sorted(roots, key=lambda root: root.root_id)) or len(
+        {root.root_id for root in roots}
+    ) != len(roots):
+        raise ValueError("dataset root membership is not canonical")
+    for root in roots:
+        _require_digest(root.root_id, "root ID")
+        _require_digest(root.split_group_id, "split group ID")
+        if root.split != manifest.split:
+            raise ValueError("dataset root belongs to another split")
+    reward = CombatRewardConfig(**cast(dict[str, Any], manifest.reward_config))
+    if reward.digest != manifest.reward_config_digest:
+        raise ValueError("dataset reward configuration digest is invalid")
+    validate_v2_search_config(manifest.search_config)
     if manifest.manifest_digest != _digest_payload(manifest.to_dict(), "manifest_digest"):
         raise ValueError("dataset manifest digest is invalid")
     shard = path.parent / manifest.shard_path
@@ -367,8 +547,46 @@ def load_dataset_manifest(
         or tuple(cast(str, record.record_id) for record in records) != manifest.record_ids
     ):
         raise ValueError("dataset record order or count is invalid")
-    if any(record.root_manifest_digest != manifest.root_manifest_digest for record in records):
-        raise ValueError("dataset record root manifest mismatch")
+    memberships = {root.root_id: root for root in roots}
+    seen_memberships: set[str] = set()
+    for record in records:
+        if record.record_version != 2:
+            raise ValueError("dataset requires training record schema V2")
+        membership = memberships.get(record.root_id)
+        if membership is None or record.split_group_id != membership.split_group_id:
+            raise ValueError("dataset record root/group membership mismatch")
+        seen_memberships.add(record.root_id)
+        if record.root_manifest_digest != manifest.root_manifest_digest:
+            raise ValueError("dataset record root manifest mismatch")
+        if (
+            record.planner_name != manifest.teacher_name
+            or record.planner_version != manifest.teacher_version
+        ):
+            raise ValueError("dataset record teacher mismatch")
+        if (
+            record.reward_config_digest != manifest.reward_config_digest
+            or record.value_target_name != reward.name
+        ):
+            raise ValueError("dataset record reward contract mismatch")
+        if (
+            record.source_kind != manifest.source_kind
+            or record.search_config != manifest.search_config
+        ):
+            raise ValueError("dataset record source/search configuration mismatch")
+        if record.repository != manifest.repository:
+            raise ValueError("dataset record repository mismatch")
+        expected_value = reward.value(record.outcome)
+        if record.target_value != expected_value or record.value_target_mask != (
+            expected_value is not None
+        ):
+            raise ValueError("dataset record value target does not match serialized outcome")
+        # Reparse descriptors to enforce the tensorizable canonical action schema.
+        for action in record.actions:
+            action_descriptor_from_payload(
+                {key: value for key, value in asdict(action).items() if value is not None}
+            )
+    if seen_memberships != set(memberships):
+        raise ValueError("dataset root membership contains no records")
     return manifest
 
 
@@ -383,21 +601,24 @@ def generate_beam_dataset(
     transition_budget: int = 5_000,
     max_decisions: int = 512,
     max_player_turns: int = 100,
+    deduplicate_search_states: bool = True,
     reward_config: CombatRewardConfig = COMBAT_PROXY_V1,
     repository_root: Path | None = None,
 ) -> DatasetManifest:
     if split not in _ALLOWED_SPLITS:
         raise ValueError("unknown dataset split")
-    if split in {"sealed_test", "real_trace_audit"} and not allow_audited_split:
+    if split in _AUDITED_SPLITS and not allow_audited_split:
         raise PermissionError("sealed and audit splits require explicit audited access")
-    root_manifest = load_root_manifest(root_manifest_path)
+    root_manifest = load_root_manifest(
+        root_manifest_path,
+        allow_audited_materialization=split in _AUDITED_SPLITS and allow_audited_split,
+    )
     roots = [root for root in root_manifest.roots if root.split == split]
     if not roots:
         raise ValueError(f"root manifest contains no {split} roots")
     if repository_root is None:
         repository_root = Path(__file__).resolve().parents[4]
     repository = capture_repository_version(repository_root, allow_dirty=True)
-    records: list[SymbolicTrainingRecord] = []
     search_config: dict[str, object] = {
         "depth": depth,
         "width": width,
@@ -406,7 +627,12 @@ def generate_beam_dataset(
         "max_player_turns": max_player_turns,
         "deadline": None,
         "replan": "every_public_decision",
+        "deduplicate_search_states": deduplicate_search_states,
     }
+    validate_v2_search_config(search_config)
+    records: list[SymbolicTrainingRecord] = []
+    teacher: tuple[str, str] | None = None
+    used_roots: list[DatasetRootMembership] = []
     for root in roots:
         env = RunEnv.from_snapshot((root_manifest_path.parent / root.relative_path).read_text())
         payload = env.beam_clone_episode_payload(
@@ -415,15 +641,24 @@ def generate_beam_dataset(
             transition_budget=transition_budget,
             max_decisions=max_decisions,
             max_player_turns=max_player_turns,
+            deduplicate_search_states=deduplicate_search_states,
         )
         if payload.get("schema_version") != 1:
             raise ValueError("unsupported native beam episode schema")
+        native_teacher = (cast(str, payload["teacher_name"]), cast(str, payload["teacher_version"]))
+        if teacher is None:
+            teacher = native_teacher
+        elif teacher != native_teacher:
+            raise ValueError("native teacher metadata changed within dataset")
         outcome = CombatOutcome.from_dict(payload["outcome"])
         target = reward_config.value(outcome)
         episode_id = _sha256_bytes(
             _canonical_bytes([root.root_id, search_config, reward_config.digest])
         )
         steps = cast(list[dict[str, object]], payload["steps"])
+        if not steps:
+            raise ValueError("terminal or post-combat root cannot produce training records")
+        used_roots.append(DatasetRootMembership(root.root_id, root.split_group_id, root.split))
         for decision_index, step in enumerate(steps):
             projected = FairCombatObservation._from_payload(
                 cast(dict[str, object], step["observation"])
@@ -439,42 +674,50 @@ def generate_beam_dataset(
             counts = tuple(cast(list[int], step["teacher_visit_counts"]))
             records.append(
                 SymbolicTrainingRecord(
-                    observation=observation,
-                    actions=actions,
-                    chosen_action_index=selected,
-                    chosen_action=actions[selected],
-                    teacher_visit_counts=counts,
-                    target_value=target,
-                    value_target_name=reward_config.name,
-                    outcome=outcome,
-                    planner_name=cast(str, payload["teacher_name"]),
-                    planner_version=cast(str, payload["teacher_version"]),
-                    search_config=cast(dict[str, JsonValue], search_config),
-                    root_id=root.root_id,
-                    split_group_id=root.split_group_id,
-                    teacher_pair_id=None,
-                    repository=repository,
-                    observation_digest=fair_observation_digest(observation),
-                    record_version=2,
-                    root_manifest_digest=root_manifest.manifest_digest,
-                    reward_config_digest=reward_config.digest,
-                    source_kind="simulator_legal_v1",
-                    episode_id=episode_id,
-                    decision_index=decision_index,
-                    value_target_mask=target is not None,
+                    observation,
+                    actions,
+                    selected,
+                    actions[selected],
+                    counts,
+                    target,
+                    reward_config.name,
+                    outcome,
+                    native_teacher[0],
+                    native_teacher[1],
+                    cast(dict[str, JsonValue], search_config),
+                    root.root_id,
+                    root.split_group_id,
+                    None,
+                    repository,
+                    fair_observation_digest(observation),
+                    2,
+                    root_manifest.manifest_digest,
+                    reward_config.digest,
+                    _SOURCE_KIND,
+                    episode_id,
+                    decision_index,
+                    target is not None,
                 )
             )
+    assert teacher is not None
     lines = b"".join(_canonical_bytes(record.to_dict()) + b"\n" for record in records)
-    shard_name = f"{split}.jsonl"
+    shard_name = f"{split}/{split}.jsonl"
     _atomic_write(output_dir / shard_name, lines)
     shard_digest = _sha256_bytes(lines)
+    memberships = tuple(sorted(used_roots, key=lambda root: root.root_id))
     unsigned: dict[str, object] = {
         "manifest_version": DATASET_MANIFEST_VERSION,
         "root_manifest_digest": root_manifest.manifest_digest,
+        "roots": [asdict(root) for root in memberships],
         "split": split,
+        "audited_access": split in _AUDITED_SPLITS,
+        "reward_config": reward_config.to_dict(),
         "reward_config_digest": reward_config.digest,
-        "teacher_name": "sts_live_incumbent_beam",
-        "teacher_version": "beam_clone_v1",
+        "teacher_name": teacher[0],
+        "teacher_version": teacher[1],
+        "source_kind": _SOURCE_KIND,
+        "search_config": search_config,
+        "repository": repository.to_dict(),
         "shard_path": shard_name,
         "shard_digest": shard_digest,
         "record_count": len(records),
@@ -483,10 +726,16 @@ def generate_beam_dataset(
     manifest = DatasetManifest(
         DATASET_MANIFEST_VERSION,
         root_manifest.manifest_digest,
+        memberships,
         split,
+        split in _AUDITED_SPLITS,
+        reward_config.to_dict(),
         reward_config.digest,
-        "sts_live_incumbent_beam",
-        "beam_clone_v1",
+        teacher[0],
+        teacher[1],
+        _SOURCE_KIND,
+        search_config,
+        repository,
         shard_name,
         shard_digest,
         len(records),

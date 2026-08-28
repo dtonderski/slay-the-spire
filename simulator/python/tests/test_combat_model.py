@@ -122,7 +122,7 @@ def _record(
         root_id=root_id,
         split_group_id=split_group,
         teacher_pair_id=teacher_pair_id,
-        repository=RepositoryVersion("abc123", True),
+        repository=RepositoryVersion("a" * 40, True),
         observation_digest=fair_observation_digest(observation),
     )
 
@@ -344,7 +344,7 @@ def test_checkpoint_round_trip_preserves_exact_outputs_mode_and_metadata(tmp_pat
     ).eval()
     before = model(batch)
     checkpoint = tmp_path / "model.pt"
-    repository = RepositoryVersion("deadbeef", False, "a" * 64)
+    repository = RepositoryVersion("d" * 40, False, "a" * 64)
     save_checkpoint(
         checkpoint,
         model,
@@ -858,7 +858,7 @@ def test_checkpoint_payload_contains_no_tensorized_training_records(tmp_path: Pa
     save_checkpoint(
         checkpoint,
         _model(vocab),
-        RepositoryVersion("sha", True),
+        RepositoryVersion("b" * 40, True),
         {"name": "test"},
         value_target_name="combat_proxy_v1",
     )

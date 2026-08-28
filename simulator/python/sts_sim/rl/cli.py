@@ -21,6 +21,11 @@ def _data_parser() -> argparse.ArgumentParser:
     roots.add_argument("--count", type=int, required=True)
     roots.add_argument("--ascension", type=int, default=0)
     roots.add_argument("--max-run-steps", type=int, default=256)
+    roots.add_argument(
+        "--materialize-audited-splits",
+        action="store_true",
+        help="explicitly write split-isolated sealed/audit root snapshots",
+    )
     label = subcommands.add_parser("label")
     label.add_argument("--roots", type=Path, required=True)
     label.add_argument("--output", type=Path, required=True)
@@ -30,6 +35,10 @@ def _data_parser() -> argparse.ArgumentParser:
     label.add_argument("--transition-budget", type=int, default=5_000)
     label.add_argument("--max-decisions", type=int, default=512)
     label.add_argument("--max-player-turns", type=int, default=100)
+    label.add_argument(
+        "--deduplicate-search-states", action=argparse.BooleanOptionalAction, default=True
+    )
+    label.add_argument("--allow-audited-split", action="store_true")
     return parser
 
 
@@ -46,6 +55,7 @@ def data_main(argv: Sequence[str] | None = None) -> int:
             seeds,
             ascension=args.ascension,
             max_run_steps=args.max_run_steps,
+            materialize_audited_splits=args.materialize_audited_splits,
         )
     else:
         manifest = generate_beam_dataset(
@@ -57,6 +67,8 @@ def data_main(argv: Sequence[str] | None = None) -> int:
             transition_budget=args.transition_budget,
             max_decisions=args.max_decisions,
             max_player_turns=args.max_player_turns,
+            deduplicate_search_states=args.deduplicate_search_states,
+            allow_audited_split=args.allow_audited_split,
         )
     print(json.dumps(manifest.to_dict(), sort_keys=True))
     return 0

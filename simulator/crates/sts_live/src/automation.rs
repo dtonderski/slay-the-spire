@@ -93,7 +93,7 @@ enum CombatOutcome {
     Won,
 }
 
-/// Detached result from the incumbent production beam teacher.
+/// Detached result from the public-decision replanning beam teacher.
 ///
 /// The action remains authoritative and must be projected through the current
 /// public choice set before it becomes a training label.
@@ -105,11 +105,11 @@ pub struct BeamTeacherDecision {
     pub budget_exhausted: bool,
 }
 
-/// Run the exact live automation beam core without a wall-clock deadline.
+/// Replan with the live automation beam core at one public decision.
 ///
-/// This narrow entry point exists for deterministic offline teacher labeling;
-/// it deliberately reuses the production planner instead of the legacy PyO3
-/// objective-string beam.
+/// Offline episode labeling calls this at every public boundary with no warm
+/// suffix or wall-clock deadline. It therefore shares the beam search core but
+/// intentionally does not claim the live automation execution policy.
 pub fn beam_teacher_decision(
     state: &RunState,
     depth: usize,
