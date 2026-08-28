@@ -475,6 +475,68 @@ mod tests {
     }
 
     #[test]
+    fn secret_card_legality_ignores_hidden_draw_order() {
+        // Draw-pile membership is public, which is why these plays project at
+        // all. Draw-pile *order* stays hidden, so moving the one qualifying card
+        // within the pile must leave the public decision byte-identical.
+        for (card_id, qualifying_draw_card, filler_draw_card) in [
+            (SECRET_TECHNIQUE_ID, DEFEND_R_ID, STRIKE_R_ID),
+            (SECRET_TECHNIQUE_PLUS_ID, DEFEND_R_ID, STRIKE_R_ID),
+            (SECRET_WEAPON_ID, STRIKE_R_ID, DEFEND_R_ID),
+            (SECRET_WEAPON_PLUS_ID, STRIKE_R_ID, DEFEND_R_ID),
+        ] {
+            let mut qualifying_first = RunState::combat_fixture();
+            let combat = qualifying_first.combat.as_mut().expect("combat fixture");
+            combat.piles.hand[0].content_id = card_id;
+            combat.piles.draw_pile = vec![
+                CardInstance::new(CardId::new(900), qualifying_draw_card),
+                CardInstance::new(CardId::new(901), filler_draw_card),
+                CardInstance::new(CardId::new(902), filler_draw_card),
+            ];
+
+            let mut qualifying_last = qualifying_first.clone();
+            qualifying_last
+                .combat
+                .as_mut()
+                .expect("combat fixture")
+                .piles
+                .draw_pile
+                .rotate_left(1);
+
+            let first_choices = player_choices(&qualifying_first, REVISION).expect("first choices");
+            let last_choices = player_choices(&qualifying_last, REVISION).expect("last choices");
+            assert_eq!(first_choices, last_choices);
+            assert_eq!(
+                serde_json::to_vec(&first_choices).expect("first choices serialize"),
+                serde_json::to_vec(&last_choices).expect("last choices serialize")
+            );
+
+            let secret_choice = PlayerChoice::PlayHandSlot {
+                hand_slot: 0,
+                target_slot: None,
+            };
+            assert!(first_choices.choices.contains(&secret_choice));
+
+            let request = PlayerChoiceRequest {
+                decision_revision: REVISION,
+                choice: secret_choice,
+            };
+            let secret_action = RunDecisionAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            });
+            assert_eq!(
+                resolve_player_choice(&qualifying_first, REVISION, request),
+                Ok(secret_action)
+            );
+            assert_eq!(
+                resolve_player_choice(&qualifying_last, REVISION, request),
+                Ok(secret_action)
+            );
+        }
+    }
+
+    #[test]
     fn hidden_intent_does_not_change_choices_or_public_errors() {
         let first = RunState::combat_fixture_with_relics(vec![Relic::RunicDome]);
         let mut second = first.clone();

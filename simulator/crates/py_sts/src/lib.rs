@@ -1251,7 +1251,16 @@ fn classify_combat_episode_transition(
         RunDecisionAction::Run(RunAction::UsePotion { slot, .. })
             if before.potion_at_slot(*slot) == Some(Potion::SmokeBomb)
     );
-    Some(if escaped { "escaped" } else { "won" })
+    if escaped {
+        return Some("escaped");
+    }
+    // Victory clears the combat and opens the next run screen, so it is
+    // recognized by exclusion. Guard the one case exclusion would get maximally
+    // wrong and label a dead player's exit as the best possible outcome.
+    if run_player_hp(after).0 <= 0 {
+        return Some("lost");
+    }
+    Some("won")
 }
 
 fn player_turn_advances(before: &RunState, action: &RunDecisionAction, after: &RunState) -> usize {
@@ -2692,6 +2701,24 @@ mod tests {
                 &after,
             ),
             None
+        );
+    }
+
+    #[test]
+    fn a_dead_player_leaving_combat_is_not_classified_as_a_win() {
+        let before = RunState::combat_fixture();
+        let mut after = before.clone();
+        after.combat = None;
+        after.phase = RunPhase::Reward;
+        after.player_hp = 0;
+
+        assert_eq!(
+            classify_combat_episode_transition(
+                &before,
+                &RunDecisionAction::Combat(CombatAction::EndTurn),
+                &after,
+            ),
+            Some("lost")
         );
     }
 
