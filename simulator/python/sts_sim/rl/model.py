@@ -230,17 +230,25 @@ def policy_value_loss(
     policy_target: torch.Tensor,
     value_target: torch.Tensor,
     action_mask: torch.Tensor,
+    value_target_mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
     if output.logits.shape != policy_target.shape or output.logits.shape != action_mask.shape:
         raise ValueError("policy shapes do not match")
     if output.value.shape != value_target.shape:
         raise ValueError("value shapes do not match")
+    if value_target_mask is None:
+        value_target_mask = torch.ones_like(value_target, dtype=torch.bool)
+    if value_target_mask.dtype != torch.bool or value_target_mask.shape != value_target.shape:
+        raise ValueError("value target mask must be boolean with shape [batch]")
     if not torch.isfinite(policy_target).all() or torch.any(policy_target < 0):
         raise ValueError("policy targets must be finite and nonnegative")
     if torch.any(policy_target.masked_select(~action_mask) != 0):
         raise ValueError("policy targets must not place mass on padded actions")
-    if not torch.isfinite(value_target).all() or torch.any(torch.abs(value_target) > 1):
-        raise ValueError("value targets must be finite and in [-1, 1]")
+    visible_targets = value_target.masked_select(value_target_mask)
+    if not torch.isfinite(visible_targets).all() or torch.any(torch.abs(visible_targets) > 1):
+        raise ValueError("unmasked value targets must be finite and in [-1, 1]")
+    if torch.any(value_target.masked_select(~value_target_mask) != 0):
+        raise ValueError("masked value targets must use canonical zero storage")
     legal_logits = output.logits.masked_select(action_mask)
     if not torch.isfinite(legal_logits).all():
         raise ValueError("legal policy logits must be finite")
@@ -253,7 +261,12 @@ def policy_value_loss(
     log_policy = torch.log_softmax(output.logits, dim=-1)
     policy_terms = torch.where(action_mask, target * log_policy, 0.0)
     policy = -policy_terms.sum(dim=-1).mean()
-    value = torch.mean((output.value - value_target) ** 2)
+    squared = (output.value - value_target) ** 2
+    value = (
+        squared.masked_select(value_target_mask).mean()
+        if torch.any(value_target_mask)
+        else output.value.sum() * 0.0
+    )
     loss = policy + value
     if not torch.isfinite(loss):
         raise ValueError("policy/value loss is nonfinite")

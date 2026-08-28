@@ -47,6 +47,42 @@ the trace reaches its endpoint, `1` for invalid input, and `2` when the
 authoritative simulator reaches a replay boundary. Observed game state never
 changes the exported snapshot.
 
+## Beam-cloning training
+
+The optional Python RL package can generate deterministic legal simulator roots,
+label them with the incumbent production beam planner, train with exact
+batch-boundary resume, and evaluate a fixed development shard. From
+`simulator/python` after `uv sync --extra rl && uv run maturin develop --uv`:
+
+```bash
+uv run sts-combat-data roots \
+  --output /tmp/sts-roots --seed-prefix BEAMCLONE --count 1000
+uv run sts-combat-data label \
+  --roots /tmp/sts-roots/root-manifest.json \
+  --output /tmp/sts-train --split train
+uv run sts-combat-data label \
+  --roots /tmp/sts-roots/root-manifest.json \
+  --output /tmp/sts-development --split development
+uv run sts-combat-train \
+  --dataset /tmp/sts-train/dataset-manifest.json \
+  --checkpoint /tmp/sts-checkpoint.pt --steps 1000
+uv run sts-combat-train \
+  --dataset /tmp/sts-train/dataset-manifest.json \
+  --checkpoint /tmp/sts-checkpoint.pt --steps 1000 --resume
+uv run sts-combat-evaluate \
+  --dataset /tmp/sts-development/dataset-manifest.json \
+  --checkpoint /tmp/sts-checkpoint.pt --split development \
+  --output /tmp/sts-development-report.json
+```
+
+Root generation advances seeded runs only through accepted public legal actions.
+Root files and dataset shards are canonical SHA-256 artifacts. Training records
+contain fair observations and public action descriptors, never native handles,
+internal IDs, RNG state, or snapshots. `sealed_test` and `real_trace_audit`
+loaders fail closed unless an audited caller opts in. PUCT and candidate
+promotion remain later phases; the commands above implement deterministic beam
+imitation only.
+
 ## Live CLI
 
 CommunicationMod launches `..\tools\communication\trace_client.js`. With the

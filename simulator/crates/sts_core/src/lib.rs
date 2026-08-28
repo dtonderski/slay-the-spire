@@ -22,7 +22,7 @@ pub use card::{
 };
 pub use combat::{
     apply_burning_blood, apply_combat_action, apply_combat_action_with_events, end_player_turn,
-    fair_combat_observation, initialize_combat_piles_with_relics, legal_combat_actions,
+    fair_combat_observation, initialize_combat_piles_with_relics, legal_combat_actions, potion_key,
     starter_only_deck, validate_combat_action, CardPiles, CombatDecisionState, CombatPhase,
     CombatState, CombatTransition, DamageInfo, DamageSource, FairCard, FairCardDynamicValues,
     FairCombatObservation, FairCombatPhase, FairCounter, FairHandCard, FairIntentCategory,

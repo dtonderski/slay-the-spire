@@ -2,17 +2,12 @@ use std::{collections::BTreeMap, fmt};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    content::cards::{
-        SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID,
-    },
-    CombatAction, RunAction, RunDecisionAction, RunPhase, RunState,
-};
+use crate::{CombatAction, RunAction, RunDecisionAction, RunPhase, RunState};
 
 use super::legal_run_decision_actions;
 
 /// Serialized schema version for [`PlayerChoiceSet`] and [`PlayerChoice`].
-pub const PLAYER_CHOICE_SCHEMA_VERSION: u32 = 1;
+pub const PLAYER_CHOICE_SCHEMA_VERSION: u32 = 2;
 
 /// Public, monotonically increasing token owned by the fair environment.
 ///
@@ -74,11 +69,12 @@ pub enum PlayerChoice {
     },
     ConfirmSelection,
     SkipSelection,
+    Proceed,
 }
 
 impl PlayerChoice {
     /// Canonical serialized kind names exposed to consumers that mirror this enum.
-    pub const KIND_NAMES: [&'static str; 8] = [
+    pub const KIND_NAMES: [&'static str; 9] = [
         Self::PlayHandSlot {
             hand_slot: 0,
             target_slot: None,
@@ -95,6 +91,7 @@ impl PlayerChoice {
         Self::ChooseVisibleOption { option_slot: 0 }.kind(),
         Self::ConfirmSelection.kind(),
         Self::SkipSelection.kind(),
+        Self::Proceed.kind(),
     ];
 
     /// Return the canonical serialized kind for this choice.
@@ -113,6 +110,7 @@ impl PlayerChoice {
             Self::ChooseVisibleOption { .. } => "choose_visible_option",
             Self::ConfirmSelection => "confirm_selection",
             Self::SkipSelection => "skip_selection",
+            Self::Proceed => "proceed",
         }
     }
 }
@@ -229,27 +227,17 @@ fn project_action(
 
     match action {
         RunDecisionAction::Combat(CombatAction::PlayCard { card_id, target }) => {
-            let (hand_index, card) = combat
+            let hand_index = combat
                 .piles
                 .hand
                 .iter()
                 .enumerate()
                 .find(|(_, card)| card.id == card_id)
+                .map(|(index, _)| index)
                 .ok_or(PlayerChoiceError::DecisionUnavailable)?;
-            if matches!(
-                card.content_id,
-                SECRET_TECHNIQUE_ID
-                    | SECRET_TECHNIQUE_PLUS_ID
-                    | SECRET_WEAPON_ID
-                    | SECRET_WEAPON_PLUS_ID
-            ) {
-                // These authoritative plays are legal only when hidden draw-pile
-                // composition satisfies their card-specific prerequisite. The
-                // V1 fair boundary does not carry that public-knowledge contract,
-                // so omit them rather than leaking the prerequisite through the
-                // shape of the public choice set.
-                return Ok(None);
-            }
+            // Draw-pile membership is a public multiset in the fair observation,
+            // so Secret Weapon and Secret Technique legality is public even when
+            // draw order is hidden.
             let hand_slot = public_slot(hand_index)?;
             let target_slot = target
                 .map(|monster_id| {
@@ -310,6 +298,7 @@ fn project_action(
         RunDecisionAction::Run(RunAction::SkipCombatCardReward) => {
             Ok(Some(PlayerChoice::SkipSelection))
         }
+        RunDecisionAction::Run(RunAction::Proceed) => Ok(Some(PlayerChoice::Proceed)),
         _ => Err(PlayerChoiceError::DecisionUnavailable),
     }
 }
@@ -408,7 +397,7 @@ mod tests {
     }
 
     #[test]
-    fn hidden_draw_composition_does_not_change_public_choice_shape() {
+    fn public_draw_membership_projects_secret_card_legality_without_order() {
         for (card_id, eligible_draw_card, ineligible_draw_card) in [
             (SECRET_TECHNIQUE_ID, DEFEND_R_ID, STRIKE_R_ID),
             (SECRET_TECHNIQUE_PLUS_ID, DEFEND_R_ID, STRIKE_R_ID),
@@ -439,11 +428,6 @@ mod tests {
             let eligible_choices = player_choices(&eligible, REVISION).expect("eligible choices");
             let ineligible_choices =
                 player_choices(&ineligible, REVISION).expect("ineligible choices");
-            assert_eq!(eligible_choices, ineligible_choices);
-            assert_eq!(
-                serde_json::to_vec(&eligible_choices).expect("eligible choices serialize"),
-                serde_json::to_vec(&ineligible_choices).expect("ineligible choices serialize")
-            );
             let secret_action = RunDecisionAction::Combat(CombatAction::PlayCard {
                 card_id: CardId::new(1),
                 target: None,
@@ -454,7 +438,16 @@ mod tests {
             assert!(!legal_run_decision_actions(&ineligible)
                 .expect("ineligible authoritative choices")
                 .contains(&secret_action));
-            assert!(!eligible_choices.choices.iter().any(|choice| {
+            assert!(eligible_choices.choices.iter().any(|choice| {
+                matches!(
+                    choice,
+                    PlayerChoice::PlayHandSlot {
+                        hand_slot: 0,
+                        target_slot: None,
+                    }
+                )
+            }));
+            assert!(!ineligible_choices.choices.iter().any(|choice| {
                 matches!(
                     choice,
                     PlayerChoice::PlayHandSlot {
@@ -472,7 +465,7 @@ mod tests {
             };
             assert_eq!(
                 resolve_player_choice(&eligible, REVISION, request),
-                Err(PlayerChoiceError::InvalidChoice)
+                Ok(secret_action)
             );
             assert_eq!(
                 resolve_player_choice(&ineligible, REVISION, request),
@@ -661,6 +654,28 @@ mod tests {
         assert_eq!(
             player_choices(&malformed, REVISION),
             Err(PlayerChoiceError::DecisionUnavailable)
+        );
+    }
+
+    #[test]
+    fn restored_lost_combat_projects_post_episode_proceed_in_v2() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.phase = CombatPhase::Lost;
+        combat.player.hp = 0;
+        let choices = player_choices(&run, REVISION).expect("lost combat run control");
+        assert_eq!(choices.schema_version, 2);
+        assert_eq!(choices.choices, vec![PlayerChoice::Proceed]);
+        assert_eq!(
+            resolve_player_choice(
+                &run,
+                REVISION,
+                PlayerChoiceRequest {
+                    decision_revision: REVISION,
+                    choice: PlayerChoice::Proceed,
+                },
+            ),
+            Ok(RunDecisionAction::Run(RunAction::Proceed))
         );
     }
 

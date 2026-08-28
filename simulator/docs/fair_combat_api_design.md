@@ -129,7 +129,13 @@ The type must remain extensible to a deterministic public-history summary or
 event stream. History-derived information is fair only when it can be computed
 without inspecting hidden state.
 
-## PlayerChoice V1
+## PlayerChoice V1 and V2
+
+V2 adds the zero-field `Proceed` run-control choice for directly restored lost
+combat states and projects Secret Weapon/Secret Technique now that draw-pile
+membership is represented by the public multiset. Combat episodes classify a
+terminal accepted transition before requesting another model decision, so
+`Proceed` is never a combat training target. Stored V1 choices remain readable.
 
 Implementation status: the combat-only symbolic projection, resolution,
 revision token, and stable public errors are implemented in `sts_core`. See
@@ -157,8 +163,8 @@ Do not duplicate legality rules. Projection starts from the existing legal
 internal action list, converts IDs to visible decision-local slots, removes any
 public duplicates, omits commands whose legality depends on hidden information
 not represented by the current public-knowledge contract, and sorts using only
-serialized public descriptor fields. The current V1 exception is Secret Weapon
-and Secret Technique card play; see `design_fair_public_legal_action_visibility.md`.
+serialized public descriptor fields. Secret Weapon and Secret Technique are no
+longer exceptions; see `design_fair_public_legal_action_visibility.md`.
 
 Resolution performs the reverse mapping against the same decision revision.
 Errors are public and stable: they must not reveal whether failure came from a

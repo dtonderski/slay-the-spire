@@ -151,10 +151,15 @@ class Snapshot:
 
 @dataclass(frozen=True, slots=True)
 class StepResult:
-    """State of the environment immediately after one accepted action."""
+    """State immediately after one accepted action.
+
+    ``combat_outcome`` is classified by the authoritative native transition,
+    before Python requests another combat-model decision.
+    """
 
     terminal: bool
     decision: Decision
+    combat_outcome: str | None = None
 
 
 class RunEnv:
@@ -265,14 +270,50 @@ class RunEnv:
     def step(self, action: Action) -> StepResult:
         """Apply one action returned by this environment or an identical clone."""
 
-        self._native.step_action(action._handle)
+        combat_outcome = self._native.step_action(action._handle)
         decision = self.decision()
         combat_terminal = isinstance(
             decision.observation, FairCombatObservation
         ) and decision.observation.phase in ("won", "lost")
         return StepResult(
-            terminal=decision.phase == "complete" or combat_terminal or not decision.actions,
+            terminal=(
+                combat_outcome is not None
+                or decision.phase == "complete"
+                or combat_terminal
+                or not decision.actions
+            ),
             decision=decision,
+            combat_outcome=combat_outcome,
+        )
+
+    def beam_clone_episode_payload(
+        self,
+        *,
+        depth: int = 12,
+        width: int = 48,
+        transition_budget: int = 20_000,
+        max_decisions: int = 512,
+        max_player_turns: int = 100,
+        deduplicate_search_states: bool = True,
+    ) -> dict[str, object]:
+        """Run the native incumbent beam teacher on a detached combat clone.
+
+        The returned payload contains fair observations, ordered public choices,
+        aligned one-hot teacher counts, and an authoritative terminal outcome.
+        It contains no private action handles or authoritative IDs.
+        """
+
+        return _mapping(
+            json.loads(
+                self._native.beam_clone_episode_json(
+                    depth,
+                    width,
+                    transition_budget,
+                    max_decisions,
+                    max_player_turns,
+                    deduplicate_search_states,
+                )
+            )
         )
 
     def full_state(self) -> dict[str, object]:

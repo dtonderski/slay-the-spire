@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import torch
 
 from ..fair import FairCombatObservation
-from ..run import ActionDescriptor, Decision, RunEnv
+from ..run import Decision, RunEnv
 from .model import FairCombatPolicyValueNet
 from .tensor import Vocabularies, collate_combat_tensors, tensorize_combat
 
@@ -31,30 +31,14 @@ class RolloutDistribution:
     step_counts: dict[int, int]
 
 
-def _terminal_status(
-    decision: Decision,
-    *,
-    escaped_by_public_smoke_bomb: bool = False,
-) -> str | None:
+def _terminal_status(decision: Decision) -> str | None:
     if not isinstance(decision.observation, FairCombatObservation):
-        return "escaped" if escaped_by_public_smoke_bomb else "won"
+        return "won"
     if decision.observation.phase in ("won", "lost"):
         return decision.observation.phase
     if not decision.actions:
         return "lost" if decision.observation.player.hp <= 0 else "won"
     return None
-
-
-def _uses_public_smoke_bomb(
-    observation: FairCombatObservation,
-    descriptor: ActionDescriptor,
-) -> bool:
-    if descriptor.kind != "use_potion_slot" or descriptor.potion_slot is None:
-        return False
-    return any(
-        slot.slot == descriptor.potion_slot and slot.content_key == "smoke_bomb"
-        for slot in observation.potion_slots
-    )
 
 
 def rollout_model_combat(
@@ -92,13 +76,13 @@ def rollout_model_combat(
                 output = model(batch)
                 probabilities = torch.softmax(output.logits[0, : len(decision.actions)], dim=-1)
                 index = int(torch.multinomial(probabilities, 1, generator=generator).item())
-            descriptor = descriptors[index]
-            escaped = _uses_public_smoke_bomb(observation, descriptor)
             selected.append(index)
             # The model chooses only this row. Rust still owns construction,
-            # revision validation, legality, and transition execution.
-            decision = env.step(decision.actions[index]).decision
-            status = _terminal_status(decision, escaped_by_public_smoke_bomb=escaped)
+            # revision validation, legality, transition execution, and terminal
+            # classification.
+            step = env.step(decision.actions[index])
+            decision = step.decision
+            status = step.combat_outcome or _terminal_status(decision)
             if status is not None:
                 return CombatRolloutResult(status, len(selected), True, False, tuple(selected))
         return CombatRolloutResult("truncated", max_steps, False, True, tuple(selected))

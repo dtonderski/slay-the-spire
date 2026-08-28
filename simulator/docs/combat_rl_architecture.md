@@ -16,6 +16,10 @@ for the July 2026 fixed-budget planner conclusions. This document specifies the
 model and training direction. Tensor code remains an optional Python RL layer;
 it does not become simulator mechanics or part of the durable symbolic API.
 
+[`combat_agent_phase2_plan.md`](combat_agent_phase2_plan.md) is the active
+execution plan against this design: it records the measured baseline, settles
+where search and tensorization run, and stages the remaining work behind gates.
+
 ## Terminology
 
 - **Fair network:** policy and value inputs are `FairCombatObservation` plus
@@ -30,7 +34,11 @@ Raw hidden fields are not neural inputs.
 
 ## Training Loop
 
-Combat roots are starting states, not the entire training set:
+Combat roots are starting states, not the entire training set. Legally generated
+seeded simulator runs are the scalable training source; immutable real-trace
+roots remain fixed distribution anchors for development, sealed evaluation, and
+audit. Root generation must advance only through accepted legal transitions and
+must never randomize raw state fields independently.
 
 ```text
 sample training combat root

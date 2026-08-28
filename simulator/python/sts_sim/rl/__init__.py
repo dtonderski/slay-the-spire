@@ -4,6 +4,16 @@ Import this subpackage explicitly; the base :mod:`sts_sim` package has no
 PyTorch import or runtime dependency.
 """
 
+from .data import (
+    DatasetManifest,
+    RootEntry,
+    RootExclusion,
+    RootManifest,
+    generate_beam_dataset,
+    generate_legal_roots,
+    load_dataset_manifest,
+    load_root_manifest,
+)
 from .diagnostics import TeacherConflictGroup, teacher_conflict_report
 from .model import (
     CheckpointSourceMismatchWarning,
@@ -28,6 +38,7 @@ from .records import (
     read_jsonl,
     write_jsonl,
 )
+from .rewards import COMBAT_PROXY_V1, CombatRewardConfig
 from .rollout import (
     CombatRolloutResult,
     RolloutDistribution,
@@ -45,12 +56,20 @@ from .tensor import (
     Vocabularies,
     VocabularyBuilder,
     collate_combat_tensors,
+    encoder_contract_digest,
     field_coverage_mismatches,
     tensorize_combat,
+)
+from .training import (
+    TrainingConfig,
+    TrainingResult,
+    evaluate_beam_clone,
+    train_beam_clone,
 )
 
 __all__ = [
     "CATEGORY_NAMESPACES",
+    "COMBAT_PROXY_V1",
     "FIELD_COVERAGE",
     "SCALAR_INDEX",
     "SCALAR_NAMES",
@@ -59,28 +78,41 @@ __all__ = [
     "CheckpointSourceMismatchWarning",
     "CombatModelConfig",
     "CombatOutcome",
+    "CombatRewardConfig",
     "CombatRolloutResult",
     "CounterChange",
+    "DatasetManifest",
     "FairCombatPolicyValueNet",
     "FrozenVocabulary",
     "LoadedCheckpoint",
     "PolicyValueOutput",
     "RepositoryVersion",
     "RolloutDistribution",
+    "RootEntry",
+    "RootExclusion",
+    "RootManifest",
     "SymbolicCombatDataset",
     "SymbolicTrainingRecord",
     "TeacherConflictGroup",
     "TensorizedCombatDecision",
     "TensorizedTrainingExample",
+    "TrainingConfig",
+    "TrainingResult",
     "Vocabularies",
     "VocabularyBuilder",
     "capture_repository_version",
     "collate_combat_tensors",
     "collate_training_examples",
+    "encoder_contract_digest",
+    "evaluate_beam_clone",
     "fair_observation_digest",
     "field_coverage_mismatches",
     "file_digest",
+    "generate_beam_dataset",
+    "generate_legal_roots",
     "load_checkpoint",
+    "load_dataset_manifest",
+    "load_root_manifest",
     "policy_value_loss",
     "read_jsonl",
     "rollout_model_combat",
@@ -88,5 +120,6 @@ __all__ = [
     "summarize_rollouts",
     "teacher_conflict_report",
     "tensorize_combat",
+    "train_beam_clone",
     "write_jsonl",
 ]

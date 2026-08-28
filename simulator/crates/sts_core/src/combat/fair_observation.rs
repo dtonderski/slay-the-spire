@@ -1130,7 +1130,7 @@ fn exhaust_selection_kind(purpose: ExhaustSelectPurpose) -> FairSelectionKind {
     }
 }
 
-pub(crate) fn potion_key(potion: Potion) -> &'static str {
+pub fn potion_key(potion: Potion) -> &'static str {
     match potion {
         Potion::Fire => "fire",
         Potion::Block => "block",

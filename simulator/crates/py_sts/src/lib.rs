@@ -6,12 +6,12 @@ use sts_core::potion::IRONCLAD_POTION_POOL;
 use sts_core::{
     apply_combat_action_with_events, apply_run_decision_action, fair_combat_observation,
     fair_run_observation, legal_combat_actions, legal_run_decision_actions, player_choices,
-    resolve_player_choice, restore_combat_snapshot_json, restore_run_snapshot_json, CardDefinition,
-    CardId, CardKeywords, CardType, CardValues, CombatAction, CombatPhase, CombatState,
-    DecisionRevision, EventAction, FairCombatObservation, FairObservationError, MapAction,
-    MonsterId, MonsterIntent, PlayerChoice, PlayerChoiceError, PlayerChoiceRequest, Potion, Relic,
-    RestAction, RunAction, RunDecisionAction, RunPhase, RunState, Snapshot, TargetRequirement,
-    ALL_RELICS, SNAPSHOT_SCHEMA_VERSION,
+    potion_key, resolve_player_choice, restore_combat_snapshot_json, restore_run_snapshot_json,
+    CardDefinition, CardId, CardKeywords, CardType, CardValues, CombatAction, CombatPhase,
+    CombatState, DecisionRevision, EventAction, FairCombatObservation, FairObservationError,
+    MapAction, MonsterId, MonsterIntent, PlayerChoice, PlayerChoiceError, PlayerChoiceRequest,
+    Potion, Relic, RestAction, RunAction, RunDecisionAction, RunPhase, RunState, Snapshot,
+    TargetRequirement, ALL_RELICS, SNAPSHOT_SCHEMA_VERSION,
 };
 
 const AGENT_REWARD_GOLD_PER_HP: f64 = 10.0;
@@ -88,6 +88,48 @@ struct FairDecisionWire {
 struct FairStepWire {
     terminal: bool,
     decision: Option<FairDecisionWire>,
+}
+
+#[derive(serde::Serialize)]
+struct BeamCloneSearchWire {
+    nodes: usize,
+    value: f64,
+    budget_exhausted: bool,
+}
+
+#[derive(serde::Serialize)]
+struct BeamCloneStepWire {
+    observation: FairCombatObservation,
+    choices: Vec<PlayerChoice>,
+    selected_index: usize,
+    teacher_visit_counts: Vec<u64>,
+    search: BeamCloneSearchWire,
+}
+
+#[derive(serde::Serialize)]
+struct CombatEpisodeOutcomeWire {
+    status: &'static str,
+    terminal_hp: i32,
+    terminal_max_hp: i32,
+    hp_change: i32,
+    max_hp_change: i32,
+    gold_change: i32,
+    potion_slots: Vec<Option<&'static str>>,
+    counter_changes: Vec<serde_json::Value>,
+    terminal: bool,
+    truncated: bool,
+    accepted_decisions: usize,
+    player_turns: usize,
+    truncation_trigger: Option<&'static str>,
+}
+
+#[derive(serde::Serialize)]
+struct BeamCloneEpisodeWire {
+    schema_version: u32,
+    teacher_name: &'static str,
+    teacher_version: &'static str,
+    steps: Vec<BeamCloneStepWire>,
+    outcome: CombatEpisodeOutcomeWire,
 }
 
 #[pyclass(name = "FairCombatEnv")]
@@ -541,7 +583,9 @@ impl PyOmniRunEnv {
             ));
         }
         let ascension = ascension.unwrap_or(0);
-        let state = RunState::try_seeded_ironclad(stable_seed(seed), ascension)
+        let numeric_seed = stable_seed(seed)
+            .map_err(|error| PyValueError::new_err(format!("invalid seeded run: {error}")))?;
+        let state = RunState::try_seeded_ironclad(numeric_seed, ascension)
             .map_err(|error| PyValueError::new_err(format!("invalid seeded run: {error}")))?;
         state
             .validate()
@@ -685,7 +729,7 @@ impl PyOmniRunEnv {
         Ok(())
     }
 
-    pub fn step_action(&mut self, action: &PyAction) -> PyResult<()> {
+    pub fn step_action(&mut self, action: &PyAction) -> PyResult<Option<String>> {
         if action.revision != self.revision {
             return Err(StaleDecisionError::new_err("public run decision is stale"));
         }
@@ -697,13 +741,19 @@ impl PyOmniRunEnv {
         }
         let next = apply_exact_run_action(&self.state, &action.action)
             .map_err(|_| InvalidChoiceError::new_err("public run action is invalid"))?;
+        let combat_outcome = if self.state.phase == RunPhase::Combat {
+            classify_combat_episode_transition(&self.state, &action.action, &next)
+                .map(str::to_owned)
+        } else {
+            None
+        };
         let revision = self
             .revision
             .checked_next()
             .ok_or_else(|| PyRuntimeError::new_err("public decision revision exhausted"))?;
         self.state = next;
         self.revision = revision;
-        Ok(())
+        Ok(combat_outcome)
     }
 
     pub fn step(&mut self, action: &PyExactRunAction) -> PyResult<PyExactRunStepResult> {
@@ -738,6 +788,27 @@ impl PyOmniRunEnv {
             },
             unsupported_reason: self.unsupported_reason(),
         })
+    }
+
+    #[pyo3(signature = (depth=12, width=48, transition_budget=20000, max_decisions=512, max_player_turns=100, deduplicate_search_states=true))]
+    pub fn beam_clone_episode_json(
+        &self,
+        depth: usize,
+        width: usize,
+        transition_budget: usize,
+        max_decisions: usize,
+        max_player_turns: usize,
+        deduplicate_search_states: bool,
+    ) -> PyResult<String> {
+        beam_clone_episode_json(
+            &self.state,
+            depth,
+            width,
+            transition_budget,
+            max_decisions,
+            max_player_turns,
+            deduplicate_search_states,
+        )
     }
 
     pub fn rust_greedy_combat_search(
@@ -990,11 +1061,13 @@ fn run_snapshot(state: &RunState) -> Snapshot<RunState> {
     }
 }
 
-fn stable_seed(seed: &str) -> u64 {
+fn stable_seed(seed: &str) -> Result<u64, String> {
     if let Ok(value) = seed.parse::<u64>() {
-        return value;
+        return Ok(value);
     }
-    sts_verify::sts_seed_string_to_long(seed) as u64
+    sts_verify::try_sts_seed_string_to_long(seed)
+        .map(|value| value as u64)
+        .map_err(|error| error.to_string())
 }
 
 fn run_snapshot_hash(state: &RunState) -> PyResult<String> {
@@ -1135,6 +1208,196 @@ fn public_run_action_json(state: &RunState, action: &RunDecisionAction) -> PyRes
 fn exact_run_legal_action_kinds(state: &RunState) -> PyResult<Vec<ExactRunActionKind>> {
     legal_run_decision_actions(state).map_err(|error| {
         PyValueError::new_err(format!("invalid exact run decision state: {error:?}"))
+    })
+}
+
+fn run_player_hp(state: &RunState) -> (i32, i32) {
+    state
+        .combat
+        .as_ref()
+        .map(|combat| (combat.player.hp, combat.player.max_hp))
+        .unwrap_or((state.player_hp, state.player_max_hp))
+}
+
+fn classify_combat_episode_transition(
+    before: &RunState,
+    action: &RunDecisionAction,
+    after: &RunState,
+) -> Option<&'static str> {
+    if let Some(combat) = after.combat.as_ref() {
+        if combat.phase == CombatPhase::Lost || combat.player.hp <= 0 {
+            return Some("lost");
+        }
+        if combat.phase == CombatPhase::Won {
+            return Some("won");
+        }
+    }
+    if after.phase == RunPhase::Combat {
+        return None;
+    }
+    let escaped = matches!(
+        action,
+        RunDecisionAction::Run(RunAction::UsePotion { slot, .. })
+            if before.potion_at_slot(*slot) == Some(Potion::SmokeBomb)
+    );
+    Some(if escaped { "escaped" } else { "won" })
+}
+
+fn beam_clone_episode_json(
+    root: &RunState,
+    depth: usize,
+    width: usize,
+    transition_budget: usize,
+    max_decisions: usize,
+    max_player_turns: usize,
+    deduplicate_search_states: bool,
+) -> PyResult<String> {
+    if root.phase != RunPhase::Combat || root.combat.is_none() {
+        return Err(PyValueError::new_err(
+            "beam cloning requires an active combat root",
+        ));
+    }
+    if depth == 0
+        || width == 0
+        || transition_budget == 0
+        || max_decisions == 0
+        || max_player_turns == 0
+    {
+        return Err(PyValueError::new_err(
+            "beam clone bounds and search parameters must be positive",
+        ));
+    }
+    root.validate()
+        .map_err(|error| PyValueError::new_err(format!("invalid combat root: {error}")))?;
+    let (root_hp, root_max_hp) = run_player_hp(root);
+    let root_gold = root.gold;
+    let mut state = root.clone();
+    let mut steps = Vec::new();
+    let mut accepted_decisions = 0usize;
+    let mut player_turns = 1usize;
+    let mut terminal_status = None;
+    let mut truncation_trigger = None;
+
+    loop {
+        let observation = fair_combat_observation(&state).map_err(fair_observation_error)?;
+        let revision = DecisionRevision::new(accepted_decisions as u64);
+        let choice_set = player_choices(&state, revision).map_err(fair_choice_error)?;
+        if choice_set.choices.is_empty() {
+            return Err(DecisionUnavailableError::new_err(
+                "beam clone reached an empty ongoing public decision",
+            ));
+        }
+        let teacher = sts_live::automation::beam_teacher_decision(
+            &state,
+            depth,
+            width,
+            transition_budget,
+            deduplicate_search_states,
+        )
+        .map_err(|error| PyRuntimeError::new_err(format!("beam teacher failed: {error}")))?;
+        let authoritative = choice_set
+            .choices
+            .iter()
+            .copied()
+            .map(|choice| {
+                resolve_player_choice(
+                    &state,
+                    revision,
+                    PlayerChoiceRequest {
+                        decision_revision: revision,
+                        choice,
+                    },
+                )
+                .map_err(fair_choice_error)
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        let selected_index = authoritative
+            .iter()
+            .position(|action| *action == teacher.action)
+            .ok_or_else(|| {
+                DecisionUnavailableError::new_err(
+                    "beam teacher action is absent or ambiguous at public boundary",
+                )
+            })?;
+        if authoritative
+            .iter()
+            .enumerate()
+            .any(|(index, action)| index != selected_index && *action == teacher.action)
+        {
+            return Err(DecisionUnavailableError::new_err(
+                "beam teacher action maps to multiple public rows",
+            ));
+        }
+        let mut visits = vec![0; authoritative.len()];
+        visits[selected_index] = 1;
+        steps.push(BeamCloneStepWire {
+            observation,
+            choices: choice_set.choices,
+            selected_index,
+            teacher_visit_counts: visits,
+            search: BeamCloneSearchWire {
+                nodes: teacher.nodes,
+                value: teacher.value,
+                budget_exhausted: teacher.budget_exhausted,
+            },
+        });
+
+        let action = teacher.action;
+        let next = apply_run_decision_action(&state, action)
+            .map_err(|error| PyRuntimeError::new_err(format!("beam action failed: {error}")))?;
+        accepted_decisions += 1;
+        if let Some(status) = classify_combat_episode_transition(&state, &action, &next) {
+            terminal_status = Some(status);
+            state = next;
+            break;
+        }
+        if accepted_decisions >= max_decisions {
+            truncation_trigger = Some("accepted_decisions");
+            state = next;
+            break;
+        }
+        let starts_next_turn = matches!(action, RunDecisionAction::Combat(CombatAction::EndTurn))
+            && next
+                .combat
+                .as_ref()
+                .is_some_and(|combat| combat.phase == CombatPhase::WaitingForPlayer);
+        if starts_next_turn {
+            if player_turns >= max_player_turns {
+                truncation_trigger = Some("player_turns");
+                state = next;
+                break;
+            }
+            player_turns += 1;
+        }
+        state = next;
+    }
+
+    let status = terminal_status.unwrap_or("truncated");
+    let (terminal_hp, terminal_max_hp) = run_player_hp(&state);
+    let potion_slots = (0..state.potion_capacity())
+        .map(|slot| state.potion_at_slot(slot).map(potion_key))
+        .collect();
+    let terminal = terminal_status.is_some();
+    to_json(&BeamCloneEpisodeWire {
+        schema_version: 1,
+        teacher_name: "sts_live_incumbent_beam",
+        teacher_version: "beam_clone_v1",
+        steps,
+        outcome: CombatEpisodeOutcomeWire {
+            status,
+            terminal_hp,
+            terminal_max_hp,
+            hp_change: terminal_hp - root_hp,
+            max_hp_change: terminal_max_hp - root_max_hp,
+            gold_change: state.gold - root_gold,
+            potion_slots,
+            counter_changes: Vec::new(),
+            terminal,
+            truncated: !terminal,
+            accepted_decisions,
+            player_turns,
+            truncation_trigger,
+        },
     })
 }
 
@@ -1699,6 +1962,7 @@ fn player_choice_kind(choice: PlayerChoice) -> &'static str {
         PlayerChoice::ChooseVisibleOption { .. } => "choose_visible_option",
         PlayerChoice::ConfirmSelection => "confirm_selection",
         PlayerChoice::SkipSelection => "skip_selection",
+        PlayerChoice::Proceed => "proceed",
     }
 }
 

@@ -645,6 +645,9 @@ def _card_key(card: FairCard) -> tuple[object, ...]:
     )
 
 
+ENCODER_CONTRACT_VERSION: Final = 1
+SCALAR_PREPROCESSING: Final = "identity_float32_v1"
+
 _ACTION_SPECS: Final[Mapping[str, tuple[str | None, bool]]] = MappingProxyType(
     {
         "play_hand_slot": ("hand", True),
@@ -655,8 +658,25 @@ _ACTION_SPECS: Final[Mapping[str, tuple[str | None, bool]]] = MappingProxyType(
         "choose_visible_option": ("option", False),
         "confirm_selection": (None, False),
         "skip_selection": (None, False),
+        "proceed": (None, False),
     }
 )
+
+
+def encoder_contract_digest(vocabularies: Vocabularies) -> str:
+    payload = {
+        "version": ENCODER_CONTRACT_VERSION,
+        "observation_schemas": sorted(KNOWN_OBSERVATION_SCHEMA_VERSIONS),
+        "entity_kinds": list(ENTITY_KINDS),
+        "zones": list(ZONES),
+        "categories": list(CATEGORY_NAMESPACES),
+        "scalars": list(SCALAR_NAMES),
+        "scalar_preprocessing": SCALAR_PREPROCESSING,
+        "action_specs": {key: list(value) for key, value in sorted(_ACTION_SPECS.items())},
+        "vocabulary_fingerprint": vocabularies.fingerprint,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def _validate_actions(actions: Sequence[ActionDescriptor]) -> None:
