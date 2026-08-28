@@ -27,12 +27,13 @@ from .records import (
 from .rewards import COMBAT_PROXY_V1, CombatRewardConfig
 
 ROOT_MANIFEST_VERSION = 3
-DATASET_MANIFEST_VERSION = 3
+DATASET_MANIFEST_VERSION = 4
 _SPLIT_SALT = "combat-agent-phase2-v1"
 _ALLOWED_SPLITS = {"train", "development", "sealed_test", "real_trace_audit"}
 _AUDITED_SPLITS = {"sealed_test", "real_trace_audit"}
 _SOURCE_KIND = "simulator_legal_v1"
 _DATASET_ROOT_MANIFEST_PATH = "provenance/root-manifest.json"
+_NATIVE_EPISODE_ERROR = "native_episode_error"
 
 
 def _canonical_bytes(payload: object) -> bytes:
@@ -424,12 +425,20 @@ class DatasetRootMembership:
 
 
 @dataclass(frozen=True, slots=True)
+class DatasetExclusion:
+    root_id: str
+    reason: str
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
 class DatasetManifest:
     manifest_version: int
     root_manifest_path: str
     root_manifest_file_digest: str
     root_manifest_digest: str
     roots: tuple[DatasetRootMembership, ...]
+    exclusions: tuple[DatasetExclusion, ...]
     split: str
     audited_access: bool
     reward_config: dict[str, object]
@@ -451,9 +460,8 @@ class DatasetManifest:
             "root_manifest_path": self.root_manifest_path,
             "root_manifest_file_digest": self.root_manifest_file_digest,
             "root_manifest_digest": self.root_manifest_digest,
-            "roots": [
-                {**asdict(root), "lineages": list(root.lineages)} for root in self.roots
-            ],
+            "roots": [{**asdict(root), "lineages": list(root.lineages)} for root in self.roots],
+            "exclusions": [asdict(exclusion) for exclusion in self.exclusions],
             "split": self.split,
             "audited_access": self.audited_access,
             "reward_config": self.reward_config,
@@ -483,7 +491,11 @@ def load_dataset_manifest(
         or source["manifest_version"] != DATASET_MANIFEST_VERSION
     ):
         raise ValueError("unsupported or malformed dataset manifest")
-    if type(source["roots"]) is not list or type(source["record_ids"]) is not list:
+    if (
+        type(source["roots"]) is not list
+        or type(source["exclusions"]) is not list
+        or type(source["record_ids"]) is not list
+    ):
         raise TypeError("dataset manifest collections must be arrays")
     roots: list[DatasetRootMembership] = []
     for raw_root in cast(list[object], source["roots"]):
@@ -502,6 +514,20 @@ def load_dataset_manifest(
                 tuple(cast(list[str], item["lineages"])),
             )
         )
+    exclusions: list[DatasetExclusion] = []
+    for raw_exclusion in cast(list[object], source["exclusions"]):
+        if type(raw_exclusion) is not dict or set(cast(dict[str, object], raw_exclusion)) != set(
+            DatasetExclusion.__dataclass_fields__
+        ):
+            raise ValueError("dataset exclusion is malformed")
+        item = cast(dict[str, object], raw_exclusion)
+        exclusions.append(
+            DatasetExclusion(
+                cast(str, item["root_id"]),
+                cast(str, item["reason"]),
+                cast(str, item["detail"]),
+            )
+        )
     if type(source["reward_config"]) is not dict or type(source["search_config"]) is not dict:
         raise TypeError("dataset configurations must be objects")
     manifest = DatasetManifest(
@@ -510,6 +536,7 @@ def load_dataset_manifest(
         _require_digest(source["root_manifest_file_digest"], "root manifest file digest"),
         _require_digest(source["root_manifest_digest"], "root manifest digest"),
         tuple(roots),
+        tuple(exclusions),
         cast(str, source["split"]),
         cast(bool, source["audited_access"]),
         cast(dict[str, object], source["reward_config"]),
@@ -567,6 +594,19 @@ def load_dataset_manifest(
             raise ValueError("dataset root lineages are not canonical")
         if root.split_group_id != _split_group_id(root.lineages):
             raise ValueError("dataset root split group does not match its lineages")
+    if tuple(exclusions) != tuple(
+        sorted(
+            exclusions,
+            key=lambda exclusion: (exclusion.root_id, exclusion.reason, exclusion.detail),
+        )
+    ) or len({exclusion.root_id for exclusion in exclusions}) != len(exclusions):
+        raise ValueError("dataset exclusions are not canonical")
+    for exclusion in exclusions:
+        _require_digest(exclusion.root_id, "excluded root ID")
+        if exclusion.reason != _NATIVE_EPISODE_ERROR:
+            raise ValueError("dataset exclusion reason is unsupported")
+        if type(exclusion.detail) is not str or not exclusion.detail:
+            raise ValueError("dataset exclusion detail must be a nonempty public string")
     reward = CombatRewardConfig(**cast(dict[str, Any], manifest.reward_config))
     if reward.digest != manifest.reward_config_digest:
         raise ValueError("dataset reward configuration digest is invalid")
@@ -595,6 +635,14 @@ def load_dataset_manifest(
             membership.lineages,
         ) != (root.split_group_id, root.split, root.lineages):
             raise ValueError("dataset root membership disagrees with named root manifest")
+    successful_root_ids = {membership.root_id for membership in roots}
+    excluded_root_ids = {exclusion.root_id for exclusion in exclusions}
+    if successful_root_ids & excluded_root_ids:
+        raise ValueError("dataset root accounting overlaps membership and exclusion")
+    if excluded_root_ids - set(canonical_root_memberships):
+        raise ValueError("dataset exclusion disagrees with named root manifest")
+    if successful_root_ids | excluded_root_ids != set(canonical_root_memberships):
+        raise ValueError("dataset root accounting is incomplete for named root manifest")
     shard = path.parent / manifest.shard_path
     if _sha256_bytes(shard.read_bytes()) != manifest.shard_digest:
         raise ValueError("dataset shard digest is invalid")
@@ -696,80 +744,109 @@ def generate_beam_dataset(
     records: list[SymbolicTrainingRecord] = []
     teacher: tuple[str, str] | None = None
     used_roots: list[DatasetRootMembership] = []
+    exclusions: list[DatasetExclusion] = []
     for root in roots:
-        env = RunEnv.from_snapshot((root_manifest_path.parent / root.relative_path).read_text())
-        payload = env.beam_clone_episode_payload(
-            depth=depth,
-            width=width,
-            transition_budget=transition_budget,
-            max_decisions=max_decisions,
-            max_player_turns=max_player_turns,
-            deduplicate_search_states=deduplicate_search_states,
-        )
-        if payload.get("schema_version") != 1:
-            raise ValueError("unsupported native beam episode schema")
-        native_teacher = (cast(str, payload["teacher_name"]), cast(str, payload["teacher_version"]))
+        try:
+            env = RunEnv.from_snapshot((root_manifest_path.parent / root.relative_path).read_text())
+            payload = env.beam_clone_episode_payload(
+                depth=depth,
+                width=width,
+                transition_budget=transition_budget,
+                max_decisions=max_decisions,
+                max_player_turns=max_player_turns,
+                deduplicate_search_states=deduplicate_search_states,
+            )
+            if payload.get("schema_version") != 1:
+                raise ValueError("unsupported native beam episode schema")
+            native_teacher = (
+                cast(str, payload["teacher_name"]),
+                cast(str, payload["teacher_version"]),
+            )
+            if teacher is not None and teacher != native_teacher:
+                raise ValueError("native teacher metadata changed within dataset")
+            outcome = CombatOutcome.from_dict(payload["outcome"])
+            target = reward_config.value(outcome)
+            episode_id = _sha256_bytes(
+                _canonical_bytes([root.root_id, search_config, reward_config.digest])
+            )
+            steps = cast(list[dict[str, object]], payload["steps"])
+            if not steps:
+                raise ValueError("terminal or post-combat root cannot produce training records")
+            root_records: list[SymbolicTrainingRecord] = []
+            for decision_index, step in enumerate(steps):
+                projected = FairCombatObservation._from_payload(
+                    cast(dict[str, object], step["observation"])
+                )
+                observation = fair_observation_from_payload(fair_observation_payload(projected))
+                actions = tuple(
+                    action_descriptor_from_payload(
+                        {"family": "combat", **cast(dict[str, object], choice)}
+                    )
+                    for choice in cast(list[object], step["choices"])
+                )
+                selected = cast(int, step["selected_index"])
+                counts = tuple(cast(list[int], step["teacher_visit_counts"]))
+                root_records.append(
+                    SymbolicTrainingRecord(
+                        observation,
+                        actions,
+                        selected,
+                        actions[selected],
+                        counts,
+                        target,
+                        reward_config.name,
+                        outcome,
+                        native_teacher[0],
+                        native_teacher[1],
+                        cast(dict[str, JsonValue], search_config),
+                        root.root_id,
+                        root.split_group_id,
+                        None,
+                        repository,
+                        fair_observation_digest(observation),
+                        2,
+                        root_manifest.manifest_digest,
+                        reward_config.digest,
+                        _SOURCE_KIND,
+                        episode_id,
+                        decision_index,
+                        target is not None,
+                    )
+                )
+        except (
+            AttributeError,
+            IndexError,
+            KeyError,
+            OverflowError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as error:
+            detail = str(error).strip() or type(error).__name__
+            exclusions.append(DatasetExclusion(root.root_id, _NATIVE_EPISODE_ERROR, detail))
+            continue
         if teacher is None:
             teacher = native_teacher
-        elif teacher != native_teacher:
-            raise ValueError("native teacher metadata changed within dataset")
-        outcome = CombatOutcome.from_dict(payload["outcome"])
-        target = reward_config.value(outcome)
-        episode_id = _sha256_bytes(
-            _canonical_bytes([root.root_id, search_config, reward_config.digest])
-        )
-        steps = cast(list[dict[str, object]], payload["steps"])
-        if not steps:
-            raise ValueError("terminal or post-combat root cannot produce training records")
+        records.extend(root_records)
         used_roots.append(
             DatasetRootMembership(root.root_id, root.split_group_id, root.split, root.lineages)
         )
-        for decision_index, step in enumerate(steps):
-            projected = FairCombatObservation._from_payload(
-                cast(dict[str, object], step["observation"])
-            )
-            observation = fair_observation_from_payload(fair_observation_payload(projected))
-            actions = tuple(
-                action_descriptor_from_payload(
-                    {"family": "combat", **cast(dict[str, object], choice)}
-                )
-                for choice in cast(list[object], step["choices"])
-            )
-            selected = cast(int, step["selected_index"])
-            counts = tuple(cast(list[int], step["teacher_visit_counts"]))
-            records.append(
-                SymbolicTrainingRecord(
-                    observation,
-                    actions,
-                    selected,
-                    actions[selected],
-                    counts,
-                    target,
-                    reward_config.name,
-                    outcome,
-                    native_teacher[0],
-                    native_teacher[1],
-                    cast(dict[str, JsonValue], search_config),
-                    root.root_id,
-                    root.split_group_id,
-                    None,
-                    repository,
-                    fair_observation_digest(observation),
-                    2,
-                    root_manifest.manifest_digest,
-                    reward_config.digest,
-                    _SOURCE_KIND,
-                    episode_id,
-                    decision_index,
-                    target is not None,
-                )
-            )
-    assert teacher is not None
+    if teacher is None:
+        raise RuntimeError(
+            f"all {len(roots)} {split} roots failed native episode labeling; "
+            "no dataset was published"
+        )
     lines = b"".join(_canonical_bytes(record.to_dict()) + b"\n" for record in records)
     shard_name = f"{split}/{split}.jsonl"
     _atomic_write(output_dir / shard_name, lines)
     shard_digest = _sha256_bytes(lines)
     memberships = tuple(sorted(used_roots, key=lambda root: root.root_id))
+    dataset_exclusions = tuple(
+        sorted(
+            exclusions,
+            key=lambda exclusion: (exclusion.root_id, exclusion.reason, exclusion.detail),
+        )
+    )
     root_manifest_bytes = _canonical_bytes(root_manifest.to_dict())
     root_manifest_file_digest = _sha256_bytes(root_manifest_bytes)
     _atomic_write(output_dir / _DATASET_ROOT_MANIFEST_PATH, root_manifest_bytes)
@@ -778,9 +855,8 @@ def generate_beam_dataset(
         "root_manifest_path": _DATASET_ROOT_MANIFEST_PATH,
         "root_manifest_file_digest": root_manifest_file_digest,
         "root_manifest_digest": root_manifest.manifest_digest,
-        "roots": [
-            {**asdict(root), "lineages": list(root.lineages)} for root in memberships
-        ],
+        "roots": [{**asdict(root), "lineages": list(root.lineages)} for root in memberships],
+        "exclusions": [asdict(exclusion) for exclusion in dataset_exclusions],
         "split": split,
         "audited_access": split in _AUDITED_SPLITS,
         "reward_config": reward_config.to_dict(),
@@ -801,6 +877,7 @@ def generate_beam_dataset(
         root_manifest_file_digest,
         root_manifest.manifest_digest,
         memberships,
+        dataset_exclusions,
         split,
         split in _AUDITED_SPLITS,
         reward_config.to_dict(),

@@ -5,6 +5,7 @@ PyTorch import or runtime dependency.
 """
 
 from .data import (
+    DatasetExclusion,
     DatasetManifest,
     RootEntry,
     RootExclusion,
@@ -81,6 +82,7 @@ __all__ = [
     "CombatRewardConfig",
     "CombatRolloutResult",
     "CounterChange",
+    "DatasetExclusion",
     "DatasetManifest",
     "FairCombatPolicyValueNet",
     "FrozenVocabulary",

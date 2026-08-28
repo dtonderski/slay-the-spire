@@ -81,8 +81,12 @@ Root generation advances seeded runs only through accepted public legal actions.
 Root and dataset generation require an empty output directory, so stale sealed
 roots or shards cannot survive an ordinary rerun. Root files and dataset shards
 are canonical SHA-256 artifacts. Each dataset carries the canonical named root
-manifest at `provenance/root-manifest.json`; loading re-resolves every root,
-split group, split, and lineage against it without copying root snapshots.
+manifest at `provenance/root-manifest.json`; loading re-resolves every successful
+membership and typed per-root labeling exclusion against it, and requires every
+source root in the requested split to be accounted for exactly once. A native
+teacher failure excludes only that root with a stable reason and public diagnostic;
+labeling continues with later roots. If every root fails, generation publishes no
+dataset. Training size and lineage gates count successful memberships only.
 Training records contain fair observations and public action descriptors, never native handles,
 internal IDs, RNG state, or snapshots. Default root generation withholds audited
 split snapshots and membership. Materializing them requires

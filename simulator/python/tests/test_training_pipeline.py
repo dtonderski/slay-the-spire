@@ -9,6 +9,7 @@ from typing import cast
 import pytest
 import torch
 
+import sts_sim.rl.data as data_module
 from sts_sim import FairCombatObservation, RunEnv
 from sts_sim.rl import (
     COMBAT_PROXY_V1,
@@ -149,6 +150,55 @@ def test_native_episode_counts_conclude_as_a_forced_turn_source() -> None:
     assert outcome["truncation_trigger"] == "accepted_decisions"
 
 
+def _fail_native_episodes(monkeypatch: pytest.MonkeyPatch, failing_root_ids: set[str]) -> None:
+    native_run_env = RunEnv
+
+    class _EpisodeEnv:
+        def __init__(self, env: RunEnv, root_id: str) -> None:
+            self._env = env
+            self._root_id = root_id
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self._env, name)
+
+        def beam_clone_episode_payload(
+            self,
+            *,
+            depth: int,
+            width: int,
+            transition_budget: int,
+            max_decisions: int,
+            max_player_turns: int,
+            deduplicate_search_states: bool = True,
+        ) -> dict[str, object]:
+            if self._root_id in failing_root_ids:
+                raise RuntimeError("Burning Pact requires exactly one card")
+            return self._env.beam_clone_episode_payload(
+                depth=depth,
+                width=width,
+                transition_budget=transition_budget,
+                max_decisions=max_decisions,
+                max_player_turns=max_player_turns,
+                deduplicate_search_states=deduplicate_search_states,
+            )
+
+    class _FailingRunEnv:
+        @staticmethod
+        def from_snapshot(snapshot: str) -> _EpisodeEnv:
+            root_id = hashlib.sha256(snapshot.encode()).hexdigest()
+            return _EpisodeEnv(native_run_env.from_snapshot(snapshot), root_id)
+
+    monkeypatch.setattr(data_module, "RunEnv", _FailingRunEnv)
+
+
+def _resign_dataset_manifest(payload: dict[str, object]) -> None:
+    unsigned = dict(payload)
+    unsigned.pop("manifest_digest")
+    payload["manifest_digest"] = hashlib.sha256(
+        json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
 def test_root_and_beam_dataset_generation_is_byte_deterministic(tmp_path: Path) -> None:
     seeds = ["BEAMCLONE0", "BEAMCLONE12"]
     left = generate_legal_roots(tmp_path / "roots-left", seeds, max_run_steps=128)
@@ -200,6 +250,87 @@ def test_root_and_beam_dataset_generation_is_byte_deterministic(tmp_path: Path) 
     assert all(
         record.actions[record.chosen_action_index] == record.chosen_action for record in records
     )
+
+
+def test_dataset_generation_excludes_failed_root_and_continues_with_complete_accounting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root_manifest = generate_legal_roots(
+        tmp_path / "roots", ["BEAMCLONE0", "BEAMCLONE1"], max_run_steps=128
+    )
+    train_roots = tuple(root for root in root_manifest.roots if root.split == "train")
+    assert len(train_roots) == 2
+    failed_root = train_roots[0]
+    successful_root = train_roots[1]
+    _fail_native_episodes(monkeypatch, {failed_root.root_id})
+
+    manifest = generate_beam_dataset(
+        tmp_path / "roots/root-manifest.json",
+        tmp_path / "data",
+        split="train",
+        depth=2,
+        width=4,
+        transition_budget=100,
+        max_decisions=4,
+        max_player_turns=3,
+    )
+
+    assert [root.root_id for root in manifest.roots] == [successful_root.root_id]
+    assert len(manifest.exclusions) == 1
+    exclusion = manifest.exclusions[0]
+    assert exclusion.root_id == failed_root.root_id
+    assert exclusion.reason == "native_episode_error"
+    assert exclusion.detail == "Burning Pact requires exactly one card"
+    records = tuple(read_jsonl(tmp_path / "data/train/train.jsonl"))
+    assert records
+    assert {record.root_id for record in records} == {successful_root.root_id}
+
+    manifest_path = tmp_path / "data/dataset-manifest.json"
+    original = cast(dict[str, object], json.loads(manifest_path.read_text()))
+    incomplete = dict(original)
+    incomplete["exclusions"] = []
+    _resign_dataset_manifest(incomplete)
+    manifest_path.write_text(json.dumps(incomplete, sort_keys=True, separators=(",", ":")))
+    with pytest.raises(ValueError, match="accounting is incomplete"):
+        load_dataset_manifest(manifest_path, requested_split="train")
+
+    overlapping = json.loads(json.dumps(original))
+    cast(list[dict[str, object]], overlapping["exclusions"]).append(
+        {
+            "root_id": successful_root.root_id,
+            "reason": "native_episode_error",
+            "detail": "tampered overlap",
+        }
+    )
+    cast(list[dict[str, object]], overlapping["exclusions"]).sort(
+        key=lambda item: cast(str, item["root_id"])
+    )
+    _resign_dataset_manifest(overlapping)
+    manifest_path.write_text(json.dumps(overlapping, sort_keys=True, separators=(",", ":")))
+    with pytest.raises(ValueError, match="overlaps membership and exclusion"):
+        load_dataset_manifest(manifest_path, requested_split="train")
+
+
+def test_dataset_generation_all_failed_roots_publishes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root_manifest = generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
+    train_root = next(root for root in root_manifest.roots if root.split == "train")
+    _fail_native_episodes(monkeypatch, {train_root.root_id})
+    output = tmp_path / "data"
+
+    with pytest.raises(RuntimeError, match="all 1 train roots failed.*no dataset was published"):
+        generate_beam_dataset(
+            tmp_path / "roots/root-manifest.json",
+            output,
+            split="train",
+            depth=2,
+            width=4,
+            transition_budget=100,
+            max_decisions=4,
+            max_player_turns=3,
+        )
+    assert not output.exists() or not any(output.iterdir())
 
 
 def test_truncated_value_rows_are_masked_from_loss() -> None:
@@ -494,9 +625,7 @@ def test_generation_refuses_nonempty_output_directories(tmp_path: Path) -> None:
     stale_shard = dataset_output / "stale.jsonl"
     stale_shard.write_text("stale")
     with pytest.raises(ValueError, match="output directory must be empty"):
-        generate_beam_dataset(
-            root_output / "root-manifest.json", dataset_output, split="train"
-        )
+        generate_beam_dataset(root_output / "root-manifest.json", dataset_output, split="train")
     assert stale_shard.read_text() == "stale"
 
 
