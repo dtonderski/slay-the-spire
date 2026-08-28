@@ -17,8 +17,10 @@ from typing import Any, cast
 import numpy as np
 import torch
 
+from .. import _native
 from .data import DatasetManifest, load_dataset_manifest
 from .model import CombatModelConfig, FairCombatPolicyValueNet, policy_value_loss
+from .provenance import capture_repository_version
 from .records import (
     SymbolicCombatDataset,
     SymbolicTrainingRecord,
@@ -78,9 +80,15 @@ def _atomic_torch_save(path: Path, payload: dict[str, object]) -> None:
 
 
 def _source_digest() -> str:
-    directory = Path(__file__).parent
-    files = ("data.py", "model.py", "records.py", "rewards.py", "tensor.py", "training.py")
-    payload = {name: hashlib.sha256((directory / name).read_bytes()).hexdigest() for name in files}
+    """Attest the complete checkout and the exact loaded native extension bytes."""
+
+    repository_root = Path(__file__).resolve().parents[4]
+    repository = capture_repository_version(repository_root, allow_dirty=True)
+    native_path = Path(_native.__file__)
+    payload = {
+        "repository": repository.to_dict(),
+        "native_extension_digest": hashlib.sha256(native_path.read_bytes()).hexdigest(),
+    }
     return _digest(payload)
 
 
