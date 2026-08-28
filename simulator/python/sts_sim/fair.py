@@ -36,6 +36,7 @@ type PlayerChoiceKind = Literal[
     "choose_visible_option",
     "confirm_selection",
     "skip_selection",
+    "proceed",
 ]
 
 

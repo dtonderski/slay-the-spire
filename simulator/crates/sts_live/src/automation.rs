@@ -93,6 +93,59 @@ enum CombatOutcome {
     Won,
 }
 
+/// Detached result from the public-decision replanning beam teacher.
+///
+/// The action remains authoritative and must be projected through the current
+/// public choice set before it becomes a training label.
+#[derive(Debug, Clone)]
+pub struct BeamTeacherDecision {
+    pub action: RunDecisionAction,
+    pub nodes: usize,
+    pub value: f64,
+    pub budget_exhausted: bool,
+}
+
+/// Replan with the live automation beam core at one public decision.
+///
+/// Offline episode labeling calls this at every public boundary with no warm
+/// suffix or wall-clock deadline. It therefore shares the beam search core but
+/// intentionally does not claim the live automation execution policy.
+pub fn beam_teacher_decision(
+    state: &RunState,
+    depth: usize,
+    width: usize,
+    transition_budget: usize,
+    deduplicate_search_states: bool,
+) -> SimResult<BeamTeacherDecision> {
+    let config = AutomationConfig {
+        policy: AutomationPolicy::BeamSearch,
+        depth,
+        width,
+        allowed_potion_slots: (0..state.potion_capacity()).collect(),
+        auto_action_limit: usize::MAX,
+        search_transition_budget: transition_budget,
+        search_time_budget_ms: 0,
+        deduplicate_search_states,
+    };
+    let recommendation = beam_search_with_warm_start(state, &config, &[])?;
+    let first = recommendation
+        .principal_variation
+        .first()
+        .ok_or(SimError::IllegalAction("beam teacher produced no action"))?;
+    let action = match first {
+        PlannerAction::Combat(action) => RunDecisionAction::Combat(*action),
+        PlannerAction::Potion(action) | PlannerAction::Run(action) => {
+            RunDecisionAction::Run(*action)
+        }
+    };
+    Ok(BeamTeacherDecision {
+        action,
+        nodes: recommendation.nodes,
+        value: recommendation.value,
+        budget_exhausted: recommendation.budget_exhausted,
+    })
+}
+
 pub(super) fn plan_action_with_warm_start(
     config: &AutomationConfig,
     state: &LiveState,

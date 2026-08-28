@@ -6,12 +6,12 @@ use sts_core::potion::IRONCLAD_POTION_POOL;
 use sts_core::{
     apply_combat_action_with_events, apply_run_decision_action, fair_combat_observation,
     fair_run_observation, legal_combat_actions, legal_run_decision_actions, player_choices,
-    resolve_player_choice, restore_combat_snapshot_json, restore_run_snapshot_json, CardDefinition,
-    CardId, CardKeywords, CardType, CardValues, CombatAction, CombatPhase, CombatState,
-    DecisionRevision, EventAction, FairCombatObservation, FairObservationError, MapAction,
-    MonsterId, MonsterIntent, PlayerChoice, PlayerChoiceError, PlayerChoiceRequest, Potion, Relic,
-    RestAction, RunAction, RunDecisionAction, RunPhase, RunState, Snapshot, TargetRequirement,
-    ALL_RELICS, SNAPSHOT_SCHEMA_VERSION,
+    potion_key, resolve_player_choice, restore_combat_snapshot_json, restore_run_snapshot_json,
+    CardDefinition, CardId, CardKeywords, CardType, CardValues, CombatAction, CombatPhase,
+    CombatState, DecisionRevision, EventAction, FairCombatObservation, FairObservationError,
+    MapAction, MonsterId, MonsterIntent, PlayerChoice, PlayerChoiceError, PlayerChoiceRequest,
+    Potion, Relic, RestAction, RunAction, RunDecisionAction, RunPhase, RunState, Snapshot,
+    TargetRequirement, ALL_RELICS, SNAPSHOT_SCHEMA_VERSION,
 };
 
 const AGENT_REWARD_GOLD_PER_HP: f64 = 10.0;
@@ -88,6 +88,48 @@ struct FairDecisionWire {
 struct FairStepWire {
     terminal: bool,
     decision: Option<FairDecisionWire>,
+}
+
+#[derive(serde::Serialize)]
+struct BeamCloneSearchWire {
+    nodes: usize,
+    value: f64,
+    budget_exhausted: bool,
+}
+
+#[derive(serde::Serialize)]
+struct BeamCloneStepWire {
+    observation: FairCombatObservation,
+    choices: Vec<PlayerChoice>,
+    selected_index: usize,
+    teacher_visit_counts: Vec<u64>,
+    search: BeamCloneSearchWire,
+}
+
+#[derive(serde::Serialize)]
+struct CombatEpisodeOutcomeWire {
+    status: &'static str,
+    terminal_hp: i32,
+    terminal_max_hp: i32,
+    hp_change: i32,
+    max_hp_change: i32,
+    gold_change: i32,
+    potion_slots: Vec<Option<&'static str>>,
+    counter_changes: Vec<serde_json::Value>,
+    terminal: bool,
+    truncated: bool,
+    accepted_decisions: usize,
+    player_turns: usize,
+    truncation_trigger: Option<&'static str>,
+}
+
+#[derive(serde::Serialize)]
+struct BeamCloneEpisodeWire {
+    schema_version: u32,
+    teacher_name: &'static str,
+    teacher_version: &'static str,
+    steps: Vec<BeamCloneStepWire>,
+    outcome: CombatEpisodeOutcomeWire,
 }
 
 #[pyclass(name = "FairCombatEnv")]
@@ -541,7 +583,9 @@ impl PyOmniRunEnv {
             ));
         }
         let ascension = ascension.unwrap_or(0);
-        let state = RunState::try_seeded_ironclad(stable_seed(seed), ascension)
+        let numeric_seed = stable_seed(seed)
+            .map_err(|error| PyValueError::new_err(format!("invalid seeded run: {error}")))?;
+        let state = RunState::try_seeded_ironclad(numeric_seed, ascension)
             .map_err(|error| PyValueError::new_err(format!("invalid seeded run: {error}")))?;
         state
             .validate()
@@ -685,7 +729,7 @@ impl PyOmniRunEnv {
         Ok(())
     }
 
-    pub fn step_action(&mut self, action: &PyAction) -> PyResult<()> {
+    pub fn step_action(&mut self, action: &PyAction) -> PyResult<Option<String>> {
         if action.revision != self.revision {
             return Err(StaleDecisionError::new_err("public run decision is stale"));
         }
@@ -697,13 +741,19 @@ impl PyOmniRunEnv {
         }
         let next = apply_exact_run_action(&self.state, &action.action)
             .map_err(|_| InvalidChoiceError::new_err("public run action is invalid"))?;
+        let combat_outcome = if self.state.phase == RunPhase::Combat {
+            classify_combat_episode_transition(&self.state, &action.action, &next)
+                .map(str::to_owned)
+        } else {
+            None
+        };
         let revision = self
             .revision
             .checked_next()
             .ok_or_else(|| PyRuntimeError::new_err("public decision revision exhausted"))?;
         self.state = next;
         self.revision = revision;
-        Ok(())
+        Ok(combat_outcome)
     }
 
     pub fn step(&mut self, action: &PyExactRunAction) -> PyResult<PyExactRunStepResult> {
@@ -738,6 +788,27 @@ impl PyOmniRunEnv {
             },
             unsupported_reason: self.unsupported_reason(),
         })
+    }
+
+    #[pyo3(signature = (depth=12, width=48, transition_budget=20000, max_decisions=512, max_player_turns=100, deduplicate_search_states=true))]
+    pub fn beam_clone_episode_json(
+        &self,
+        depth: usize,
+        width: usize,
+        transition_budget: usize,
+        max_decisions: usize,
+        max_player_turns: usize,
+        deduplicate_search_states: bool,
+    ) -> PyResult<String> {
+        beam_clone_episode_json(
+            &self.state,
+            depth,
+            width,
+            transition_budget,
+            max_decisions,
+            max_player_turns,
+            deduplicate_search_states,
+        )
     }
 
     pub fn rust_greedy_combat_search(
@@ -990,11 +1061,13 @@ fn run_snapshot(state: &RunState) -> Snapshot<RunState> {
     }
 }
 
-fn stable_seed(seed: &str) -> u64 {
+fn stable_seed(seed: &str) -> Result<u64, String> {
     if let Ok(value) = seed.parse::<u64>() {
-        return value;
+        return Ok(value);
     }
-    sts_verify::sts_seed_string_to_long(seed) as u64
+    sts_verify::try_sts_seed_string_to_long(seed)
+        .map(|value| value as u64)
+        .map_err(|error| error.to_string())
 }
 
 fn run_snapshot_hash(state: &RunState) -> PyResult<String> {
@@ -1135,6 +1208,267 @@ fn public_run_action_json(state: &RunState, action: &RunDecisionAction) -> PyRes
 fn exact_run_legal_action_kinds(state: &RunState) -> PyResult<Vec<ExactRunActionKind>> {
     legal_run_decision_actions(state).map_err(|error| {
         PyValueError::new_err(format!("invalid exact run decision state: {error:?}"))
+    })
+}
+
+fn run_player_hp(state: &RunState) -> (i32, i32) {
+    state
+        .combat
+        .as_ref()
+        .map(|combat| (combat.player.hp, combat.player.max_hp))
+        .unwrap_or((state.player_hp, state.player_max_hp))
+}
+
+fn classify_combat_state(state: &RunState) -> Option<&'static str> {
+    let combat = state.combat.as_ref()?;
+    if combat.phase == CombatPhase::Lost || combat.player.hp <= 0 {
+        Some("lost")
+    } else if combat.phase == CombatPhase::Won {
+        Some("won")
+    } else {
+        None
+    }
+}
+
+fn classify_combat_episode_transition(
+    before: &RunState,
+    action: &RunDecisionAction,
+    after: &RunState,
+) -> Option<&'static str> {
+    // Proceed is run-screen cleanup after an already terminal combat, not a
+    // second combat outcome. In particular, lost -> Proceed must not become a win.
+    if classify_combat_state(before).is_some() {
+        return None;
+    }
+    if let Some(status) = classify_combat_state(after) {
+        return Some(status);
+    }
+    if after.phase == RunPhase::Combat {
+        return None;
+    }
+    let escaped = matches!(
+        action,
+        RunDecisionAction::Run(RunAction::UsePotion { slot, .. })
+            if before.potion_at_slot(*slot) == Some(Potion::SmokeBomb)
+    );
+    if escaped {
+        return Some("escaped");
+    }
+    // Victory clears the combat and opens the next run screen, so it is
+    // recognized by exclusion. Guard the one case exclusion would get maximally
+    // wrong and label a dead player's exit as the best possible outcome.
+    if run_player_hp(after).0 <= 0 {
+        return Some("lost");
+    }
+    Some("won")
+}
+
+fn player_turn_advances(before: &RunState, action: &RunDecisionAction, after: &RunState) -> usize {
+    let (Some(before_combat), Some(after_combat)) = (before.combat.as_ref(), after.combat.as_ref())
+    else {
+        return 0;
+    };
+    if after_combat.phase != CombatPhase::WaitingForPlayer {
+        return 0;
+    }
+
+    // This counter is authoritative when maintained, and preserves deltas
+    // greater than one. It is not the sole signal because some relic sets do
+    // not maintain it.
+    let counter_delta = after_combat
+        .relic_counters
+        .player_turns_started
+        .saturating_sub(before_combat.relic_counters.player_turns_started)
+        as usize;
+    if counter_delta > 0 {
+        return counter_delta;
+    }
+    if matches!(action, RunDecisionAction::Combat(CombatAction::EndTurn)) {
+        return 1;
+    }
+
+    // Conclude's PressEndTurnButtonAction is a modeled forced turn source just
+    // like explicit END, but its accepted public action remains PlayCard.
+    let forced_turn_card = match action {
+        RunDecisionAction::Combat(CombatAction::PlayCard { card_id, .. }) => before_combat
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.id == *card_id)
+            .is_some_and(|card| card.content_id == sts_core::content::cards::CONCLUDE_ANY_COLOR_ID),
+        _ => false,
+    };
+    if forced_turn_card {
+        return 1;
+    }
+
+    // Time Warp can execute end_player_turn from the twelfth card transition
+    // or from a later selection transition. Both are authoritative state
+    // evidence that the forced turn completed.
+    let time_warp_wrapped = before_combat.monsters.iter().any(|before_monster| {
+        before_monster.alive
+            && before_monster.content_id == sts_core::content::monsters::TIME_EATER_ID
+            && before_monster.powers.time_warp == 11
+            && after_combat.monsters.iter().any(|after_monster| {
+                after_monster.content_id == before_monster.content_id
+                    && after_monster.powers.time_warp == 0
+            })
+    });
+    let forced_end_settled = (before_combat.time_warp_end_turn
+        || before_combat.defer_time_warp_end_turn)
+        && !after_combat.time_warp_end_turn
+        && !after_combat.defer_time_warp_end_turn;
+    usize::from(time_warp_wrapped || forced_end_settled)
+}
+
+fn beam_clone_episode_json(
+    root: &RunState,
+    depth: usize,
+    width: usize,
+    transition_budget: usize,
+    max_decisions: usize,
+    max_player_turns: usize,
+    deduplicate_search_states: bool,
+) -> PyResult<String> {
+    if root.phase != RunPhase::Combat || root.combat.is_none() {
+        return Err(PyValueError::new_err(
+            "beam cloning requires an active combat root",
+        ));
+    }
+    if depth == 0
+        || width == 0
+        || transition_budget == 0
+        || max_decisions == 0
+        || max_player_turns == 0
+    {
+        return Err(PyValueError::new_err(
+            "beam clone bounds and search parameters must be positive",
+        ));
+    }
+    root.validate()
+        .map_err(|error| PyValueError::new_err(format!("invalid combat root: {error}")))?;
+    let (root_hp, root_max_hp) = run_player_hp(root);
+    let root_gold = root.gold;
+    let mut state = root.clone();
+    let mut steps = Vec::new();
+    let mut accepted_decisions = 0usize;
+    let mut player_turns = 1usize;
+    let mut terminal_status = classify_combat_state(root);
+    let mut truncation_trigger = None;
+
+    while terminal_status.is_none() {
+        let observation = fair_combat_observation(&state).map_err(fair_observation_error)?;
+        let revision = DecisionRevision::new(accepted_decisions as u64);
+        let choice_set = player_choices(&state, revision).map_err(fair_choice_error)?;
+        if choice_set.choices.is_empty() {
+            return Err(DecisionUnavailableError::new_err(
+                "beam clone reached an empty ongoing public decision",
+            ));
+        }
+        let teacher = sts_live::automation::beam_teacher_decision(
+            &state,
+            depth,
+            width,
+            transition_budget,
+            deduplicate_search_states,
+        )
+        .map_err(|error| PyRuntimeError::new_err(format!("beam teacher failed: {error}")))?;
+        let authoritative = choice_set
+            .choices
+            .iter()
+            .copied()
+            .map(|choice| {
+                resolve_player_choice(
+                    &state,
+                    revision,
+                    PlayerChoiceRequest {
+                        decision_revision: revision,
+                        choice,
+                    },
+                )
+                .map_err(fair_choice_error)
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        let selected_index = authoritative
+            .iter()
+            .position(|action| *action == teacher.action)
+            .ok_or_else(|| {
+                DecisionUnavailableError::new_err(
+                    "beam teacher action is absent or ambiguous at public boundary",
+                )
+            })?;
+        if authoritative
+            .iter()
+            .enumerate()
+            .any(|(index, action)| index != selected_index && *action == teacher.action)
+        {
+            return Err(DecisionUnavailableError::new_err(
+                "beam teacher action maps to multiple public rows",
+            ));
+        }
+        let mut visits = vec![0; authoritative.len()];
+        visits[selected_index] = 1;
+        steps.push(BeamCloneStepWire {
+            observation,
+            choices: choice_set.choices,
+            selected_index,
+            teacher_visit_counts: visits,
+            search: BeamCloneSearchWire {
+                nodes: teacher.nodes,
+                value: teacher.value,
+                budget_exhausted: teacher.budget_exhausted,
+            },
+        });
+
+        let action = teacher.action;
+        let next = apply_run_decision_action(&state, action)
+            .map_err(|error| PyRuntimeError::new_err(format!("beam action failed: {error}")))?;
+        accepted_decisions += 1;
+        player_turns = player_turns.saturating_add(player_turn_advances(&state, &action, &next));
+        if let Some(status) = classify_combat_episode_transition(&state, &action, &next) {
+            terminal_status = Some(status);
+            state = next;
+            break;
+        }
+        if accepted_decisions >= max_decisions {
+            truncation_trigger = Some("accepted_decisions");
+            state = next;
+            break;
+        }
+        if player_turns > max_player_turns {
+            truncation_trigger = Some("player_turns");
+            state = next;
+            break;
+        }
+        state = next;
+    }
+
+    let status = terminal_status.unwrap_or("truncated");
+    let (terminal_hp, terminal_max_hp) = run_player_hp(&state);
+    let potion_slots = (0..state.potion_capacity())
+        .map(|slot| state.potion_at_slot(slot).map(potion_key))
+        .collect();
+    let terminal = terminal_status.is_some();
+    to_json(&BeamCloneEpisodeWire {
+        schema_version: 1,
+        teacher_name: "public_decision_replanning_beam",
+        teacher_version: "replan_each_public_decision_v1",
+        steps,
+        outcome: CombatEpisodeOutcomeWire {
+            status,
+            terminal_hp,
+            terminal_max_hp,
+            hp_change: terminal_hp - root_hp,
+            max_hp_change: terminal_max_hp - root_max_hp,
+            gold_change: state.gold - root_gold,
+            potion_slots,
+            counter_changes: Vec::new(),
+            terminal,
+            truncated: !terminal,
+            accepted_decisions,
+            player_turns,
+            truncation_trigger,
+        },
     })
 }
 
@@ -1699,6 +2033,7 @@ fn player_choice_kind(choice: PlayerChoice) -> &'static str {
         PlayerChoice::ChooseVisibleOption { .. } => "choose_visible_option",
         PlayerChoice::ConfirmSelection => "confirm_selection",
         PlayerChoice::SkipSelection => "skip_selection",
+        PlayerChoice::Proceed => "proceed",
     }
 }
 
@@ -2347,5 +2682,87 @@ mod tests {
         assert!(PyOmniRunEnv::new_ironclad("", Some(0)).is_err());
         assert!(PyOmniRunEnv::new_ironclad("   ", Some(0)).is_err());
         assert!(PyOmniRunEnv::new_ironclad("TEST", Some(21)).is_err());
+    }
+
+    #[test]
+    fn terminal_cleanup_does_not_create_a_second_combat_outcome() {
+        let mut lost = RunState::combat_fixture();
+        let combat = lost.combat.as_mut().expect("combat fixture");
+        combat.phase = CombatPhase::Lost;
+        combat.player.hp = 0;
+        lost.player_hp = 0;
+        let after = lost.clone();
+
+        assert_eq!(classify_combat_state(&lost), Some("lost"));
+        assert_eq!(
+            classify_combat_episode_transition(
+                &lost,
+                &RunDecisionAction::Run(RunAction::Proceed),
+                &after,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_dead_player_leaving_combat_is_not_classified_as_a_win() {
+        let before = RunState::combat_fixture();
+        let mut after = before.clone();
+        after.combat = None;
+        after.phase = RunPhase::Reward;
+        after.player_hp = 0;
+
+        assert_eq!(
+            classify_combat_episode_transition(
+                &before,
+                &RunDecisionAction::Combat(CombatAction::EndTurn),
+                &after,
+            ),
+            Some("lost")
+        );
+    }
+
+    #[test]
+    fn forced_time_warp_turn_evidence_covers_card_and_selection_paths() {
+        let mut before_card = RunState::combat_fixture();
+        let before_combat = before_card.combat.as_mut().expect("combat fixture");
+        before_combat.monsters[0].content_id = sts_core::content::monsters::TIME_EATER_ID;
+        before_combat.monsters[0].powers.time_warp = 11;
+        let mut after_card = before_card.clone();
+        after_card.combat.as_mut().expect("combat fixture").monsters[0]
+            .powers
+            .time_warp = 0;
+        assert_eq!(
+            player_turn_advances(
+                &before_card,
+                &RunDecisionAction::Combat(CombatAction::PlayCard {
+                    card_id: sts_core::CardId::new(1),
+                    target: None,
+                }),
+                &after_card,
+            ),
+            1
+        );
+
+        let mut before_selection = RunState::combat_fixture();
+        before_selection
+            .combat
+            .as_mut()
+            .expect("combat fixture")
+            .time_warp_end_turn = true;
+        let mut after_selection = before_selection.clone();
+        after_selection
+            .combat
+            .as_mut()
+            .expect("combat fixture")
+            .time_warp_end_turn = false;
+        assert_eq!(
+            player_turn_advances(
+                &before_selection,
+                &RunDecisionAction::GridConfirm,
+                &after_selection,
+            ),
+            1
+        );
     }
 }

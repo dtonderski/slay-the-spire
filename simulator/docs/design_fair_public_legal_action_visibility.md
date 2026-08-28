@@ -11,15 +11,15 @@ continues to enumerate exact internal legality for privileged callers, while
 
 Some card play predicates inspect draw-pile composition. In particular,
 Secret Weapon requires an Attack in the draw pile and Secret Technique requires
-a Skill. The pure V1 public boundary does not carry a public-knowledge model for
-unrevealed draw-pile composition. Emitting those play commands would therefore
-leak the predicate through the presence or absence of a visible hand-slot
-choice.
+a Skill. Historical PlayerChoice V1 omitted those commands because its design
+had not yet committed to a public-knowledge representation of draw membership.
 
-V1 omits those two card-play commands from `PlayerChoice`. It does not synthesize
-replacement legality and does not change the authoritative internal action list.
-The fair environment can expose them later once its atomic observation/history
-contract represents the relevant known draw-pile information.
+Current FairCombatObservation producers expose the draw pile as a canonical
+public card multiset while hiding only its order. PlayerChoice V2 therefore
+projects both cards directly from authoritative legality. Their predicates are
+order-invariant functions of the same public multiset, so permuting hidden draw
+order cannot change observation or choice bytes. The boundary still does not
+synthesize legality or alter the authoritative action list.
 
 ## Combat phase gate
 

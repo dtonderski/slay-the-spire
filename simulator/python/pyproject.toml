@@ -9,6 +9,11 @@ description = "Typed Python bindings for the Slay the Spire simulator"
 requires-python = ">=3.12"
 dependencies = []
 
+[project.scripts]
+sts-combat-data = "sts_sim.rl.cli:data_main"
+sts-combat-train = "sts_sim.rl.cli:train_main"
+sts-combat-evaluate = "sts_sim.rl.cli:evaluate_main"
+
 [project.optional-dependencies]
 rl = [
     "numpy>=2",

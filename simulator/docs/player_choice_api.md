@@ -1,7 +1,7 @@
 # Public Combat Choice API
 
-Status: implemented in `sts_core` for the combat-only V1 slice.
-Last updated: 2026-07-23.
+Status: implemented in `sts_core`; current producers emit V2.
+Last updated: 2026-08-28.
 
 This document describes the public legal-action half of
 `fair_combat_api_design.md`. It does not define fair observations, tensors,
@@ -32,7 +32,7 @@ The implementation lives in
 `simulator/crates/sts_core/src/run/player_choice.rs` and is re-exported by
 `sts_core`.
 
-## V1 Types
+## V1/V2 Types
 
 ```text
 DecisionRevision(u64)
@@ -60,6 +60,7 @@ the unified run boundary:
 | `ChooseVisibleOption { option_slot }` | combat card-reward choice |
 | `ConfirmSelection` | active combat selection confirmation |
 | `SkipSelection` | skippable combat card reward |
+| `Proceed` | post-episode lost-combat run control |
 
 Slots are unsigned 16-bit decision-local references. Projection fails closed
 if an authoritative collection cannot be represented. Internal `CardId` and
@@ -68,12 +69,12 @@ if an authoritative collection cannot be represented. Internal `CardId` and
 Potion discard is now included in the authoritative legal action enumeration;
 the public layer projects it rather than synthesizing extra legality.
 
-The V1 public projection intentionally omits Secret Weapon and Secret Technique
-card-play commands. Their authoritative legality depends on draw-pile
-composition, while this pure boundary has no public-knowledge contract for
-unrevealed composition. The authoritative internal action list is unchanged;
-this is a conservative public capability restriction, not a second legality
-engine. See `design_fair_public_legal_action_visibility.md`.
+Historical V1 omitted Secret Weapon and Secret Technique. V2 projects them
+because the fair observation now carries the public draw-pile multiset and their
+legality is independent of hidden order. V2 also adds `Proceed` so directly
+restored lost states have explicit run control; ordinary combat episodes stop
+before it becomes a model decision. See
+`design_fair_public_legal_action_visibility.md`.
 
 ## Revision Ownership
 
@@ -113,11 +114,12 @@ closed with that error.
 
 ## Determinism and Non-Interference
 
-The V1 tests establish that choice values, ordering, serialized bytes, and
-public invalid-choice errors are unchanged by:
+The boundary tests establish that choice values, ordering, serialized bytes,
+and public invalid-choice errors are unchanged by:
 
 - hidden draw-pile permutations, including a Havoc top-card change;
-- hidden draw-pile composition changes for Secret Weapon and Secret Technique;
+- hidden draw-pile order changes for Secret Weapon and Secret Technique, while
+  public membership changes their projected legality;
 - run and combat RNG seed/state changes;
 - internal card and monster ID renumbering;
 - hidden enemy-intent changes while Runic Dome is present.

@@ -47,6 +47,61 @@ the trace reaches its endpoint, `1` for invalid input, and `2` when the
 authoritative simulator reaches a replay boundary. Observed game state never
 changes the exported snapshot.
 
+## Beam-cloning training
+
+The optional Python RL package can generate deterministic legal simulator roots,
+label them with a beam policy that intentionally replans at every public decision,
+train with exact batch-boundary resume, and evaluate a fixed development shard.
+The teacher reuses the live beam search core but does not claim the live
+automation warm-suffix execution policy. From
+`simulator/python` after `uv sync --extra rl && uv run maturin develop --uv`:
+
+```bash
+uv run sts-combat-data roots \
+  --output /tmp/sts-roots --seed-prefix BEAMCLONE --count 1000
+uv run sts-combat-data label \
+  --roots /tmp/sts-roots/root-manifest.json \
+  --output /tmp/sts-train --split train
+uv run sts-combat-data label \
+  --roots /tmp/sts-roots/root-manifest.json \
+  --output /tmp/sts-development --split development
+uv run sts-combat-train \
+  --dataset /tmp/sts-train/dataset-manifest.json \
+  --checkpoint /tmp/sts-checkpoint.pt --steps 1000 \
+  --minimum-roots 225 --minimum-lineages 100
+# If that run is interrupted, repeat the same immutable schedule with --resume.
+# A completed 1000-step checkpoint resumed toward 1000 is already complete.
+uv run sts-combat-evaluate \
+  --dataset /tmp/sts-development/dataset-manifest.json \
+  --checkpoint /tmp/sts-checkpoint.pt --split development \
+  --output /tmp/sts-development-report.json
+```
+
+Root generation advances seeded runs only through accepted public legal actions.
+Root and dataset generation require an empty output directory, so stale sealed
+roots or shards cannot survive an ordinary rerun. Root files and dataset shards
+are canonical SHA-256 artifacts. Each dataset carries the canonical named root
+manifest at `provenance/root-manifest.json`; loading re-resolves every successful
+membership and typed per-root labeling exclusion against it, and requires every
+source root in the requested split to be accounted for exactly once. A native
+teacher failure excludes only that root with a stable reason and public diagnostic;
+labeling continues with later roots. If every root fails, generation publishes no
+dataset. Training size and lineage gates count successful memberships only.
+Training records contain fair observations and public action descriptors, never native handles,
+internal IDs, RNG state, or snapshots. Default root generation withholds audited
+split snapshots and membership. Materializing them requires
+`roots --materialize-audited-splits`; labeling or loading them separately requires
+`--allow-audited-split`, and all paths are split-isolated. These are fail-closed
+tool defaults and audit metadata, not cryptographic authorization against the
+local filesystem owner. Training config V1 refuses fewer than 225 roots or 100
+distinct canonical lineages by default; `--minimum-roots` and
+`--minimum-lineages` exist for explicit versioned tests and smoke runs, not for
+lowering the production gate. Checkpoint resume and evaluation strictly match
+Python, NumPy, Torch, platform, deterministic CPU/thread policy, source, and
+`pyproject.toml`/`uv.lock` identity. PUCT and candidate promotion remain later
+phases; the commands above implement deterministic public-decision replanning
+beam imitation only.
+
 ## Live CLI
 
 CommunicationMod launches `..\tools\communication\trace_client.js`. With the

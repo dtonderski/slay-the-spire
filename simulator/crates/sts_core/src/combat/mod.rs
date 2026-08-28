@@ -17,7 +17,7 @@ pub mod turn_powers;
 pub use burning_blood::apply_burning_blood;
 pub use damage::{DamageInfo, DamageSource};
 pub use fair_observation::{
-    fair_combat_observation, FairCard, FairCardDynamicValues, FairCombatObservation,
+    fair_combat_observation, potion_key, FairCard, FairCardDynamicValues, FairCombatObservation,
     FairCombatPhase, FairCounter, FairHandCard, FairIntentCategory, FairMonster, FairMonsterIntent,
     FairObservationError, FairOrb, FairOrbSlot, FairPile, FairPlayer, FairPotionSlot, FairPower,
     FairRelic, FairRunContext, FairSelection, FairSelectionKind, FairSelectionOption,

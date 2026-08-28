@@ -31,7 +31,7 @@ type JsonValue = (
     None | bool | int | float | str | tuple["JsonValue", ...] | Mapping[str, "JsonValue"]
 )
 
-_RECORD_KEYS = {
+_LEGACY_RECORD_KEYS = {
     "observation",
     "actions",
     "chosen_action_index",
@@ -49,8 +49,38 @@ _RECORD_KEYS = {
     "repository",
     "observation_digest",
 }
+_RECORD_KEYS = _LEGACY_RECORD_KEYS | {
+    "record_version",
+    "root_manifest_digest",
+    "reward_config_digest",
+    "source_kind",
+    "episode_id",
+    "decision_index",
+    "value_target_mask",
+    "record_id",
+}
 _ACTION_FIELDS = set(ActionDescriptor.__dataclass_fields__)
-_OUTCOME_KEYS = {
+_V2_SEARCH_CONFIG_KEYS = {
+    "depth",
+    "width",
+    "transition_budget",
+    "max_decisions",
+    "max_player_turns",
+    "deadline",
+    "replan",
+    "deduplicate_search_states",
+}
+_COMBAT_ACTION_SLOTS: dict[str, tuple[set[str], set[str]]] = {
+    "play_hand_slot": ({"hand_slot"}, {"target_slot"}),
+    "end_turn": (set(), set()),
+    "use_potion_slot": ({"potion_slot"}, {"target_slot"}),
+    "discard_potion_slot": ({"potion_slot"}, set()),
+    "toggle_visible_card": ({"option_slot"}, set()),
+    "choose_visible_option": ({"option_slot"}, set()),
+    "confirm_selection": (set(), set()),
+    "skip_selection": (set(), set()),
+}
+_LEGACY_OUTCOME_KEYS = {
     "status",
     "terminal_hp",
     "terminal_max_hp",
@@ -61,6 +91,11 @@ _OUTCOME_KEYS = {
     "counter_changes",
     "terminal",
     "truncated",
+}
+_OUTCOME_KEYS = _LEGACY_OUTCOME_KEYS | {
+    "accepted_decisions",
+    "player_turns",
+    "truncation_trigger",
 }
 _COUNTER_CHANGE_KEYS = {"owner_kind", "owner_key", "counter_key", "before", "after"}
 _V1_ADDITIVE_DYNAMIC_FIELDS = {
@@ -263,6 +298,16 @@ def action_descriptor_from_payload(payload: object) -> ActionDescriptor:
     family = _string(source["family"], "action family")
     kind = _string(source["kind"], "action kind")
     assert family is not None and kind is not None
+    if family != "combat" or kind not in _COMBAT_ACTION_SLOTS:
+        raise ValueError("action descriptor is not tensorizable combat schema")
+    required, optional = _COMBAT_ACTION_SLOTS[kind]
+    supplied = set(source) - {"family", "kind"}
+    if not required <= supplied or not supplied <= required | optional:
+        raise ValueError("action descriptor slots disagree with combat action kind")
+    for slot in supplied:
+        value = _integer(source[slot], slot)
+        if value < 0:
+            raise ValueError("action descriptor slots must be nonnegative")
     return ActionDescriptor(
         family=family,
         kind=kind,
@@ -270,12 +315,26 @@ def action_descriptor_from_payload(payload: object) -> ActionDescriptor:
         potion_slot=_optional_integer(source, "potion_slot"),
         option_slot=_optional_integer(source, "option_slot"),
         target_slot=_optional_integer(source, "target_slot"),
-        card_slot=_optional_integer(source, "card_slot"),
-        node_slot=_optional_integer(source, "node_slot"),
-        reward_slot=_optional_integer(source, "reward_slot"),
-        shop_slot=_optional_integer(source, "shop_slot"),
-        slot=_optional_integer(source, "slot"),
+        card_slot=None,
+        node_slot=None,
+        reward_slot=None,
+        shop_slot=None,
+        slot=None,
     )
+
+
+def validate_v2_search_config(payload: Mapping[str, object]) -> None:
+    if set(payload) != _V2_SEARCH_CONFIG_KEYS:
+        raise ValueError("V2 search config has missing or unknown fields")
+    for key in ("depth", "width", "transition_budget", "max_decisions", "max_player_turns"):
+        if type(payload[key]) is not int or cast(int, payload[key]) <= 0:
+            raise TypeError(f"search config {key} must be a positive integer")
+    if payload["deadline"] is not None:
+        raise ValueError("offline teacher deadline must be null")
+    if payload["replan"] != "every_public_decision":
+        raise ValueError("unknown teacher replanning policy")
+    if type(payload["deduplicate_search_states"]) is not bool:
+        raise TypeError("deduplicate_search_states must be boolean")
 
 
 def _optional_integer(payload: Mapping[str, object], key: str) -> int | None:
@@ -333,6 +392,9 @@ class CombatOutcome:
     counter_changes: tuple[CounterChange, ...]
     terminal: bool
     truncated: bool
+    accepted_decisions: int = 0
+    player_turns: int = 1
+    truncation_trigger: str | None = None
 
     def __post_init__(self) -> None:
         if self.status not in {"won", "lost", "escaped", "truncated"}:
@@ -355,10 +417,19 @@ class CombatOutcome:
             raise TypeError("counter changes must contain CounterChange values")
         if type(self.terminal) is not bool or type(self.truncated) is not bool:
             raise TypeError("terminal flags must be booleans")
+        if type(self.accepted_decisions) is not int or self.accepted_decisions < 0:
+            raise ValueError("accepted decisions must be a nonnegative integer")
+        if type(self.player_turns) is not int or self.player_turns <= 0:
+            raise ValueError("player turns must be a positive integer")
+        if self.truncation_trigger is not None and self.truncation_trigger not in {
+            "accepted_decisions",
+            "player_turns",
+        }:
+            raise ValueError("unknown truncation trigger")
         if self.status == "truncated":
-            if self.terminal or not self.truncated:
+            if self.terminal or not self.truncated or self.truncation_trigger is None:
                 raise ValueError("truncated outcome flags disagree")
-        elif not self.terminal or self.truncated:
+        elif not self.terminal or self.truncated or self.truncation_trigger is not None:
             raise ValueError("terminal outcome flags disagree")
         if self.status == "lost" and self.terminal_hp != 0:
             raise ValueError("lost combat must end at zero HP")
@@ -377,11 +448,28 @@ class CombatOutcome:
             "counter_changes": [change.to_dict() for change in self.counter_changes],
             "terminal": self.terminal,
             "truncated": self.truncated,
+            "accepted_decisions": self.accepted_decisions,
+            "player_turns": self.player_turns,
+            "truncation_trigger": self.truncation_trigger,
         }
 
     @classmethod
     def from_dict(cls, payload: object) -> CombatOutcome:
-        source = _dict(payload, "combat outcome", _OUTCOME_KEYS)
+        raw = _dict(payload, "combat outcome")
+        if set(raw) == _LEGACY_OUTCOME_KEYS:
+            source = raw
+            accepted_decisions = 0
+            player_turns = 1
+            truncation_trigger = "accepted_decisions" if source.get("truncated") is True else None
+        elif set(raw) == _OUTCOME_KEYS:
+            source = raw
+            accepted_decisions = _integer(source["accepted_decisions"], "accepted_decisions")
+            player_turns = _integer(source["player_turns"], "player_turns")
+            truncation_trigger = _string(
+                source["truncation_trigger"], "truncation trigger", optional=True
+            )
+        else:
+            raise ValueError("combat outcome has missing or unknown fields")
         status = _string(source["status"], "outcome status")
         assert status is not None
         slots = tuple(
@@ -403,6 +491,9 @@ class CombatOutcome:
             counter_changes=changes,
             terminal=_boolean(source["terminal"], "terminal"),
             truncated=_boolean(source["truncated"], "truncated"),
+            accepted_decisions=accepted_decisions,
+            player_turns=player_turns,
+            truncation_trigger=truncation_trigger,
         )
 
 
@@ -413,7 +504,7 @@ class SymbolicTrainingRecord:
     chosen_action_index: int
     chosen_action: ActionDescriptor
     teacher_visit_counts: tuple[int, ...]
-    target_value: float
+    target_value: float | None
     value_target_name: str
     outcome: CombatOutcome
     planner_name: str
@@ -424,6 +515,14 @@ class SymbolicTrainingRecord:
     teacher_pair_id: str | None
     repository: RepositoryVersion
     observation_digest: str
+    record_version: int = 1
+    root_manifest_digest: str | None = None
+    reward_config_digest: str | None = None
+    source_kind: str = "legacy"
+    episode_id: str = "legacy"
+    decision_index: int = 0
+    value_target_mask: bool = True
+    record_id: str | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -453,20 +552,60 @@ class SymbolicTrainingRecord:
             raise ValueError("teacher visit counts must be nonnegative integers")
         if sum(self.teacher_visit_counts) <= 0:
             raise ValueError("teacher visit counts must have positive mass")
-        if type(self.target_value) not in {int, float}:
-            raise TypeError("target value must be numeric")
-        target = float(self.target_value)
-        if not math.isfinite(target) or not -1.0 <= target <= 1.0:
-            raise ValueError("target value must be finite and in [-1, 1]")
-        if fair_observation_digest(self.observation) != self.observation_digest:
-            raise ValueError("fair observation digest is invalid")
+        if type(self.value_target_mask) is not bool:
+            raise TypeError("value target mask must be boolean")
+        if self.target_value is None:
+            if self.value_target_mask:
+                raise ValueError("missing target value must be masked")
+        else:
+            if type(self.target_value) not in {int, float}:
+                raise TypeError("target value must be numeric")
+            target = float(self.target_value)
+            if not math.isfinite(target) or not -1.0 <= target <= 1.0:
+                raise ValueError("target value must be finite and in [-1, 1]")
+            if not self.value_target_mask:
+                raise ValueError("present target value must not be masked")
+        if self.outcome.truncated != (not self.value_target_mask):
+            raise ValueError("outcome truncation and value target mask disagree")
+        if self.record_version not in {1, 2}:
+            raise ValueError("unsupported training record version")
+        if type(self.decision_index) is not int or self.decision_index < 0:
+            raise ValueError("decision index must be nonnegative")
+        for name in ("source_kind", "episode_id"):
+            if type(getattr(self, name)) is not str or not getattr(self, name):
+                raise TypeError(f"{name} must be a nonempty string")
+        if self.record_version == 2:
+            validate_v2_search_config(cast(Mapping[str, object], self.search_config))
         frozen = _freeze_json(dict(self.search_config), "search config")
         if not isinstance(frozen, Mapping):
             raise TypeError("search config must be an object")
         object.__setattr__(self, "search_config", frozen)
+        if self.record_version == 2:
+            for name in ("root_id", "root_manifest_digest", "reward_config_digest"):
+                value = getattr(self, name)
+                if (
+                    type(value) is not str
+                    or len(value) != 64
+                    or any(character not in "0123456789abcdef" for character in value)
+                ):
+                    raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+            identity = hashlib.sha256(
+                _canonical_json(self._substantive_payload()).encode()
+            ).hexdigest()
+            if self.record_id is None:
+                object.__setattr__(self, "record_id", identity)
+            elif self.record_id != identity:
+                raise ValueError("record ID is invalid")
+        if fair_observation_digest(self.observation) != self.observation_digest:
+            raise ValueError("fair observation digest is invalid")
+
+    def _substantive_payload(self) -> dict[str, object]:
+        payload = self.to_dict()
+        payload.pop("record_id", None)
+        return payload
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "observation": fair_observation_payload(self.observation),
             "actions": [action_descriptor_payload(action) for action in self.actions],
             "chosen_action_index": self.chosen_action_index,
@@ -484,10 +623,32 @@ class SymbolicTrainingRecord:
             "repository": self.repository.to_dict(),
             "observation_digest": self.observation_digest,
         }
+        if self.record_version == 2:
+            payload.update(
+                {
+                    "record_version": self.record_version,
+                    "root_manifest_digest": self.root_manifest_digest,
+                    "reward_config_digest": self.reward_config_digest,
+                    "source_kind": self.source_kind,
+                    "episode_id": self.episode_id,
+                    "decision_index": self.decision_index,
+                    "value_target_mask": self.value_target_mask,
+                    "record_id": self.record_id,
+                }
+            )
+        return payload
 
     @classmethod
     def from_dict(cls, payload: object) -> SymbolicTrainingRecord:
-        source = _dict(payload, "training record", _RECORD_KEYS)
+        raw = _dict(payload, "training record")
+        if set(raw) == _LEGACY_RECORD_KEYS:
+            source = raw
+            record_version = 1
+        elif set(raw) == _RECORD_KEYS:
+            source = raw
+            record_version = _integer(source["record_version"], "record version")
+        else:
+            raise ValueError("training record has missing or unknown fields")
         actions = tuple(
             action_descriptor_from_payload(action) for action in _list(source["actions"], "actions")
         )
@@ -521,7 +682,11 @@ class SymbolicTrainingRecord:
             chosen_action_index=_integer(source["chosen_action_index"], "chosen action index"),
             chosen_action=action_descriptor_from_payload(source["chosen_action"]),
             teacher_visit_counts=counts,
-            target_value=_number(source["target_value"], "target value"),
+            target_value=(
+                None
+                if source["target_value"] is None
+                else _number(source["target_value"], "target value")
+            ),
             value_target_name=cast(str, value_target_name),
             outcome=CombatOutcome.from_dict(source["outcome"]),
             planner_name=cast(str, planner_name),
@@ -532,6 +697,14 @@ class SymbolicTrainingRecord:
             teacher_pair_id=teacher_pair_id,
             repository=RepositoryVersion.from_dict(repository_payload),
             observation_digest=cast(str, observation_digest),
+            record_version=record_version,
+            root_manifest_digest=cast(str | None, source.get("root_manifest_digest")),
+            reward_config_digest=cast(str | None, source.get("reward_config_digest")),
+            source_kind=cast(str, source.get("source_kind", "legacy")),
+            episode_id=cast(str, source.get("episode_id", "legacy")),
+            decision_index=cast(int, source.get("decision_index", 0)),
+            value_target_mask=cast(bool, source.get("value_target_mask", True)),
+            record_id=cast(str | None, source.get("record_id")),
         )
 
 
@@ -558,6 +731,7 @@ class TensorizedTrainingExample:
     decision: TensorizedCombatDecision
     policy_target: torch.Tensor
     value_target: torch.Tensor
+    value_target_mask: torch.Tensor
     value_target_name: str
     outcome: CombatOutcome
     record: SymbolicTrainingRecord
@@ -568,6 +742,7 @@ class BatchedTrainingExamples:
     decision: BatchedCombatDecision
     policy_target: torch.Tensor
     value_target: torch.Tensor
+    value_target_mask: torch.Tensor
     value_target_name: str
     outcomes: tuple[CombatOutcome, ...]
     records: tuple[SymbolicTrainingRecord, ...]
@@ -600,7 +775,11 @@ class SymbolicCombatDataset:
         return TensorizedTrainingExample(
             decision,
             policy,
-            torch.tensor(record.target_value, dtype=torch.float32),
+            torch.tensor(
+                0.0 if record.target_value is None else record.target_value,
+                dtype=torch.float32,
+            ),
+            torch.tensor(record.value_target_mask, dtype=torch.bool),
             record.value_target_name,
             record.outcome,
             record,
@@ -623,6 +802,7 @@ def collate_training_examples(
         decision=decision,
         policy_target=policy,
         value_target=torch.stack(tuple(item.value_target for item in items)),
+        value_target_mask=torch.stack(tuple(item.value_target_mask for item in items)),
         value_target_name=next(iter(names)),
         outcomes=tuple(item.outcome for item in items),
         records=tuple(item.record for item in items),
