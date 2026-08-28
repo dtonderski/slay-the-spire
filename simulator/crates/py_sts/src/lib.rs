@@ -1278,6 +1278,21 @@ fn player_turn_advances(before: &RunState, action: &RunDecisionAction, after: &R
         return 1;
     }
 
+    // Conclude's PressEndTurnButtonAction is a modeled forced turn source just
+    // like explicit END, but its accepted public action remains PlayCard.
+    let forced_turn_card = match action {
+        RunDecisionAction::Combat(CombatAction::PlayCard { card_id, .. }) => before_combat
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.id == *card_id)
+            .is_some_and(|card| card.content_id == sts_core::content::cards::CONCLUDE_ANY_COLOR_ID),
+        _ => false,
+    };
+    if forced_turn_card {
+        return 1;
+    }
+
     // Time Warp can execute end_player_turn from the twelfth card transition
     // or from a later selection transition. Both are authoritative state
     // evidence that the forced turn completed.
@@ -1400,6 +1415,7 @@ fn beam_clone_episode_json(
         let next = apply_run_decision_action(&state, action)
             .map_err(|error| PyRuntimeError::new_err(format!("beam action failed: {error}")))?;
         accepted_decisions += 1;
+        player_turns = player_turns.saturating_add(player_turn_advances(&state, &action, &next));
         if let Some(status) = classify_combat_episode_transition(&state, &action, &next) {
             terminal_status = Some(status);
             state = next;
@@ -1410,7 +1426,6 @@ fn beam_clone_episode_json(
             state = next;
             break;
         }
-        player_turns = player_turns.saturating_add(player_turn_advances(&state, &action, &next));
         if player_turns > max_player_turns {
             truncation_trigger = Some("player_turns");
             state = next;

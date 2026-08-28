@@ -26,12 +26,13 @@ from .records import (
 )
 from .rewards import COMBAT_PROXY_V1, CombatRewardConfig
 
-ROOT_MANIFEST_VERSION = 2
-DATASET_MANIFEST_VERSION = 2
+ROOT_MANIFEST_VERSION = 3
+DATASET_MANIFEST_VERSION = 3
 _SPLIT_SALT = "combat-agent-phase2-v1"
 _ALLOWED_SPLITS = {"train", "development", "sealed_test", "real_trace_audit"}
 _AUDITED_SPLITS = {"sealed_test", "real_trace_audit"}
 _SOURCE_KIND = "simulator_legal_v1"
+_DATASET_ROOT_MANIFEST_PATH = "provenance/root-manifest.json"
 
 
 def _canonical_bytes(payload: object) -> bytes:
@@ -70,6 +71,10 @@ def _digest_payload(payload: dict[str, object], digest_key: str) -> str:
     unsigned = dict(payload)
     unsigned.pop(digest_key, None)
     return _sha256_bytes(_canonical_bytes(unsigned))
+
+
+def _split_group_id(lineages: tuple[str, ...]) -> str:
+    return _sha256_bytes(_canonical_bytes(list(lineages)))
 
 
 def _split_for_lineage(lineage: str) -> str:
@@ -220,7 +225,7 @@ class RootManifest:
                 raise ValueError("root lineages are not canonical")
             if not root.source_seeds or root.source_seeds != tuple(sorted(set(root.source_seeds))):
                 raise ValueError("root source seeds are not canonical")
-            expected_group = _sha256_bytes("\0".join(root.lineages).encode())
+            expected_group = _split_group_id(root.lineages)
             if root.split_group_id != expected_group:
                 raise ValueError("split group does not match canonical lineages")
             if {_split_for_lineage(lineage) for lineage in root.lineages} != {root.split}:
@@ -231,11 +236,14 @@ class RootManifest:
 def load_root_manifest(
     path: Path, *, verify_roots: bool = True, allow_audited_materialization: bool = False
 ) -> RootManifest:
-    manifest = RootManifest.from_dict(json.loads(path.read_text(encoding="utf-8")))
+    content = path.read_bytes()
+    manifest = RootManifest.from_dict(json.loads(content))
+    if content != _canonical_bytes(manifest.to_dict()):
+        raise ValueError("root manifest is not canonical")
+    if manifest.audited_splits_materialized and not allow_audited_materialization:
+        raise PermissionError("audited root materialization requires explicit access")
     if verify_roots:
         for root in manifest.roots:
-            if root.split in _AUDITED_SPLITS and not allow_audited_materialization:
-                continue
             root_path = path.parent / root.relative_path
             content = root_path.read_bytes()
             try:
@@ -268,6 +276,14 @@ def _policy_index(seed: str, step: int, actions: tuple[Action, ...]) -> int:
     return int.from_bytes(hashlib.sha256(payload).digest()[:8], "big") % len(actions)
 
 
+def _require_empty_output_dir(output_dir: Path) -> None:
+    if output_dir.exists():
+        if not output_dir.is_dir():
+            raise ValueError("output path must be a directory")
+        if any(output_dir.iterdir()):
+            raise ValueError("output directory must be empty")
+
+
 def generate_legal_roots(
     output_dir: Path,
     seeds: list[str],
@@ -287,6 +303,7 @@ def generate_legal_roots(
         raise ValueError("invalid root generation bounds")
     if type(materialize_audited_splits) is not bool:
         raise TypeError("audited materialization flag must be boolean")
+    _require_empty_output_dir(output_dir)
     if repository_root is None:
         repository_root = Path(__file__).resolve().parents[4]
     repository = capture_repository_version(repository_root, allow_dirty=True)
@@ -352,7 +369,7 @@ def generate_legal_roots(
             RootEntry(
                 root_id,
                 split,
-                _sha256_bytes("\0".join(lineages).encode()),
+                _split_group_id(lineages),
                 relative_path,
                 lineages,
                 source_seeds,
@@ -362,7 +379,7 @@ def generate_legal_roots(
     unsigned: dict[str, object] = {
         "manifest_version": ROOT_MANIFEST_VERSION,
         "generator_name": "legal_run_policy",
-        "generator_version": "sha256_action_policy_v2",
+        "generator_version": "sha256_action_policy_v3",
         "generator_source_digest": source_digest,
         "repository": repository.to_dict(),
         "ascension": ascension,
@@ -381,7 +398,7 @@ def generate_legal_roots(
     manifest = RootManifest(
         ROOT_MANIFEST_VERSION,
         "legal_run_policy",
-        "sha256_action_policy_v2",
+        "sha256_action_policy_v3",
         source_digest,
         repository,
         ascension,
@@ -403,11 +420,14 @@ class DatasetRootMembership:
     root_id: str
     split_group_id: str
     split: str
+    lineages: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class DatasetManifest:
     manifest_version: int
+    root_manifest_path: str
+    root_manifest_file_digest: str
     root_manifest_digest: str
     roots: tuple[DatasetRootMembership, ...]
     split: str
@@ -428,8 +448,12 @@ class DatasetManifest:
     def to_dict(self) -> dict[str, object]:
         return {
             "manifest_version": self.manifest_version,
+            "root_manifest_path": self.root_manifest_path,
+            "root_manifest_file_digest": self.root_manifest_file_digest,
             "root_manifest_digest": self.root_manifest_digest,
-            "roots": [asdict(root) for root in self.roots],
+            "roots": [
+                {**asdict(root), "lineages": list(root.lineages)} for root in self.roots
+            ],
             "split": self.split,
             "audited_access": self.audited_access,
             "reward_config": self.reward_config,
@@ -468,17 +492,22 @@ def load_dataset_manifest(
         ):
             raise ValueError("dataset root membership is malformed")
         item = cast(dict[str, object], raw_root)
+        if type(item["lineages"]) is not list:
+            raise TypeError("dataset root lineages must be an array")
         roots.append(
             DatasetRootMembership(
                 cast(str, item["root_id"]),
                 cast(str, item["split_group_id"]),
                 cast(str, item["split"]),
+                tuple(cast(list[str], item["lineages"])),
             )
         )
     if type(source["reward_config"]) is not dict or type(source["search_config"]) is not dict:
         raise TypeError("dataset configurations must be objects")
     manifest = DatasetManifest(
         cast(int, source["manifest_version"]),
+        cast(str, source["root_manifest_path"]),
+        _require_digest(source["root_manifest_file_digest"], "root manifest file digest"),
         _require_digest(source["root_manifest_digest"], "root manifest digest"),
         tuple(roots),
         cast(str, source["split"]),
@@ -513,6 +542,8 @@ def load_dataset_manifest(
         raise ValueError("dataset audited-access declaration is invalid")
     if manifest.audited_access and not allow_audited_split:
         raise PermissionError("sealed and audit splits require explicit audited access")
+    if manifest.root_manifest_path != _DATASET_ROOT_MANIFEST_PATH:
+        raise ValueError("dataset root manifest path is not canonical")
     if manifest.shard_path != f"{manifest.split}/{manifest.split}.jsonl":
         raise ValueError("dataset shard path is not split-isolated and canonical")
     if (
@@ -532,12 +563,38 @@ def load_dataset_manifest(
         _require_digest(root.split_group_id, "split group ID")
         if root.split != manifest.split:
             raise ValueError("dataset root belongs to another split")
+        if not root.lineages or root.lineages != tuple(sorted(set(root.lineages))):
+            raise ValueError("dataset root lineages are not canonical")
+        if root.split_group_id != _split_group_id(root.lineages):
+            raise ValueError("dataset root split group does not match its lineages")
     reward = CombatRewardConfig(**cast(dict[str, Any], manifest.reward_config))
     if reward.digest != manifest.reward_config_digest:
         raise ValueError("dataset reward configuration digest is invalid")
     validate_v2_search_config(manifest.search_config)
     if manifest.manifest_digest != _digest_payload(manifest.to_dict(), "manifest_digest"):
         raise ValueError("dataset manifest digest is invalid")
+    named_root_path = path.parent / manifest.root_manifest_path
+    named_root_bytes = named_root_path.read_bytes()
+    if _sha256_bytes(named_root_bytes) != manifest.root_manifest_file_digest:
+        raise ValueError("dataset root manifest file digest is invalid")
+    named_root_manifest = load_root_manifest(
+        named_root_path,
+        verify_roots=False,
+        allow_audited_materialization=allow_audited_split,
+    )
+    if named_root_manifest.manifest_digest != manifest.root_manifest_digest:
+        raise ValueError("dataset root manifest digest is invalid")
+    canonical_root_memberships = {
+        root.root_id: root for root in named_root_manifest.roots if root.split == manifest.split
+    }
+    for membership in roots:
+        root = canonical_root_memberships.get(membership.root_id)
+        if root is None or (
+            membership.split_group_id,
+            membership.split,
+            membership.lineages,
+        ) != (root.split_group_id, root.split, root.lineages):
+            raise ValueError("dataset root membership disagrees with named root manifest")
     shard = path.parent / manifest.shard_path
     if _sha256_bytes(shard.read_bytes()) != manifest.shard_digest:
         raise ValueError("dataset shard digest is invalid")
@@ -552,6 +609,11 @@ def load_dataset_manifest(
     for record in records:
         if record.record_version != 2:
             raise ValueError("dataset requires training record schema V2")
+        if (
+            sum(record.teacher_visit_counts) != 1
+            or record.teacher_visit_counts[record.chosen_action_index] != 1
+        ):
+            raise ValueError("beam-clone teacher labels must be one-hot at the chosen action")
         membership = memberships.get(record.root_id)
         if membership is None or record.split_group_id != membership.split_group_id:
             raise ValueError("dataset record root/group membership mismatch")
@@ -609,6 +671,7 @@ def generate_beam_dataset(
         raise ValueError("unknown dataset split")
     if split in _AUDITED_SPLITS and not allow_audited_split:
         raise PermissionError("sealed and audit splits require explicit audited access")
+    _require_empty_output_dir(output_dir)
     root_manifest = load_root_manifest(
         root_manifest_path,
         allow_audited_materialization=split in _AUDITED_SPLITS and allow_audited_split,
@@ -658,7 +721,9 @@ def generate_beam_dataset(
         steps = cast(list[dict[str, object]], payload["steps"])
         if not steps:
             raise ValueError("terminal or post-combat root cannot produce training records")
-        used_roots.append(DatasetRootMembership(root.root_id, root.split_group_id, root.split))
+        used_roots.append(
+            DatasetRootMembership(root.root_id, root.split_group_id, root.split, root.lineages)
+        )
         for decision_index, step in enumerate(steps):
             projected = FairCombatObservation._from_payload(
                 cast(dict[str, object], step["observation"])
@@ -705,10 +770,17 @@ def generate_beam_dataset(
     _atomic_write(output_dir / shard_name, lines)
     shard_digest = _sha256_bytes(lines)
     memberships = tuple(sorted(used_roots, key=lambda root: root.root_id))
+    root_manifest_bytes = _canonical_bytes(root_manifest.to_dict())
+    root_manifest_file_digest = _sha256_bytes(root_manifest_bytes)
+    _atomic_write(output_dir / _DATASET_ROOT_MANIFEST_PATH, root_manifest_bytes)
     unsigned: dict[str, object] = {
         "manifest_version": DATASET_MANIFEST_VERSION,
+        "root_manifest_path": _DATASET_ROOT_MANIFEST_PATH,
+        "root_manifest_file_digest": root_manifest_file_digest,
         "root_manifest_digest": root_manifest.manifest_digest,
-        "roots": [asdict(root) for root in memberships],
+        "roots": [
+            {**asdict(root), "lineages": list(root.lineages)} for root in memberships
+        ],
         "split": split,
         "audited_access": split in _AUDITED_SPLITS,
         "reward_config": reward_config.to_dict(),
@@ -725,6 +797,8 @@ def generate_beam_dataset(
     }
     manifest = DatasetManifest(
         DATASET_MANIFEST_VERSION,
+        _DATASET_ROOT_MANIFEST_PATH,
+        root_manifest_file_digest,
         root_manifest.manifest_digest,
         memberships,
         split,

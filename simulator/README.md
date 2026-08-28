@@ -67,7 +67,8 @@ uv run sts-combat-data label \
   --output /tmp/sts-development --split development
 uv run sts-combat-train \
   --dataset /tmp/sts-train/dataset-manifest.json \
-  --checkpoint /tmp/sts-checkpoint.pt --steps 1000
+  --checkpoint /tmp/sts-checkpoint.pt --steps 1000 \
+  --minimum-roots 225 --minimum-lineages 100
 # If that run is interrupted, repeat the same immutable schedule with --resume.
 # A completed 1000-step checkpoint resumed toward 1000 is already complete.
 uv run sts-combat-evaluate \
@@ -77,15 +78,25 @@ uv run sts-combat-evaluate \
 ```
 
 Root generation advances seeded runs only through accepted public legal actions.
-Root files and dataset shards are canonical SHA-256 artifacts. Training records
-contain fair observations and public action descriptors, never native handles,
+Root and dataset generation require an empty output directory, so stale sealed
+roots or shards cannot survive an ordinary rerun. Root files and dataset shards
+are canonical SHA-256 artifacts. Each dataset carries the canonical named root
+manifest at `provenance/root-manifest.json`; loading re-resolves every root,
+split group, split, and lineage against it without copying root snapshots.
+Training records contain fair observations and public action descriptors, never native handles,
 internal IDs, RNG state, or snapshots. Default root generation withholds audited
 split snapshots and membership. Materializing them requires
 `roots --materialize-audited-splits`; labeling or loading them separately requires
 `--allow-audited-split`, and all paths are split-isolated. These are fail-closed
 tool defaults and audit metadata, not cryptographic authorization against the
-local filesystem owner. PUCT and candidate promotion remain later phases; the
-commands above implement deterministic public-decision replanning beam imitation only.
+local filesystem owner. Training config V1 refuses fewer than 225 roots or 100
+distinct canonical lineages by default; `--minimum-roots` and
+`--minimum-lineages` exist for explicit versioned tests and smoke runs, not for
+lowering the production gate. Checkpoint resume and evaluation strictly match
+Python, NumPy, Torch, platform, deterministic CPU/thread policy, source, and
+`pyproject.toml`/`uv.lock` identity. PUCT and candidate promotion remain later
+phases; the commands above implement deterministic public-decision replanning
+beam imitation only.
 
 ## Live CLI
 

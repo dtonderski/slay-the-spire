@@ -344,10 +344,17 @@ from `train` only; development, sealed, and audit data only transform through
 the frozen checkpoint vocabulary.
 
 Current vertical-slice note: generated records and shards are digest-bound to a
-validated root manifest, and training fits vocabularies from `train` only. The
-generic dataset loader verifies the dataset/shard envelope but does not yet take
-a named root-manifest path and independently re-resolve every membership. That
-stronger replay-buffer loader remains part of this decision's later stage.
+validated root manifest, and training fits vocabularies from `train` only. Each
+dataset now embeds canonical root-manifest bytes at a fixed relative path; the
+loader validates both file and manifest digests and re-resolves every root,
+split group, split, and canonical lineage membership without embedding root
+snapshots.
+
+Training config V1 enforces the pre-frozen floor of 225 roots and 100 distinct
+canonical lineages by default. Explicit lower thresholds are limited to tests
+and smoke configurations. Checkpoint resume and evaluation also strictly bind
+the source digest and runtime identity: Python, NumPy, Torch, platform basics,
+deterministic CPU/thread policy, and the `pyproject.toml`/`uv.lock` digests.
 
 Before training, freeze an experiment protocol containing root-manifest and
 corpus digests, allowed split, model, vocabulary/encoder contract, objective

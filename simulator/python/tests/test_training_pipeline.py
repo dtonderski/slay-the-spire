@@ -114,8 +114,39 @@ def test_native_episode_uses_explicit_truncation_outcome() -> None:
     assert outcome["terminal"] is False
     assert outcome["truncated"] is True
     assert outcome["accepted_decisions"] == 1
+    assert outcome["player_turns"] == 2
     assert outcome["truncation_trigger"] == "accepted_decisions"
     assert len(cast(list[object], payload["steps"])) == 1
+
+
+def test_native_episode_counts_conclude_as_a_forced_turn_source() -> None:
+    state = RunEnv.combat_fixture().full_state()
+    combat = cast(dict[str, object], state["combat"])
+    player = cast(dict[str, object], combat["player"])
+    player["energy"] = 3
+    monsters = cast(list[dict[str, object]], combat["monsters"])
+    monsters[0]["hp"] = 100
+    monsters[0]["max_hp"] = 100
+    monsters[0]["intent"] = "Stun"
+    piles = cast(dict[str, object], combat["piles"])
+    piles["hand"] = [
+        {
+            "id": 100,
+            "content_id": 1_915_755_234_499,
+            "temp_cost": None,
+            "combat_only": False,
+        }
+    ]
+    env = RunEnv.from_state_json_for_debugging(json.dumps(state))
+    payload = env.beam_clone_episode_payload(
+        depth=2, width=4, transition_budget=100, max_decisions=1, max_player_turns=100
+    )
+    step = cast(dict[str, object], cast(list[object], payload["steps"])[0])
+    choices = cast(list[dict[str, object]], step["choices"])
+    assert choices[cast(int, step["selected_index"])]["kind"] == "play_hand_slot"
+    outcome = cast(dict[str, object], payload["outcome"])
+    assert outcome["player_turns"] == 2
+    assert outcome["truncation_trigger"] == "accepted_decisions"
 
 
 def test_root_and_beam_dataset_generation_is_byte_deterministic(tmp_path: Path) -> None:
@@ -154,6 +185,10 @@ def test_root_and_beam_dataset_generation_is_byte_deterministic(tmp_path: Path) 
         max_player_turns=10,
     )
     assert first.manifest_digest == second.manifest_digest
+    assert first.root_manifest_path == "provenance/root-manifest.json"
+    assert (tmp_path / "data-left/provenance/root-manifest.json").read_bytes() == (
+        tmp_path / "roots-left/root-manifest.json"
+    ).read_bytes()
     assert (tmp_path / "data-left/train/train.jsonl").read_bytes() == (
         tmp_path / "data-right/train/train.jsonl"
     ).read_bytes()
@@ -319,6 +354,8 @@ def test_training_resume_and_development_report_are_deterministic(tmp_path: Path
         model_heads=4,
         model_layers=1,
         feedforward_width=32,
+        minimum_roots=1,
+        minimum_lineages=1,
     )
     uninterrupted = tmp_path / "uninterrupted.pt"
     resumed = tmp_path / "resumed.pt"
@@ -353,6 +390,24 @@ def test_training_resume_and_development_report_are_deterministic(tmp_path: Path
             tmp_path / "development/dataset-manifest.json", malformed, split="development"
         )
 
+    wrong_runtime = tmp_path / "wrong-runtime.pt"
+    runtime_mutation = dict(right)
+    runtime_identity = json.loads(json.dumps(runtime_mutation["runtime_identity"]))
+    runtime_identity["python"]["implementation"] = "different-runtime"
+    runtime_mutation["runtime_identity"] = runtime_identity
+    runtime_mutation["runtime_identity_digest"] = hashlib.sha256(
+        json.dumps(runtime_identity, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    torch.save(runtime_mutation, wrong_runtime)
+    with pytest.raises(ValueError, match="runtime"):
+        train_beam_clone(
+            tmp_path / "train/dataset-manifest.json", wrong_runtime, config, resume=True
+        )
+    with pytest.raises(ValueError, match="runtime identity"):
+        evaluate_beam_clone(
+            tmp_path / "development/dataset-manifest.json", wrong_runtime, split="development"
+        )
+
     first = evaluate_beam_clone(
         tmp_path / "development/dataset-manifest.json", resumed, split="development"
     )
@@ -366,6 +421,7 @@ def test_training_resume_and_development_report_are_deterministic(tmp_path: Path
         "checkpoint_model_state_digest",
         "checkpoint_config_digest",
         "source_digest",
+        "runtime_identity_digest",
         "vocabulary_fingerprint",
         "encoder_contract_digest",
         "reward_config_digest",
@@ -406,9 +462,127 @@ def test_sealed_roots_are_withheld_by_default_and_audited_materialization_is_exp
         max_decisions=8,
         max_player_turns=3,
     )
+    with pytest.raises(PermissionError, match="explicit access"):
+        load_root_manifest(tmp_path / "audited-roots/root-manifest.json")
     with pytest.raises(PermissionError, match="explicit audited access"):
         load_dataset_manifest(
             tmp_path / "sealed/dataset-manifest.json", requested_split="sealed_test"
+        )
+
+
+def test_generation_refuses_nonempty_output_directories(tmp_path: Path) -> None:
+    root_output = tmp_path / "roots"
+    generate_legal_roots(root_output, ["BEAMCLONE0"], max_run_steps=128)
+    stale_root = root_output / "sealed_test/roots/stale.json"
+    stale_root.parent.mkdir(parents=True)
+    stale_root.write_text("stale")
+    with pytest.raises(ValueError, match="output directory must be empty"):
+        generate_legal_roots(root_output, ["BEAMCLONE0"], max_run_steps=128)
+    assert stale_root.read_text() == "stale"
+
+    dataset_output = tmp_path / "data"
+    generate_beam_dataset(
+        root_output / "root-manifest.json",
+        dataset_output,
+        split="train",
+        depth=2,
+        width=4,
+        transition_budget=100,
+        max_decisions=4,
+        max_player_turns=3,
+    )
+    stale_shard = dataset_output / "stale.jsonl"
+    stale_shard.write_text("stale")
+    with pytest.raises(ValueError, match="output directory must be empty"):
+        generate_beam_dataset(
+            root_output / "root-manifest.json", dataset_output, split="train"
+        )
+    assert stale_shard.read_text() == "stale"
+
+
+def test_dataset_loader_resolves_named_root_manifest_membership(tmp_path: Path) -> None:
+    generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
+    generate_beam_dataset(
+        tmp_path / "roots/root-manifest.json",
+        tmp_path / "data",
+        split="train",
+        depth=2,
+        width=4,
+        transition_budget=100,
+        max_decisions=4,
+        max_player_turns=3,
+    )
+    manifest_path = tmp_path / "data/dataset-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["roots"][0]["root_id"] = "f" * 64
+    unsigned = dict(manifest)
+    unsigned.pop("manifest_digest")
+    manifest["manifest_digest"] = hashlib.sha256(
+        json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")))
+    with pytest.raises(ValueError, match="named root manifest"):
+        load_dataset_manifest(manifest_path, requested_split="train")
+
+
+def test_dataset_loader_rejects_policy_chosen_action_contradiction(tmp_path: Path) -> None:
+    generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
+    generate_beam_dataset(
+        tmp_path / "roots/root-manifest.json",
+        tmp_path / "data",
+        split="train",
+        depth=2,
+        width=4,
+        transition_budget=100,
+        max_decisions=4,
+        max_player_turns=3,
+    )
+    shard = tmp_path / "data/train/train.jsonl"
+    payloads = [json.loads(line) for line in shard.read_text().splitlines()]
+    first = payloads[0]
+    chosen = cast(int, first["chosen_action_index"])
+    replacement = next(index for index in range(len(first["actions"])) if index != chosen)
+    first["teacher_visit_counts"] = [0] * len(first["actions"])
+    first["teacher_visit_counts"][replacement] = 1
+    first["record_id"] = None
+    changed = SymbolicTrainingRecord.from_dict(first)
+    payloads[0] = changed.to_dict()
+    content = b"".join(
+        json.dumps(item, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+        for item in payloads
+    )
+    shard.write_bytes(content)
+    manifest_path = tmp_path / "data/dataset-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["shard_digest"] = hashlib.sha256(content).hexdigest()
+    manifest["record_ids"][0] = changed.record_id
+    unsigned = dict(manifest)
+    unsigned.pop("manifest_digest")
+    manifest["manifest_digest"] = hashlib.sha256(
+        json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")))
+    with pytest.raises(ValueError, match="one-hot"):
+        load_dataset_manifest(manifest_path, requested_split="train")
+
+
+def test_training_refuses_corpus_below_default_floor(tmp_path: Path) -> None:
+    generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
+    generate_beam_dataset(
+        tmp_path / "roots/root-manifest.json",
+        tmp_path / "data",
+        split="train",
+        depth=2,
+        width=4,
+        transition_budget=100,
+        max_decisions=4,
+        max_player_turns=3,
+    )
+    with pytest.raises(ValueError, match="below configured minimums"):
+        train_beam_clone(
+            tmp_path / "data/dataset-manifest.json",
+            tmp_path / "checkpoint.pt",
+            TrainingConfig(total_steps=1),
         )
 
 

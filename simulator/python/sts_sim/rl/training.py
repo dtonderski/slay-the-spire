@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import random
+import sys
 import tempfile
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
@@ -25,7 +27,7 @@ from .records import (
 )
 from .tensor import Vocabularies, VocabularyBuilder, encoder_contract_digest
 
-TRAINING_CHECKPOINT_FORMAT = 1
+TRAINING_CHECKPOINT_FORMAT = 2
 _CHECKPOINT_KEYS = {
     "checkpoint_format",
     "config",
@@ -35,6 +37,8 @@ _CHECKPOINT_KEYS = {
     "root_manifest_digest",
     "reward_config_digest",
     "source_digest",
+    "runtime_identity",
+    "runtime_identity_digest",
     "vocabularies",
     "vocabulary_fingerprint",
     "encoder_contract_digest",
@@ -80,6 +84,36 @@ def _source_digest() -> str:
     return _digest(payload)
 
 
+def _runtime_identity() -> dict[str, object]:
+    python_root = Path(__file__).resolve().parents[2]
+    artifact_digests = {
+        name: hashlib.sha256((python_root / name).read_bytes()).hexdigest()
+        for name in ("pyproject.toml", "uv.lock")
+    }
+    return {
+        "python": {
+            "implementation": platform.python_implementation(),
+            "version": list(sys.version_info[:5]),
+        },
+        "numpy_version": np.__version__,
+        "torch_version": str(torch.__version__),
+        "platform": {
+            "system": platform.system(),
+            "release": platform.release(),
+            "machine": platform.machine(),
+        },
+        "deterministic_policy": {
+            "device": "cpu",
+            "torch_deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
+            "torch_intraop_threads": torch.get_num_threads(),
+            "torch_interop_threads": torch.get_num_interop_threads(),
+            "cudnn_deterministic": torch.backends.cudnn.deterministic,
+            "cudnn_benchmark": torch.backends.cudnn.benchmark,
+        },
+        "dependency_artifact_digests": artifact_digests,
+    }
+
+
 def _model_state_digest(state: object) -> str:
     if not isinstance(state, Mapping):
         raise TypeError("checkpoint model state must be an object")
@@ -115,12 +149,17 @@ def _validate_checkpoint_envelope(payload: object) -> tuple[dict[str, Any], Trai
         raise ValueError("training checkpoint config digest mismatch")
     if checkpoint["model_config"] != asdict(stored_config.model_config()):
         raise ValueError("training checkpoint model config mismatch")
+    if type(checkpoint["runtime_identity"]) is not dict:
+        raise TypeError("training checkpoint runtime identity must be an object")
+    if checkpoint["runtime_identity_digest"] != _digest(checkpoint["runtime_identity"]):
+        raise ValueError("training checkpoint runtime identity digest mismatch")
     for name in (
         "dataset_manifest_digest",
         "dataset_shard_digest",
         "root_manifest_digest",
         "reward_config_digest",
         "source_digest",
+        "runtime_identity_digest",
         "vocabulary_fingerprint",
         "encoder_contract_digest",
     ):
@@ -157,12 +196,15 @@ def _validate_checkpoint_envelope(payload: object) -> tuple[dict[str, Any], Trai
 
 @dataclass(frozen=True, slots=True)
 class TrainingConfig:
+    config_version: int = 1
     seed: int = 7
     batch_size: int = 32
     total_steps: int = 100
     learning_rate: float = 1e-3
     weight_decay: float = 1e-4
     torch_threads: int = 1
+    minimum_roots: int = 225
+    minimum_lineages: int = 100
     model_width: int = 96
     model_heads: int = 4
     model_layers: int = 2
@@ -172,9 +214,12 @@ class TrainingConfig:
         if any(
             type(value) is not int or value <= 0
             for value in (
+                self.config_version,
                 self.batch_size,
                 self.total_steps,
                 self.torch_threads,
+                self.minimum_roots,
+                self.minimum_lineages,
                 self.model_width,
                 self.model_heads,
                 self.model_layers,
@@ -182,6 +227,8 @@ class TrainingConfig:
             )
         ):
             raise ValueError("integer training configuration must be positive")
+        if self.config_version != 1:
+            raise ValueError("unsupported training configuration version")
         if type(self.seed) is not int:
             raise TypeError("training seed must be an integer")
         if not 0.0 < self.learning_rate < 1.0 or not 0.0 <= self.weight_decay < 1.0:
@@ -206,6 +253,7 @@ class TrainingResult:
     checkpoint_path: Path
     global_step: int
     metrics: tuple[dict[str, float | int], ...]
+    runtime_identity_digest: str
     vocabulary_fingerprint: str
     encoder_contract_digest: str
 
@@ -223,7 +271,10 @@ def _configure_cpu(threads: int) -> None:
 
 
 def _load_records(
-    manifest_path: Path, split: str
+    manifest_path: Path,
+    split: str,
+    minimum_roots: int,
+    minimum_lineages: int,
 ) -> tuple[DatasetManifest, tuple[SymbolicTrainingRecord, ...]]:
     manifest = load_dataset_manifest(manifest_path, requested_split=split)
     records = tuple(read_jsonl(manifest_path.parent / manifest.shard_path))
@@ -231,6 +282,13 @@ def _load_records(
         raise ValueError("training dataset is empty")
     if any(record.record_version != 2 for record in records):
         raise ValueError("training requires record schema V2")
+    root_count = len(manifest.roots)
+    lineage_count = len({lineage for root in manifest.roots for lineage in root.lineages})
+    if root_count < minimum_roots or lineage_count < minimum_lineages:
+        raise ValueError(
+            "training corpus is below configured minimums: "
+            f"roots {root_count}/{minimum_roots}, lineages {lineage_count}/{minimum_lineages}"
+        )
     return manifest, records
 
 
@@ -258,8 +316,15 @@ def train_beam_clone(
     """Train through ``config.total_steps`` and atomically checkpoint every batch."""
 
     _configure_cpu(config.torch_threads)
-    manifest, records = _load_records(dataset_manifest_path, "train")
+    manifest, records = _load_records(
+        dataset_manifest_path,
+        "train",
+        config.minimum_roots,
+        config.minimum_lineages,
+    )
     source_digest = _source_digest()
+    runtime_identity = _runtime_identity()
+    runtime_identity_digest = _digest(runtime_identity)
     random.seed(config.seed)
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
@@ -276,6 +341,7 @@ def train_beam_clone(
             "root_manifest_digest": manifest.root_manifest_digest,
             "reward_config_digest": manifest.reward_config_digest,
             "source_digest": source_digest,
+            "runtime_identity_digest": runtime_identity_digest,
         }
         for name, expected_value in checks.items():
             if payload[name] != expected_value:
@@ -353,6 +419,8 @@ def train_beam_clone(
             "root_manifest_digest": manifest.root_manifest_digest,
             "reward_config_digest": manifest.reward_config_digest,
             "source_digest": source_digest,
+            "runtime_identity": runtime_identity,
+            "runtime_identity_digest": runtime_identity_digest,
             "vocabularies": vocabularies.to_dict(),
             "vocabulary_fingerprint": vocabularies.fingerprint,
             "encoder_contract_digest": encoder_contract_digest(vocabularies),
@@ -373,6 +441,7 @@ def train_beam_clone(
         checkpoint_path,
         global_step,
         tuple(metrics),
+        runtime_identity_digest,
         vocabularies.fingerprint,
         encoder_contract_digest(vocabularies),
     )
@@ -395,6 +464,10 @@ def evaluate_beam_clone(
         torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     )
     _configure_cpu(stored_config.torch_threads)
+    runtime_identity = _runtime_identity()
+    runtime_identity_digest = _digest(runtime_identity)
+    if payload["runtime_identity_digest"] != runtime_identity_digest:
+        raise ValueError("evaluation checkpoint runtime identity mismatch")
     if payload["source_digest"] != _source_digest():
         raise ValueError("evaluation checkpoint source digest mismatch")
     if payload["root_manifest_digest"] != manifest.root_manifest_digest:
@@ -449,6 +522,7 @@ def evaluate_beam_clone(
         "checkpoint_training_dataset_manifest_digest": payload["dataset_manifest_digest"],
         "checkpoint_training_dataset_shard_digest": payload["dataset_shard_digest"],
         "source_digest": payload["source_digest"],
+        "runtime_identity_digest": runtime_identity_digest,
         "vocabulary_fingerprint": payload["vocabulary_fingerprint"],
         "encoder_contract_digest": payload["encoder_contract_digest"],
         "reward_config_digest": manifest.reward_config_digest,

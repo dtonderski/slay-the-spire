@@ -82,6 +82,8 @@ def _training_config(args: argparse.Namespace) -> TrainingConfig:
         learning_rate=args.learning_rate,
         weight_decay=args.weight_decay,
         torch_threads=args.torch_threads,
+        minimum_roots=args.minimum_roots,
+        minimum_lineages=args.minimum_lineages,
         model_width=args.model_width,
         model_heads=args.model_heads,
         model_layers=args.model_layers,
@@ -100,6 +102,18 @@ def train_main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--torch-threads", type=int, default=1)
+    parser.add_argument(
+        "--minimum-roots",
+        type=int,
+        default=225,
+        help="versioned training corpus floor (default: 225; lower only for explicit tests/smoke)",
+    )
+    parser.add_argument(
+        "--minimum-lineages",
+        type=int,
+        default=100,
+        help="versioned lineage floor (default: 100; lower only for explicit tests/smoke)",
+    )
     parser.add_argument("--model-width", type=int, default=96)
     parser.add_argument("--model-heads", type=int, default=4)
     parser.add_argument("--model-layers", type=int, default=2)
@@ -116,6 +130,7 @@ def train_main(argv: Sequence[str] | None = None) -> int:
             {
                 "checkpoint": str(result.checkpoint_path),
                 "global_step": result.global_step,
+                "runtime_identity_digest": result.runtime_identity_digest,
                 "vocabulary_fingerprint": result.vocabulary_fingerprint,
                 "encoder_contract_digest": result.encoder_contract_digest,
                 "metrics": list(result.metrics),
