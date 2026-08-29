@@ -3938,6 +3938,7 @@ pub fn confirm_hand_select_with_time_warp_policy(
                 state,
                 hand_select.source_card_id,
                 hand_select.selected_hand_indices,
+                hand_select.dual_wield_force_exhaust,
             )?;
         }
         HandSelectPurpose::DualWieldCopy => {
@@ -4371,10 +4372,11 @@ fn partition_put_on_deck_source_pending(
     (before_source, after_source)
 }
 
-fn confirm_prepared_discard(
+pub(super) fn confirm_prepared_discard(
     state: &mut CombatState,
     source_card_id: CardId,
     selected_indices: Vec<usize>,
+    force_exhaust: bool,
 ) -> SimResult<()> {
     let source = state
         .piles
@@ -4385,9 +4387,9 @@ fn confirm_prepared_discard(
         .ok_or(SimError::IllegalAction("Prepared source card is missing"))?;
     let required = if source.upgrades > 0 { 2 } else { 1 };
     let selected_indices = unique_selected_indices_in_choice_order(selected_indices);
-    if selected_indices.len() != required {
+    if selected_indices.len() != required.min(state.piles.hand.len()) {
         return Err(SimError::IllegalAction(
-            "Prepared requires the exact discard count",
+            "Prepared requires the available discard count",
         ));
     }
     let selected_ids = selected_indices
@@ -4408,7 +4410,29 @@ fn confirm_prepared_discard(
         discard_follow_ups.extend(pile_actions::manual_discard_card(state, selected_id)?);
     }
     let source_definition = draw_select_source_definition(state, source_card_id)?;
-    move_draw_select_source_card(state, source_card_id, source_definition)?;
+    if force_exhaust {
+        let position = state
+            .piles
+            .limbo
+            .iter()
+            .position(|card| card.id == source_card_id)
+            .ok_or(SimError::IllegalAction("Prepared source card is missing"))?;
+        let source = state.piles.limbo.remove(position);
+        match forced_source_card_destination(state, source_definition) {
+            CardPile::ExhaustPile => {
+                state.piles.exhaust_pile.push(source);
+                apply_purity_card_exhausted(state, source_card_id)?;
+            }
+            CardPile::DiscardPile => state.piles.discard_pile.push(source),
+            CardPile::Hand | CardPile::DrawPile => {
+                return Err(SimError::InvalidState(
+                    "unexpected forced Prepared source destination",
+                ));
+            }
+        }
+    } else {
+        move_draw_select_source_card(state, source_card_id, source_definition)?;
+    }
     if !discard_follow_ups.is_empty() {
         let transition = process_internal_queue(state, discard_follow_ups)?;
         *state = transition.state;
@@ -4514,6 +4538,9 @@ pub fn confirm_draw_select(state: &mut CombatState) -> SimResult<usize> {
                 &draw_select.selected_draw_indices,
             )?;
             resume_actions_after_hand_select(state, draw_select.pending_actions)?;
+            if state.player.powers.nirvana > 0 {
+                apply_player_direct_block_gain(state, state.player.powers.nirvana)?;
+            }
             0
         }
     };
@@ -4598,9 +4625,6 @@ fn confirm_scry_select(
         state.piles.discard_pile.push(source);
     } else {
         move_draw_select_source_card(state, source_card_id, source_definition)?;
-    }
-    if state.player.powers.nirvana > 0 {
-        apply_player_direct_block_gain(state, state.player.powers.nirvana)?;
     }
     Ok(())
 }
@@ -7250,6 +7274,63 @@ mod tests {
             .hand
             .iter()
             .any(|card| card.id == CardId::new(11)));
+    }
+
+    #[test]
+    fn prepared_auto_discards_available_hand_and_settles_source() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), PREPARED_ANY_COLOR_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Prepared with no drawable or discardable cards should settle");
+
+        assert!(next.decision.is_none());
+        assert!(next.piles.hand.is_empty());
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(1)));
+    }
+
+    #[test]
+    fn havoc_prepared_selection_preserves_force_exhaust() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), HAVOC_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(3), PREPARED_ANY_COLOR_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc should open Prepared's discard selection");
+
+        assert!(next.hand_select().is_some());
+        choose_hand_select(&mut next, 0).expect("choose a Prepared discard");
+        confirm_hand_select(&mut next).expect("confirm Prepared discard");
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(3)));
     }
 
     #[test]

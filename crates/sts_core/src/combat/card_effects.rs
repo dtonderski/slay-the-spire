@@ -807,7 +807,8 @@ pub(super) fn play_top_draw_card_queue(
                         purpose: crate::combat::HandSelectPurpose::ForethoughtPutOnDraw
                             | crate::combat::HandSelectPurpose::ForethoughtPutAnyOnDraw
                             | crate::combat::HandSelectPurpose::WarcryPutOnDraw
-                            | crate::combat::HandSelectPurpose::ThinkingAheadPutOnDraw,
+                            | crate::combat::HandSelectPurpose::ThinkingAheadPutOnDraw
+                            | crate::combat::HandSelectPurpose::PreparedDiscard,
                     } if *source_card_id == card.id
                 )
             }));

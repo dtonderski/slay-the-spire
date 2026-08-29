@@ -170,6 +170,27 @@ pub(super) fn await_hand_select(
             state.piles.limbo.push(source);
         }
     }
+    if purpose == HandSelectPurpose::PreparedDiscard {
+        let required = state
+            .piles
+            .limbo
+            .iter()
+            .find(|card| card.id == source_card_id)
+            .map(|card| if card.upgrades > 0 { 2 } else { 1 })
+            .ok_or(SimError::IllegalAction("Prepared source card is missing"))?;
+        if state.piles.hand.len() <= required {
+            // DiscardAction auto-path uses CardGroup.getTopCard repeatedly.
+            let selected = (0..state.piles.hand.len()).rev().collect();
+            super::confirm_prepared_discard(
+                state,
+                source_card_id,
+                selected,
+                dual_wield_force_exhaust,
+            )?;
+            state.play_top_force_exhaust_active = false;
+            return Ok(Vec::new());
+        }
+    }
     state.decision = Some(CombatDecisionState::HandSelect {
         state: crate::combat::HandSelectState {
             purpose,
