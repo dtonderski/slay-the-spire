@@ -70,7 +70,9 @@ pub(super) fn await_hand_select(
     // HAND_SELECT frame for force-played Dual Wield (source already out of hand).
     // Hand-played Dual Wield still opens the select even with one eligible card.
     let mut dual_wield_restore_on_confirm = Vec::new();
-    let mut dual_wield_force_exhaust = false;
+    // This field also preserves the generic PlayTop force-exhaust marker while
+    // any source-delaying hand selection is open.
+    let mut dual_wield_force_exhaust = state.play_top_force_exhaust_active;
     if purpose == HandSelectPurpose::DualWieldCopy {
         let source_started_in_hand = state
             .piles
@@ -149,11 +151,14 @@ pub(super) fn await_hand_select(
     }
     if matches!(
         purpose,
-        HandSelectPurpose::WarcryPutOnDraw | HandSelectPurpose::ThinkingAheadPutOnDraw,
+        HandSelectPurpose::WarcryPutOnDraw
+            | HandSelectPurpose::ThinkingAheadPutOnDraw
+            | HandSelectPurpose::ForethoughtPutOnDraw
+            | HandSelectPurpose::ForethoughtPutAnyOnDraw,
     ) {
         // UseCardAction has already moved the source to limbo / cardInUse.
-        // Keeping a stand-in in hand makes a 10-card Warcry look full to
-        // Runic Cube's DrawCardAction after PutOnDeck (FIDL02183).
+        // The internal stand-in must leave hand while the screen is open so
+        // queued Runic Cube/Evolve draws see the target hand capacity.
         if let Some(index) = state
             .piles
             .hand
@@ -249,6 +254,44 @@ pub(super) fn await_discard_select(
     source_card_id: CardId,
     purpose: DiscardSelectPurpose,
 ) -> SimResult<Vec<crate::action::InternalAction>> {
+    if purpose == DiscardSelectPurpose::HologramReturnToHand {
+        let source_card = state
+            .piles
+            .hand
+            .iter()
+            .position(|card| card.id == source_card_id)
+            .map(|index| state.piles.hand.remove(index))
+            .ok_or(SimError::IllegalAction(
+                "Hologram source card is not in hand",
+            ))?;
+        let force_exhaust = state.play_top_force_exhaust_active;
+        if state.piles.discard_pile.is_empty() {
+            super::settle_hologram_source_after_discard_select(state, source_card, force_exhaust)?;
+            state.play_top_force_exhaust_active = false;
+            return Ok(Vec::new());
+        }
+        if state.piles.discard_pile.len() == 1 {
+            let selected = state.piles.discard_pile.remove(0);
+            state.piles.hand.push(selected);
+            super::settle_hologram_source_after_discard_select(state, source_card, force_exhaust)?;
+            state.play_top_force_exhaust_active = false;
+            return Ok(Vec::new());
+        }
+        state.decision = Some(CombatDecisionState::DiscardSelect {
+            state: crate::combat::DiscardSelectState {
+                purpose,
+                source_card_id: Some(source_card_id),
+                source_card: Some(source_card),
+                source_card_force_exhaust: force_exhaust,
+                selected_discard_indices: Vec::new(),
+                max_choices: 1,
+                selected_discard_index: None,
+                pending_actions: VecDeque::new(),
+            },
+        });
+        state.play_top_force_exhaust_active = false;
+        return Ok(Vec::new());
+    }
     if purpose == DiscardSelectPurpose::HeadbuttPutOnDraw {
         let source_card = if let Some(index) = state
             .piles

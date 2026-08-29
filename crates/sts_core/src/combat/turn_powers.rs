@@ -144,6 +144,15 @@ fn apply_player_end_of_turn_powers_for_combat_state(
                 "combat integer addition overflows i32",
             ))?;
     }
+    if state.player.powers.like_water > 0
+        && state.player.powers.calm > 0
+        && !state.time_warp_end_powers_applied
+    {
+        crate::combat::transition::apply_player_end_turn_automatic_block_gain(
+            state,
+            state.player.powers.like_water,
+        )?
+    }
     if state.player.powers.metallicize > 0 && !state.time_warp_end_powers_applied {
         crate::combat::transition::apply_player_end_turn_automatic_block_gain(
             state,
@@ -186,6 +195,9 @@ pub fn apply_player_end_of_turn_powers(player: &mut PlayerState) {
 pub fn apply_player_end_of_turn_powers_with_relics(player: &mut PlayerState, relics: &[Relic]) {
     if player.powers.ritual > 0 {
         player.powers.strength += player.powers.ritual;
+    }
+    if player.powers.like_water > 0 && player.powers.calm > 0 && player.no_block_turns == 0 {
+        player.block += player.powers.like_water;
     }
     if player.powers.metallicize > 0 && player.no_block_turns == 0 {
         player.block += player.powers.metallicize;

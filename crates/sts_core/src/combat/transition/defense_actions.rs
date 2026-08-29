@@ -128,6 +128,22 @@ pub(super) fn apply_weak(
     )
 }
 
+pub(super) fn apply_poison(
+    state: &mut CombatState,
+    target: MonsterId,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    let mut applied = false;
+    if let Some(monster) = living_monster_mut_opt(state, target) {
+        applied = crate::power::apply_monster_poison(&mut monster.powers, amount)?;
+    }
+    Ok(
+        sadistic_nature_follow_up_after_monster_debuff(state, target, applied)
+            .into_iter()
+            .collect(),
+    )
+}
+
 pub(super) fn reduce_strength(
     state: &mut CombatState,
     target: MonsterId,

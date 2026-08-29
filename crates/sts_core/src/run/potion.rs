@@ -401,11 +401,13 @@ pub fn apply_discard_select_choice(run: &RunState, index: usize) -> SimResult<Ru
         .ok_or(SimError::IllegalAction("no discard select is open"))?;
     let mut combat = next.combat.take().expect("validated combat");
     choose_discard_select(&mut combat, index)?;
-    if purpose == DiscardSelectPurpose::HeadbuttPutOnDraw
-        || (purpose == DiscardSelectPurpose::LiquidMemoriesReturnToHand
-            && combat
-                .discard_select()
-                .is_some_and(|select| select.max_choices == 1))
+    if matches!(
+        purpose,
+        DiscardSelectPurpose::HeadbuttPutOnDraw | DiscardSelectPurpose::HologramReturnToHand
+    ) || (purpose == DiscardSelectPurpose::LiquidMemoriesReturnToHand
+        && combat
+            .discard_select()
+            .is_some_and(|select| select.max_choices == 1))
     {
         let exhaust_before = combat.piles.exhaust_pile.len();
         let handled_dead_branch_count = confirm_discard_select(&mut combat)?;

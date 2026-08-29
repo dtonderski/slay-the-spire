@@ -51,6 +51,9 @@ pub struct PlayerPowers {
     /// block later Dexterity gains from cards.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub fasting: i32,
+    /// LikeWaterPower: block gained before end-turn cards while in Calm.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub like_water: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub rupture: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
@@ -390,6 +393,28 @@ pub fn apply_monster_vulnerable(powers: &mut MonsterPowers, amount: i32) -> SimR
             .ok_or(SimError::InvalidState(
                 "monster Vulnerable application overflows i32",
             ))?;
+        Ok(())
+    })
+}
+
+pub fn apply_monster_poison(powers: &mut MonsterPowers, amount: i32) -> SimResult<bool> {
+    apply_monster_debuff(powers, amount, |powers, amount| {
+        powers.poison = powers
+            .poison
+            .checked_add(amount)
+            .ok_or(SimError::InvalidState(
+                "monster Poison application overflows i32",
+            ))?;
+        Ok(())
+    })
+}
+
+pub fn apply_monster_mark(powers: &mut MonsterPowers, amount: i32) -> SimResult<bool> {
+    apply_monster_debuff(powers, amount, |powers, amount| {
+        powers.mark = powers
+            .mark
+            .checked_add(amount)
+            .ok_or(SimError::InvalidState("monster Mark overflows i32"))?;
         Ok(())
     })
 }

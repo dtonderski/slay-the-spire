@@ -318,9 +318,9 @@ pub struct HandSelectState {
     /// the rest of the fight (FIDL00242 Shame).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dual_wield_restore_on_confirm: Vec<CardInstance>,
-    /// Havoc/Mayhem/Distilled Chaos force-play exhausts Dual Wield even though the
-    /// card definition has no exhaust keyword (hand-play discards; FIDL00242 vs
-    /// trace-session-8).
+    /// Havoc/Mayhem/Distilled Chaos force-play exhausts a source card after a
+    /// delayed hand selection. Dual Wield also uses this marker for its
+    /// source-specific filtered-hand settlement.
     #[serde(default, skip_serializing_if = "is_false")]
     pub dual_wield_force_exhaust: bool,
 }
@@ -392,6 +392,7 @@ pub enum DiscardSelectPurpose {
     #[default]
     LiquidMemoriesReturnToHand,
     HeadbuttPutOnDraw,
+    HologramReturnToHand,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

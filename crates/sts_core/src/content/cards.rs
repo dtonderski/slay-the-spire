@@ -86,6 +86,16 @@ pub const DOPPELGANGER_ANY_COLOR_ID: ContentId = ContentId::new(1_794_712_432_59
 pub const BEAM_CELL_ANY_COLOR_ID: ContentId = ContentId::new(58_249_160_828_490);
 /// Prismatic/Watcher Fasting (`Fasting2`) — id matches `shop_card_content_id("FASTING")`.
 pub const FASTING_ANY_COLOR_ID: ContentId = ContentId::new(64_065_380_414);
+/// Prismatic/Watcher Like Water — id matches `shop_card_content_id("LIKE_WATER")`.
+pub const LIKE_WATER_ANY_COLOR_ID: ContentId = ContentId::new(2_073_799_815_892_135);
+/// Prismatic/Watcher Bowling Bash — id matches `shop_card_content_id("BOWLING_BASH")`.
+pub const BOWLING_BASH_ANY_COLOR_ID: ContentId = ContentId::new(1_744_077_256_449_579_371);
+/// Prismatic/Defect Compile Driver — id matches `shop_card_content_id("COMPILE_DRIVER")`.
+pub const COMPILE_DRIVER_ANY_COLOR_ID: ContentId = ContentId::new(3_124_526_947_660_741_164);
+/// Prismatic/Silent Poisoned Stab — id matches `shop_card_content_id("POISONED_STAB")`.
+pub const POISONED_STAB_ANY_COLOR_ID: ContentId = ContentId::new(9_742_157_098_010_927_154);
+/// Prismatic/Defect Hologram — id matches `shop_card_content_id("HOLOGRAM")`.
+pub const HOLOGRAM_ANY_COLOR_ID: ContentId = ContentId::new(2_053_271_977_081);
 /// Prismatic/Watcher Crush Joints — id matches `shop_card_content_id("CRUSH_JOINTS")`.
 pub const CRUSH_JOINTS_ANY_COLOR_ID: ContentId = ContentId::new(1_771_897_696_846_148_005);
 /// Prismatic/Watcher Evaluate — id matches `shop_card_content_id("EVALUATE")`.
@@ -5263,6 +5273,11 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | DOPPELGANGER_ANY_COLOR_ID
             | BEAM_CELL_ANY_COLOR_ID
             | FASTING_ANY_COLOR_ID
+            | LIKE_WATER_ANY_COLOR_ID
+            | BOWLING_BASH_ANY_COLOR_ID
+            | COMPILE_DRIVER_ANY_COLOR_ID
+            | POISONED_STAB_ANY_COLOR_ID
+            | HOLOGRAM_ANY_COLOR_ID
             | CRUSH_JOINTS_ANY_COLOR_ID
             | EVALUATE_ANY_COLOR_ID
             | BOOT_SEQUENCE_ANY_COLOR_ID
@@ -5916,6 +5931,97 @@ pub static FASTING_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static HOLOGRAM_ANY_COLOR: CardDefinition = CardDefinition {
+    id: HOLOGRAM_ANY_COLOR_ID,
+    key: "HOLOGRAM",
+    name: "Hologram",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(3),
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
+pub static POISONED_STAB_ANY_COLOR: CardDefinition = CardDefinition {
+    id: POISONED_STAB_ANY_COLOR_ID,
+    key: "POISONED_STAB",
+    name: "Poisoned Stab",
+    cost: 1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(6),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static COMPILE_DRIVER_ANY_COLOR: CardDefinition = CardDefinition {
+    id: COMPILE_DRIVER_ANY_COLOR_ID,
+    key: "COMPILE_DRIVER",
+    name: "Compile Driver",
+    cost: 1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(7),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static BOWLING_BASH_ANY_COLOR: CardDefinition = CardDefinition {
+    id: BOWLING_BASH_ANY_COLOR_ID,
+    key: "BOWLING_BASH",
+    name: "Bowling Bash",
+    cost: 1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(7),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static LIKE_WATER_ANY_COLOR: CardDefinition = CardDefinition {
+    id: LIKE_WATER_ANY_COLOR_ID,
+    key: "LIKE_WATER",
+    name: "Like Water",
+    cost: 1,
+    card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub static BEAM_CELL_ANY_COLOR: CardDefinition = CardDefinition {
     id: BEAM_CELL_ANY_COLOR_ID,
     key: "BEAM_CELL",
@@ -6385,6 +6491,11 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == GO_FOR_THE_EYES_ANY_COLOR_ID).then_some(&GO_FOR_THE_EYES_ANY_COLOR))
         .or_else(|| (id == BEAM_CELL_ANY_COLOR_ID).then_some(&BEAM_CELL_ANY_COLOR))
         .or_else(|| (id == FASTING_ANY_COLOR_ID).then_some(&FASTING_ANY_COLOR))
+        .or_else(|| (id == LIKE_WATER_ANY_COLOR_ID).then_some(&LIKE_WATER_ANY_COLOR))
+        .or_else(|| (id == BOWLING_BASH_ANY_COLOR_ID).then_some(&BOWLING_BASH_ANY_COLOR))
+        .or_else(|| (id == COMPILE_DRIVER_ANY_COLOR_ID).then_some(&COMPILE_DRIVER_ANY_COLOR))
+        .or_else(|| (id == POISONED_STAB_ANY_COLOR_ID).then_some(&POISONED_STAB_ANY_COLOR))
+        .or_else(|| (id == HOLOGRAM_ANY_COLOR_ID).then_some(&HOLOGRAM_ANY_COLOR))
         .or_else(|| (id == JUST_LUCKY_ANY_COLOR_ID).then_some(&JUST_LUCKY_ANY_COLOR))
         .or_else(|| (id == EMPTY_BODY_ANY_COLOR_ID).then_some(&EMPTY_BODY_ANY_COLOR))
         .or_else(|| (id == CRUSH_JOINTS_ANY_COLOR_ID).then_some(&CRUSH_JOINTS_ANY_COLOR))

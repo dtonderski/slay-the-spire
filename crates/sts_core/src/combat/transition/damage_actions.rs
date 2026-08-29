@@ -158,6 +158,27 @@ pub(super) fn deal_bane_damage_if_poisoned(
     deal_damage(state, info)
 }
 
+pub(super) fn trigger_marks(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
+    let marked = state
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive && monster.powers.mark > 0)
+        .map(|monster| (monster.id, monster.powers.mark))
+        .collect::<Vec<_>>();
+    let mut follow_ups = Vec::new();
+    for (target, amount) in marked {
+        let killed = {
+            let monster = living_monster_mut(state, target)?;
+            crate::combat::damage::deal_hp_loss_damage_to_monster(monster, amount);
+            !monster.alive
+        };
+        if killed {
+            follow_ups.extend(queue_monster_death_hooks(state, target)?);
+        }
+    }
+    Ok(follow_ups)
+}
+
 pub(super) fn deal_body_slam_damage(
     state: &mut CombatState,
     source: CardId,

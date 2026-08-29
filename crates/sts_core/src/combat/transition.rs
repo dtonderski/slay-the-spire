@@ -1350,13 +1350,15 @@ fn apply_internal_action_with_defer(
             defense_actions::apply_monster_vulnerable(state, target, amount)
         }
         InternalAction::ApplyMark { target, amount } => {
-            let monster = living_monster_mut(state, target)?;
-            monster.powers.mark = monster
-                .powers
-                .mark
-                .checked_add(amount)
-                .ok_or(SimError::InvalidState("monster Mark overflows i32"))?;
-            Ok(Vec::new())
+            let applied = {
+                let monster = living_monster_mut(state, target)?;
+                crate::power::apply_monster_mark(&mut monster.powers, amount)?
+            };
+            Ok(
+                sadistic_nature_follow_up_after_monster_debuff(state, target, applied)
+                    .into_iter()
+                    .collect(),
+            )
         }
         InternalAction::ApplyPlayerVulnerable { amount } => {
             defense_actions::apply_player_vulnerable(state, amount)
@@ -1364,6 +1366,10 @@ fn apply_internal_action_with_defer(
         InternalAction::ApplyWeak { target, amount } => {
             defense_actions::apply_weak(state, target, amount)
         }
+        InternalAction::ApplyPoison { target, amount } => {
+            defense_actions::apply_poison(state, target, amount)
+        }
+        InternalAction::TriggerMarks => damage_actions::trigger_marks(state),
         InternalAction::ReduceMonsterStrength { target, amount } => {
             defense_actions::reduce_strength(state, target, amount)
         }
@@ -1567,6 +1573,7 @@ fn apply_internal_action_with_defer(
         InternalAction::GainEvolve { amount } => player_actions::gain_evolve(state, amount),
         InternalAction::GainBerserk { amount } => player_actions::gain_berserk(state, amount),
         InternalAction::GainFasting { amount } => player_actions::gain_fasting(state, amount),
+        InternalAction::GainLikeWater { amount } => player_actions::gain_like_water(state, amount),
         InternalAction::GainRupture { amount } => player_actions::gain_rupture(state, amount),
         InternalAction::GainJuggernaut { amount } => player_actions::gain_juggernaut(state, amount),
         InternalAction::GainBrutality { amount } => player_actions::gain_brutality(state, amount),
@@ -3438,6 +3445,7 @@ fn is_play_top_deferred_power_gain(action: &InternalAction) -> bool {
             | InternalAction::GainEvolve { .. }
             | InternalAction::GainBerserk { .. }
             | InternalAction::GainFasting { .. }
+            | InternalAction::GainLikeWater { .. }
             | InternalAction::GainRupture { .. }
             | InternalAction::GainJuggernaut { .. }
             | InternalAction::GainBrutality { .. }
@@ -3934,6 +3942,7 @@ pub fn confirm_hand_select_with_time_warp_policy(
             state,
             hand_select.source_card_id,
             pending_after_source,
+            hand_select.dual_wield_force_exhaust,
         )?;
         state.defer_time_warp_end_turn = previous_defer_time_warp;
     } else {
@@ -4212,6 +4221,7 @@ pub fn confirm_hand_select_without_retrieval(state: &mut CombatState) -> SimResu
                 state,
                 hand_select.source_card_id,
                 pending_after_source,
+                hand_select.dual_wield_force_exhaust,
             )?;
             state.defer_time_warp_end_turn = previous_defer_time_warp;
             state.activate_next_queued_decision_if_idle();
@@ -4620,7 +4630,9 @@ pub(crate) fn move_delayed_played_source_with_strange_spoon(
     state: &mut CombatState,
     source_card_id: CardId,
 ) -> SimResult<()> {
-    move_delayed_played_source_with_exhaust_policy(state, source_card_id, false).map(|_| ())
+    let force_exhaust = state.play_top_force_exhaust_active;
+    move_delayed_played_source_with_exhaust_policy(state, source_card_id, false, force_exhaust)
+        .map(|_| ())
 }
 
 /// Put-on-deck CONFIRM: pending actions that were already behind UseCardAction
@@ -4631,10 +4643,11 @@ fn move_delayed_played_source_with_bot_exhaust_queue(
     state: &mut CombatState,
     source_card_id: CardId,
     mut pending_before_exhaust_callbacks: VecDeque<InternalAction>,
+    force_exhaust: bool,
 ) -> SimResult<usize> {
     let generated = state.relics.contains(&Relic::DeadBranch)
         && state.monsters.iter().any(|monster| monster.alive);
-    let destination = move_delayed_played_source(state, source_card_id)?;
+    let destination = move_delayed_played_source(state, source_card_id, force_exhaust)?;
     if destination == Some(CardPile::ExhaustPile) {
         pending_before_exhaust_callbacks.push_back(InternalAction::CardExhausted {
             card_id: source_card_id,
@@ -4650,8 +4663,10 @@ fn move_delayed_played_source_with_exhaust_policy(
     state: &mut CombatState,
     source_card_id: CardId,
     queue_bot_exhaust_follow_ups: bool,
+    force_exhaust: bool,
 ) -> SimResult<usize> {
-    let Some(destination) = move_delayed_played_source(state, source_card_id)? else {
+    let Some(destination) = move_delayed_played_source(state, source_card_id, force_exhaust)?
+    else {
         return Ok(0);
     };
     if destination != CardPile::ExhaustPile {
@@ -4676,6 +4691,7 @@ fn move_delayed_played_source_with_exhaust_policy(
 fn move_delayed_played_source(
     state: &mut CombatState,
     source_card_id: CardId,
+    force_exhaust: bool,
 ) -> SimResult<Option<CardPile>> {
     let source = if let Some(card) = state
         .piles
@@ -4709,7 +4725,11 @@ fn move_delayed_played_source(
     };
     let definition = get_card_definition(source.content_id)
         .ok_or(SimError::UnknownContent(source.content_id))?;
-    let destination = delayed_source_card_destination(state, definition);
+    let destination = if force_exhaust {
+        forced_source_card_destination(state, definition)
+    } else {
+        delayed_source_card_destination(state, definition)
+    };
     if !state
         .piles
         .hand
@@ -4727,6 +4747,9 @@ fn move_delayed_played_source(
         }
     }
     move_card(state, source_card_id, CardPile::Hand, destination)?;
+    if force_exhaust {
+        state.play_top_force_exhaust_active = false;
+    }
     Ok(Some(destination))
 }
 
@@ -4941,7 +4964,7 @@ fn confirm_forethought_select(
     if card_id == source_card_id {
         return Err(SimError::IllegalAction("cannot choose Forethought"));
     }
-    move_forethought_card_to_draw_bottom(state, source_card_id, card_id)
+    move_forethought_selected_card_to_draw_bottom(state, card_id)
 }
 
 fn confirm_forethought_multi_select(
@@ -4963,11 +4986,10 @@ fn confirm_forethought_multi_select(
         card_ids.push(card_id);
     }
 
-    let source_definition = forethought_source_definition(state, source_card_id)?;
     for card_id in card_ids {
         move_forethought_selected_card_to_draw_bottom(state, card_id)?;
     }
-    move_forethought_source_card(state, source_card_id, source_definition)
+    Ok(())
 }
 
 fn move_forethought_card_to_draw_bottom(
@@ -5377,7 +5399,50 @@ pub fn confirm_discard_select(state: &mut CombatState) -> SimResult<usize> {
             Ok(0)
         }
         DiscardSelectPurpose::HeadbuttPutOnDraw => confirm_headbutt_select(state),
+        DiscardSelectPurpose::HologramReturnToHand => confirm_hologram_select(state),
     }
+}
+
+fn confirm_hologram_select(state: &mut CombatState) -> SimResult<usize> {
+    let discard_select = state
+        .take_discard_select()
+        .ok_or(SimError::IllegalAction("no discard select is open"))?;
+    if discard_select.purpose != DiscardSelectPurpose::HologramReturnToHand {
+        return Err(SimError::IllegalAction("discard select purpose mismatch"));
+    }
+    let index = discard_select
+        .selected_discard_index
+        .ok_or(SimError::IllegalAction("discard select choice is required"))?;
+    if index >= state.piles.discard_pile.len() {
+        return Err(SimError::IllegalAction("discard select index out of range"));
+    }
+    let selected = state.piles.discard_pile.remove(index);
+    if state.piles.hand.len() < crate::combat::draw::MAX_HAND_SIZE {
+        state.piles.hand.push(selected);
+    } else {
+        state.piles.discard_pile.push(selected);
+    }
+    let source = discard_select.source_card.ok_or(SimError::IllegalAction(
+        "Hologram discard select is missing its source card",
+    ))?;
+    let dead_branch_count = settle_hologram_source_after_discard_select(
+        state,
+        source,
+        discard_select.source_card_force_exhaust,
+    )?;
+    state.play_top_force_exhaust_active = false;
+    resume_actions_after_discard_select(state, discard_select.pending_actions)?;
+    state.activate_next_queued_decision_if_idle();
+    Ok(dead_branch_count)
+}
+
+pub(super) fn settle_hologram_source_after_discard_select(
+    state: &mut CombatState,
+    source: CardInstance,
+    force_exhaust: bool,
+) -> SimResult<usize> {
+    let exhaust = force_exhaust || source.upgrades == 0;
+    settle_headbutt_source_after_discard_select(state, Some(source), exhaust)
 }
 
 pub fn confirm_headbutt_select(state: &mut CombatState) -> SimResult<usize> {
@@ -7385,9 +7450,10 @@ mod tests {
             .selected_hand_indices
             .clone();
         assert_eq!(selected.len(), 3, "selected={selected:?}");
-        // Hand keeps source Forethought at 0 (limbo/cardInUse may differ); selectable
-        // unselected slots are 1..4. CHOOSE 1 thrice → 2,3,4 not toggling slot 1.
-        assert_eq!(selected, vec![2, 3, 4]);
+        // Forethought is parked in limbo while the source selection is open.
+        // CHOOSE 1 thrice therefore maps to internal slots 1,2,3 as each prior
+        // selection disappears from the CommunicationMod choice list.
+        assert_eq!(selected, vec![1, 2, 3]);
     }
 
     #[test]

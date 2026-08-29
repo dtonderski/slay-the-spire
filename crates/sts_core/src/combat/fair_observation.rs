@@ -266,6 +266,7 @@ pub enum FairSelectionKind {
     Scry,
     LiquidMemoriesReturnToHand,
     HeadbuttPutOnDraw,
+    HologramReturnToHand,
     Exhaust,
     GamblingChip,
     ExhumeReturnToHand,
@@ -666,6 +667,7 @@ fn push_player_power_fields(result: &mut Vec<FairPower>, p: PlayerPowers) {
         ("evolve", p.evolve),
         ("berserk", p.berserk),
         ("fasting", p.fasting),
+        ("like_water", p.like_water),
         ("rupture", p.rupture),
         ("juggernaut", p.juggernaut),
         ("brutality", p.brutality),
@@ -1114,6 +1116,7 @@ fn discard_selection_kind(purpose: DiscardSelectPurpose) -> FairSelectionKind {
             FairSelectionKind::LiquidMemoriesReturnToHand
         }
         DiscardSelectPurpose::HeadbuttPutOnDraw => FairSelectionKind::HeadbuttPutOnDraw,
+        DiscardSelectPurpose::HologramReturnToHand => FairSelectionKind::HologramReturnToHand,
     }
 }
 

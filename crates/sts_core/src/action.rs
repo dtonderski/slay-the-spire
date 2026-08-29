@@ -371,6 +371,9 @@ pub enum InternalAction {
     GainFasting {
         amount: i32,
     },
+    GainLikeWater {
+        amount: i32,
+    },
     GainRupture {
         amount: i32,
     },
@@ -496,6 +499,11 @@ pub enum InternalAction {
         target: MonsterId,
         amount: i32,
     },
+    ApplyPoison {
+        target: MonsterId,
+        amount: i32,
+    },
+    TriggerMarks,
     CardExhausted {
         card_id: CardId,
     },

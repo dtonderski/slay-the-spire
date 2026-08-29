@@ -1309,6 +1309,20 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
             {
                 continue;
             }
+            if queued_turn == 0 && state.monsters[index].alive {
+                let poison = state.monsters[index].powers.poison;
+                if poison > 0 {
+                    crate::combat::damage::deal_hp_loss_damage_to_monster(
+                        &mut state.monsters[index],
+                        poison,
+                    );
+                    state.monsters[index].powers.poison = poison.saturating_sub(1);
+                    if !state.monsters[index].alive {
+                        crate::combat::transition::apply_monster_death_hooks(state, actor_id)?;
+                        continue;
+                    }
+                }
+            }
             clear_lagavulin_metallicize_if_awake(&mut state.monsters[index]);
             // Awakened One's first death queues the next-turn REBIRTH with
             // move byte 3 and Intent.UNKNOWN. Preserve that source state even
