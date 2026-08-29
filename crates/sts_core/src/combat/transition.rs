@@ -733,14 +733,16 @@ fn push_follow_up(
 
     if matches!(follow_up, InternalAction::DealPreparedDamage { .. }) {
         // AbstractCard calculates Hemokinesis damage before use() queues LoseHP.
-        // The prepared hit then remains inside the same card-use boundary: an
-        // ordinary play resolves it before source settlement, while a copied
-        // play resolves it before EndCopiedCardEffects and any later copy's
-        // target check or play triggers.
+        // Hemokinesis.use then addToBots LoseHP and Damage before UseCardAction
+        // invokes Rage/Ornamental Fan, so the prepared hit (and Spiker thorns)
+        // must resolve before attack-triggered block. A copied play likewise
+        // resolves it before EndCopiedCardEffects and any later copy.
         if let Some(index) = queue.iter().position(|action| {
             matches!(
                 action,
-                InternalAction::MoveCard { .. } | InternalAction::EndCopiedCardEffects
+                InternalAction::GainBlockDirect { .. }
+                    | InternalAction::MoveCard { .. }
+                    | InternalAction::EndCopiedCardEffects
             )
         }) {
             queue.insert(index, follow_up);
@@ -1986,12 +1988,12 @@ fn deal_attack_damage_to_all_living(
         .collect();
     let mut total_hp_damage = 0;
     let mut follow_ups = Vec::new();
+    let mut defeated_targets = Vec::new();
 
     for (target, monster_content_id, spikes) in targets {
-        // A lethal hit can trigger a group-specific death hook before a later
-        // all-enemy target in this snapshot resolves (for example,
-        // Reptomancer makes its Daggers flee). The target game skips that
-        // target instead of rejecting the whole all-enemy action.
+        // DamageAllEnemiesAction completes its indexed damage loop before the
+        // queued SuicideActions from Reptomancer.die run. Preserve the living
+        // target snapshot so later Daggers are still hit by the same action.
         let Some(monster) = living_monster_mut_opt(state, target) else {
             continue;
         };
@@ -2037,12 +2039,16 @@ fn deal_attack_damage_to_all_living(
         total_hp_damage += hp_damage;
         check_slime_boss_split(state, target);
         if !still_alive {
-            // Gremlin Horn resolves after the card's queued MoveCard action.
-            // This lets an empty-draw-pile shuffle include the card that dealt
-            // the lethal hit, matching the target action ordering.
-            follow_ups.extend(queue_monster_death_hooks(state, target)?);
+            defeated_targets.push(target);
         }
         apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+    }
+
+    for target in defeated_targets {
+        // Death callbacks are queued after the complete all-enemy damage loop.
+        // Gremlin Horn still resolves after the card's queued MoveCard action,
+        // letting an empty-draw-pile shuffle include the lethal source card.
+        follow_ups.extend(queue_monster_death_hooks(state, target)?);
     }
 
     Ok((total_hp_damage, follow_ups))
@@ -5675,7 +5681,7 @@ pub(crate) fn confirm_exhaust_select_with_dead_branch_count(
         state.defer_time_warp_end_turn = true;
     }
     let purpose = exhaust_select.purpose;
-    let pending_actions = exhaust_select.pending_actions.clone();
+    let mut pending_actions = exhaust_select.pending_actions.clone();
     // HandCardSelectScreen keeps the played source as target cardInUse while
     // selected-card callbacks, draws, Hex, and Dead Branch may allocate IDs.
     // Reserve that ID without duplicating the full card into a second pile.
@@ -5692,6 +5698,20 @@ pub(crate) fn confirm_exhaust_select_with_dead_branch_count(
         crate::combat::ExhaustSelectPurpose::BurningPactDraw2
             | crate::combat::ExhaustSelectPurpose::BurningPactDraw3
     );
+    let mut older_purity_thorns = VecDeque::new();
+    if purpose == crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3 {
+        // BeatOfDeathPower.onAfterUseCard was queued before the selection
+        // screen paused the manager. Purity's selected-card ExhaustAction runs
+        // first; the older Beat hit then precedes source-card exhaust/FNP.
+        pending_actions.retain(|action| {
+            if matches!(action, InternalAction::DealThornsDamageToPlayer { .. }) {
+                older_purity_thorns.push_back(*action);
+                false
+            } else {
+                true
+            }
+        });
+    }
     match purpose {
         crate::combat::ExhaustSelectPurpose::GamblingChip => {
             confirm_gambling_chip_select(state, exhaust_select.selected_hand_indices)?;
@@ -5700,7 +5720,7 @@ pub(crate) fn confirm_exhaust_select_with_dead_branch_count(
             confirm_exhume_select(state, exhaust_select)?;
         }
         crate::combat::ExhaustSelectPurpose::PurityExhaustUpTo3 => {
-            dead_branch_count = confirm_purity_select(state, exhaust_select)?;
+            dead_branch_count = confirm_purity_select(state, exhaust_select, older_purity_thorns)?;
         }
         crate::combat::ExhaustSelectPurpose::BurningPactDraw2 => {
             dead_branch_count = confirm_burning_pact_select(state, exhaust_select, 2)?;
@@ -6302,6 +6322,7 @@ fn apply_purity_card_exhausted(state: &mut CombatState, card_id: CardId) -> SimR
 fn confirm_purity_select(
     state: &mut CombatState,
     exhaust_select: crate::combat::ExhaustSelectState,
+    older_thorns: VecDeque<InternalAction>,
 ) -> SimResult<usize> {
     let source_card_id = exhaust_select
         .source_card_id
@@ -6350,6 +6371,10 @@ fn confirm_purity_select(
     for card in exhausted {
         state.piles.exhaust_pile.push(card);
         dead_branch_count += apply_purity_card_exhausted(state, card.id)?;
+    }
+    if !older_thorns.is_empty() {
+        let transition = process_internal_queue(state, older_thorns)?;
+        *state = transition.state;
     }
     if let Some(source_index) = state
         .piles

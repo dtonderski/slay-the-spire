@@ -293,8 +293,14 @@ fn validate_deck_derived_grid_payload(run: &RunState, grid: &CardGridScreen) -> 
         ),
         GridPurpose::NeowRemove { .. }
         | GridPurpose::NeowTransform { .. }
-        | GridPurpose::DollysMirror
-        | GridPurpose::Astrolabe => Some(run.deck.clone()),
+        | GridPurpose::DollysMirror => Some(run.deck.clone()),
+        GridPurpose::Astrolabe => Some(
+            run.deck
+                .iter()
+                .filter(|card| is_purgeable_card_content(card.content_id))
+                .copied()
+                .collect::<Vec<_>>(),
+        ),
         GridPurpose::Bottle { card_type } => {
             let mut cards = run
                 .deck
@@ -872,7 +878,14 @@ fn open_pandoras_box_grid_inner(run: &mut RunState) -> SimResult<()> {
 }
 
 pub fn open_astrolabe_grid(run: &mut RunState) -> SimResult<()> {
-    let cards = run.deck.clone();
+    // Astrolabe.onEquip builds its group from masterDeck.getPurgeableCards().
+    // Bottled cards remain eligible, but soulbound curses do not.
+    let cards = run
+        .deck
+        .iter()
+        .filter(|card| is_purgeable_card_content(card.content_id))
+        .copied()
+        .collect::<Vec<_>>();
     if cards.is_empty() {
         return Ok(());
     }
@@ -2500,6 +2513,30 @@ mod tests {
         assert_eq!(after_leave.deck.last().unwrap().content_id, expected);
         assert_eq!(after_leave.phase, RunPhase::Idle);
         assert!(after_leave.event.is_none());
+    }
+
+    #[test]
+    fn astrolabe_excludes_target_non_purgeable_cards() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Event;
+        run.event = Some(crate::run::event::event_screen(crate::Event::Neow));
+        run.relics.push(crate::Relic::Astrolabe);
+        run.gain_deck_card(ASCENDERS_BANE_ID)
+            .expect("Ascender's Bane can be added to the deck");
+        run.gain_deck_card(CURSE_OF_THE_BELL_ID)
+            .expect("Curse of the Bell can be added to the deck");
+        run.deck[0].bottled = true;
+        let bottled = run.deck[0];
+
+        open_astrolabe_grid(&mut run).expect("Astrolabe opens its grid");
+
+        let grid = run.card_grid.as_ref().expect("Astrolabe grid");
+        assert!(grid.cards.contains(&bottled));
+        assert!(grid
+            .cards
+            .iter()
+            .all(|card| !matches!(card.content_id, ASCENDERS_BANE_ID | CURSE_OF_THE_BELL_ID)));
+        run.validate().expect("Astrolabe grid is authoritative");
     }
 
     #[test]

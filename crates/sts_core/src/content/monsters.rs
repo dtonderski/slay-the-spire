@@ -10714,8 +10714,14 @@ fn apply_monster_intent_with_card_rng_inner(
             upgrade_burns_and_add_upgraded_to_discard(piles, count, allocated_card_id_through)?;
             let hit_damage =
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
-            let effective_hits =
-                apply_multi_hit_thorns(monster, total_thorns, hits, hit_damage, player_before);
+            let effective_hits = apply_multi_hit_thorns(
+                monster,
+                player.powers.thorns,
+                player.temp_thorns,
+                hits,
+                hit_damage,
+                player_before,
+            );
             set_effective_multi_hit_intent(
                 monster,
                 MonsterIntent::AttackMultipleUpgradeBurns {
@@ -10733,8 +10739,14 @@ fn apply_monster_intent_with_card_rng_inner(
         MonsterIntent::AttackMultiple { damage, hits } => {
             let hit_damage =
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
-            let effective_hits =
-                apply_multi_hit_thorns(monster, total_thorns, hits, hit_damage, player_before);
+            let effective_hits = apply_multi_hit_thorns(
+                monster,
+                player.powers.thorns,
+                player.temp_thorns,
+                hits,
+                hit_damage,
+                player_before,
+            );
             set_effective_multi_hit_intent(
                 monster,
                 MonsterIntent::AttackMultiple {
@@ -10751,8 +10763,14 @@ fn apply_monster_intent_with_card_rng_inner(
         MonsterIntent::AttackMultipleApplyPlayerWeak { damage, hits, weak } => {
             let hit_damage =
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
-            let effective_hits =
-                apply_multi_hit_thorns(monster, total_thorns, hits, hit_damage, player_before);
+            let effective_hits = apply_multi_hit_thorns(
+                monster,
+                player.powers.thorns,
+                player.temp_thorns,
+                hits,
+                hit_damage,
+                player_before,
+            );
             set_effective_multi_hit_intent(
                 monster,
                 MonsterIntent::AttackMultipleApplyPlayerWeak {
@@ -10774,8 +10792,14 @@ fn apply_monster_intent_with_card_rng_inner(
         } => {
             let hit_damage =
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
-            let effective_hits =
-                apply_multi_hit_thorns(monster, total_thorns, hits, hit_damage, player_before);
+            let effective_hits = apply_multi_hit_thorns(
+                monster,
+                player.powers.thorns,
+                player.temp_thorns,
+                hits,
+                hit_damage,
+                player_before,
+            );
             set_effective_multi_hit_intent(
                 monster,
                 MonsterIntent::AttackMultipleAddDazedToDiscard {
@@ -10812,10 +10836,17 @@ fn apply_monster_intent_with_card_rng_inner(
         player_can_revive || player_survives_monster_hit(player_before, damage, relics);
     if total_thorns > 0 && thorns_hits > 0 && !thorns_already_applied && player_survives_single_hit
     {
-        deal_unmodified_damage_to_monster(
-            monster,
-            checked_monster_intent_mul(total_thorns, thorns_hits)?,
-        );
+        // ThornsPower and FlameBarrierPower each queue their own DamageAction.
+        // Keep them separate so monster Intangible caps each reaction rather
+        // than capping their combined amount once.
+        for thorns in [player.powers.thorns, player.temp_thorns] {
+            if thorns > 0 {
+                deal_unmodified_damage_to_monster(
+                    monster,
+                    checked_monster_intent_mul(thorns, thorns_hits)?,
+                );
+            }
+        }
     }
     // Attack-then-block moves queue GainBlockAction after DamageAction.
     // A lethal hit opens the death screen and cancels that later block
@@ -10876,13 +10907,14 @@ fn player_survives_monster_hit(
 
 fn apply_multi_hit_thorns(
     monster: &mut MonsterState,
-    total_thorns: i32,
+    persistent_thorns: i32,
+    temporary_thorns: i32,
     hits: i32,
     hit_damage: i32,
     player_before: &crate::PlayerState,
 ) -> i32 {
     let hit_count = hits.max(1);
-    if total_thorns <= 0 {
+    if persistent_thorns <= 0 && temporary_thorns <= 0 {
         return hit_count;
     }
     if player_before.powers.static_discharge > 0 {
@@ -10905,13 +10937,20 @@ fn apply_multi_hit_thorns(
         remaining_hp -= hit_damage.saturating_sub(blocked);
         let player_survives_hit = hit_damage <= 0 || remaining_hp > 0;
         if player_survives_hit {
-            let hp_damage =
-                crate::combat::damage::deal_unmodified_damage_to_monster_deferred_guardian(
-                    monster,
-                    total_thorns,
-                );
-            if monster.content_id == GUARDIAN_ID {
-                guardian_accumulate_hp_damage(monster, hp_damage);
+            // Each power's onAttacked callback queues a distinct DamageAction.
+            // This is observable against Intangible monsters, which cap every
+            // reaction separately (Bronze Scales + Flame Barrier).
+            for thorns in [persistent_thorns, temporary_thorns] {
+                if thorns <= 0 {
+                    continue;
+                }
+                let hp_damage =
+                    crate::combat::damage::deal_unmodified_damage_to_monster_deferred_guardian(
+                        monster, thorns,
+                    );
+                if monster.content_id == GUARDIAN_ID {
+                    guardian_accumulate_hp_damage(monster, hp_damage);
+                }
             }
         }
     }

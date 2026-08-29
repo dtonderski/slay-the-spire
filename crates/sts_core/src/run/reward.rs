@@ -1438,6 +1438,14 @@ pub fn any_color_reward_card_key_from_identity(identity: &str) -> Option<&'stati
     if normalized == "steam" {
         normalized = "steambarrier".to_owned();
     }
+    // Desktop 1.0 retains pre-release cardIDs for these renamed cards.
+    // CripplingPoison.java uses `Crippling Poison`; Claw.java uses `Gash`.
+    if normalized == "cripplingpoison" {
+        normalized = "cripplingcloud".to_owned();
+    }
+    if normalized == "gash" {
+        normalized = "claw".to_owned();
+    }
     ANY_COLOR_COMMON_CARDS
         .iter()
         .chain(ANY_COLOR_UNCOMMON_CARDS.iter())
@@ -3017,6 +3025,18 @@ mod tests {
             .iter()
             .map(|choice| choice.content_id)
             .collect()
+    }
+
+    #[test]
+    fn any_color_identity_maps_desktop_legacy_card_ids() {
+        assert_eq!(
+            any_color_reward_card_key_from_identity("Crippling Poison"),
+            Some("CRIPPLING_CLOUD")
+        );
+        assert_eq!(
+            any_color_reward_card_key_from_identity("Gash"),
+            Some("CLAW")
+        );
     }
 
     #[test]

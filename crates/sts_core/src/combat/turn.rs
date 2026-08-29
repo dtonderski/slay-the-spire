@@ -185,6 +185,10 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
                 });
         if stone_calendar_would_finish {
             crate::relic::apply_end_of_player_turn_relics(&mut next)?;
+            // Calendar is a pre-hand relic trigger. End-turn curses already
+            // triggered by their powers still settle before the victory screen;
+            // Burn and later power hooks such as Combust remain canceled.
+            crate::combat::hand::apply_end_of_turn_curses_for_calendar_victory(&mut next)?;
             if finish_combat_if_over(&mut next, started_with_living_monster)? {
                 return Ok(next);
             }
@@ -260,7 +264,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         {
             // Constricted may already have run in before_hand when Combust was
             // also active (FIDL00440 ordering).
-            crate::combat::hand::apply_end_of_turn_burn_and_decay_for_bomb_victory(&mut next)?;
+            crate::combat::hand::apply_end_of_turn_autoplay_for_bomb_victory(&mut next)?;
             if !crate::combat::turn_powers::constricted_resolved_before_hand_with_combust(&next) {
                 crate::combat::turn_powers::apply_end_of_turn_constricted(&mut next)?;
             }

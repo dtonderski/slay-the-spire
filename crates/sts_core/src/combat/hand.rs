@@ -319,14 +319,30 @@ fn apply_end_turn_card_hp_loss_hooks_with_live_hand(
     Ok(settled)
 }
 
-/// `TheBombPower` can end combat in the pre-hand end-turn window. The target
-/// still plays Burn/Decay/Regret from `callEndOfTurnActions` before the bomb
-/// tick (FIDL01533 Burn; FIDL02376 Regret 5 then Burning Blood).
-pub(crate) fn apply_end_of_turn_burn_and_decay_for_bomb_victory(
+/// The Bomb can end combat while all status/curse CardQueueItems from
+/// `callEndOfTurnActions` still belong to the same turn queue.
+pub(crate) fn apply_end_of_turn_autoplay_for_bomb_victory(
     state: &mut CombatState,
 ) -> SimResult<()> {
     let hand_size = state.piles.hand.len() as i32;
     apply_end_of_turn_for_playing_cards_in_hand_order(state, hand_size, None, false)
+}
+
+/// Stone Calendar's lethal relic action clears queued Burn status plays, but
+/// already-triggered end-turn curses still resolve before victory publication
+/// (FIDL03064 Burns canceled; FIDL03098 Decay then Burning Blood).
+pub(crate) fn apply_end_of_turn_curses_for_calendar_victory(
+    state: &mut CombatState,
+) -> SimResult<()> {
+    let queued_curses = state
+        .piles
+        .hand
+        .iter()
+        .filter(|card| matches!(card.content_id, DECAY_ID | REGRET_ID | DOUBT_ID | SHAME_ID))
+        .map(|card| card.id)
+        .collect::<std::collections::HashSet<_>>();
+    let hand_size = state.piles.hand.len() as i32;
+    apply_end_of_turn_for_playing_cards_in_hand_order(state, hand_size, Some(&queued_curses), false)
 }
 
 pub(crate) fn exhaust_unplayed_ethereal_cards(
