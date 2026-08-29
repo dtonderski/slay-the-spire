@@ -499,11 +499,19 @@ pub enum InternalAction {
         target: MonsterId,
         amount: i32,
     },
+    ApplyWeakIfTargetAttacking {
+        target: MonsterId,
+        amount: i32,
+    },
     ApplyPoison {
         target: MonsterId,
         amount: i32,
     },
     TriggerMarks,
+    LoseMonsterHp {
+        target: MonsterId,
+        amount: i32,
+    },
     CardExhausted {
         card_id: CardId,
     },

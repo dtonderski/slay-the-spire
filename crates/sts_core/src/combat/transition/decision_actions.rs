@@ -271,8 +271,10 @@ pub(super) fn await_discard_select(
             return Ok(Vec::new());
         }
         if state.piles.discard_pile.len() == 1 {
-            let selected = state.piles.discard_pile.remove(0);
-            state.piles.hand.push(selected);
+            if state.piles.hand.len() < crate::combat::draw::MAX_HAND_SIZE {
+                let selected = state.piles.discard_pile.remove(0);
+                state.piles.hand.push(selected);
+            }
             super::settle_hologram_source_after_discard_select(state, source_card, force_exhaust)?;
             state.play_top_force_exhaust_active = false;
             return Ok(Vec::new());

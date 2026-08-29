@@ -1366,10 +1366,25 @@ fn apply_internal_action_with_defer(
         InternalAction::ApplyWeak { target, amount } => {
             defense_actions::apply_weak(state, target, amount)
         }
+        InternalAction::ApplyWeakIfTargetAttacking { target, amount } => {
+            let attacking = state
+                .monsters
+                .iter()
+                .find(|monster| monster.id == target && monster.alive)
+                .is_some_and(|monster| card_effects::monster_intent_is_attack(monster.intent));
+            if attacking {
+                defense_actions::apply_weak(state, target, amount)
+            } else {
+                Ok(Vec::new())
+            }
+        }
         InternalAction::ApplyPoison { target, amount } => {
             defense_actions::apply_poison(state, target, amount)
         }
         InternalAction::TriggerMarks => damage_actions::trigger_marks(state),
+        InternalAction::LoseMonsterHp { target, amount } => {
+            damage_actions::lose_monster_hp(state, target, amount)
+        }
         InternalAction::ReduceMonsterStrength { target, amount } => {
             defense_actions::reduce_strength(state, target, amount)
         }
@@ -5441,7 +5456,11 @@ pub(super) fn settle_hologram_source_after_discard_select(
     source: CardInstance,
     force_exhaust: bool,
 ) -> SimResult<usize> {
-    let exhaust = force_exhaust || source.upgrades == 0;
+    let definition = get_card_definition(source.content_id)
+        .ok_or(SimError::UnknownContent(source.content_id))?;
+    let corruption_exhausts =
+        definition.card_type == CardType::Skill && state.player.powers.corruption > 0;
+    let exhaust = force_exhaust || source.upgrades == 0 || corruption_exhausts;
     settle_headbutt_source_after_discard_select(state, Some(source), exhaust)
 }
 
@@ -6962,6 +6981,185 @@ mod tests {
                 "max orb slot increase overflows i32"
             ))
         );
+    }
+
+    #[test]
+    fn top_played_hologram_defers_source_settlement_until_discard_choice() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), HAVOC_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(3), HOLOGRAM_ANY_COLOR_ID)];
+        state.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(4), DEFEND_R_ID),
+            CardInstance::new(CardId::new(5), BASH_ID),
+        ];
+        state.piles.exhaust_pile.clear();
+
+        let mut next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc should open Hologram's discard selection");
+
+        assert!(next.discard_select().is_some());
+        choose_discard_select(&mut next, 0).expect("choose a discard card");
+        confirm_discard_select(&mut next).expect("confirm Hologram selection");
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(3)));
+    }
+
+    #[test]
+    fn corruption_exhausts_upgraded_hologram_after_singleton_retrieval() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.player.powers.corruption = 1;
+        let mut hologram = CardInstance::new(CardId::new(1), HOLOGRAM_ANY_COLOR_ID);
+        hologram.upgrades = 1;
+        state.piles.hand = vec![hologram];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(2), DEFEND_R_ID)];
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Corruption Hologram+ should auto-return the singleton discard");
+
+        assert_eq!(next.piles.hand.len(), 1);
+        assert_eq!(next.piles.hand[0].id, CardId::new(2));
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(1)));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(1)));
+    }
+
+    #[test]
+    fn mayhem_hologram_does_not_overfill_a_full_hand_on_singleton_return() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = (1..=10)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(11), HOLOGRAM_ANY_COLOR_ID)];
+        state.piles.discard_pile = vec![CardInstance::new(CardId::new(12), DEFEND_R_ID)];
+        state.piles.exhaust_pile.clear();
+
+        let next = process_internal_queue(
+            &state,
+            VecDeque::from([InternalAction::PlayTopDrawCard {
+                target: Some(state.monsters[0].id),
+                exhaust_played_card: false,
+                random_living_target: false,
+            }]),
+        )
+        .expect("Mayhem should settle top-played Hologram")
+        .state;
+
+        assert_eq!(next.piles.hand.len(), crate::combat::draw::MAX_HAND_SIZE);
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(12)));
+    }
+
+    #[test]
+    fn go_for_the_eyes_checks_live_complete_attack_intent_after_damage() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.monsters[0].intent = crate::MonsterIntent::AttackApplyPlayerVulnerable {
+            damage: 6,
+            vulnerable: 2,
+        };
+        state.piles.hand = vec![CardInstance::new(
+            CardId::new(1),
+            GO_FOR_THE_EYES_ANY_COLOR_ID,
+        )];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(state.monsters[0].id),
+            },
+        )
+        .expect("Go for the Eyes should resolve");
+        assert_eq!(next.monsters[0].powers.weak, 1);
+
+        let mut shifted = state;
+        shifted.monsters[0] = monster_state(&GUARDIAN_A0, shifted.monsters[0].id);
+        shifted.monsters[0].hp = 100;
+        shifted.monsters[0].max_hp = 100;
+        shifted.monsters[0].intent = crate::MonsterIntent::Attack { damage: 9 };
+        shifted.monsters[0].mode_shift = 1;
+        let shifted = apply_combat_action(
+            &shifted,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(shifted.monsters[0].id),
+            },
+        )
+        .expect("Go for the Eyes should trigger Guardian mode shift");
+        // Guardian queues Defensive Mode behind ForTheEyesAction, so the live
+        // intent check still sees the attack before the queued mode shift runs.
+        assert_eq!(shifted.monsters[0].powers.weak, 1);
+        assert!(shifted.monsters[0].in_defensive_mode);
+    }
+
+    #[test]
+    fn pressure_points_queues_mark_loss_after_source_move_and_sadistic_damage() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 3;
+        state.player.powers.sadistic_nature = 1;
+        state.relics.push(Relic::GremlinHorn);
+        state
+            .monsters
+            .push(monster_state(&JAW_WORM_A0, crate::MonsterId::new(2)));
+        state.monsters[0].hp = 6;
+        state.monsters[0].max_hp = 6;
+        state.piles.hand = (1..=9)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        state.piles.hand.push(CardInstance::new(
+            CardId::new(10),
+            PRESSURE_POINTS_ANY_COLOR_ID,
+        ));
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(11), DEFEND_R_ID)];
+        state.piles.discard_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(10),
+                target: Some(state.monsters[0].id),
+            },
+        )
+        .expect("Pressure Points should resolve queued Mark loss");
+
+        assert!(!next.monsters[0].alive);
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(11)));
     }
 
     #[test]

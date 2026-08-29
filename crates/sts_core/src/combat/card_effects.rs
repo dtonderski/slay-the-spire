@@ -72,7 +72,7 @@ use crate::{
     },
     ids::{CardId, ContentId, MonsterId},
     relic::{strike_damage_with_relics, Relic, CHEMICAL_X_BONUS_X},
-    CardInstance, MonsterIntent, SimError, SimResult,
+    CardInstance, SimError, SimResult,
 };
 use std::collections::VecDeque;
 
@@ -747,7 +747,8 @@ pub(super) fn play_top_draw_card_queue(
             action,
             InternalAction::AwaitDiscardSelect {
                 source_card_id,
-                purpose: crate::combat::DiscardSelectPurpose::HeadbuttPutOnDraw,
+                purpose: crate::combat::DiscardSelectPurpose::HeadbuttPutOnDraw
+                    | crate::combat::DiscardSelectPurpose::HologramReturnToHand,
             } if *source_card_id == card.id
         ) || matches!(
             action,
@@ -1288,7 +1289,9 @@ fn action_required_living_target(action: InternalAction) -> Option<MonsterId> {
         | InternalAction::ReduceMonsterStrength { target, .. }
         | InternalAction::ReduceMonsterStrengthThisTurn { target, .. }
         | InternalAction::DealUnmodifiedDamage { target, .. }
-        | InternalAction::ApplyWeak { target, .. } => Some(target),
+        | InternalAction::ApplyWeak { target, .. }
+        | InternalAction::ApplyWeakIfTargetAttacking { target, .. }
+        | InternalAction::LoseMonsterHp { target, .. } => Some(target),
         _ => None,
     }
 }
@@ -3320,7 +3323,7 @@ fn crush_joints_queue(
 }
 
 fn go_for_the_eyes_queue(
-    state: &CombatState,
+    _state: &CombatState,
     card_id: CardId,
     target: MonsterId,
     card: CardInstance,
@@ -3329,11 +3332,6 @@ fn go_for_the_eyes_queue(
     let damage = definition.values.damage.ok_or(SimError::InvalidState(
         "Go for the Eyes definition is missing damage",
     ))? + if card.upgrades > 0 { 1 } else { 0 };
-    let apply_weak = state
-        .monsters
-        .iter()
-        .find(|monster| monster.id == target)
-        .is_some_and(|monster| monster_intent_is_attack(monster.intent));
     let mut queue = VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
@@ -3347,12 +3345,10 @@ fn go_for_the_eyes_queue(
             },
         },
     ]);
-    if apply_weak {
-        queue.push_back(InternalAction::ApplyWeak {
-            target,
-            amount: if card.upgrades > 0 { 2 } else { 1 },
-        });
-    }
+    queue.push_back(InternalAction::ApplyWeakIfTargetAttacking {
+        target,
+        amount: if card.upgrades > 0 { 2 } else { 1 },
+    });
     queue.push_back(InternalAction::MoveCard {
         card_id,
         from: CardPile::Hand,
@@ -3870,22 +3866,29 @@ fn fear_no_evil_queue(
     Ok(queue)
 }
 
-fn monster_intent_is_attack(intent: crate::MonsterIntent) -> bool {
+pub(crate) fn monster_intent_is_attack(intent: crate::MonsterIntent) -> bool {
     use crate::MonsterIntent as I;
-    matches!(
-        intent,
+    match intent {
         I::Attack { .. }
-            | I::AttackMultiple { .. }
-            | I::AttackAndBlock { .. }
-            | I::AttackApplyPlayerWeak { .. }
-            | I::AttackMultipleApplyPlayerWeak { .. }
-            | I::AttackAddVoidToDraw { .. }
-            | I::AttackMultipleAddDazedToDiscard { .. }
-            | I::AttackAddSlimedToDiscard { .. }
-            | I::AttackAddWoundsToDiscard { .. }
-            | I::AttackStealGold { .. }
-            | I::AttackMultipleUpgradeBurns { .. }
-    )
+        | I::AttackMultiple { .. }
+        | I::AttackApplyPlayerWeak { .. }
+        | I::AttackApplyPlayerVulnerable { .. }
+        | I::AttackApplyPlayerWeakAndVulnerable { .. }
+        | I::AttackApplyPlayerFrailAndVulnerable { .. }
+        | I::AttackApplyPlayerFrailAndWeak { .. }
+        | I::AttackApplyPlayerFrail { .. }
+        | I::AttackHealSelf { .. }
+        | I::AttackMultipleApplyPlayerWeak { .. }
+        | I::AttackAddVoidToDraw { .. }
+        | I::AttackMultipleAddDazedToDiscard { .. }
+        | I::AttackAddSlimedToDiscard { .. }
+        | I::AttackAddWoundsToDiscard { .. }
+        | I::AttackStealGold { .. }
+        | I::AttackMultipleUpgradeBurns { .. }
+        | I::AddBurnToDiscardAndDraw { .. } => true,
+        I::AttackAndBlock { damage, .. } | I::AddBurnToDiscard { damage, .. } => damage > 0,
+        _ => false,
+    }
 }
 
 fn darkness_queue(
@@ -6292,31 +6295,9 @@ fn monster_intends_attack(state: &CombatState, target: MonsterId) -> bool {
         .find(|monster| monster.id == target && monster.alive)
         .is_some_and(|monster| {
             // Mirror AbstractMonster.isAttacking / CM attack intent buckets.
-            // AttackAddVoidToDraw is Awakened One Sludge (ATTACK_DEBUFF).
-            // Nemesis pure burn: AddBurnToDiscard { damage: 0 } → DEBUFF (FIDL00395).
-            // Time Eater Ripple: AttackAndBlock { damage: 0 } → DEFEND_DEBUFF (FIDL00402).
-            match monster.intent {
-                MonsterIntent::Attack { .. }
-                | MonsterIntent::AttackApplyPlayerWeak { .. }
-                | MonsterIntent::AttackApplyPlayerFrail { .. }
-                | MonsterIntent::AttackApplyPlayerVulnerable { .. }
-                | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { .. }
-                | MonsterIntent::AttackApplyPlayerFrailAndVulnerable { .. }
-                | MonsterIntent::AttackApplyPlayerFrailAndWeak { .. }
-                | MonsterIntent::AttackHealSelf { .. }
-                | MonsterIntent::AttackAddWoundsToDiscard { .. }
-                | MonsterIntent::AttackAddSlimedToDiscard { .. }
-                | MonsterIntent::AttackAddVoidToDraw { .. }
-                | MonsterIntent::AttackMultiple { .. }
-                | MonsterIntent::AttackStealGold { .. }
-                | MonsterIntent::AddBurnToDiscardAndDraw { .. }
-                | MonsterIntent::AttackMultipleUpgradeBurns { .. }
-                | MonsterIntent::AttackMultipleApplyPlayerWeak { .. }
-                | MonsterIntent::AttackMultipleAddDazedToDiscard { .. } => true,
-                MonsterIntent::AttackAndBlock { damage, .. } => damage > 0,
-                MonsterIntent::AddBurnToDiscard { damage, .. } => damage > 0,
-                _ => false,
-            }
+            // Nemesis pure burn and Time Eater Ripple carry zero damage and are
+            // DEBUFF / DEFEND_DEBUFF rather than attacks.
+            monster_intent_is_attack(monster.intent)
         })
 }
 
@@ -6326,6 +6307,7 @@ mod tests {
     use crate::combat::CombatState;
     use crate::content::monsters::NEMESIS_ID;
     use crate::ids::MonsterId;
+    use crate::MonsterIntent;
 
     #[test]
     fn havoc_always_extracts_top_before_outer_source_settlement() {
