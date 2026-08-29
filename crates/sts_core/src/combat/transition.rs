@@ -11222,6 +11222,35 @@ mod tests {
     }
 
     #[test]
+    fn whirlwind_blocked_hits_only_trigger_malleable_after_hp_loss() {
+        let target = MonsterId::new(1);
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![monster_state(&SNAKE_PLANT_A0, target)];
+        state.monsters[0].hp = 56;
+        state.monsters[0].block = 15;
+        state.monsters[0].powers.malleable = 3;
+        state.monsters[0].powers.malleable_base = 3;
+        state.player.energy = 4;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), WHIRLWIND_ID)];
+        state.piles.draw_pile.clear();
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Whirlwind should play");
+
+        assert_eq!(next.monsters[0].hp, 51);
+        assert_eq!(next.monsters[0].block, 3);
+        assert_eq!(next.monsters[0].powers.malleable, 4);
+    }
+
+    #[test]
     fn whirlwind_resolves_all_hits_before_malleable_block() {
         let target = MonsterId::new(1);
         let mut state = CombatState::initial_fixture();

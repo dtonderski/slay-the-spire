@@ -772,9 +772,13 @@ pub(super) fn deal_damage_all_repeated(
             continue;
         }
         if let Some(monster) = living_monster_mut_opt(state, target) {
-            if monster.powers.malleable > malleable {
-                monster.powers.malleable = malleable + times;
-                let block = (0..times).map(|offset| malleable + offset).sum();
+            let triggers = monster.powers.malleable.saturating_sub(malleable);
+            if triggers > 0 {
+                // MalleablePower.onAttacked receives the unblocked HP damage
+                // for each DamageAction. Fully blocked Whirlwind hits do not
+                // trigger it; only the hits that actually advanced the power
+                // contribute queued block.
+                let block = (0..triggers).map(|offset| malleable + offset).sum();
                 follow_ups.push(InternalAction::GainMonsterBlock {
                     target,
                     amount: block,
