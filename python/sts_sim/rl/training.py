@@ -82,7 +82,7 @@ def _atomic_torch_save(path: Path, payload: dict[str, object]) -> None:
 def _source_digest() -> str:
     """Attest the complete checkout and the exact loaded native extension bytes."""
 
-    repository_root = Path(__file__).resolve().parents[4]
+    repository_root = Path(__file__).resolve().parents[3]
     repository = capture_repository_version(repository_root, allow_dirty=True)
     native_path = Path(_native.__file__)
     payload = {

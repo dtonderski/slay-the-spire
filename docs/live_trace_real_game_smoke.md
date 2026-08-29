@@ -39,9 +39,10 @@ control.
 
 ## Commands
 
-Build and start the backend:
+Build the UI, then start the backend from the repository root:
 
 ```bash
+(cd apps/sts_live/ui && npm install && npm run build)
 cargo run -p sts_live --bin live-trace -- serve --addr 127.0.0.1:8800
 ```
 

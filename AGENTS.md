@@ -1,9 +1,8 @@
 # Agent Rules
 
 These rules apply to any coding agent working in this repository, including
-Rust code under `crates/`, bindings under `bindings/`, and live tooling under
-`apps/`. `simulator/AGENTS.md` adds rules only for the Python, verification,
-documentation, and other content that temporarily remains under `simulator/`.
+Rust code under `crates/`, bindings under `bindings/`, live tooling under
+`apps/`, Python under `python/`, and verification under `verification/`.
 
 `PROJECT_OVERVIEW.md` has the project purpose, phase roadmap, and the
 fair/hidden/omniscient state boundary.
@@ -21,8 +20,12 @@ fair/hidden/omniscient state boundary.
   reports green forever. Repair simulator behavior and replay the unchanged
   payload.
 - Never add seed-specific behavior to implementation code: no `if seed == ...`,
-  no trace identity tables, no hardcoded RNG counters, no per-trace allowlists.
-  Fixed seeds are fine in tests and corpus metadata.
+  trace identity tables, hardcoded RNG counters or content identities, or
+  per-trace allowlists. This applies to core, verifier/replay, live, and Python
+  orchestration code. Fixed seeds are allowed only as ordinary deterministic
+  fixtures in tests, documentation, and corpus metadata. Diagnostics may report
+  observed identities and inferred counters but must never use them to alter
+  authoritative replay behavior.
 - Never make a diff pass by excluding gameplay-affecting state, and never claim
   real-game parity without a real-game trace.
 - Never implement a successful gameplay transition by applying effects in the
@@ -63,7 +66,9 @@ The inner loop is the Rust verifier, not the UI:
 - Cargo runs from the repository root. Gate work on `cargo fmt`,
   `cargo clippy`, `cargo test`, and don't start new work with tests failing.
   Use `cargo check -p sts_core --lib` and `cargo check -p sts_verify --lib` for
-  fast feedback.
+  fast feedback. `sts_verify status` defaults to
+  `verification/corpus/permanent_traces/` and caps at 24 workers, bounded by
+  available CPUs.
 - Python and PyO3 go through `uv`, e.g.
   `uv run --python 3.12 cargo test --workspace`. There is no system
   `python`/`pip`, and its absence is not a blocker.
@@ -76,11 +81,11 @@ The inner loop is the Rust verifier, not the UI:
   active CommunicationMod `tools/communication/session`. Not PowerShell, not
   handcrafted TCP. A sandboxed port check cannot prove the Windows game is
   stopped; use `live-trace bridges list`.
-- `simulator/verification/corpus/permanent_traces/` is the gitignored active
+- `verification/corpus/permanent_traces/` is the gitignored active
   authoritative corpus. The private `dtonderski/sts-permanent-traces` Hugging
   Face dataset mirrors the current reviewed cohort. The 602 pre-collection.2
   payloads remain a local legacy archive and must not be copied back into the
-  active gate. Details are in `simulator/docs/verification.md`.
+  active gate. Details are in `docs/verification.md`.
 - Keep searches targeted. `tmp/decompiled-sts/`, when extracted, is a huge
   uncommitted decompiled-source corpus: search one package path such as
   `com/megacrit/cardcrawl/monsters/`, never the whole tree.
@@ -135,8 +140,5 @@ plus the `milestone*` tests.
   `rng::tests::rng_trace_capture_restores_disabled_fast_path_after_panic` (it
   asserts on the process-global `RNG_TRACE_ACTIVE` counter). Run it in isolation
   or with `-- --test-threads=1`; it is a harness race, not a simulator bug.
-- Two `py_sts` failures are pre-existing in a clean checkout, not setup breakage:
-  `pytest test_content_catalogues_are_complete_python_enums` (its hardcoded card
-  count is stale vs. the catalogue) and a Ruff `F401` in
-  `python/notebooks/fair_combat_playground.ipynb`. `ty check` and the rest of
-  `pytest` pass.
+- A Ruff `F401` in `python/notebooks/fair_combat_playground.ipynb` is
+  pre-existing in a clean checkout. `ty check` and pytest otherwise pass.

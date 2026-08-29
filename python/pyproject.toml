@@ -30,7 +30,7 @@ dev = [
 ]
 
 [tool.maturin]
-manifest-path = "../../bindings/py_sts/Cargo.toml"
+manifest-path = "../bindings/py_sts/Cargo.toml"
 python-source = "."
 module-name = "sts_sim._native"
 features = ["extension-module"]

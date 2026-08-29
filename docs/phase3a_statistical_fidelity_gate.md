@@ -3,7 +3,7 @@
 Status: **adopted design; tooling incomplete; gate not yet met**
 Date: 2026-07-31
 Scope: Ironclad A0 strict seed-start parity against the pinned target game
-Related: [`verification.md`](verification.md), [`../../PROJECT_OVERVIEW.md`](../../PROJECT_OVERVIEW.md)
+Related: [`verification.md`](verification.md), [`PROJECT_OVERVIEW.md`](../PROJECT_OVERVIEW.md)
 
 ## The answer in plain English
 

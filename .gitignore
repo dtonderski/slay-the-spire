@@ -67,23 +67,23 @@ live_traces_codex/
 .codex/
 
 # Full verification payloads and generated corpus bookkeeping are external.
-simulator/verification/corpus/permanent_traces/
-simulator/verification/corpus/legacy_pre_collection_2/*
-!simulator/verification/corpus/legacy_pre_collection_2/quarantine.txt
-simulator/verification/corpus/legacy_schema5_pilot/
-simulator/verification/corpus/legacy_schema6_initial_pilot/
-simulator/verification/corpus/.hf_download_cache/
-simulator/verification/corpus/open_failures/
-simulator/verification/corpus/quarantined_traces/
-simulator/verification/corpus/live_trace_fixtures/
-simulator/verification/corpus/communication_mod/
-simulator/verification/schema_*_archive_*/
+verification/corpus/permanent_traces/
+verification/corpus/legacy_pre_collection_2/*
+!verification/corpus/legacy_pre_collection_2/quarantine.txt
+verification/corpus/legacy_schema5_pilot/
+verification/corpus/legacy_schema6_initial_pilot/
+verification/corpus/.hf_download_cache/
+verification/corpus/open_failures/
+verification/corpus/quarantined_traces/
+verification/corpus/live_trace_fixtures/
+verification/corpus/communication_mod/
+verification/schema_*_archive_*/
 agent_logs/
 random_traces_loop/
 
 # Native extension build product
-simulator/python/sts_sim/*.so
-simulator/python/sts_sim/__pycache__/
+python/sts_sim/*.so
+python/sts_sim/__pycache__/
 
 # Local mod build symlinks / launcher
 mods/lib/

@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
-# Per-boot runtime step. The Rust workspace is rooted at the repository root;
-# verification data remains under simulator/ during the staged physical move.
-# Download the current reviewed permanent corpus when the runtime-only Hugging
-# Face read token is available.
+# Per-boot runtime step. Download the current reviewed permanent corpus when
+# the runtime-only Hugging Face read token is available.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root" || exit 1
 
-active_corpus="$repo_root/simulator/verification/corpus/permanent_traces"
+active_corpus="$repo_root/verification/corpus/permanent_traces"
 mkdir -p "$active_corpus"
 
 if [[ -n "${HF_TOKEN:-}" ]]; then

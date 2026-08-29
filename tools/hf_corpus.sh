@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-corpus_dir="${STS_PERMANENT_CORPUS_DIR:-$repo_root/simulator/verification/corpus/permanent_traces}"
+corpus_dir="${STS_PERMANENT_CORPUS_DIR:-$repo_root/verification/corpus/permanent_traces}"
 
 die() {
   printf 'error: %s\n' "$*" >&2

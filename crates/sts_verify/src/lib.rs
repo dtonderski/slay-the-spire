@@ -53,14 +53,9 @@ pub fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// Temporary root for data and docs that still live under `simulator/`.
-pub fn simulator_root() -> PathBuf {
-    repo_root().join("simulator")
-}
-
-/// Path under `simulator/verification/corpus/` until the data move completes.
+/// Path under the repository-owned `verification/corpus/` directory.
 pub fn corpus_path(relative: impl AsRef<Path>) -> PathBuf {
-    simulator_root().join("verification/corpus").join(relative)
+    repo_root().join("verification/corpus").join(relative)
 }
 
 /// Load file contents when present; returns `None` if the path does not exist.

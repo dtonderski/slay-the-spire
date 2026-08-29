@@ -306,7 +306,7 @@ def generate_legal_roots(
         raise TypeError("audited materialization flag must be boolean")
     _require_empty_output_dir(output_dir)
     if repository_root is None:
-        repository_root = Path(__file__).resolve().parents[4]
+        repository_root = Path(__file__).resolve().parents[3]
     repository = capture_repository_version(repository_root, allow_dirty=True)
     source_digest = _sha256_bytes(_canonical_bytes(repository.to_dict()))
     root_payloads: dict[str, tuple[dict[str, object], list[str], list[str]]] = {}
@@ -728,7 +728,7 @@ def generate_beam_dataset(
     if not roots:
         raise ValueError(f"root manifest contains no {split} roots")
     if repository_root is None:
-        repository_root = Path(__file__).resolve().parents[4]
+        repository_root = Path(__file__).resolve().parents[3]
     repository = capture_repository_version(repository_root, allow_dirty=True)
     search_config: dict[str, object] = {
         "depth": depth,

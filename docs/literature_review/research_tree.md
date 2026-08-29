@@ -100,9 +100,9 @@ Use this branch continuously. It governs all other branches.
 
 Core project docs:
 
-- `simulator/docs/fair_combat_api_design.md`
-- `simulator/docs/combat_rl_architecture.md`
-- `simulator/docs/fair_belief_architecture.md`
+- `docs/fair_combat_api_design.md`
+- `docs/combat_rl_architecture.md`
+- `docs/fair_belief_architecture.md`
 
 Project questions:
 

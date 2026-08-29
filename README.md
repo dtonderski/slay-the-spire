@@ -14,9 +14,9 @@ verification, bindings, and live tooling have separate owners:
 - `crates/sts_verify/`: strict seed-plus-actions trace replay.
 - `bindings/py_sts/`: PyO3 bindings for the Python package.
 - `apps/sts_live/`: live trace backend, CLI, HTTP API, and Vite UI.
-- `simulator/python/`: Python package, temporarily pending its root-level move.
-- `simulator/verification/`: captured traces and permanent parity corpus.
-- `docs/` and `simulator/docs/`: project and component documentation.
+- `python/`: one Python project containing `sts_sim` and `sts_sim.rl`.
+- `verification/`: compact fixtures and the gitignored permanent parity corpus.
+- `docs/`: project and component documentation.
 - `tools/communication/`: required CommunicationMod client bridge and diagnostics.
 - `mods/`: small project-specific game mods.
 
@@ -46,16 +46,76 @@ Future RL agents should use the simulator through a clean environment API:
 - step
 - snapshot/restore
 - symbolic observations
-- later Python bindings
+- typed Python bindings
 
 Simulator mechanics must stay separate from RL feature extraction and reward shaping.
+
+### Beam-cloning training
+
+The optional RL package can generate deterministic legal simulator roots, label
+each public decision with the shared Rust beam teacher, train with exact
+batch-boundary resume, and evaluate a fixed development shard. From `python/`
+after `uv sync --extra rl && uv run maturin develop --uv`:
+
+```bash
+uv run sts-combat-data roots --output /tmp/sts-roots \
+  --seed-prefix BEAMCLONE --count 1000
+uv run sts-combat-data label \
+  --roots /tmp/sts-roots/root-manifest.json \
+  --output /tmp/sts-train --split train
+uv run sts-combat-data label \
+  --roots /tmp/sts-roots/root-manifest.json \
+  --output /tmp/sts-development --split development
+uv run sts-combat-train \
+  --dataset /tmp/sts-train/dataset-manifest.json \
+  --checkpoint /tmp/sts-checkpoint.pt --steps 1000 \
+  --minimum-roots 225 --minimum-lineages 100
+uv run sts-combat-evaluate \
+  --dataset /tmp/sts-development/dataset-manifest.json \
+  --checkpoint /tmp/sts-checkpoint.pt --split development \
+  --output /tmp/sts-development-report.json
+```
+
+Roots advance only through accepted public legal actions. Dataset generation
+copies the canonical named root manifest to `provenance/root-manifest.json` and
+accounts for every requested root as either a membership or a typed exclusion.
+Training records contain fair observations and public choices, never hidden
+state, RNG, native handles, or snapshots. Audited splits require explicit
+`roots --materialize-audited-splits` and `--allow-audited-split`; these are
+fail-closed workflow defaults, not filesystem security. Derived roots, datasets,
+and checkpoints are disposable and should be regenerated after source/layout
+changes rather than migrated by weakening their source digests.
+
+## Local Validation
+
+Run Rust and verifier checks from the repository root:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace -- --test-threads=1
+cargo run -p sts_verify --bin sts_verify -- corpus manual/milestone1.jsonl
+```
+
+Build and test the Python project from `python/`:
+
+```bash
+cd python
+uv sync --extra rl --reinstall-package sts-sim
+uv run maturin develop --uv
+uv run pytest -q
+uv run ty check
+```
+
+Full CommunicationMod payloads are external. Set `STS_PERMANENT_CORPUS_DIR` or
+place the reviewed cohort under `verification/corpus/permanent_traces/`; traces
+are expected output and are never used to hydrate simulator state.
 
 ## Project Documents
 
 - `docs/research.md`: prior-art and source notes
 - `docs/design.md`: architecture and risk analysis
 - `PROJECT_OVERVIEW.md`: high-level RL roadmap, phase gates, evaluation protocol, and state-visibility boundaries
-- `simulator/docs/verification.md`: parity and testing strategy
-- `simulator/docs/live_trace_ui_design.md`: live trace collection UI design
+- `docs/verification.md`: parity and testing strategy
+- `docs/live_trace_ui_design.md`: live trace collection UI design
 - `AGENTS.md`: repository-wide rules for coding agents
-- `simulator/AGENTS.md`: temporary additional rules for content still under `simulator/`

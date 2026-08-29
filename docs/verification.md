@@ -155,7 +155,7 @@ Download the external corpus into the active directory:
 
 ```bash
 export HF_TOKEN=<read-token>
-export STS_PERMANENT_CORPUS_DIR="$PWD/simulator/verification/corpus/permanent_traces"
+export STS_PERMANENT_CORPUS_DIR="$PWD/verification/corpus/permanent_traces"
 tools/hf_corpus.sh download dtonderski/sts-permanent-traces
 ```
 
@@ -182,7 +182,7 @@ first failure:
 ```bash
 cd /path/to/slay-the-spire
 uv run -- cargo run -p sts_verify -- minimize \
-  -o simulator/verification/corpus/bugs/my-bug.jsonl \
+  -o verification/corpus/bugs/my-bug.jsonl \
   "$STS_PERMANENT_CORPUS_DIR/<trace>.jsonl"
 ```
 
@@ -215,7 +215,7 @@ Seed conversion status:
 
 - External seed string captured: `VERIFY01`.
 - Exact numeric seed conversion: implemented from the target `SeedHelper.getLong(String)` bytecode in the local `12-18-2022` desktop jar. Seeds are uppercased, `O` maps to `0`, and characters are parsed in base 35 using `0123456789ABCDEFGHIJKLMNPQRSTUVWXYZ`.
-- Current evidence in this repo: [`research.md`](../../docs/research.md) records the target jar/class inspected and captured checks for `VERIFY01`, `CODEX03`, and `CODEX04`.
+- Current evidence in this repo: [`research.md`](research.md) records the target jar/class inspected and captured checks for `VERIFY01`, `CODEX03`, and `CODEX04`.
 - The harness reports seed conversion as `source_backed`; broader RNG stream parity remains bounded by the later stream-specific milestones.
 
 Also inspect [silentcoder99/sts_lightspeed](https://github.com/silentcoder99/sts_lightspeed), whose repository description says it integrates `sts_lightspeed` with CommunicationMod. If it contains reusable trace ideas, document them before building our own bridge.

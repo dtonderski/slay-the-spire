@@ -20,6 +20,6 @@ export PATH="$HOME/.local/bin:$PATH"
 sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libpython3.12-dev
 
-# Build the root-workspace PyO3 binding through the still-nested Python project
-# so `import sts_sim` works. Its Maturin manifest points at bindings/py_sts.
-uv sync --project simulator/python --reinstall-package sts-sim
+# Build the root-workspace PyO3 binding through the Python project so
+# `import sts_sim` works. Its Maturin manifest points at bindings/py_sts.
+uv sync --project python --reinstall-package sts-sim

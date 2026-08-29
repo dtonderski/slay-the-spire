@@ -26,7 +26,7 @@ function testRunAutoCollectDelegatesAndPreservesExitCode() {
 function testGuidedCollectorLauncherUsesStrictDefaults() {
   const script = normalize(readScript("run_guided_collect.cmd"));
 
-  assert.match(script, /cd \/d "%REPO%\\simulator" \|\| exit \/b 1/);
+  assert.match(script, /cd \/d "%REPO%\\python" \|\| exit \/b 1/);
   assert.match(script, /uv run python -m sts\.guided_collect/);
   assert.match(script, /--report-output target\\guided-collect\\latest\.json/);
   assert.match(script, /--archive-report-dir target\\guided-collect\\reports/);

@@ -1,6 +1,6 @@
 # Lean Repository Architecture Proposal
 
-**Status:** Proposed three-PR cleanup
+**Status:** Implemented in three commits
 
 **Scope:** Make repository ownership outside `simulator/` easier to understand.
 
@@ -20,9 +20,9 @@ a crate boundary.
 There is no preparatory governance program, compatibility mode, or production
 migration framework.
 
-## Current factual diagnosis
+## Baseline factual diagnosis
 
-The current Rust workspace is rooted at `simulator/Cargo.toml`:
+Before this cleanup, the Rust workspace was rooted at `simulator/Cargo.toml`:
 
 ```text
 sts_core   -> []
@@ -84,7 +84,7 @@ remove inappropriate binding-to-app dependencies. Four domain invariants remain:
 
 These are behavior constraints, not reasons to build governance machinery.
 
-## Target layout
+## Implemented layout
 
 ```text
 Cargo.toml
@@ -112,7 +112,7 @@ tools/      # unchanged
 
 The existing Cargo lockfile policy continues unchanged.
 
-## Target dependency graph
+## Implemented dependency graph
 
 Project-internal edges are:
 
@@ -207,7 +207,7 @@ Small repository-local surface deletions are allowed only where needed to
 remove `py_sts` app/verifier dependencies. There is no compatibility layer for
 untracked scripts.
 
-## Three-PR sequence
+## Implemented three-PR sequence
 
 ### PR 1 — Extract production search and clean binding dependencies
 

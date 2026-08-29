@@ -74,8 +74,8 @@ package includes `py.typed` for downstream type checkers.
 Run the Python checks from the Python project directory:
 
 ```bash
-cd simulator/python
-uv sync --reinstall-package sts-sim
+cd python
+uv sync --extra rl --reinstall-package sts-sim
 uv run ty check
 uv run ruff check
 uv run pytest -q tests

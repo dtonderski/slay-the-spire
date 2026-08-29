@@ -5,8 +5,8 @@ const path = require("path");
 const { readTrace, validate } = require("./trace_tools");
 
 const repoRoot = path.resolve(__dirname, "..", "..");
-const defaultReportPath = path.join(repoRoot, "target", "guided-collect", "latest.json");
-const defaultArchiveDir = path.join(repoRoot, "target", "guided-collect", "reports");
+const defaultReportPath = path.join(repoRoot, "python", "target", "guided-collect", "latest.json");
+const defaultArchiveDir = path.join(repoRoot, "python", "target", "guided-collect", "reports");
 const defaultSessionDir = path.join(repoRoot, "tools", "communication", "session");
 const staleAfterSeconds = 120;
 

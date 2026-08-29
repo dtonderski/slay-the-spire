@@ -477,7 +477,7 @@ ordering never cross the fair boundary. Privileged planning/debug APIs may
 separately expose snapshots, restore, hashes, exact state JSON, and seed/RNG
 information, but those capabilities must not be reachable through fair objects.
 The implemented combat-only public action mapping is specified in
-`simulator/docs/player_choice_api.md`.
+`docs/player_choice_api.md`.
 The V1 public projection also withholds card plays whose legality depends on
 unmodeled hidden draw-pile composition; the authoritative internal action list
 remains unchanged.
@@ -501,8 +501,8 @@ Observation layers:
 The combat policy is expected to score the variable-length public choice list
 dynamically. A global fixed action vocabulary and mask are not required;
 padding masks used for neural batching belong to the tensor layer, not the game
-API. See `simulator/docs/fair_combat_api_design.md` and
-`simulator/docs/combat_rl_architecture.md`.
+API. See `docs/fair_combat_api_design.md` and
+`docs/combat_rl_architecture.md`.
 
 ## Python Binding Plan
 

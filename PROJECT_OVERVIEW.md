@@ -48,7 +48,7 @@ partially-observable A20H play.
   Iteration with a fair-input policy/value network and privileged search.
 - Live trace UI: a small operator console for collecting real-game traces,
   managing bridge sessions, and monitoring simulator fidelity. See
-  `simulator/docs/live_trace_ui_design.md`.
+  `docs/live_trace_ui_design.md`.
 - Replay/root pipeline: SlayTheData-guided high-level decisions plus simulator
   or real-game combat execution to produce validated traces and combat roots.
 - Training environments: wrappers around the simulator for omniscient and fair
@@ -61,7 +61,7 @@ partially-observable A20H play.
 |---|---|---|---|---|---|
 | 1 | A0 Rust simulator parity | Build an Ironclad A0 simulator with exact game behavior. | Deterministic simulator, legal actions, RNG streams, snapshots, parity tests. | Manual and automated traces show rare, explainable divergence. | Hidden RNG call-order bugs, incomplete edge cases, trace instrumentation gaps. |
 | 2 | Omniscient handcrafted combat agent | Use the simulator to search for strong combat play and help collect traces. | Combat search agent, benchmarks against human combat traces, small human UI. | Agent matches or beats human combat outcomes on held-out combat roots. | Objective too narrow, branching too high, agent exploits simulator bugs. |
-| 3A | Strict automated parity replay | Validate real-game parity using automated traces. | Full-run replay reports, first-divergence categories, mismatch metrics, statistical residual-rate and coverage reports. | Combined fidelity confidence gate in `simulator/docs/phase3a_statistical_fidelity_gate.md`: zero known in-scope failures, green permanent and targeted regressions, and 6,605 consecutive clean prospective full runs under a frozen balanced natural/deep distribution. The run batch gives a one-sided 3σ bound of p < 0.001 under that distribution; all gates together support “high confidence in full fidelity within declared scope.” | Random policies undersample rare/skilled lines; collector or comparison exclusions narrow the claim; later agents require on-policy differential audits. |
+| 3A | Strict automated parity replay | Validate real-game parity using automated traces. | Full-run replay reports, first-divergence categories, mismatch metrics, statistical residual-rate and coverage reports. | Combined fidelity confidence gate in `docs/phase3a_statistical_fidelity_gate.md`: zero known in-scope failures, green permanent and targeted regressions, and 6,605 consecutive clean prospective full runs under a frozen balanced natural/deep distribution. The run batch gives a one-sided 3σ bound of p < 0.001 under that distribution; all gates together support “high confidence in full fidelity within declared scope.” | Random policies undersample rare/skilled lines; collector or comparison exclusions narrow the claim; later agents require on-policy differential audits. |
 | 3B | Guided trace and root collection | Use SlayTheData high-level choices and the combat agent to collect more complete runs. | Real-game traces and combat roots. | Illegal divergence rate is low enough for productive collection. | Legal-but-diverged runs may shift the root distribution. |
 | 4 | Simulator-only root collection | Move the Phase 3B process into the simulator for speed. | Large corpus of simulator-ready combat roots. | Root corpus is reproducible, versioned, and validated against prior traces. | Simulator-only bugs can amplify silently. |
 | 5 | Privileged-search combat RL | Train an AlphaZero-style combat agent whose network consumes fair information while search follows the one true hidden simulator state. | Fair symbolic decision API, policy/value model, Expert Iteration loop, benchmark reports. | Network-guided search beats equal-budget handcrafted and unguided baselines on held-out roots. | Search targets may conflict across hidden-equivalent public states; privileged search is not a fair deployable planner. |
@@ -213,8 +213,8 @@ The policy scores the current variable-length list of public player choices
 rather than allocating a global output neuron to every possible action. The
 state encoder consumes dense tokens for visible cards, piles, monsters, powers,
 relics, potions, and public history. Detailed contracts live in
-`simulator/docs/fair_combat_api_design.md` and
-`simulator/docs/combat_rl_architecture.md`.
+`docs/fair_combat_api_design.md` and
+`docs/combat_rl_architecture.md`.
 
 ## Final Evaluation Protocol
 

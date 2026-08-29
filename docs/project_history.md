@@ -43,11 +43,13 @@ primary parity evidence.
 The original `simulator/` directory eventually accumulated far more than the
 simulator engine: search, verification, Python bindings, live transport, a UI,
 RL code, data, and documentation. Once beam-cloning training needed the same
-planner as live automation, ownership mattered more than the umbrella. The Rust
-workspace moved to the repository root: mechanics and search became root
-libraries, PyO3 became a binding, and the live backend/UI became an application.
-This was intentionally a physical cleanup rather than a compatibility or
-infrastructure program; recreatable artifacts are regenerated after relocation.
+planner as live automation, ownership mattered more than the umbrella. The
+repository was reorganized into a root Rust workspace with mechanics,
+verification, and search libraries, a PyO3 binding, a live application, one
+root-level Python project, root-owned verification data, and consolidated docs.
+The misleading umbrella was removed. This was intentionally a physical cleanup
+rather than a compatibility or infrastructure program; recreatable artifacts
+are regenerated after relocation.
 
 Sources: [`research.md`](research.md), [`AGENTS.md`](../AGENTS.md),
 [`repository_architecture_proposal.md`](repository_architecture_proposal.md),
@@ -242,7 +244,7 @@ boundary before beginning a small replacement pilot.
 
 Sources: the July 2026 SlayTheData and fidelity history;
 [`research.md`](research.md);
-[`phase3a_statistical_fidelity_gate.md`](../simulator/docs/phase3a_statistical_fidelity_gate.md).
+[`phase3a_statistical_fidelity_gate.md`](phase3a_statistical_fidelity_gate.md).
 
 ## The Trace UI Rewrite
 
@@ -265,7 +267,7 @@ Its current role is pragmatic: it is good enough to execute combats while the
 data and learning loop develops. July 2026 sealed-root experiments rejected a
 pure complete-turn beam and accepted turn-boundary replanning plus a
 budget-neutral complete-turn fallback; see
-[`combat_search_benchmark_2026-07.md`](../simulator/docs/combat_search_benchmark_2026-07.md).
+[`combat_search_benchmark_2026-07.md`](combat_search_benchmark_2026-07.md).
 
 The adopted learned-combat direction is AlphaZero-style Expert Iteration, but
 with a deliberate information split: policy/value networks receive only public
