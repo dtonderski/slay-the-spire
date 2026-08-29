@@ -40,7 +40,18 @@ development slower but allowed the same core to support verification, search,
 and learning. Real-game state observed through CommunicationMod became the
 primary parity evidence.
 
-Sources: [`research.md`](research.md), [`AGENTS.md`](../AGENTS.md), and simulator history from 2026-06-18.
+The original `simulator/` directory eventually accumulated far more than the
+simulator engine: search, verification, Python bindings, live transport, a UI,
+RL code, data, and documentation. Once beam-cloning training needed the same
+planner as live automation, ownership mattered more than the umbrella. The Rust
+workspace moved to the repository root: mechanics and search became root
+libraries, PyO3 became a binding, and the live backend/UI became an application.
+This was intentionally a physical cleanup rather than a compatibility or
+infrastructure program; recreatable artifacts are regenerated after relocation.
+
+Sources: [`research.md`](research.md), [`AGENTS.md`](../AGENTS.md),
+[`repository_architecture_proposal.md`](repository_architecture_proposal.md),
+and simulator history from 2026-06-18.
 
 ## Trace-Driven Fidelity and Automated Collection
 

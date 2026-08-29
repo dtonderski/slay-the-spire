@@ -1,21 +1,23 @@
-# Simulator
+# Simulator Data, Python, and Documentation
 
-Rust workspace for the deterministic Slay the Spire simulator, live collector,
-combat agent, Python bindings, and strict real-game verifier.
+The Rust workspace now lives at the repository root. This directory temporarily
+retains the Python project, verification data, and component documentation until
+the final physical move.
 
 ## Layout
 
-- `crates/sts_core/`: simulator mechanics and deterministic run state.
-- `crates/sts_search/`: deterministic planning over authoritative run state.
-- `crates/sts_verify/`: strict seed-plus-actions trace replay.
-- `crates/sts_live/`: CommunicationMod bridge backend, CLI, UI, and combat agent.
-- `crates/py_sts/`: optional PyO3 bindings.
+- `../crates/sts_core/`: simulator mechanics and deterministic run state.
+- `../crates/sts_search/`: deterministic planning over authoritative run state.
+- `../crates/sts_verify/`: strict seed-plus-actions trace replay.
+- `../apps/sts_live/`: CommunicationMod bridge backend, CLI, UI, and combat agent.
+- `../bindings/py_sts/`: PyO3 bindings.
+- `python/`: Python package and tests.
 - `verification/corpus/`: compact, reviewable verification fixtures.
 - `docs/`: simulator design and verification notes.
 
 ## Verification
 
-From this directory:
+From the repository root:
 
 ```bash
 cargo fmt --all -- --check
@@ -53,7 +55,7 @@ changes the exported snapshot.
 The optional Python RL package can generate deterministic legal simulator roots,
 label them with a beam policy that intentionally replans at every public decision,
 train with exact batch-boundary resume, and evaluate a fixed development shard.
-The teacher reuses the live beam search core but does not claim the live
+The teacher reuses the shared beam search core but does not claim the live
 automation warm-suffix execution policy. From
 `simulator/python` after `uv sync --extra rl && uv run maturin develop --uv`:
 
@@ -109,7 +111,7 @@ CommunicationMod launches `..\tools\communication\trace_client.js`. With the
 game bridge running, use the Linux CLI from WSL:
 
 ```bash
-cd /mnt/d/dev/slay-the-spire/simulator
+cd /mnt/d/dev/slay-the-spire
 export STS_LIVE_BRIDGE_SESSION_DIR=/mnt/d/dev/slay-the-spire/tools/communication/session
 cargo run -p sts_live --bin live-trace -- bridges list
 cargo run -p sts_live --bin live-trace -- sessions list

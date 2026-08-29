@@ -1,4 +1,0 @@
-[workspace]
-members = ["crates/sts_core", "crates/sts_verify", "crates/sts_search", "crates/py_sts", "crates/sts_live"]
-default-members = ["crates/sts_core", "crates/sts_verify", "crates/sts_search", "crates/sts_live"]
-resolver = "2"

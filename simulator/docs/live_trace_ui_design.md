@@ -33,7 +33,7 @@ Prototype rules to keep:
 
 Use a Rust backend service with a small web frontend.
 
-The Phase 1 implementation lives in `simulator/crates/sts_live`.
+The supported implementation lives in `apps/sts_live`.
 
 Backend responsibilities:
 

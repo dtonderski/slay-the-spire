@@ -20,6 +20,6 @@ export PATH="$HOME/.local/bin:$PATH"
 sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libpython3.12-dev
 
-# Build the PyO3 extension so `import sts_sim` works (canonical command from
-# simulator/docs/python_fair_api.md).
+# Build the root-workspace PyO3 binding through the still-nested Python project
+# so `import sts_sim` works. Its Maturin manifest points at bindings/py_sts.
 uv sync --project simulator/python --reinstall-package sts-sim

@@ -1,6 +1,5 @@
 target/
-simulator/target/
-simulator/target-*/
+target-*/
 Cargo.lock
 
 # Local Python / build outputs
@@ -18,13 +17,13 @@ HANDOFF.md
 *.log
 
 # Live trace UI frontend dependencies/build output
-simulator/crates/sts_live/node_modules/
-simulator/crates/sts_live/ui/node_modules/
-simulator/crates/sts_live/ui/dist/
-simulator/live_traces/
-simulator/live_traces_active/
-simulator/SLAYTHEDATA_*_COLLECTION_LOG.jsonl
-simulator/latest-repair.json
+apps/sts_live/node_modules/
+apps/sts_live/ui/node_modules/
+apps/sts_live/ui/dist/
+live_traces/
+live_traces_active/
+SLAYTHEDATA_*_COLLECTION_LOG.jsonl
+latest-repair.json
 tools/communication/session/
 mods/abandon-run-control/build/
 mods/verification-bootstrap/build/

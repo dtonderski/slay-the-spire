@@ -1,7 +1,9 @@
 # Agent Rules
 
-These rules apply to any coding agent working in this repository.
-`simulator/AGENTS.md` adds rules specific to `simulator/`.
+These rules apply to any coding agent working in this repository, including
+Rust code under `crates/`, bindings under `bindings/`, and live tooling under
+`apps/`. `simulator/AGENTS.md` adds rules only for the Python, verification,
+documentation, and other content that temporarily remains under `simulator/`.
 
 `PROJECT_OVERVIEW.md` has the project purpose, phase roadmap, and the
 fair/hidden/omniscient state boundary.
@@ -58,9 +60,10 @@ The inner loop is the Rust verifier, not the UI:
 
 ## Environment
 
-- Cargo runs from `simulator/`; there is no root `Cargo.toml`. Gate work on
-  `cargo fmt`, `cargo clippy`, `cargo test`, and don't start new work with tests
-  failing.
+- Cargo runs from the repository root. Gate work on `cargo fmt`,
+  `cargo clippy`, `cargo test`, and don't start new work with tests failing.
+  Use `cargo check -p sts_core --lib` and `cargo check -p sts_verify --lib` for
+  fast feedback.
 - Python and PyO3 go through `uv`, e.g.
   `uv run --python 3.12 cargo test --workspace`. There is no system
   `python`/`pip`, and its absence is not a blocker.

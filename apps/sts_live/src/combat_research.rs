@@ -219,7 +219,7 @@ fn corpus_trace_paths() -> Result<Vec<PathBuf>, String> {
 }
 
 fn challenge_trace_paths() -> Vec<PathBuf> {
-    let root = sts_verify::repo_root().join("simulator/live_traces");
+    let root = sts_verify::repo_root().join("live_traces");
     [
         "session-1187.jsonl",
         "session-1188.jsonl",

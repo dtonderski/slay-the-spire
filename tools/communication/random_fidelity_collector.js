@@ -928,7 +928,7 @@ async function main() {
   if (!acquired.ok) throw new Error(acquired.error || "bridge ownership rejected");
 
   const campaignDir = path.resolve(
-    process.env.STS_RANDOM_OUTPUT_DIR || path.join(root, "simulator", "target", "random-fidelity"),
+    process.env.STS_RANDOM_OUTPUT_DIR || path.join(root, "target", "random-fidelity"),
   );
   fs.mkdirSync(campaignDir, { recursive: true });
   const activeTrace = immutableTracePath(campaignDir, gameSeed, policySeed, traceStartedAt);
@@ -1258,7 +1258,7 @@ if (require.main === module) {
     const detail = error.stack || error.message || String(error);
     console.error(detail);
     try {
-      const errorPath = path.join(root, "simulator", "target", "random-fidelity", "errors.log");
+      const errorPath = path.join(root, "target", "random-fidelity", "errors.log");
       fs.mkdirSync(path.dirname(errorPath), { recursive: true });
       fs.appendFileSync(errorPath, `[${new Date().toISOString()}] ${detail}\n`);
     } catch {}

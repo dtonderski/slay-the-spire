@@ -50,15 +50,15 @@ use std::path::{Path, PathBuf};
 
 /// Repository root (`slay-the-spire/`), relative to this crate manifest.
 pub fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
-}
-
-/// Simulator workspace root (`slay-the-spire/simulator/`).
-pub fn simulator_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// Path under `simulator/verification/corpus/`.
+/// Temporary root for data and docs that still live under `simulator/`.
+pub fn simulator_root() -> PathBuf {
+    repo_root().join("simulator")
+}
+
+/// Path under `simulator/verification/corpus/` until the data move completes.
 pub fn corpus_path(relative: impl AsRef<Path>) -> PathBuf {
     simulator_root().join("verification/corpus").join(relative)
 }

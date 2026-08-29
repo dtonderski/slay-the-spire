@@ -20,6 +20,6 @@ rusqlite = { version = "0.32", features = ["bundled-windows"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 ruzstd = "0.8.3"
-sts_core = { path = "../sts_core" }
-sts_search = { path = "../sts_search" }
-sts_verify = { path = "../sts_verify" }
+sts_core = { path = "../../crates/sts_core" }
+sts_search = { path = "../../crates/sts_search" }
+sts_verify = { path = "../../crates/sts_verify" }

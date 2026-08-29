@@ -61,12 +61,13 @@ Non-goal for now:
 
 ## Architecture Overview
 
-Use a small Rust workspace under `simulator/`:
+Use the small Rust workspace at the repository root:
 
-- `sts_core`: deterministic simulator state, actions, transition engine, content definitions.
-- `sts_verify`: trace formats, canonical diffs, fixture loaders, real-game comparison helpers.
-- `sts_rl`: optional later crate for environment wrappers and feature extraction.
-- `py-sts`: later Python bindings using PyO3 or maturin.
+- `crates/sts_core`: deterministic simulator state, actions, transition engine, and content.
+- `crates/sts_search`: deterministic planning over authoritative simulator state.
+- `crates/sts_verify`: trace formats, canonical diffs, replay, and real-game comparison.
+- `bindings/py_sts`: PyO3 bindings for the Python environment.
+- `apps/sts_live`: CommunicationMod bridge, live CLI/HTTP application, and UI.
 
 Keep simulator logic separate from RL features. The simulator should know nothing about tensors, policies, reward shaping, or observation normalization. RL adapters consume canonical simulator state and legal actions.
 

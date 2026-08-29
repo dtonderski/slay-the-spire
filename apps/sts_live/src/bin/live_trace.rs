@@ -260,12 +260,7 @@ fn runtime_slaythedata_index(args: &mut Vec<String>) -> SlayTheDataIndex {
 }
 
 fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|path| path.parent())
-        .and_then(|path| path.parent())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
+    sts_verify::repo_root()
 }
 
 fn serve_addr(args: &[String]) -> String {

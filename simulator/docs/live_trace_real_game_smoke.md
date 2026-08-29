@@ -18,7 +18,7 @@ replay tests.
 From WSL, set the shared Windows/WSL session path and a Linux trace root:
 
 ```bash
-cd /mnt/d/dev/slay-the-spire/simulator
+cd /mnt/d/dev/slay-the-spire
 export STS_LIVE_TRACE_ROOT=/mnt/d/dev/slay-the-spire/live_traces_smoke
 export STS_LIVE_BRIDGE_SESSION_DIR=/mnt/d/dev/slay-the-spire/tools/communication/session
 ```
@@ -42,7 +42,7 @@ control.
 Build and start the backend:
 
 ```bash
-cargo run -p sts_live --bin live-trace -- serve --addr 127.0.0.1:8799
+cargo run -p sts_live --bin live-trace -- serve --addr 127.0.0.1:8800
 ```
 
 In another shell, inspect bridges without using the browser:
@@ -60,7 +60,7 @@ Expected evidence:
 
 ## Manual UI Path
 
-Open <http://127.0.0.1:8799/>.
+Open <http://127.0.0.1:8800/>.
 
 1. Select the live bridge.
 2. Start an Ironclad A0 run with a known throwaway seed.

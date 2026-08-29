@@ -71,13 +71,14 @@ Every Python source file and test is checked by `ty` and Ruff's annotation
 rules. The native extension has a checked `_native.pyi` contract, and the
 package includes `py.typed` for downstream type checkers.
 
-From `simulator/`, run the Python checks with:
+Run the Python checks from the Python project directory:
 
 ```bash
-uv sync --project python --reinstall-package sts-sim
-uv run --project python ty check
-uv run --project python ruff check
-uv run --project python pytest -q python/tests
+cd simulator/python
+uv sync --reinstall-package sts-sim
+uv run ty check
+uv run ruff check
+uv run pytest -q tests
 ```
 
 The explicit reinstall step builds the private PyO3 extension before pytest

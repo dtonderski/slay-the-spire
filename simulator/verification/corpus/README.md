@@ -45,8 +45,9 @@ payloads are retained under `legacy_schema5_pilot/permanent_traces/`.
 authoritative traces. Override the path with `STS_PERMANENT_CORPUS_DIR` or
 the worker count with `STS_VERIFY_JOBS`:
 
+From the repository root:
+
 ```bash
-cd simulator
 cargo run -q -p sts_verify --bin sts_verify -- status
 cargo test -p sts_verify --test corpus \
   external_permanent_traces_are_structurally_replayable -- --ignored

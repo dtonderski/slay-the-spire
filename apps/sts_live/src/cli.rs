@@ -3473,8 +3473,7 @@ mod tests {
             session_id: SessionId("session-1".to_owned()),
             bridge_id: BridgeId("bridge-1".to_owned()),
             lifecycle: SessionLifecycle::FidelityLost,
-            trace_path: "D:\\dev\\slay-the-spire\\simulator\\live_traces_active\\session-1.jsonl"
-                .to_owned(),
+            trace_path: "D:\\dev\\slay-the-spire\\live_traces_active\\session-1.jsonl".to_owned(),
             run_config: None,
             latest_state: Some(LiveState {
                 sequence: 24,

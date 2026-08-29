@@ -29,8 +29,8 @@ live observations are never copied into simulator state.
 
 ## Collection command
 
-Run from `simulator/` with Slay the Spire, CommunicationMod, and the bridge
-manager running:
+Run from the repository root with Slay the Spire, CommunicationMod, and the
+bridge manager running:
 
 ```powershell
 cargo build -p sts_live --bin live-trace --release

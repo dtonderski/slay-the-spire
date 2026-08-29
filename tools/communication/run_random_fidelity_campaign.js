@@ -18,7 +18,7 @@ const failuresPerSeed = Number.parseInt(
   10,
 );
 const outputDir = path.resolve(
-  process.env.STS_RANDOM_OUTPUT_DIR || path.join(root, "simulator", "target", "random-fidelity"),
+  process.env.STS_RANDOM_OUTPUT_DIR || path.join(root, "target", "random-fidelity"),
 );
 const statusPath = path.join(outputDir, "campaign_status.json");
 const indefinite = maxRuns <= 0;

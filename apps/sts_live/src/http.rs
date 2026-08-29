@@ -526,7 +526,7 @@ fn read_ui_file(path: &str) -> Result<(&'static str, String), String> {
     let file = ui_dist_root().join(relative);
     let bytes = fs::read(&file).map_err(|err| {
         format!(
-            "UI build output is missing: {}\nRun `npm install` and `npm run build` in simulator/crates/sts_live/ui, or use `npm run dev` for hot reload.",
+            "UI build output is missing: {}\nRun `npm install` and `npm run build` in apps/sts_live/ui, or use `npm run dev` for hot reload.",
             err
         )
     })?;

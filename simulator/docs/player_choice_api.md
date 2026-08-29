@@ -28,9 +28,8 @@ The reverse operation, `resolve_player_choice`, re-enumerates the same
 authoritative boundary and returns its existing `RunDecisionAction`. It does
 not implement a second legality engine.
 
-The implementation lives in
-`simulator/crates/sts_core/src/run/player_choice.rs` and is re-exported by
-`sts_core`.
+The implementation lives in `crates/sts_core/src/run/player_choice.rs` and is
+re-exported by `sts_core`.
 
 ## V1/V2 Types
 

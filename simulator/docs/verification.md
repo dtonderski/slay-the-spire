@@ -87,7 +87,7 @@ evidence. Set
 `STS_PERMANENT_CORPUS_DIR` and pass the desired active file explicitly:
 
 ```bash
-cd simulator
+cd /path/to/slay-the-spire
 export STS_PERMANENT_CORPUS_DIR=/path/to/permanent_traces
 uv run -- cargo build --release -p sts_verify --bin sts_verify
 target/release/sts_verify parity --require-terminal \
@@ -115,7 +115,7 @@ replayed with `--at-step` or `--timeline`.
 Generate corpus-wide status from the external directory:
 
 ```bash
-cd simulator
+cd /path/to/slay-the-spire
 uv run -- cargo run -q -p sts_verify --bin sts_verify -- status --markdown \
   "$STS_PERMANENT_CORPUS_DIR"
 ```
@@ -180,9 +180,9 @@ When a trace fails parity, build a compact prefix JSONL that reproduces the
 first failure:
 
 ```bash
-cd simulator
+cd /path/to/slay-the-spire
 uv run -- cargo run -p sts_verify -- minimize \
-  -o verification/corpus/bugs/my-bug.jsonl \
+  -o simulator/verification/corpus/bugs/my-bug.jsonl \
   "$STS_PERMANENT_CORPUS_DIR/<trace>.jsonl"
 ```
 
@@ -493,7 +493,7 @@ Before claiming a task complete:
 - deterministic replay test passes for affected fixtures
 - snapshot round trip passes if state shape changed
 - no new unreviewed RNG calls
-- `cargo fmt`, `cargo clippy`, and `cargo test` pass from `simulator/` once code exists
+- `cargo fmt`, `cargo clippy`, and `cargo test` pass from the repository root
 - important verification status, risks, and follow-up work are documented in
   the commit message or a permanent project document
 

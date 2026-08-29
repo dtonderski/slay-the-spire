@@ -1,0 +1,15 @@
+[workspace]
+members = [
+    "crates/sts_core",
+    "crates/sts_verify",
+    "crates/sts_search",
+    "bindings/py_sts",
+    "apps/sts_live",
+]
+default-members = [
+    "crates/sts_core",
+    "crates/sts_verify",
+    "crates/sts_search",
+    "apps/sts_live",
+]
+resolver = "2"

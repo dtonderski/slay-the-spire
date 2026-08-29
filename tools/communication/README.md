@@ -84,8 +84,8 @@ replaced owner and lease age.
   collector exit code.
 - `run_guided_collect.cmd` starts the SlayTheData-guided headless collector.
   It writes the latest JSON report to
-  `simulator\target\guided-collect\latest.json`, archives timestamped attempts
-  under `simulator\target\guided-collect\reports\`, and forwards any extra
+  `target\guided-collect\latest.json`, archives timestamped attempts under
+  `target\guided-collect\reports\`, and forwards any extra
   command line arguments to `python -m sts.guided_collect`. Start Slay the
   Spire and a fresh TCP-enabled bridge first; the launcher waits briefly for
   bridge preflight to pass, then exits nonzero with a `preflight_blocked`
