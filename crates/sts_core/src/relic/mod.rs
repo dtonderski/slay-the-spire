@@ -2655,6 +2655,21 @@ pub(crate) fn apply_opening_post_draw_choice_relics(state: &mut CombatState) -> 
 }
 
 pub fn apply_start_of_player_turn_post_draw_relics(state: &mut CombatState) -> SimResult<()> {
+    let deferred = apply_start_of_player_turn_post_draw_relics_deferred_deaths(state)?;
+    crate::combat::transition::resolve_deferred_end_turn_monster_deaths(state, deferred)
+}
+
+/// Apply the queued start-turn relic actions while retaining callbacks from
+/// lethal Mercury Hourglass damage at their source queue position.
+///
+/// `GameActionManager.getNextAction` queues Mercury's `DamageAllEnemiesAction`,
+/// the hand draw, post-draw relic actions, and post-draw power actions before
+/// any of them execute. A Stasis/Gremlin Horn callback created by Mercury is
+/// therefore appended behind Warped Tongs and the other post-draw actions.
+pub(crate) fn apply_start_of_player_turn_post_draw_relics_deferred_deaths(
+    state: &mut CombatState,
+) -> SimResult<Vec<crate::combat::transition::DeferredMonsterDeath>> {
+    let mut deferred_deaths = Vec::new();
     if state.relics.contains(&Relic::MercuryHourglass) {
         if matches!(
             state.decision,
@@ -2668,7 +2683,10 @@ pub fn apply_start_of_player_turn_post_draw_relics(state: &mut CombatState) -> S
                 MERCURY_HOURGLASS_DAMAGE,
             )?;
         } else {
-            deal_unmodified_damage_to_living_monsters(state, MERCURY_HOURGLASS_DAMAGE)?;
+            deferred_deaths = deal_unmodified_damage_to_living_monsters_deferred_deaths(
+                state,
+                MERCURY_HOURGLASS_DAMAGE,
+            )?;
         }
     }
 
@@ -2715,7 +2733,7 @@ pub fn apply_start_of_player_turn_post_draw_relics(state: &mut CombatState) -> S
             _ => {}
         }
     }
-    Ok(())
+    Ok(deferred_deaths)
 }
 
 pub(crate) fn upgrade_random_non_status_hand_card(state: &mut CombatState) -> SimResult<()> {
@@ -3281,6 +3299,14 @@ fn deal_unmodified_damage_to_living_monsters(
     state: &mut CombatState,
     amount: i32,
 ) -> SimResult<()> {
+    let deferred = deal_unmodified_damage_to_living_monsters_deferred_deaths(state, amount)?;
+    crate::combat::transition::resolve_deferred_end_turn_monster_deaths(state, deferred)
+}
+
+fn deal_unmodified_damage_to_living_monsters_deferred_deaths(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<crate::combat::transition::DeferredMonsterDeath>> {
     let targets = state
         .monsters
         .iter()
@@ -3314,10 +3340,11 @@ fn deal_unmodified_damage_to_living_monsters(
             dead.push(monster_id);
         }
     }
+    let mut deferred = Vec::new();
     for monster_id in dead {
-        crate::combat::transition::apply_monster_death_hooks(state, monster_id)?;
+        crate::combat::transition::queue_end_turn_monster_death(state, monster_id, &mut deferred)?;
     }
-    Ok(())
+    Ok(deferred)
 }
 
 #[cfg(test)]

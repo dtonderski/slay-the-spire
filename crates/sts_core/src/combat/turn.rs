@@ -866,9 +866,11 @@ fn start_player_turn_in_place(
     // (FIDL00381: Mayhem plays Anger+ after Brutality draws Shrug+).
     // Leftover EndTurn STATE can publish mid-DrawCardAction before
     // atTurnStartPostDraw relics (FIDL01807 Warped Tongs still queued).
-    if apply_post_draw_relics {
-        crate::relic::apply_start_of_player_turn_post_draw_relics(state)?;
-    }
+    let deferred_start_relic_deaths = if apply_post_draw_relics {
+        crate::relic::apply_start_of_player_turn_post_draw_relics_deferred_deaths(state)?
+    } else {
+        Vec::new()
+    };
     apply_demon_form_strength_post_draw(state)?;
     let brutality_draw_follow_ups = apply_start_of_turn_brutality_post_draw(state)?;
     if state.player.hp > 0 {
@@ -877,6 +879,13 @@ fn start_player_turn_in_place(
             brutality_draw_follow_ups,
         )?;
     }
+    // Mercury Hourglass was queued before the hand draw. Death callbacks that
+    // its DamageAll action appends run behind post-draw relic/power actions but
+    // before the PlayTop action appended by Mayhem's queued wrapper.
+    crate::combat::transition::resolve_deferred_end_turn_monster_deaths(
+        state,
+        deferred_start_relic_deaths,
+    )?;
     // Mayhem is queued ahead of Evolve's residual DrawCardAction from the base
     // hand refill. If Mayhem is the twelfth card, Time Warp appends EndTurnAction
     // behind that pending draw; defer the forced turn until FIFO evolve draws settle.
@@ -3380,8 +3389,9 @@ mod tests {
     use crate::content::cards::{
         ANGER_ID, ARMAMENTS_ID, BASH_ID, BERSERK_ID, BLOODLETTING_ID, BURNING_PACT_ID, BURN_ID,
         DAZED_ID, DEEP_BREATH_ID, DEFEND_R_ID, DEMON_FORM_ID, DOUBT_ID, GHOSTLY_ARMOR_ID,
-        INFLAME_ID, INTIMIDATE_ID, PARASITE_ID, POMMEL_STRIKE_ID, REGRET_ID, SHAME_ID,
-        SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, STRIKE_R_ID, THUNDERCLAP_ID, VOID_ID, WOUND_ID,
+        IMMOLATE_ID, INFLAME_ID, INTIMIDATE_ID, PARASITE_ID, POMMEL_STRIKE_ID, REGRET_ID, SHAME_ID,
+        SHRUG_IT_OFF_PLUS_ID, SLIMED_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, THUNDERCLAP_ID, VOID_ID,
+        WOUND_ID,
     };
     use crate::content::monsters::{
         donu_deca_boss_monsters_for_ascension, monster_state_for_ascension,
@@ -4249,6 +4259,36 @@ mod tests {
             next.monsters[0].intent,
             crate::MonsterIntent::Attack { damage: 9 }
         ));
+    }
+
+    #[test]
+    fn mercury_stasis_release_runs_after_warped_tongs() {
+        let mut state = CombatState::initial_fixture();
+        let mut orb = monster_state_for_ascension(&BRONZE_ORB_A0, MonsterId::new(2), 0);
+        orb.hp = 3;
+        orb.max_hp = 3;
+        orb.stasis_card = Some(CardInstance::new(CardId::new(50), IMMOLATE_ID));
+        let mut survivor = monster_state_for_ascension(&JAW_WORM_A0, MonsterId::new(1), 0);
+        survivor.hp = 50;
+        survivor.max_hp = 50;
+        state.monsters = vec![orb, survivor];
+        state.relics = vec![Relic::MercuryHourglass, Relic::WarpedTongs];
+        state.piles.hand.clear();
+        state.piles.draw_pile = (1..=5)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_PLUS_ID))
+            .collect();
+        state.piles.discard_pile.clear();
+
+        start_player_turn(&mut state).expect("Mercury death and post-draw relics resolve");
+
+        let returned = state
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.id == CardId::new(50))
+            .expect("Stasis card returns after post-draw relics");
+        assert_eq!(returned.content_id, IMMOLATE_ID);
+        assert_eq!(state.rng.shuffle_rng.counter(), 0);
     }
 
     #[test]
