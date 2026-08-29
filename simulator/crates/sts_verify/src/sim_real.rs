@@ -1,8 +1,8 @@
 //! CommunicationMod trace replay against the simulator for supported fields.
 
 use crate::{
-    canonical_value_diff, parse_trace_jsonl_line, try_sts_seed_string_to_long, TraceAction,
-    TraceLine, TraceProfile, TraceState, VerificationIntegrity,
+    canonical_value_diff, parse_trace_jsonl_line, TraceAction, TraceLine, TraceProfile, TraceState,
+    VerificationIntegrity,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -14,11 +14,12 @@ use sts_core::content::encounters::BossUnlockState;
 use sts_core::content::monsters::{target_move_byte, target_move_byte_for_monster};
 use sts_core::potion::Potion;
 use sts_core::{
-    affordable_shop_picks, apply_run_decision_action, legal_run_decision_actions, CardGridScreen,
-    CardId, CardInstance, CombatAction, CombatDecisionState, CombatPhase, CombatState, ContentId,
-    Event, EventScreen, GridPurpose, MapAction, MonsterId, MonsterIntent, MonsterState, Relic,
-    RelicKey, RestAction, RewardContinuation, RewardScreen, RoomKind, RunAction, RunDecisionAction,
-    RunPhase, RunState, ShopPick,
+    affordable_shop_picks, apply_run_decision_action, legal_run_decision_actions,
+    try_sts_seed_string_to_long, CardGridScreen, CardId, CardInstance, CombatAction,
+    CombatDecisionState, CombatPhase, CombatState, ContentId, Event, EventScreen, GridPurpose,
+    MapAction, MonsterId, MonsterIntent, MonsterState, Relic, RelicKey, RestAction,
+    RewardContinuation, RewardScreen, RoomKind, RunAction, RunDecisionAction, RunPhase, RunState,
+    ShopPick,
 };
 use sts_core::{Snapshot, SNAPSHOT_SCHEMA_VERSION};
 

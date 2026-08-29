@@ -6,6 +6,7 @@ combat agent, Python bindings, and strict real-game verifier.
 ## Layout
 
 - `crates/sts_core/`: simulator mechanics and deterministic run state.
+- `crates/sts_search/`: deterministic planning over authoritative run state.
 - `crates/sts_verify/`: strict seed-plus-actions trace replay.
 - `crates/sts_live/`: CommunicationMod bridge backend, CLI, UI, and combat agent.
 - `crates/py_sts/`: optional PyO3 bindings.

@@ -871,7 +871,7 @@ fn communication_bridge_start_refreshes_stale_error_state_before_command() {
         command["command"],
         format!(
             "START IRONCLAD 0 {}",
-            sts_verify::sts_seed_long_to_string(-1_271_861_678_227_830_524)
+            sts_core::sts_seed_long_to_string(-1_271_861_678_227_830_524)
         )
     );
     assert_eq!(command["expected_state_id"], "fresh-menu");

@@ -9,7 +9,7 @@ use sts_core::{
     RunDecisionAction, RunPhase, RunState,
 };
 
-use crate::try_sts_seed_string_to_long;
+use sts_core::try_sts_seed_string_to_long;
 
 fn apply_event_action(run: &RunState, action: EventAction) -> sts_core::SimResult<RunState> {
     apply_run_decision_action(run, RunDecisionAction::Event(action))

@@ -193,7 +193,7 @@ Requirements:
   action log, replayed through the authoritative simulator.
 - Capability separation: fair APIs and omniscient/debug APIs live in visibly
   different types within one eventual compiled Python module. Today
-  `py_sts::OmniCombatEnv` and `sts_live::automation` are explicitly privileged
+  `py_sts::OmniCombatEnv` and `sts_search` planning are explicitly privileged
   and keep visible naming. Symbolic fair projection/mapping belongs in Rust near
   the core boundary; do not create a separate `sts_fair` crate.
 

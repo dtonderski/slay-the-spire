@@ -30,7 +30,7 @@ impl RunSeed {
     pub fn command_text(&self) -> String {
         match self {
             Self::External(seed) => seed.clone(),
-            Self::Numeric(seed) => sts_verify::sts_seed_long_to_string(*seed),
+            Self::Numeric(seed) => sts_core::sts_seed_long_to_string(*seed),
         }
     }
 }
@@ -48,7 +48,9 @@ pub struct RunConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::RunSeed;
+    use super::{AutomationConfig, AutomationPolicy, RunSeed};
+    use serde_json::json;
+    use sts_search::{SearchConfig, SearchPolicy};
 
     #[test]
     fn numeric_run_seed_command_text_uses_game_seed_alphabet() {
@@ -56,7 +58,7 @@ mod tests {
         let signed = -1_271_861_678_227_830_524;
         let encoded = RunSeed::Numeric(signed).command_text();
         assert!(!encoded.contains('-'));
-        assert_eq!(sts_verify::sts_seed_string_to_long(&encoded), signed);
+        assert_eq!(sts_core::sts_seed_string_to_long(&encoded), signed);
     }
 
     #[test]
@@ -64,6 +66,45 @@ mod tests {
         assert_eq!(
             RunSeed::External("CODEX04".to_owned()).command_text(),
             "CODEX04"
+        );
+    }
+
+    #[test]
+    fn automation_wire_config_is_stable_and_projects_to_search_config() {
+        let config = AutomationConfig {
+            policy: AutomationPolicy::GreedySearch,
+            depth: 7,
+            width: 11,
+            allowed_potion_slots: vec![1, 3],
+            auto_action_limit: 13,
+            search_transition_budget: 17,
+            search_time_budget_ms: 19,
+            deduplicate_search_states: true,
+        };
+        assert_eq!(
+            serde_json::to_value(&config).expect("config serializes"),
+            json!({
+                "policy": "greedy_search",
+                "depth": 7,
+                "width": 11,
+                "allowed_potion_slots": [1, 3],
+                "auto_action_limit": 13,
+                "search_transition_budget": 17,
+                "search_time_budget_ms": 19,
+                "deduplicate_search_states": true,
+            })
+        );
+        assert_eq!(
+            config.search_config(),
+            SearchConfig {
+                policy: SearchPolicy::Greedy,
+                depth: 7,
+                width: 11,
+                allowed_potion_slots: vec![1, 3],
+                transition_budget: 17,
+                time_budget_ms: 19,
+                deduplicate_states: true,
+            }
         );
     }
 }
@@ -257,6 +298,25 @@ fn default_automation_search_transition_budget() -> usize {
 
 fn default_automation_search_time_budget_ms() -> u64 {
     30_000
+}
+
+impl AutomationConfig {
+    pub(crate) fn search_config(&self) -> sts_search::SearchConfig {
+        let policy = match self.policy {
+            AutomationPolicy::GreedySearch => sts_search::SearchPolicy::Greedy,
+            AutomationPolicy::BeamSearch => sts_search::SearchPolicy::Beam,
+            AutomationPolicy::FakePlayFirstCard => sts_search::SearchPolicy::Beam,
+        };
+        sts_search::SearchConfig {
+            policy,
+            depth: self.depth,
+            width: self.width,
+            allowed_potion_slots: self.allowed_potion_slots.clone(),
+            transition_budget: self.search_transition_budget,
+            time_budget_ms: self.search_time_budget_ms,
+            deduplicate_states: self.deduplicate_search_states,
+        }
+    }
 }
 
 impl Default for AutomationConfig {

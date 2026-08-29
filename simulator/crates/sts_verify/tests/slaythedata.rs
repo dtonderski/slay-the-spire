@@ -34,7 +34,7 @@ fn generated_neow_card_reward_first_pick(
     reward: sts_core::NeowRewardType,
 ) -> Option<(&'static str, &'static str)> {
     let run =
-        sts_core::RunState::seeded_ironclad(sts_verify::sts_seed_string_to_long(seed) as u64, 0);
+        sts_core::RunState::seeded_ironclad(sts_core::sts_seed_string_to_long(seed) as u64, 0);
     let run = sts_core::apply_event_action(&run, sts_core::EventAction::Choose { choice_index: 0 })
         .expect("Neow talk applies");
     let option = sts_core::generate_neow_options(run.event_rng_seed as i64, run.player_max_hp)
@@ -444,7 +444,7 @@ fn preflight_checks_neow_talk_against_simulator_state() {
 
     assert_eq!(
         report.numeric_seed,
-        Some(sts_verify::sts_seed_string_to_long("PLAN01"))
+        Some(sts_core::sts_seed_string_to_long("PLAN01"))
     );
     assert_eq!(report.steps[0].status, SlayTheDataPreflightStatus::Checked);
     assert_eq!(report.steps[0].code, "legal_neow_talk");

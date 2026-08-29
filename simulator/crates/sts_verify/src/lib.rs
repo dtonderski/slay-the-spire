@@ -4,7 +4,6 @@
 pub mod diff;
 pub mod minimize;
 pub mod outcome;
-pub mod seed;
 pub mod sim_real;
 pub mod slaythedata;
 pub mod trace;
@@ -17,10 +16,6 @@ pub use minimize::{
 pub use outcome::{
     assess_verification, assess_verification_with_options, AssessmentOptions, VerificationFailure,
     VerificationIntegrity, VerificationOutcome,
-};
-pub use seed::{
-    sts_seed_long_to_string, sts_seed_string_to_long, try_sts_seed_string_to_long,
-    STS_SEED_ALPHABET,
 };
 pub use sim_real::{
     replay_communication_mod_trace, replay_communication_mod_trace_reader,

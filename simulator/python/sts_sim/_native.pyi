@@ -62,16 +62,6 @@ class ExactRunStepResult:
     transition: DebugTransition
     unsupported_reason: str | None
 
-class RustSearchRecommendation:
-    best_action: ExactRunAction | None
-    principal_variation: list[ExactRunAction]
-    value: float
-    actions: int
-    nodes: int
-    terminal_reason: str | None
-    final_hp: float
-    monster_hp: float
-
 class OmniCombatEnv:
     @staticmethod
     def initial_fixture() -> OmniCombatEnv: ...
@@ -123,19 +113,6 @@ class OmniRunEnv:
         max_player_turns: int = ...,
         deduplicate_search_states: bool = ...,
     ) -> str: ...
-    def rust_greedy_combat_search(
-        self,
-        max_actions: int,
-        objective: str | None,
-        allowed_potions: list[str] | None,
-    ) -> RustSearchRecommendation: ...
-    def rust_beam_combat_search(
-        self,
-        max_actions: int,
-        objective: str | None,
-        allowed_potions: list[str] | None,
-        beam_width: int,
-    ) -> RustSearchRecommendation: ...
 
 class FairCombatEnv:
     @staticmethod
@@ -146,7 +123,6 @@ class FairCombatEnv:
     def decision_json(self) -> str: ...
     def step_json(self, request_json: str) -> str: ...
 
-def slaythedata_preflight_json(content: str, line_index: int | None = ...) -> str: ...
 def sts_seed_long_to_string(seed: int) -> str: ...
 def card_keys() -> list[str]: ...
 def card_catalogue_json() -> str: ...

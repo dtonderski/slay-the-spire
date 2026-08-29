@@ -1,4 +1,4 @@
-use crate::{automation::benchmark_beam_search, model::AutomationConfig};
+use crate::model::AutomationConfig;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -10,6 +10,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use sts_core::{RunPhase, RunState};
+use sts_search::benchmark_beam_search;
 use sts_verify::{
     import_communication_mod_trace, serialize_communication_mod_trace,
     verify_seed_start_communication_mod_trace, TraceLine, TraceMetadata, TraceState,
@@ -693,7 +694,7 @@ fn eval_root(
         deduplicate_search_states,
         ..AutomationConfig::default()
     };
-    let result = benchmark_beam_search(&state, &config, transition_budget);
+    let result = benchmark_beam_search(&state, &config.search_config(), transition_budget);
     println!(
         "{}",
         serde_json::to_string(&result).map_err(|error| error.to_string())?

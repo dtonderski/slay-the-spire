@@ -1,7 +1,6 @@
 use pyo3::create_exception;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use sts_core::combat::ExhaustSelectPurpose;
 use sts_core::potion::IRONCLAD_POTION_POOL;
 use sts_core::{
     apply_combat_action_with_events, apply_run_decision_action, fair_combat_observation,
@@ -9,13 +8,10 @@ use sts_core::{
     potion_key, resolve_player_choice, restore_combat_snapshot_json, restore_run_snapshot_json,
     CardDefinition, CardId, CardKeywords, CardType, CardValues, CombatAction, CombatPhase,
     CombatState, DecisionRevision, EventAction, FairCombatObservation, FairObservationError,
-    MapAction, MonsterId, MonsterIntent, PlayerChoice, PlayerChoiceError, PlayerChoiceRequest,
-    Potion, Relic, RestAction, RunAction, RunDecisionAction, RunPhase, RunState, Snapshot,
-    TargetRequirement, ALL_RELICS, SNAPSHOT_SCHEMA_VERSION,
+    MapAction, MonsterId, PlayerChoice, PlayerChoiceError, PlayerChoiceRequest, Potion, Relic,
+    RestAction, RunAction, RunDecisionAction, RunPhase, RunState, Snapshot, TargetRequirement,
+    ALL_RELICS, SNAPSHOT_SCHEMA_VERSION,
 };
-
-const AGENT_REWARD_GOLD_PER_HP: f64 = 10.0;
-const AGENT_REWARD_HP_PER_POTION: f64 = 8.0;
 
 create_exception!(_native, NoActiveCombatError, PyValueError);
 create_exception!(_native, InvalidAuthoritativeStateError, PyValueError);
@@ -414,27 +410,6 @@ pub struct PyExactRunStepResult {
     pub unsupported_reason: Option<String>,
 }
 
-#[pyclass(name = "RustSearchRecommendation")]
-#[derive(Clone)]
-pub struct PyRustSearchRecommendation {
-    #[pyo3(get)]
-    pub best_action: Option<PyExactRunAction>,
-    #[pyo3(get)]
-    pub principal_variation: Vec<PyExactRunAction>,
-    #[pyo3(get)]
-    pub value: f64,
-    #[pyo3(get)]
-    pub actions: usize,
-    #[pyo3(get)]
-    pub nodes: usize,
-    #[pyo3(get)]
-    pub terminal_reason: Option<String>,
-    #[pyo3(get)]
-    pub final_hp: f64,
-    #[pyo3(get)]
-    pub monster_hp: f64,
-}
-
 #[pyclass(name = "OmniCombatEnv")]
 #[derive(Clone)]
 pub struct PyOmniCombatEnv {
@@ -811,31 +786,6 @@ impl PyOmniRunEnv {
         )
     }
 
-    pub fn rust_greedy_combat_search(
-        &self,
-        max_actions: usize,
-        objective: Option<&str>,
-        allowed_potions: Option<Vec<String>>,
-    ) -> PyResult<PyRustSearchRecommendation> {
-        rust_greedy_combat_search(&self.state, max_actions, objective, allowed_potions)
-    }
-
-    pub fn rust_beam_combat_search(
-        &self,
-        max_actions: usize,
-        objective: Option<&str>,
-        allowed_potions: Option<Vec<String>>,
-        beam_width: usize,
-    ) -> PyResult<PyRustSearchRecommendation> {
-        rust_beam_combat_search(
-            &self.state,
-            max_actions,
-            objective,
-            allowed_potions,
-            beam_width,
-        )
-    }
-
     fn __repr__(&self) -> PyResult<String> {
         Ok(format!(
             "RunEnv(phase={}, revision={}, snapshot_hash={})",
@@ -930,11 +880,9 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyDebugTransition>()?;
     module.add_class::<PyExactStepResult>()?;
     module.add_class::<PyExactRunStepResult>()?;
-    module.add_class::<PyRustSearchRecommendation>()?;
     module.add_class::<PyFairCombatEnv>()?;
     module.add_class::<PyOmniCombatEnv>()?;
     module.add_class::<PyOmniRunEnv>()?;
-    module.add_function(wrap_pyfunction!(slaythedata_preflight_json, module)?)?;
     module.add_function(wrap_pyfunction!(sts_seed_long_to_string, module)?)?;
     module.add_function(wrap_pyfunction!(card_keys, module)?)?;
     module.add_function(wrap_pyfunction!(card_catalogue_json, module)?)?;
@@ -946,7 +894,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[pyfunction]
 fn sts_seed_long_to_string(seed: i64) -> String {
-    sts_verify::sts_seed_long_to_string(seed)
+    sts_core::sts_seed_long_to_string(seed)
 }
 
 #[pyfunction]
@@ -1025,19 +973,6 @@ fn potion_from_name(name: &str) -> Option<Potion> {
         .find(|potion| potion_name(*potion) == name)
 }
 
-#[pyfunction]
-fn slaythedata_preflight_json(content: &str, line_index: Option<usize>) -> PyResult<String> {
-    let imported = if let Some(line_index) = line_index {
-        sts_verify::import_slaythedata_jsonl_line(content, line_index)
-    } else {
-        sts_verify::import_slaythedata_run_json(content)
-    }
-    .map_err(|error| PyValueError::new_err(format!("SlayTheData import failed: {error}")))?;
-    let plan = sts_verify::slaythedata_replay_plan(&imported);
-    let report = sts_verify::slaythedata_replay_preflight(&plan);
-    to_json(&report)
-}
-
 fn exact_legal_actions(state: &CombatState) -> PyResult<Vec<PyExactCombatAction>> {
     Ok(legal_combat_actions(state)
         .map_err(|error| PyValueError::new_err(format!("invalid combat state: {error}")))?
@@ -1065,7 +1000,7 @@ fn stable_seed(seed: &str) -> Result<u64, String> {
     if let Ok(value) = seed.parse::<u64>() {
         return Ok(value);
     }
-    sts_verify::try_sts_seed_string_to_long(seed)
+    sts_core::try_sts_seed_string_to_long(seed)
         .map(|value| value as u64)
         .map_err(|error| error.to_string())
 }
@@ -1365,7 +1300,7 @@ fn beam_clone_episode_json(
                 "beam clone reached an empty ongoing public decision",
             ));
         }
-        let teacher = sts_live::automation::beam_teacher_decision(
+        let teacher = sts_search::beam_teacher_decision(
             &state,
             depth,
             width,
@@ -1470,522 +1405,6 @@ fn beam_clone_episode_json(
             truncation_trigger,
         },
     })
-}
-
-fn rust_greedy_combat_search(
-    state: &RunState,
-    max_actions: usize,
-    objective: Option<&str>,
-    allowed_potions: Option<Vec<String>>,
-) -> PyResult<PyRustSearchRecommendation> {
-    let objective = objective.unwrap_or("tactical_survival");
-    let allowed_potions = allowed_potions.map(|names| {
-        names
-            .into_iter()
-            .map(|name| normalize_potion_name(&name))
-            .collect::<Vec<_>>()
-    });
-    let mut current = state.clone();
-    let mut best_first_action: Option<ExactRunActionKind> = None;
-    let mut principal_variation: Vec<ExactRunActionKind> = Vec::new();
-    let mut actions_taken = 0usize;
-    let mut nodes = 1usize;
-    let mut terminal_reason = run_terminal_reason(&current);
-
-    while terminal_reason.is_none() && actions_taken < max_actions {
-        let actions = filtered_run_actions(&current, allowed_potions.as_deref())?;
-        if actions.is_empty() {
-            break;
-        }
-        let mut best_action: Option<ExactRunActionKind> = None;
-        let mut best_score = f64::NEG_INFINITY;
-        for action in actions {
-            let Ok(next) = apply_exact_run_action(&current, &action) else {
-                continue;
-            };
-            nodes += 1;
-            let reason = run_terminal_reason(&next);
-            let score = rust_run_score(&next, reason.as_deref(), objective)?;
-            if best_action.is_none() || score > best_score {
-                best_score = score;
-                best_action = Some(action);
-            }
-        }
-        let Some(action) = best_action else {
-            break;
-        };
-        if best_first_action.is_none() {
-            best_first_action = Some(action);
-        }
-        principal_variation.push(action);
-        current = apply_exact_run_action(&current, &action).map_err(|error| {
-            PyValueError::new_err(format!("rust greedy selected illegal action: {error:?}"))
-        })?;
-        actions_taken += 1;
-        terminal_reason = run_terminal_reason(&current);
-    }
-
-    let value = rust_run_score(&current, terminal_reason.as_deref(), objective)?;
-    let (final_hp, monster_hp) = run_combat_hp(&current);
-    Ok(PyRustSearchRecommendation {
-        best_action: best_first_action.map(|action| PyExactRunAction { action }),
-        principal_variation: principal_variation
-            .into_iter()
-            .map(|action| PyExactRunAction { action })
-            .collect(),
-        value,
-        actions: actions_taken,
-        nodes,
-        terminal_reason,
-        final_hp,
-        monster_hp,
-    })
-}
-
-#[derive(Clone)]
-struct RustBeamNode {
-    state: RunState,
-    first_action: Option<ExactRunActionKind>,
-    principal_variation: Vec<ExactRunActionKind>,
-    actions: usize,
-    score: f64,
-    terminal_reason: Option<String>,
-}
-
-fn rust_beam_combat_search(
-    state: &RunState,
-    max_actions: usize,
-    objective: Option<&str>,
-    allowed_potions: Option<Vec<String>>,
-    beam_width: usize,
-) -> PyResult<PyRustSearchRecommendation> {
-    if beam_width == 0 {
-        return Err(PyValueError::new_err("beam_width must be at least 1"));
-    }
-    let objective = objective.unwrap_or("tactical_survival");
-    let allowed_potions = allowed_potions.map(|names| {
-        names
-            .into_iter()
-            .map(|name| normalize_potion_name(&name))
-            .collect::<Vec<_>>()
-    });
-    let terminal_reason = run_terminal_reason(state);
-    let initial_score = rust_run_score(state, terminal_reason.as_deref(), objective)?;
-    let mut best = RustBeamNode {
-        state: state.clone(),
-        first_action: None,
-        principal_variation: Vec::new(),
-        actions: 0,
-        score: initial_score,
-        terminal_reason,
-    };
-    let mut frontier = vec![best.clone()];
-    let mut nodes = 1usize;
-
-    for _ in 0..max_actions {
-        let mut next_frontier = Vec::new();
-        for node in std::mem::take(&mut frontier) {
-            if node.terminal_reason.is_some() {
-                if rust_node_better(&node, &best) {
-                    best = node.clone();
-                }
-                next_frontier.push(node);
-                continue;
-            }
-            let actions = filtered_run_actions(&node.state, allowed_potions.as_deref())?;
-            if actions.is_empty() {
-                if rust_node_better(&node, &best) {
-                    best = node.clone();
-                }
-                next_frontier.push(node);
-                continue;
-            }
-            for action in actions {
-                let Ok(next_state) = apply_exact_run_action(&node.state, &action) else {
-                    continue;
-                };
-                nodes += 1;
-                let terminal_reason = run_terminal_reason(&next_state);
-                let score = rust_run_score(&next_state, terminal_reason.as_deref(), objective)?
-                    - rust_action_penalty(&action);
-                let mut principal_variation = node.principal_variation.clone();
-                principal_variation.push(action);
-                let child = RustBeamNode {
-                    state: next_state,
-                    first_action: node.first_action.or(Some(action)),
-                    principal_variation,
-                    actions: node.actions + 1,
-                    score,
-                    terminal_reason,
-                };
-                if rust_node_better(&child, &best) {
-                    best = child.clone();
-                }
-                next_frontier.push(child);
-            }
-        }
-        if next_frontier.is_empty() {
-            break;
-        }
-        next_frontier.sort_by(rust_node_order);
-        next_frontier.truncate(beam_width);
-        frontier = next_frontier;
-    }
-
-    for node in frontier {
-        if rust_node_better(&node, &best) {
-            best = node;
-        }
-    }
-
-    let (final_hp, monster_hp) = run_combat_hp(&best.state);
-    Ok(PyRustSearchRecommendation {
-        best_action: best.first_action.map(|action| PyExactRunAction { action }),
-        principal_variation: best
-            .principal_variation
-            .into_iter()
-            .map(|action| PyExactRunAction { action })
-            .collect(),
-        value: best.score,
-        actions: best.actions,
-        nodes,
-        terminal_reason: best.terminal_reason,
-        final_hp,
-        monster_hp,
-    })
-}
-
-fn rust_node_better(candidate: &RustBeamNode, best: &RustBeamNode) -> bool {
-    if candidate.first_action.is_some() && best.first_action.is_none() {
-        return true;
-    }
-    if candidate.first_action.is_none() && best.first_action.is_some() {
-        return false;
-    }
-    if candidate.terminal_reason.as_deref() == Some("won")
-        && best.terminal_reason.as_deref() != Some("won")
-    {
-        return true;
-    }
-    if candidate.terminal_reason.as_deref() != Some("lost")
-        && best.terminal_reason.as_deref() == Some("lost")
-    {
-        return true;
-    }
-    candidate.score > best.score
-}
-
-fn rust_node_order(left: &RustBeamNode, right: &RustBeamNode) -> std::cmp::Ordering {
-    right
-        .score
-        .partial_cmp(&left.score)
-        .unwrap_or(std::cmp::Ordering::Equal)
-        .then_with(|| left.actions.cmp(&right.actions))
-}
-
-fn filtered_run_actions(
-    state: &RunState,
-    allowed_potions: Option<&[String]>,
-) -> PyResult<Vec<ExactRunActionKind>> {
-    let actions: Vec<_> = exact_run_legal_action_kinds(state)?
-        .into_iter()
-        .filter(|action| rust_action_allowed(state, action, allowed_potions))
-        .collect();
-    Ok(preferred_select_actions(state, &actions).unwrap_or(actions))
-}
-
-fn preferred_select_actions(
-    state: &RunState,
-    actions: &[ExactRunActionKind],
-) -> Option<Vec<ExactRunActionKind>> {
-    if actions.is_empty() || !actions.iter().all(is_run_select_action) {
-        return None;
-    }
-    let confirm = actions
-        .iter()
-        .find(|action| is_run_select_confirm(action))?;
-    if should_confirm_selected_single_exhaust(state) {
-        return Some(vec![*confirm]);
-    }
-    if let Some(action) = preferred_bad_exhaust_action(state, actions) {
-        return Some(vec![action]);
-    }
-    Some(vec![*confirm])
-}
-
-fn is_run_select_action(action: &ExactRunActionKind) -> bool {
-    matches!(
-        action,
-        ExactRunActionKind::Run(RunAction::ChooseHandSelect { .. })
-            | ExactRunActionKind::Run(RunAction::ConfirmHandSelect)
-            | ExactRunActionKind::Run(RunAction::ChooseDrawSelect { .. })
-            | ExactRunActionKind::Run(RunAction::ConfirmDrawSelect)
-            | ExactRunActionKind::Run(RunAction::ChooseDiscardSelect { .. })
-            | ExactRunActionKind::Run(RunAction::ConfirmDiscardSelect)
-            | ExactRunActionKind::Run(RunAction::ChooseExhaustSelect { .. })
-            | ExactRunActionKind::Run(RunAction::ConfirmExhaustSelect)
-    )
-}
-
-fn is_run_select_confirm(action: &ExactRunActionKind) -> bool {
-    matches!(
-        action,
-        ExactRunActionKind::Run(RunAction::ConfirmHandSelect)
-            | ExactRunActionKind::Run(RunAction::ConfirmDrawSelect)
-            | ExactRunActionKind::Run(RunAction::ConfirmDiscardSelect)
-            | ExactRunActionKind::Run(RunAction::ConfirmExhaustSelect)
-    )
-}
-
-fn should_confirm_selected_single_exhaust(state: &RunState) -> bool {
-    let Some(combat) = state.combat.as_ref() else {
-        return false;
-    };
-    let Some(select) = combat.exhaust_select() else {
-        return false;
-    };
-    !select.selected_hand_indices.is_empty()
-        && !matches!(
-            select.purpose,
-            ExhaustSelectPurpose::Exhaust
-                | ExhaustSelectPurpose::PurityExhaustUpTo3
-                | ExhaustSelectPurpose::GamblingChip
-        )
-}
-
-fn preferred_bad_exhaust_action(
-    state: &RunState,
-    actions: &[ExactRunActionKind],
-) -> Option<ExactRunActionKind> {
-    let combat = state.combat.as_ref()?;
-    let before = combat.exhaust_select()?;
-    for action in actions {
-        if !matches!(
-            action,
-            ExactRunActionKind::Run(RunAction::ChooseExhaustSelect { .. })
-        ) {
-            continue;
-        }
-        let Ok(next) = apply_exact_run_action(state, action) else {
-            continue;
-        };
-        let Some(next_combat) = next.combat.as_ref() else {
-            continue;
-        };
-        let Some(after) = next_combat.exhaust_select() else {
-            continue;
-        };
-        if after.selected_hand_indices.len() <= before.selected_hand_indices.len() {
-            continue;
-        }
-        if after.selected_hand_indices.iter().any(|index| {
-            !before.selected_hand_indices.contains(index)
-                && combat
-                    .piles
-                    .hand
-                    .get(*index)
-                    .map(|card| is_bad_exhaust_content_id(card.content_id.get()))
-                    .unwrap_or(false)
-        }) {
-            return Some(*action);
-        }
-    }
-    None
-}
-
-fn is_bad_exhaust_content_id(content_id: u64) -> bool {
-    matches!(
-        content_id,
-        4 | 5 | 6 | 7 | 61 | 62 | 63 | 64 | 65 | 66 | 67 | 68 | 69 | 70 | 71 | 72
-    )
-}
-
-fn rust_action_allowed(
-    state: &RunState,
-    action: &ExactRunActionKind,
-    allowed_potions: Option<&[String]>,
-) -> bool {
-    let Some(allowed_potions) = allowed_potions else {
-        return true;
-    };
-    let ExactRunActionKind::Run(RunAction::UsePotion { slot, .. }) = action else {
-        return true;
-    };
-    state
-        .potions
-        .get(*slot)
-        .map(|potion| {
-            allowed_potions
-                .iter()
-                .any(|allowed| *allowed == normalize_potion_name(&format!("{potion:?}")))
-        })
-        .unwrap_or(false)
-}
-
-fn normalize_potion_name(name: &str) -> String {
-    let normalized: String = name
-        .chars()
-        .filter(|character| character.is_ascii_alphanumeric())
-        .flat_map(char::to_lowercase)
-        .collect();
-    normalized
-        .strip_suffix("potion")
-        .unwrap_or(&normalized)
-        .to_owned()
-}
-
-fn rust_action_penalty(action: &ExactRunActionKind) -> f64 {
-    match action {
-        // `agent_reward_hp_equivalent` values every retained potion at eight
-        // HP, so potion cost persists in all later beam nodes without an
-        // additional one-ply action penalty.
-        ExactRunActionKind::Run(RunAction::UsePotion { .. }) => 0.0,
-        ExactRunActionKind::Run(RunAction::ChooseHandSelect { .. })
-        | ExactRunActionKind::Run(RunAction::ChooseDrawSelect { .. })
-        | ExactRunActionKind::Run(RunAction::ChooseDiscardSelect { .. })
-        | ExactRunActionKind::Run(RunAction::ChooseExhaustSelect { .. }) => 2.0,
-        _ => 0.0,
-    }
-}
-
-fn run_terminal_reason(state: &RunState) -> Option<String> {
-    if let Some(combat) = state.combat.as_ref() {
-        if combat.phase == CombatPhase::Lost || combat.player.hp <= 0 {
-            return Some("lost".to_owned());
-        }
-        if combat.phase == CombatPhase::Won {
-            return Some("won".to_owned());
-        }
-    }
-    if state.phase != RunPhase::Combat {
-        return Some("won".to_owned());
-    }
-    None
-}
-
-fn rust_run_score(
-    state: &RunState,
-    terminal_reason: Option<&str>,
-    objective: &str,
-) -> PyResult<f64> {
-    let Some(combat) = state.combat.as_ref() else {
-        return Ok(match terminal_reason {
-            Some("won") => 1_000_000.0,
-            Some("lost") => -1_000_000.0,
-            _ => 0.0,
-        });
-    };
-    let player_hp = agent_reward_hp_equivalent(state, combat);
-    let player_block = f64::from(combat.player.block);
-    let player_energy = f64::from(combat.player.energy);
-    let alive_monsters: Vec<_> = combat
-        .monsters
-        .iter()
-        .filter(|monster| monster.alive)
-        .collect();
-    let incoming: f64 = alive_monsters
-        .iter()
-        .map(|monster| f64::from(intent_damage(monster.intent)))
-        .sum();
-    let unblocked = (incoming - player_block).max(0.0);
-    let useful_block = player_block.min(incoming);
-    let monster_hp: f64 = alive_monsters
-        .iter()
-        .map(|monster| f64::from(monster.hp))
-        .sum();
-    let monster_block: f64 = alive_monsters
-        .iter()
-        .map(|monster| f64::from(monster.block))
-        .sum();
-    let alive_count = alive_monsters.len() as f64;
-    let state_score = match objective {
-        "survive_then_damage" => {
-            player_hp * 10.0 + player_block * 1.5 + player_energy * 0.25
-                - monster_hp * 3.0
-                - monster_block * 0.5
-                - alive_count * 25.0
-        }
-        "tactical_survival" => {
-            player_hp * 25.0 - unblocked * 45.0 + useful_block * 7.5 + player_energy * 0.5
-                - monster_hp * 4.0
-                - monster_block * 0.75
-                - alive_count * 60.0
-        }
-        "terminal_tactical" => {
-            player_hp * 22.0 - unblocked * 42.0 + useful_block * 6.0 + player_energy * 0.5
-                - monster_hp * 12.0
-                - monster_block
-                - alive_count * 250.0
-        }
-        "aggressive_lethal" => {
-            player_hp * 8.0 + useful_block * 2.0
-                - unblocked * 10.0
-                - monster_hp * 9.0
-                - alive_count * 100.0
-        }
-        "hp_preserving_lethal" => {
-            player_hp * 120.0 + useful_block * 20.0 - unblocked * 160.0 + player_energy
-                - monster_hp * 6.0
-                - monster_block * 0.5
-                - alive_count * 300.0
-        }
-        _ => {
-            return Err(PyValueError::new_err(format!(
-                "unsupported rust greedy objective: {objective}"
-            )))
-        }
-    };
-    let terminal_adjustment = if objective == "terminal_tactical" && terminal_reason.is_none() {
-        -10_000.0
-    } else {
-        0.0
-    };
-    Ok(match terminal_reason {
-        Some("won") => 1_000_000.0 + state_score,
-        Some("lost") => -1_000_000.0 + state_score,
-        _ => state_score + terminal_adjustment,
-    })
-}
-
-fn agent_reward_hp_equivalent(state: &RunState, combat: &CombatState) -> f64 {
-    f64::from(combat.player.hp)
-        + f64::from(state.gold) / AGENT_REWARD_GOLD_PER_HP
-        + state.potions.len() as f64 * AGENT_REWARD_HP_PER_POTION
-}
-
-fn run_combat_hp(state: &RunState) -> (f64, f64) {
-    let Some(combat) = state.combat.as_ref() else {
-        return (f64::from(state.player_hp), 0.0);
-    };
-    let monster_hp = combat
-        .monsters
-        .iter()
-        .filter(|monster| monster.alive)
-        .map(|monster| f64::from(monster.hp))
-        .sum();
-    (f64::from(combat.player.hp), monster_hp)
-}
-
-fn intent_damage(intent: MonsterIntent) -> i32 {
-    match intent {
-        MonsterIntent::Attack { damage }
-        | MonsterIntent::AttackAndBlock { damage, .. }
-        | MonsterIntent::AttackApplyPlayerWeak { damage, .. }
-        | MonsterIntent::AttackApplyPlayerVulnerable { damage, .. }
-        | MonsterIntent::AttackApplyPlayerWeakAndVulnerable { damage, .. }
-        | MonsterIntent::AttackApplyPlayerFrailAndVulnerable { damage, .. }
-        | MonsterIntent::AttackApplyPlayerFrailAndWeak { damage, .. }
-        | MonsterIntent::AttackApplyPlayerFrail { damage, .. }
-        | MonsterIntent::AttackHealSelf { damage }
-        | MonsterIntent::AttackAddWoundsToDiscard { damage, .. }
-        | MonsterIntent::AttackAddSlimedToDiscard { damage, .. }
-        | MonsterIntent::AttackAddVoidToDraw { damage, .. }
-        | MonsterIntent::AttackStealGold { damage, .. } => damage,
-        MonsterIntent::AttackMultiple { damage, hits } => damage * hits,
-        MonsterIntent::AddBurnToDiscard { damage, .. }
-        | MonsterIntent::AddBurnToDiscardAndDraw { damage, .. } => damage,
-        _ => 0,
-    }
 }
 
 fn apply_exact_run_action(
@@ -2555,63 +1974,6 @@ mod tests {
                 .expect("reward remains")
                 .potion_offer,
             None
-        );
-    }
-
-    #[test]
-    fn rust_beam_confirms_optional_exhaust_select_when_no_bad_card_is_available() {
-        let mut env = PyOmniRunEnv::combat_fixture();
-        env.state.potions = vec![Potion::Elixir];
-        let elixir = env
-            .exact_legal_actions()
-            .expect("run legal actions")
-            .into_iter()
-            .find(|action| action.kind() == "use_potion")
-            .expect("elixir is usable")
-            .clone();
-
-        env.step(&elixir).expect("elixir opens exhaust select");
-
-        let recommendation = env
-            .rust_beam_combat_search(12, Some("terminal_tactical"), Some(Vec::new()), 32)
-            .expect("rust beam searches exhaust select");
-        let best_action = recommendation
-            .best_action
-            .expect("rust beam recommends select action");
-
-        assert_eq!(best_action.kind(), "confirm_exhaust_select");
-    }
-
-    #[test]
-    fn rust_score_values_ten_gold_as_one_hp() {
-        let mut env = PyOmniRunEnv::combat_fixture();
-        env.state.gold = 0;
-        let base = rust_run_score(&env.state, None, "terminal_tactical").expect("base score");
-
-        env.state.gold = 10;
-        let with_gold =
-            rust_run_score(&env.state, None, "terminal_tactical").expect("gold-adjusted score");
-
-        assert_eq!(with_gold - base, 22.0);
-    }
-
-    #[test]
-    fn rust_score_values_one_potion_as_eight_hp() {
-        let mut env = PyOmniRunEnv::combat_fixture();
-        env.state.potions.clear();
-        let base = rust_run_score(&env.state, None, "terminal_tactical").expect("base score");
-
-        env.state.potions.push(Potion::Attack);
-        let with_potion =
-            rust_run_score(&env.state, None, "terminal_tactical").expect("potion-adjusted score");
-
-        assert_eq!(with_potion - base, 176.0);
-        assert_eq!(
-            rust_action_penalty(&ExactRunActionKind::Run(RunAction::UsePotion {
-                slot: 0,
-                target: None,
-            })),
-            0.0
         );
     }
 

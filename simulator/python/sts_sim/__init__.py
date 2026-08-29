@@ -10,10 +10,8 @@ from ._native import (
     InvalidChoiceError,
     NoActiveCombatError,
     NotInCombatError,
-    RustSearchRecommendation,
     StaleDecisionError,
     UnknownPublicContentError,
-    slaythedata_preflight_json,
     sts_seed_long_to_string,
 )
 from .content import (
@@ -95,11 +93,9 @@ __all__ = [
     "Potion",
     "Relic",
     "RunEnv",
-    "RustSearchRecommendation",
     "Snapshot",
     "StaleDecisionError",
     "StepResult",
     "UnknownPublicContentError",
-    "slaythedata_preflight_json",
     "sts_seed_long_to_string",
 ]

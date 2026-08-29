@@ -9,8 +9,9 @@ scoped to combat. Run-level learning, belief/particle search, and the A20H
 evaluation protocol are out of scope.
 
 The first training-ready slice now implements deterministic legal simulator
-roots, a public-decision replanning teacher that reuses the live beam core, symbolic Record V2 datasets,
-masked terminal values, exact CPU checkpoint/resume, and development evaluation.
+roots, a public-decision replanning teacher that reuses the extracted `sts_search`
+beam core, symbolic Record V2 datasets, masked terminal values, exact CPU
+checkpoint/resume, and development evaluation.
 It intentionally does not claim PUCT, candidate promotion, or trace-derived root
 extraction. The native episode payload currently reports the full HP/max-HP/gold,
 potion, status, decision/turn, and truncation contract; card/relic counter deltas
@@ -65,13 +66,12 @@ absorb 24 threads.
    its duplicate-metadata fix and verifier-owned streaming root capture. Until
    then, trace roots are evaluation anchors in the design, not accepted training
    artifacts produced by the new CLI.
-2. **Beam cloning uses one replanning teacher, but extraction remains deferred.**
-   Offline labeling calls a narrow public entry point around the
-   `sts_live::automation` beam core with a deterministic transition budget, no
+2. **Beam cloning uses one extracted replanning teacher.** Offline labeling
+   calls the `sts_search` beam core with a deterministic transition budget, no
    deadline, and no warm suffix at every public decision. This is not the live
-   automation execution policy. The legacy PyO3 objective-string beam remains
-   for compatibility and is excluded from labeling. Moving the incumbent to `sts_search` remains a
-   later behavior-attested refactor.
+   automation execution policy. The repository-unused legacy PyO3
+   objective-string search surface was deleted in this extraction under the
+   approved no-shim policy when the incumbent planner moved into `sts_search`.
 3. **Supervised training is ready; Expert Iteration is not.** The implemented
    CLI generates manifest-bound records, fits training-only vocabularies,
    performs masked policy/value optimization, resumes exactly at batch
@@ -185,8 +185,8 @@ Constraints on the move:
   serialized field inventory and names get their own compatibility test.
 - **Split the config, do not move it.** `AutomationConfig` is a serialized live
   wire type embedded in session snapshots and the automation journal. Define
-  `sts_search::SearchConfig` with the six fields search actually reads and give
-  `sts_live` a `From<&AutomationConfig>`. Serde field names in
+  `sts_search::SearchConfig` with the fields search actually reads and give
+  `sts_live` an `AutomationConfig::search_config` adapter. Serde field names in
   `AutomationConfig` must not change.
 - **Warm start takes search types.** Accept `&[PlannerAction]` rather than
   `&[AutomationPlannedAction]`; let `sts_live` decode its cached labels.
@@ -203,11 +203,9 @@ Constraints on the move:
   `Instant::now()`. Keep the deadline an `Option<Instant>` parameter so budgeted
   replay stays bit-reproducible, and keep passing `None` from benchmarks.
 
-The training pipeline uses only this teacher. Keep the `py_sts` duplicate out
-of all labeling/evaluation paths, audit repository and external consumers, and
-compare its five objective strings on the root corpus. Delete it only in a
-separate compatibility change if no supported consumer remains; otherwise keep
-a deprecated legacy adapter clearly outside the teacher contract.
+The training pipeline uses only this teacher. The legacy `py_sts`
+objective-string search was repository-unused and was deleted in this extraction
+under the approved no-shim policy; no duplicate compatibility adapter remains.
 
 ### D5. Search runs in Rust; a generic fair evaluator batches across the FFI
 
@@ -418,10 +416,10 @@ the data plan before training rather than lowering it after seeing results.
 
 **Stage 4 — Single teacher.** D4. Gate: `sts_search` extraction matches every
 deterministic golden field on every development root, while serialized field
-names remain compatible and timing is reported separately. The Python objective
-family has a recorded consumer audit and behavior comparison; deletion or
-legacy deprecation is a separate reviewed change. Generate hidden-equivalent
-root pairs and record teacher disagreement before behavior cloning.
+names remain compatible and timing is reported separately. The repository-unused
+Python objective family was deleted in this extraction under the approved
+no-shim policy. Generate hidden-equivalent root pairs and record teacher
+disagreement before behavior cloning.
 
 **Stage 5 — Throughput.** D7. Gate: at least 2x median native decision-path
 speedup against the matched 122 us baseline, zero JSON operations in the
@@ -464,9 +462,9 @@ as an unmet gate rather than a pass.
 - The incumbent terminal proxy is frozen for extraction and incumbent
   comparison. Alternative weights are versioned experiment configurations and
   cannot share comparison tables or checkpoint identity with another proxy.
-- The `py_sts` objective family is not a teacher. It is deleted only after the
-  Stage 4 consumer audit proves no supported dependency; otherwise it remains a
-  deprecated legacy adapter.
+- The repository-unused `py_sts` objective family was not a teacher and was
+  deleted in this extraction under the approved no-shim policy; no legacy
+  compatibility adapter remains.
 - Training does not start below 225 roots and 100 distinct lineages. This floor
   is fixed from the historical benchmark before regeneration, not selected from
   the resulting learning curves.

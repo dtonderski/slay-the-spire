@@ -8,6 +8,7 @@ pub mod error;
 pub mod ids;
 pub mod power;
 pub mod rng;
+pub mod seed;
 pub mod snapshot;
 
 pub mod action;
@@ -98,6 +99,10 @@ pub use run::{
     ShopCardSlot, ShopPick, ShopPotionSlot, ShopRelicSlot, ShopScreen,
     FAIR_RUN_OBSERVATION_SCHEMA_VERSION, GOLDEN_SHRINE_GOLD, PLAYER_CHOICE_SCHEMA_VERSION,
     REST_HEAL_PERCENT, REWARD_GOLD_AMOUNT, STARTING_GOLD,
+};
+pub use seed::{
+    sts_seed_long_to_string, sts_seed_string_to_long, try_sts_seed_string_to_long, SeedParseError,
+    STS_SEED_ALPHABET,
 };
 pub use snapshot::{
     restore_combat_snapshot_json, restore_run_snapshot_json, Snapshot, SnapshotHash,
