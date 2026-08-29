@@ -274,6 +274,7 @@ fn combat_decisions_have_one_active_value_and_an_ordered_queue() {
                 source_card_id,
                 selectable_card_ids: Vec::new(),
                 selected_draw_index: None,
+                selected_draw_indices: Vec::new(),
                 pending_actions: Default::default(),
             },
         });
@@ -297,6 +298,7 @@ fn queued_combat_decision_without_active_predecessor_fails_validation() {
                 source_card_id,
                 selectable_card_ids: Vec::new(),
                 selected_draw_index: None,
+                selected_draw_indices: Vec::new(),
                 pending_actions: Default::default(),
             },
         });

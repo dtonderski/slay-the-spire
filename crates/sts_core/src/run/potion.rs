@@ -186,11 +186,26 @@ pub fn validate_hand_select_choice(run: &RunState, index: usize) -> SimResult<()
         .hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
     if hand_select.purpose != HandSelectPurpose::ForethoughtPutAnyOnDraw
+        && hand_select.purpose != HandSelectPurpose::PreparedDiscard
         && hand_select.selected_hand_index == Some(hand_index)
     {
         return Err(SimError::IllegalAction(
             "hand select choice is already selected",
         ));
+    }
+    if hand_select.purpose == HandSelectPurpose::PreparedDiscard {
+        let required = combat
+            .piles
+            .limbo
+            .iter()
+            .find(|card| card.id == hand_select.source_card_id)
+            .map(|card| if card.upgrades > 0 { 2 } else { 1 })
+            .ok_or(SimError::IllegalAction("Prepared source card is missing"))?;
+        if hand_select.selected_hand_indices.len() >= required {
+            return Err(SimError::IllegalAction(
+                "Prepared discard selection is already full",
+            ));
+        }
     }
     Ok(())
 }
@@ -203,7 +218,20 @@ pub fn validate_hand_select_confirm(run: &RunState) -> SimResult<()> {
     let hand_select = combat
         .hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
-    if hand_select.purpose != HandSelectPurpose::ForethoughtPutAnyOnDraw
+    if hand_select.purpose == HandSelectPurpose::PreparedDiscard {
+        let required = combat
+            .piles
+            .limbo
+            .iter()
+            .find(|card| card.id == hand_select.source_card_id)
+            .map(|card| if card.upgrades > 0 { 2 } else { 1 })
+            .ok_or(SimError::IllegalAction("Prepared source card is missing"))?;
+        if hand_select.selected_hand_indices.len() != required {
+            return Err(SimError::IllegalAction(
+                "Prepared requires the exact discard count",
+            ));
+        }
+    } else if hand_select.purpose != HandSelectPurpose::ForethoughtPutAnyOnDraw
         && hand_select.selected_hand_index.is_none()
     {
         return Err(SimError::IllegalAction("hand select choice is required"));

@@ -374,6 +374,9 @@ pub enum InternalAction {
     GainLikeWater {
         amount: i32,
     },
+    GainNirvana {
+        amount: i32,
+    },
     GainRupture {
         amount: i32,
     },

@@ -154,7 +154,8 @@ pub(super) fn await_hand_select(
         HandSelectPurpose::WarcryPutOnDraw
             | HandSelectPurpose::ThinkingAheadPutOnDraw
             | HandSelectPurpose::ForethoughtPutOnDraw
-            | HandSelectPurpose::ForethoughtPutAnyOnDraw,
+            | HandSelectPurpose::ForethoughtPutAnyOnDraw
+            | HandSelectPurpose::PreparedDiscard,
     ) {
         // UseCardAction has already moved the source to limbo / cardInUse.
         // The internal stand-in must leave hand while the screen is open so
@@ -202,9 +203,32 @@ pub(super) fn await_draw_select(
     }
     let mut selectable_card_ids = Vec::new();
     if purpose == DrawSelectPurpose::Scry {
-        if let Some(card) = state.piles.draw_pile.last() {
-            selectable_card_ids.push(card.id);
-        }
+        let scry_count = state
+            .piles
+            .limbo
+            .iter()
+            .find(|card| card.id == source_card_id)
+            .map(|card| {
+                if card.content_id == crate::content::cards::THIRD_EYE_ANY_COLOR_ID {
+                    if card.upgrades > 0 {
+                        5
+                    } else {
+                        3
+                    }
+                } else {
+                    1
+                }
+            })
+            .unwrap_or(1);
+        selectable_card_ids.extend(
+            state
+                .piles
+                .draw_pile
+                .iter()
+                .rev()
+                .take(scry_count)
+                .map(|card| card.id),
+        );
     }
     for card in &state.piles.draw_pile {
         if purpose == DrawSelectPurpose::Scry {
@@ -243,6 +267,7 @@ pub(super) fn await_draw_select(
             source_card_id,
             selectable_card_ids,
             selected_draw_index: None,
+            selected_draw_indices: Vec::new(),
             pending_actions: Default::default(),
         },
     });

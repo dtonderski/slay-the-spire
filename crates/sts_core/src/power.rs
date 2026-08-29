@@ -54,6 +54,9 @@ pub struct PlayerPowers {
     /// LikeWaterPower: block gained before end-turn cards while in Calm.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub like_water: i32,
+    /// NirvanaPower: block gained after each completed Scry action.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub nirvana: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub rupture: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]

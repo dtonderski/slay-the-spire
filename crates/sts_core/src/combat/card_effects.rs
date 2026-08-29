@@ -21,12 +21,13 @@ use crate::{
         CHARGE_BATTERY_ANY_COLOR_ID, CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLASH_PLUS_ID,
         CLEAVE_ID, CLEAVE_PLUS_ID, CLOAK_AND_DAGGER_ANY_COLOR_ID, CLOTHESLINE_ID,
         CLOTHESLINE_PLUS_ID, COMBUST_ID, COMBUST_PLUS_ID, COMPILE_DRIVER_ANY_COLOR_ID,
-        CORRUPTION_ID, CORRUPTION_PLUS_ID, DAGGER_SPRAY_ANY_COLOR_ID, DARK_EMBRACE_ID,
-        DARK_EMBRACE_PLUS_ID, DARK_SHACKLES_ID, DARK_SHACKLES_PLUS_ID, DAZED_ID, DEEP_BREATH_ID,
-        DEEP_BREATH_PLUS_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID, DEMON_FORM_ID, DEMON_FORM_PLUS_ID,
-        DISARM_ID, DISARM_PLUS_ID, DISCOVERY_ID, DISCOVERY_PLUS_ID, DOPPELGANGER_ANY_COLOR_ID,
-        DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DRAMATIC_ENTRANCE_ID, DRAMATIC_ENTRANCE_PLUS_ID,
-        DROPKICK_ID, DROPKICK_PLUS_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, EMPTY_MIND_ANY_COLOR_ID,
+        CORRUPTION_ID, CORRUPTION_PLUS_ID, CRIPPLING_CLOUD_ANY_COLOR_ID, DAGGER_SPRAY_ANY_COLOR_ID,
+        DARK_EMBRACE_ID, DARK_EMBRACE_PLUS_ID, DARK_SHACKLES_ID, DARK_SHACKLES_PLUS_ID, DAZED_ID,
+        DEADLY_POISON_ANY_COLOR_ID, DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID, DEFEND_R_ID,
+        DEFEND_R_PLUS_ID, DEMON_FORM_ID, DEMON_FORM_PLUS_ID, DISARM_ID, DISARM_PLUS_ID,
+        DISCOVERY_ID, DISCOVERY_PLUS_ID, DOPPELGANGER_ANY_COLOR_ID, DOUBLE_TAP_ID,
+        DOUBLE_TAP_PLUS_ID, DRAMATIC_ENTRANCE_ID, DRAMATIC_ENTRANCE_PLUS_ID, DROPKICK_ID,
+        DROPKICK_PLUS_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, EMPTY_MIND_ANY_COLOR_ID,
         ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID, ENTRENCH_PLUS_ID,
         EQUILIBRIUM_ANY_COLOR_ID, EVISCERATE_ANY_COLOR_ID, EVOLVE_ID, EVOLVE_PLUS_ID, EXHUME_ID,
         EXHUME_PLUS_ID, FASTING_ANY_COLOR_ID, FEED_ID, FEED_PLUS_ID, FEEL_NO_PAIN_ID,
@@ -43,28 +44,31 @@ use crate::{
         JUST_LUCKY_ANY_COLOR_ID, LIKE_WATER_ANY_COLOR_ID, LIMIT_BREAK_ID, LIMIT_BREAK_PLUS_ID,
         MADNESS_ID, MADNESS_PLUS_ID, MAGNETISM_ID, MAGNETISM_PLUS_ID, MASTER_OF_STRATEGY_ID,
         MASTER_OF_STRATEGY_PLUS_ID, MAYHEM_ID, MAYHEM_PLUS_ID, METALLICIZE_ID, METALLICIZE_PLUS_ID,
-        METAMORPHOSIS_ID, METAMORPHOSIS_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID, OFFERING_ID,
-        OFFERING_PLUS_ID, PANACEA_ID, PANACEA_PLUS_ID, PANACHE_ID, PANACHE_PLUS_ID,
-        PANIC_BUTTON_ID, PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID, PERFECTED_STRIKE_PLUS_ID,
-        POISONED_STAB_ANY_COLOR_ID, POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID,
-        POWER_THROUGH_PLUS_ID, PRESSURE_POINTS_ANY_COLOR_ID, PROSTRATE_ANY_COLOR_ID, PUMMEL_ID,
-        PUMMEL_PLUS_ID, PURITY_ID, PURITY_PLUS_ID, RAGE_ID, RAGE_PLUS_ID, RAMPAGE_ID,
-        RAMPAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID,
-        RECYCLE_ANY_COLOR_ID, RITUAL_DAGGER_ID, RUPTURE_ID, RUPTURE_PLUS_ID, SADISTIC_NATURE_ID,
-        SADISTIC_NATURE_PLUS_ID, SANDS_OF_TIME_ID, SANDS_OF_TIME_PLUS_ID, SEARING_BLOW_ID,
-        SEARING_BLOW_PLUS_ID, SECOND_WIND_ID, SECOND_WIND_PLUS_ID, SECRET_TECHNIQUE_ID,
-        SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID, SEEING_RED_ID,
-        SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHIV_ANY_COLOR_ID, SHOCKWAVE_ID,
-        SHOCKWAVE_PLUS_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID, SKEWER_ANY_COLOR_ID,
-        SKIM_ANY_COLOR_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STEAM_BARRIER_ANY_COLOR_ID, STORM_OF_STEEL_ANY_COLOR_ID, STREAMLINE_ANY_COLOR_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID,
-        SWORD_BOOMERANG_PLUS_ID, THE_BOMB_ID, THE_BOMB_PLUS_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID,
-        THINKING_AHEAD_PLUS_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID, TRANQUILITY_ANY_COLOR_ID,
+        METAMORPHOSIS_ID, METAMORPHOSIS_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID,
+        NIRVANA_ANY_COLOR_ID, OFFERING_ID, OFFERING_PLUS_ID, PANACEA_ID, PANACEA_PLUS_ID,
+        PANACHE_ID, PANACHE_PLUS_ID, PANIC_BUTTON_ID, PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID,
+        PERFECTED_STRIKE_PLUS_ID, POISONED_STAB_ANY_COLOR_ID, POMMEL_STRIKE_ID,
+        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID, PREPARED_ANY_COLOR_ID,
+        PRESSURE_POINTS_ANY_COLOR_ID, PROSTRATE_ANY_COLOR_ID, PROTECT_ANY_COLOR_ID, PUMMEL_ID,
+        PUMMEL_PLUS_ID, PURITY_ID, PURITY_PLUS_ID, QUICK_SLASH_ANY_COLOR_ID, RAGE_ID, RAGE_PLUS_ID,
+        RAMPAGE_ID, RAMPAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID,
+        RECKLESS_CHARGE_PLUS_ID, RECYCLE_ANY_COLOR_ID, RIP_AND_TEAR_ANY_COLOR_ID, RITUAL_DAGGER_ID,
+        RUPTURE_ID, RUPTURE_PLUS_ID, SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID, SANDS_OF_TIME_ID,
+        SANDS_OF_TIME_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECOND_WIND_ID,
+        SECOND_WIND_PLUS_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID,
+        SECRET_WEAPON_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
+        SEVER_SOUL_PLUS_ID, SHIV_ANY_COLOR_ID, SHOCKWAVE_ID, SHOCKWAVE_PLUS_ID, SHRUG_IT_OFF_ID,
+        SHRUG_IT_OFF_PLUS_ID, SKEWER_ANY_COLOR_ID, SKIM_ANY_COLOR_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
+        SPOT_WEAKNESS_PLUS_ID, STEAM_BARRIER_ANY_COLOR_ID, STORM_OF_STEEL_ANY_COLOR_ID,
+        STREAMLINE_ANY_COLOR_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
+        SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID, THE_BOMB_ID,
+        THE_BOMB_PLUS_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID, THINKING_AHEAD_PLUS_ID,
+        THIRD_EYE_ANY_COLOR_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID, TRANQUILITY_ANY_COLOR_ID,
         TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID, TRUE_GRIT_ID,
-        TRUE_GRIT_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UPPERCUT_ID, UPPERCUT_PLUS_ID,
-        VIOLENCE_ID, VIOLENCE_PLUS_ID, WALLOP_ANY_COLOR_ID, WARCRY_ID, WARCRY_PLUS_ID,
-        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID, WOUND_ID,
+        TRUE_GRIT_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UNLOAD_ANY_COLOR_ID, UPPERCUT_ID,
+        UPPERCUT_PLUS_ID, VIOLENCE_ID, VIOLENCE_PLUS_ID, WALLOP_ANY_COLOR_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID,
+        WOUND_ID,
     },
     content::shop_pool::{
         colorless_discovery_pool, ironclad_combat_attack_discovery_pool,
@@ -556,6 +560,14 @@ pub(super) fn play_card_queue(
             *card,
             definition,
         ),
+        CRIPPLING_CLOUD_ANY_COLOR_ID => crippling_cloud_queue(state, card_id, *card, definition),
+        RIP_AND_TEAR_ANY_COLOR_ID => rip_and_tear_queue(state, card_id, *card, definition),
+        QUICK_SLASH_ANY_COLOR_ID => quick_slash_queue(card_id, target, *card, definition),
+        NIRVANA_ANY_COLOR_ID => nirvana_queue(card_id, *card),
+        DEADLY_POISON_ANY_COLOR_ID => deadly_poison_queue(card_id, target, *card, definition),
+        UNLOAD_ANY_COLOR_ID => unload_queue(state, card_id, target, *card, definition),
+        THIRD_EYE_ANY_COLOR_ID => third_eye_queue(card_id, *card, definition),
+        PREPARED_ANY_COLOR_ID => prepared_queue(card_id, *card),
         HOLOGRAM_ANY_COLOR_ID => hologram_queue(state, card_id, *card, definition),
         FASTING_ANY_COLOR_ID => fasting_queue(card_id, *card),
         LIKE_WATER_ANY_COLOR_ID => like_water_queue(card_id, *card),
@@ -564,6 +576,7 @@ pub(super) fn play_card_queue(
             equilibrium_queue(card_id, *card, definition)
         }
         PROSTRATE_ANY_COLOR_ID => prostrate_queue(card_id, *card, definition),
+        PROTECT_ANY_COLOR_ID => protect_queue(card_id, *card, definition),
         RECYCLE_ANY_COLOR_ID => recycle_queue(card_id, definition),
         BIASED_COGNITION_ANY_COLOR_ID => biased_cognition_queue(card_id, definition),
         PRESSURE_POINTS_ANY_COLOR_ID => pressure_points_queue(card_id, target, *card, definition),
@@ -2899,6 +2912,187 @@ fn defend_queue(
     ]))
 }
 
+fn prepared_queue(card_id: CardId, card: CardInstance) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::DrawCardsWhilePlayedCardIsInLimbo {
+            card_id,
+            count: if card.upgrades > 0 { 2 } else { 1 },
+        },
+        InternalAction::AwaitHandSelect {
+            source_card_id: card_id,
+            purpose: HandSelectPurpose::PreparedDiscard,
+        },
+    ]))
+}
+
+fn third_eye_queue(
+    card_id: CardId,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainBlock {
+            amount: required_block(definition)? + 2 * i32::from(card.upgrades > 0),
+        },
+        InternalAction::AwaitDrawSelect {
+            source_card_id: card_id,
+            purpose: crate::combat::DrawSelectPurpose::Scry,
+        },
+    ]))
+}
+
+fn unload_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: Option<MonsterId>,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let target = target.ok_or(SimError::IllegalAction("Unload requires a target"))?;
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: required_damage(definition)? + 4 * i32::from(card.upgrades > 0),
+            },
+        },
+    ]);
+    for hand_card in state.piles.hand.iter().rev() {
+        let is_attack = get_card_definition(hand_card.content_id)
+            .is_some_and(|definition| definition.card_type == CardType::Attack);
+        if hand_card.id != card_id && !is_attack {
+            queue.push_back(InternalAction::ManualDiscardCard {
+                card_id: hand_card.id,
+            });
+        }
+    }
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: card_move_destination(definition),
+    });
+    Ok(queue)
+}
+
+fn deadly_poison_queue(
+    card_id: CardId,
+    target: Option<MonsterId>,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let target = target.ok_or(SimError::IllegalAction("Deadly Poison requires a target"))?;
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::ApplyPoison {
+            target,
+            amount: 5 + 2 * i32::from(card.upgrades > 0),
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn nirvana_queue(card_id: CardId, card: CardInstance) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainNirvana {
+            amount: 3 + i32::from(card.upgrades > 0),
+        },
+        InternalAction::RemoveCard {
+            card_id,
+            from: CardPile::Hand,
+        },
+    ]))
+}
+
+fn quick_slash_queue(
+    card_id: CardId,
+    target: Option<MonsterId>,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let target = target.ok_or(SimError::IllegalAction("Quick Slash requires a target"))?;
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: required_damage(definition)? + 4 * i32::from(card.upgrades > 0),
+            },
+        },
+        InternalAction::DrawCardsWhilePlayedCardIsInLimbo { card_id, count: 1 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn rip_and_tear_queue(
+    state: &CombatState,
+    card_id: CardId,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    if !state.monsters.iter().any(|monster| monster.alive) {
+        return Err(SimError::InvalidState(
+            "Rip and Tear requires a living monster",
+        ));
+    }
+    let amount = required_damage(definition)? + 2 * i32::from(card.upgrades > 0);
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::DealDamageRandomEnemy {
+            source: card_id,
+            amount,
+        },
+        InternalAction::DealDamageRandomEnemy {
+            source: card_id,
+            amount,
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn protect_queue(
+    card_id: CardId,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainBlock {
+            amount: required_block(definition)? + 4 * i32::from(card.upgrades > 0),
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
 fn doppelganger_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
@@ -3134,6 +3328,35 @@ fn hologram_queue(
             purpose: crate::combat::DiscardSelectPurpose::HologramReturnToHand,
         },
     ]))
+}
+
+fn crippling_cloud_queue(
+    state: &CombatState,
+    card_id: CardId,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let poison = 4 + 3 * i32::from(card.upgrades > 0);
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+    ]);
+    for monster in state.monsters.iter().filter(|monster| monster.alive) {
+        queue.push_back(InternalAction::ApplyPoison {
+            target: monster.id,
+            amount: poison,
+        });
+        queue.push_back(InternalAction::ApplyWeak {
+            target: monster.id,
+            amount: 2,
+        });
+    }
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: card_move_destination(definition),
+    });
+    Ok(queue)
 }
 
 fn poisoned_stab_queue(

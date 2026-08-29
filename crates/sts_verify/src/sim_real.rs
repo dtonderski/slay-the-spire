@@ -2725,8 +2725,11 @@ fn seed_start_simulated_combat_subset(run: &RunState) -> Value {
                     let hidden_by_hand_select = combat.hand_select().is_some_and(|hand_select| {
                         card.id == hand_select.source_card_id
                             || hand_select.selected_hand_index == Some(*index)
-                            || (hand_select.purpose == HandSelectPurpose::ForethoughtPutAnyOnDraw
-                                && hand_select.selected_hand_indices.contains(index))
+                            || (matches!(
+                                hand_select.purpose,
+                                HandSelectPurpose::ForethoughtPutAnyOnDraw
+                                    | HandSelectPurpose::PreparedDiscard
+                            ) && hand_select.selected_hand_indices.contains(index))
                             || (hand_select.purpose == HandSelectPurpose::ArmamentsUpgrade
                                 && !card_instance_is_upgradeable(card))
                             || (hand_select.purpose == HandSelectPurpose::DualWieldCopy

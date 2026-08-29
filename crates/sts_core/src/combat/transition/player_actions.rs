@@ -171,6 +171,11 @@ pub(super) fn gain_like_water(
     Ok(Vec::new())
 }
 
+pub(super) fn gain_nirvana(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
+    checked_add_combat_value(&mut state.player.powers.nirvana, amount)?;
+    Ok(Vec::new())
+}
+
 pub(super) fn gain_rupture(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
     checked_add_combat_value(&mut state.player.powers.rupture, amount)?;
     Ok(Vec::new())

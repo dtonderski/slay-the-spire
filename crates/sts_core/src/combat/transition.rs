@@ -1589,6 +1589,7 @@ fn apply_internal_action_with_defer(
         InternalAction::GainBerserk { amount } => player_actions::gain_berserk(state, amount),
         InternalAction::GainFasting { amount } => player_actions::gain_fasting(state, amount),
         InternalAction::GainLikeWater { amount } => player_actions::gain_like_water(state, amount),
+        InternalAction::GainNirvana { amount } => player_actions::gain_nirvana(state, amount),
         InternalAction::GainRupture { amount } => player_actions::gain_rupture(state, amount),
         InternalAction::GainJuggernaut { amount } => player_actions::gain_juggernaut(state, amount),
         InternalAction::GainBrutality { amount } => player_actions::gain_brutality(state, amount),
@@ -3808,7 +3809,10 @@ pub fn choose_hand_select(state: &mut CombatState, ui_index: usize) -> SimResult
     let hand_select = state
         .hand_select_mut()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
-    if hand_select.purpose == HandSelectPurpose::ForethoughtPutAnyOnDraw {
+    if matches!(
+        hand_select.purpose,
+        HandSelectPurpose::ForethoughtPutAnyOnDraw | HandSelectPurpose::PreparedDiscard
+    ) {
         if let Some(position) = hand_select
             .selected_hand_indices
             .iter()
@@ -3831,7 +3835,10 @@ pub fn hand_select_ui_to_hand_index(state: &CombatState, ui_index: usize) -> Sim
     // Forethought+ (and similar multi put-on-draw) drops selected cards from the
     // CommunicationMod choice_list. CHOOSE indices are therefore among the
     // remaining unselected hand cards only (FIDL00269: three CHOOSE 1 picks).
-    let exclude_selected = hand_select.purpose == HandSelectPurpose::ForethoughtPutAnyOnDraw;
+    let exclude_selected = matches!(
+        hand_select.purpose,
+        HandSelectPurpose::ForethoughtPutAnyOnDraw | HandSelectPurpose::PreparedDiscard
+    );
     let selectable: Vec<usize> = state
         .piles
         .hand
@@ -3860,9 +3867,9 @@ fn hand_select_allows_card(
     match hand_select.purpose {
         HandSelectPurpose::WarcryPutOnDraw | HandSelectPurpose::ThinkingAheadPutOnDraw => true,
         HandSelectPurpose::ArmamentsUpgrade => card_instance_is_upgradeable(card),
-        HandSelectPurpose::ForethoughtPutOnDraw | HandSelectPurpose::ForethoughtPutAnyOnDraw => {
-            true
-        }
+        HandSelectPurpose::ForethoughtPutOnDraw
+        | HandSelectPurpose::ForethoughtPutAnyOnDraw
+        | HandSelectPurpose::PreparedDiscard => true,
         HandSelectPurpose::DualWieldCopy => dual_wield_select_allows_card(card),
     }
 }
@@ -3921,6 +3928,13 @@ pub fn confirm_hand_select_with_time_warp_policy(
         }
         HandSelectPurpose::ForethoughtPutAnyOnDraw => {
             confirm_forethought_multi_select(
+                state,
+                hand_select.source_card_id,
+                hand_select.selected_hand_indices,
+            )?;
+        }
+        HandSelectPurpose::PreparedDiscard => {
+            confirm_prepared_discard(
                 state,
                 hand_select.source_card_id,
                 hand_select.selected_hand_indices,
@@ -4194,6 +4208,9 @@ pub fn confirm_hand_select_without_retrieval(state: &mut CombatState) -> SimResu
             confirm_dual_wield_select_skipped_retrieval_with_restore(state, false)?;
             Ok(0)
         }
+        HandSelectPurpose::PreparedDiscard => Err(SimError::IllegalAction(
+            "Prepared skipped retrieval is not implemented",
+        )),
         HandSelectPurpose::WarcryPutOnDraw
         | HandSelectPurpose::ThinkingAheadPutOnDraw
         | HandSelectPurpose::ForethoughtPutOnDraw
@@ -4354,6 +4371,51 @@ fn partition_put_on_deck_source_pending(
     (before_source, after_source)
 }
 
+fn confirm_prepared_discard(
+    state: &mut CombatState,
+    source_card_id: CardId,
+    selected_indices: Vec<usize>,
+) -> SimResult<()> {
+    let source = state
+        .piles
+        .limbo
+        .iter()
+        .find(|card| card.id == source_card_id)
+        .copied()
+        .ok_or(SimError::IllegalAction("Prepared source card is missing"))?;
+    let required = if source.upgrades > 0 { 2 } else { 1 };
+    let selected_indices = unique_selected_indices_in_choice_order(selected_indices);
+    if selected_indices.len() != required {
+        return Err(SimError::IllegalAction(
+            "Prepared requires the exact discard count",
+        ));
+    }
+    let selected_ids = selected_indices
+        .iter()
+        .map(|index| {
+            state
+                .piles
+                .hand
+                .get(*index)
+                .map(|card| card.id)
+                .ok_or(SimError::IllegalAction(
+                    "Prepared discard index out of range",
+                ))
+        })
+        .collect::<SimResult<Vec<_>>>()?;
+    let mut discard_follow_ups = VecDeque::new();
+    for selected_id in selected_ids {
+        discard_follow_ups.extend(pile_actions::manual_discard_card(state, selected_id)?);
+    }
+    let source_definition = draw_select_source_definition(state, source_card_id)?;
+    move_draw_select_source_card(state, source_card_id, source_definition)?;
+    if !discard_follow_ups.is_empty() {
+        let transition = process_internal_queue(state, discard_follow_ups)?;
+        *state = transition.state;
+    }
+    Ok(())
+}
+
 fn required_hand_select_index(hand_select: &crate::combat::HandSelectState) -> SimResult<usize> {
     hand_select
         .selected_hand_index
@@ -4365,10 +4427,16 @@ pub fn choose_draw_select(state: &mut CombatState, ui_index: usize) -> SimResult
     let draw_select = state
         .draw_select_mut()
         .ok_or(SimError::IllegalAction("no draw select is open"))?;
-    if draw_select.purpose == DrawSelectPurpose::Scry
-        && draw_select.selected_draw_index == Some(draw_index)
-    {
-        draw_select.selected_draw_index = None;
+    if draw_select.purpose == DrawSelectPurpose::Scry {
+        if let Some(position) = draw_select
+            .selected_draw_indices
+            .iter()
+            .position(|selected| *selected == draw_index)
+        {
+            draw_select.selected_draw_indices.remove(position);
+        } else {
+            draw_select.selected_draw_indices.push(draw_index);
+        }
     } else {
         draw_select.selected_draw_index = Some(draw_index);
     }
@@ -4443,7 +4511,7 @@ pub fn confirm_draw_select(state: &mut CombatState) -> SimResult<usize> {
             confirm_scry_select(
                 state,
                 draw_select.source_card_id,
-                draw_select.selected_draw_index,
+                &draw_select.selected_draw_indices,
             )?;
             resume_actions_after_hand_select(state, draw_select.pending_actions)?;
             0
@@ -4487,17 +4555,30 @@ fn confirm_secret_draw_select_choice(
 fn confirm_scry_select(
     state: &mut CombatState,
     source_card_id: CardId,
-    index: Option<usize>,
+    indices: &[usize],
 ) -> SimResult<()> {
     let source_definition = draw_select_source_definition(state, source_card_id)?;
-    if let Some(index) = index {
-        let selected = state
+    let selected_ids = indices
+        .iter()
+        .map(|index| {
+            state
+                .piles
+                .draw_pile
+                .get(*index)
+                .map(|card| card.id)
+                .ok_or(SimError::IllegalAction("scry index out of range"))
+        })
+        .collect::<SimResult<Vec<_>>>()?;
+    for selected_id in selected_ids {
+        let position = state
             .piles
             .draw_pile
-            .get(index)
-            .copied()
-            .ok_or(SimError::IllegalAction("scry index out of range"))?;
-        state.piles.draw_pile.remove(index);
+            .iter()
+            .position(|card| card.id == selected_id)
+            .ok_or(SimError::IllegalAction(
+                "scry card is no longer in draw pile",
+            ))?;
+        let selected = state.piles.draw_pile.remove(position);
         state.piles.discard_pile.push(selected);
     }
     // The target's Prismatic Just Lucky is colorless and is discarded even
@@ -4517,6 +4598,9 @@ fn confirm_scry_select(
         state.piles.discard_pile.push(source);
     } else {
         move_draw_select_source_card(state, source_card_id, source_definition)?;
+    }
+    if state.player.powers.nirvana > 0 {
+        apply_player_direct_block_gain(state, state.player.powers.nirvana)?;
     }
     Ok(())
 }

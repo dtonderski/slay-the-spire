@@ -260,6 +260,7 @@ pub enum FairSelectionKind {
     ForethoughtPutOnDraw,
     ForethoughtPutAnyOnDraw,
     ThinkingAheadPutOnDraw,
+    PreparedDiscard,
     DualWieldCopy,
     SecretTechniqueSkillToHand,
     SecretWeaponAttackToHand,
@@ -668,6 +669,7 @@ fn push_player_power_fields(result: &mut Vec<FairPower>, p: PlayerPowers) {
         ("berserk", p.berserk),
         ("fasting", p.fasting),
         ("like_water", p.like_water),
+        ("nirvana", p.nirvana),
         ("rupture", p.rupture),
         ("juggernaut", p.juggernaut),
         ("brutality", p.brutality),
@@ -923,7 +925,13 @@ fn project_selection(
             mapped_source_indices(combat.piles.draw_pile.len(), |ui_index| {
                 crate::combat::transition::draw_select_ui_to_draw_index(combat, ui_index)
             })?,
-            state.selected_draw_index.into_iter().collect(),
+            canonical_slot_set(
+                state
+                    .selected_draw_indices
+                    .iter()
+                    .copied()
+                    .chain(state.selected_draw_index),
+            ),
             true,
             corruption_active,
         )?,
@@ -1096,6 +1104,7 @@ fn hand_selection_kind(purpose: HandSelectPurpose) -> FairSelectionKind {
         HandSelectPurpose::ForethoughtPutOnDraw => FairSelectionKind::ForethoughtPutOnDraw,
         HandSelectPurpose::ForethoughtPutAnyOnDraw => FairSelectionKind::ForethoughtPutAnyOnDraw,
         HandSelectPurpose::ThinkingAheadPutOnDraw => FairSelectionKind::ThinkingAheadPutOnDraw,
+        HandSelectPurpose::PreparedDiscard => FairSelectionKind::PreparedDiscard,
         HandSelectPurpose::DualWieldCopy => FairSelectionKind::DualWieldCopy,
     }
 }
@@ -1655,6 +1664,7 @@ mod tests {
                 source_card_id: CardId::new(777),
                 selectable_card_ids: Vec::new(),
                 selected_draw_index: None,
+                selected_draw_indices: Vec::new(),
                 pending_actions: Default::default(),
             },
         });
@@ -1693,6 +1703,7 @@ mod tests {
                 source_card_id: CardId::new(777),
                 selectable_card_ids: Vec::new(),
                 selected_draw_index: Some(0),
+                selected_draw_indices: Vec::new(),
                 pending_actions: Default::default(),
             },
         });

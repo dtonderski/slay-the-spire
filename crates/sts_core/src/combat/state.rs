@@ -333,6 +333,7 @@ pub enum HandSelectPurpose {
     ForethoughtPutOnDraw,
     ForethoughtPutAnyOnDraw,
     ThinkingAheadPutOnDraw,
+    PreparedDiscard,
     DualWieldCopy,
 }
 
@@ -346,6 +347,9 @@ pub struct DrawSelectState {
     #[serde(default)]
     pub selectable_card_ids: Vec<CardId>,
     pub selected_draw_index: Option<usize>,
+    /// Draw-pile indices selected by multi-card Scry screens, in choice order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected_draw_indices: Vec<usize>,
     /// Follow-ups queued after the draw-selection screen opens. CommunicationMod
     /// can publish the grid before on-use generated cards resolve, so preserve
     /// them until CONFIRM rather than mutating the visible draw pile early.

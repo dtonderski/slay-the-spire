@@ -71,6 +71,8 @@ pub const INSIGHT_ID: ContentId = ContentId::new(67_099_740_624);
 /// Prismatic/Watcher Crescendo — id matches `shop_card_content_id("CRESCENDO")`.
 pub const CRESCENDO_ANY_COLOR_ID: ContentId = ContentId::new(59_463_411_848_402);
 pub const PROSTRATE_ANY_COLOR_ID: ContentId = ContentId::new(70_559_886_447_078);
+/// Prismatic/Watcher Protect — id matches `shop_card_content_id("PROTECT")`.
+pub const PROTECT_ANY_COLOR_ID: ContentId = ContentId::new(73_423_414_535);
 pub const CLOAK_AND_DAGGER_ANY_COLOR_ID: ContentId = ContentId::new(12_608_504_500_537_169_241);
 pub const SHIV_ANY_COLOR_ID: ContentId = ContentId::new(2_544_794);
 pub const BACKFLIP_ANY_COLOR_ID: ContentId = ContentId::new(1_875_509_849_132);
@@ -94,6 +96,22 @@ pub const BOWLING_BASH_ANY_COLOR_ID: ContentId = ContentId::new(1_744_077_256_44
 pub const COMPILE_DRIVER_ANY_COLOR_ID: ContentId = ContentId::new(3_124_526_947_660_741_164);
 /// Prismatic/Silent Poisoned Stab — id matches `shop_card_content_id("POISONED_STAB")`.
 pub const POISONED_STAB_ANY_COLOR_ID: ContentId = ContentId::new(9_742_157_098_010_927_154);
+/// Prismatic/Silent Crippling Cloud — desktop 1.0 card id is `Crippling Poison`.
+pub const CRIPPLING_CLOUD_ANY_COLOR_ID: ContentId = ContentId::new(947_366_816_165_358_494);
+/// Prismatic/Defect Rip and Tear — id matches `shop_card_content_id("RIP_AND_TEAR")`.
+pub const RIP_AND_TEAR_ANY_COLOR_ID: ContentId = ContentId::new(2_145_526_024_458_497_736);
+/// Prismatic/Silent Quick Slash — id matches `shop_card_content_id("QUICK_SLASH")`.
+pub const QUICK_SLASH_ANY_COLOR_ID: ContentId = ContentId::new(68_701_432_881_508_035);
+/// Prismatic/Watcher Nirvana — id matches `shop_card_content_id("NIRVANA")`.
+pub const NIRVANA_ANY_COLOR_ID: ContentId = ContentId::new(71_393_571_437);
+/// Prismatic/Silent Deadly Poison — id matches `shop_card_content_id("DEADLY_POISON")`.
+pub const DEADLY_POISON_ANY_COLOR_ID: ContentId = ContentId::new(29_163_070_325_238_894);
+/// Prismatic/Silent Unload — id matches `shop_card_content_id("UNLOAD")`.
+pub const UNLOAD_ANY_COLOR_ID: ContentId = ContentId::new(2_507_855_191);
+/// Prismatic/Watcher Third Eye — id matches `shop_card_content_id("THIRD_EYE")`.
+pub const THIRD_EYE_ANY_COLOR_ID: ContentId = ContentId::new(73_690_956_419_441);
+/// Prismatic/Silent Prepared — id matches `shop_card_content_id("PREPARED")`.
+pub const PREPARED_ANY_COLOR_ID: ContentId = ContentId::new(2_275_835_741_845);
 /// Prismatic/Defect Hologram — id matches `shop_card_content_id("HOLOGRAM")`.
 pub const HOLOGRAM_ANY_COLOR_ID: ContentId = ContentId::new(2_053_271_977_081);
 /// Prismatic/Watcher Crush Joints — id matches `shop_card_content_id("CRUSH_JOINTS")`.
@@ -5260,6 +5278,7 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | PRAY_ANY_COLOR_ID
             | CRESCENDO_ANY_COLOR_ID
             | PROSTRATE_ANY_COLOR_ID
+            | PROTECT_ANY_COLOR_ID
             | CLOAK_AND_DAGGER_ANY_COLOR_ID
             | SHIV_ANY_COLOR_ID
             | BACKFLIP_ANY_COLOR_ID
@@ -5277,6 +5296,14 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | BOWLING_BASH_ANY_COLOR_ID
             | COMPILE_DRIVER_ANY_COLOR_ID
             | POISONED_STAB_ANY_COLOR_ID
+            | CRIPPLING_CLOUD_ANY_COLOR_ID
+            | RIP_AND_TEAR_ANY_COLOR_ID
+            | QUICK_SLASH_ANY_COLOR_ID
+            | NIRVANA_ANY_COLOR_ID
+            | DEADLY_POISON_ANY_COLOR_ID
+            | UNLOAD_ANY_COLOR_ID
+            | THIRD_EYE_ANY_COLOR_ID
+            | PREPARED_ANY_COLOR_ID
             | HOLOGRAM_ANY_COLOR_ID
             | CRUSH_JOINTS_ANY_COLOR_ID
             | EVALUATE_ANY_COLOR_ID
@@ -5954,6 +5981,171 @@ pub static HOLOGRAM_ANY_COLOR: CardDefinition = CardDefinition {
     },
 };
 
+pub static PREPARED_ANY_COLOR: CardDefinition = CardDefinition {
+    id: PREPARED_ANY_COLOR_ID,
+    key: "PREPARED",
+    name: "Prepared",
+    cost: 0,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static THIRD_EYE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: THIRD_EYE_ANY_COLOR_ID,
+    key: "THIRD_EYE",
+    name: "Third Eye",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(7),
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static UNLOAD_ANY_COLOR: CardDefinition = CardDefinition {
+    id: UNLOAD_ANY_COLOR_ID,
+    key: "UNLOAD",
+    name: "Unload",
+    cost: 1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(14),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static DEADLY_POISON_ANY_COLOR: CardDefinition = CardDefinition {
+    id: DEADLY_POISON_ANY_COLOR_ID,
+    key: "DEADLY_POISON",
+    name: "Deadly Poison",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static NIRVANA_ANY_COLOR: CardDefinition = CardDefinition {
+    id: NIRVANA_ANY_COLOR_ID,
+    key: "NIRVANA",
+    name: "Nirvana",
+    cost: 1,
+    card_type: CardType::Power,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static QUICK_SLASH_ANY_COLOR: CardDefinition = CardDefinition {
+    id: QUICK_SLASH_ANY_COLOR_ID,
+    key: "QUICK_SLASH",
+    name: "Quick Slash",
+    cost: 1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(8),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static RIP_AND_TEAR_ANY_COLOR: CardDefinition = CardDefinition {
+    id: RIP_AND_TEAR_ANY_COLOR_ID,
+    key: "RIP_AND_TEAR",
+    name: "Rip and Tear",
+    cost: 1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::AllEnemies,
+    values: CardValues {
+        damage: Some(7),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static PROTECT_ANY_COLOR: CardDefinition = CardDefinition {
+    id: PROTECT_ANY_COLOR_ID,
+    key: "PROTECT",
+    name: "Protect",
+    cost: 2,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(12),
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: false,
+        retain: true,
+        unplayable: false,
+    },
+};
+
+pub static CRIPPLING_CLOUD_ANY_COLOR: CardDefinition = CardDefinition {
+    id: CRIPPLING_CLOUD_ANY_COLOR_ID,
+    key: "CRIPPLING_CLOUD",
+    name: "Crippling Cloud",
+    cost: 2,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::AllEnemies,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        innate: false,
+        ethereal: false,
+        exhaust: true,
+        retain: false,
+        unplayable: false,
+    },
+};
+
 pub static POISONED_STAB_ANY_COLOR: CardDefinition = CardDefinition {
     id: POISONED_STAB_ANY_COLOR_ID,
     key: "POISONED_STAB",
@@ -6477,6 +6669,7 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == INSIGHT_ID).then_some(&INSIGHT))
         .or_else(|| (id == CRESCENDO_ANY_COLOR_ID).then_some(&CRESCENDO_ANY_COLOR))
         .or_else(|| (id == PROSTRATE_ANY_COLOR_ID).then_some(&PROSTRATE_ANY_COLOR))
+        .or_else(|| (id == PROTECT_ANY_COLOR_ID).then_some(&PROTECT_ANY_COLOR))
         .or_else(|| (id == CLOAK_AND_DAGGER_ANY_COLOR_ID).then_some(&CLOAK_AND_DAGGER_ANY_COLOR))
         .or_else(|| (id == SHIV_ANY_COLOR_ID).then_some(&SHIV_ANY_COLOR))
         .or_else(|| (id == BACKFLIP_ANY_COLOR_ID).then_some(&BACKFLIP_ANY_COLOR))
@@ -6495,6 +6688,14 @@ pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
         .or_else(|| (id == BOWLING_BASH_ANY_COLOR_ID).then_some(&BOWLING_BASH_ANY_COLOR))
         .or_else(|| (id == COMPILE_DRIVER_ANY_COLOR_ID).then_some(&COMPILE_DRIVER_ANY_COLOR))
         .or_else(|| (id == POISONED_STAB_ANY_COLOR_ID).then_some(&POISONED_STAB_ANY_COLOR))
+        .or_else(|| (id == CRIPPLING_CLOUD_ANY_COLOR_ID).then_some(&CRIPPLING_CLOUD_ANY_COLOR))
+        .or_else(|| (id == RIP_AND_TEAR_ANY_COLOR_ID).then_some(&RIP_AND_TEAR_ANY_COLOR))
+        .or_else(|| (id == QUICK_SLASH_ANY_COLOR_ID).then_some(&QUICK_SLASH_ANY_COLOR))
+        .or_else(|| (id == NIRVANA_ANY_COLOR_ID).then_some(&NIRVANA_ANY_COLOR))
+        .or_else(|| (id == DEADLY_POISON_ANY_COLOR_ID).then_some(&DEADLY_POISON_ANY_COLOR))
+        .or_else(|| (id == UNLOAD_ANY_COLOR_ID).then_some(&UNLOAD_ANY_COLOR))
+        .or_else(|| (id == THIRD_EYE_ANY_COLOR_ID).then_some(&THIRD_EYE_ANY_COLOR))
+        .or_else(|| (id == PREPARED_ANY_COLOR_ID).then_some(&PREPARED_ANY_COLOR))
         .or_else(|| (id == HOLOGRAM_ANY_COLOR_ID).then_some(&HOLOGRAM_ANY_COLOR))
         .or_else(|| (id == JUST_LUCKY_ANY_COLOR_ID).then_some(&JUST_LUCKY_ANY_COLOR))
         .or_else(|| (id == EMPTY_BODY_ANY_COLOR_ID).then_some(&EMPTY_BODY_ANY_COLOR))

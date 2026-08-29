@@ -597,6 +597,7 @@ mod tests {
                 source_card_id,
                 selectable_card_ids: Vec::new(),
                 selected_draw_index: None,
+                selected_draw_indices: Vec::new(),
                 pending_actions: Default::default(),
             },
         });
