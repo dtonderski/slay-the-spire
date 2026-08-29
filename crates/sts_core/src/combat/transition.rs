@@ -3615,6 +3615,13 @@ fn resolve_top_draw_card(
             })
         });
     let missing_enemy_target = definition.target == TargetRequirement::Enemy && target.is_none();
+    if missing_enemy_target {
+        // NewQueueCardAction can enqueue a targeted card with a null monster,
+        // but GameActionManager rejects canUse before AbstractPlayer.useCard.
+        // UnlimboAction has already removed the card, so no UseCardAction
+        // destination or onExhaust callbacks run and the instance disappears.
+        return Ok(Vec::new());
+    }
     // GameActionManager skips use() when the queued card's monster is
     // isDeadOrEscaped, but autoplay still constructs UseCardAction with
     // dontTriggerOnUseCard. Mayhem PlayTop of Pommel therefore discards
@@ -3647,7 +3654,6 @@ fn resolve_top_draw_card(
     if unplayable_blocked
         || clash_is_unplayable
         || dual_wield_is_unplayable
-        || missing_enemy_target
         || target_is_dead_or_escaped
         || combat_is_done
         || entangled_blocks_attack
@@ -8046,6 +8052,57 @@ mod tests {
                     .all(|card| card.content_id != HAVOC_ID),
             "Havoc source must not be the force-played refill card"
         );
+    }
+
+    #[test]
+    fn havoc_drops_targeted_top_card_when_no_living_target_exists() {
+        let mut state = CombatState::initial_fixture();
+        state.player.energy = 1;
+        state.player.powers.dark_embrace = 2;
+        state.piles.hand = vec![CardInstance::new(CardId::new(1), HAVOC_PLUS_ID)];
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), FLEX_ID),
+            CardInstance::new(CardId::new(4), CLOTHESLINE_ID),
+        ];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        let mut awakened = monster_state(&AWAKENED_ONE_A0, MonsterId::new(1));
+        assert!(mark_awakened_one_half_dead(&mut awakened));
+        state.monsters = vec![awakened];
+
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Havoc should extract a targeted top card without a living target");
+
+        assert!(next.piles.hand.is_empty(), "no Dark Embrace draw fires");
+        assert_eq!(
+            next.piles
+                .draw_pile
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(2), CardId::new(3)]
+        );
+        assert!(next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(1)));
+        assert!(next
+            .piles
+            .hand
+            .iter()
+            .chain(&next.piles.draw_pile)
+            .chain(&next.piles.discard_pile)
+            .chain(&next.piles.exhaust_pile)
+            .chain(&next.piles.limbo)
+            .all(|card| card.id != CardId::new(4)));
     }
 
     #[test]
