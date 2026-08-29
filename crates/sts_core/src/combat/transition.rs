@@ -3930,11 +3930,15 @@ pub fn confirm_hand_select_with_time_warp_policy(
         // UseCardAction exhaust is addToBot Feel No Pain, Dead Branch, then
         // Dark Embrace. Immediate Dark Embrace draw would place the run-level
         // Dead Branch card after the put-on-top draw (FIDL01520).
-        handled_dead_branch_count =
-            move_delayed_played_source_with_bot_exhaust_queue(state, hand_select.source_card_id)?;
+        handled_dead_branch_count = move_delayed_played_source_with_bot_exhaust_queue(
+            state,
+            hand_select.source_card_id,
+            pending_after_source,
+        )?;
         state.defer_time_warp_end_turn = previous_defer_time_warp;
+    } else {
+        resume_actions_after_hand_select(state, pending_after_source)?;
     }
-    resume_actions_after_hand_select(state, pending_after_source)?;
     state.activate_next_queued_decision_if_idle();
     if settle_time_warp {
         settle_time_warp_end_turn_if_ready(state)?;
@@ -4207,9 +4211,9 @@ pub fn confirm_hand_select_without_retrieval(state: &mut CombatState) -> SimResu
             let handled_dead_branch_count = move_delayed_played_source_with_bot_exhaust_queue(
                 state,
                 hand_select.source_card_id,
+                pending_after_source,
             )?;
             state.defer_time_warp_end_turn = previous_defer_time_warp;
-            resume_actions_after_hand_select(state, pending_after_source)?;
             state.activate_next_queued_decision_if_idle();
             settle_time_warp_end_turn_if_ready(state)?;
             Ok(handled_dead_branch_count)
@@ -4619,13 +4623,27 @@ pub(crate) fn move_delayed_played_source_with_strange_spoon(
     move_delayed_played_source_with_exhaust_policy(state, source_card_id, false).map(|_| ())
 }
 
-/// Put-on-deck CONFIRM: UseCardAction exhaust queues Feel No Pain, Dead Branch,
-/// then Dark Embrace so relic `onExhaust` precedes power draws (FIDL01520).
+/// Put-on-deck CONFIRM: pending actions that were already behind UseCardAction
+/// remain ahead of the source's exhaust callbacks. The resulting queue is the
+/// pending Evolve/Fire Breathing work, then CardExhausted, whose callbacks keep
+/// Feel No Pain, Dead Branch, and Dark Embrace order (FIDL01520, FIDL03073).
 fn move_delayed_played_source_with_bot_exhaust_queue(
     state: &mut CombatState,
     source_card_id: CardId,
+    mut pending_before_exhaust_callbacks: VecDeque<InternalAction>,
 ) -> SimResult<usize> {
-    move_delayed_played_source_with_exhaust_policy(state, source_card_id, true)
+    let generated = state.relics.contains(&Relic::DeadBranch)
+        && state.monsters.iter().any(|monster| monster.alive);
+    let destination = move_delayed_played_source(state, source_card_id)?;
+    if destination == Some(CardPile::ExhaustPile) {
+        pending_before_exhaust_callbacks.push_back(InternalAction::CardExhausted {
+            card_id: source_card_id,
+        });
+    }
+    resume_actions_after_hand_select(state, pending_before_exhaust_callbacks)?;
+    Ok(usize::from(
+        generated && destination == Some(CardPile::ExhaustPile),
+    ))
 }
 
 fn move_delayed_played_source_with_exhaust_policy(
@@ -4633,6 +4651,32 @@ fn move_delayed_played_source_with_exhaust_policy(
     source_card_id: CardId,
     queue_bot_exhaust_follow_ups: bool,
 ) -> SimResult<usize> {
+    let Some(destination) = move_delayed_played_source(state, source_card_id)? else {
+        return Ok(0);
+    };
+    if destination != CardPile::ExhaustPile {
+        return Ok(0);
+    }
+    if queue_bot_exhaust_follow_ups {
+        let generated = state.relics.contains(&Relic::DeadBranch)
+            && state.monsters.iter().any(|monster| monster.alive);
+        let transition = process_internal_queue(
+            state,
+            VecDeque::from([InternalAction::CardExhausted {
+                card_id: source_card_id,
+            }]),
+        )?;
+        *state = transition.state;
+        return Ok(usize::from(generated));
+    }
+    apply_on_exhaust_effects(state, source_card_id)?;
+    Ok(0)
+}
+
+fn move_delayed_played_source(
+    state: &mut CombatState,
+    source_card_id: CardId,
+) -> SimResult<Option<CardPile>> {
     let source = if let Some(card) = state
         .piles
         .hand
@@ -4657,7 +4701,7 @@ fn move_delayed_played_source_with_exhaust_policy(
             .chain(state.piles.exhaust_pile.iter())
             .any(|card| card.id == source_card_id)
         {
-            return Ok(0);
+            return Ok(None);
         }
         return Err(SimError::IllegalAction(
             "delayed source card is not in a resolved destination",
@@ -4683,22 +4727,7 @@ fn move_delayed_played_source_with_exhaust_policy(
         }
     }
     move_card(state, source_card_id, CardPile::Hand, destination)?;
-    if destination == CardPile::ExhaustPile {
-        if queue_bot_exhaust_follow_ups {
-            let generated = state.relics.contains(&Relic::DeadBranch)
-                && state.monsters.iter().any(|monster| monster.alive);
-            let transition = process_internal_queue(
-                state,
-                VecDeque::from([InternalAction::CardExhausted {
-                    card_id: source_card_id,
-                }]),
-            )?;
-            *state = transition.state;
-            return Ok(usize::from(generated));
-        }
-        apply_on_exhaust_effects(state, source_card_id)?;
-    }
-    Ok(0)
+    Ok(Some(destination))
 }
 
 pub fn close_discovery_card_reward_source(state: &mut CombatState) -> SimResult<()> {

@@ -1103,6 +1103,56 @@ fn warcry_dead_branch_precedes_dark_embrace_put_on_top_draw() {
 }
 
 #[test]
+fn warcry_evolve_draw_precedes_source_exhaust_callbacks() {
+    let mut state = CombatState::initial_fixture();
+    state.relics.push(Relic::DeadBranch);
+    state.player.energy = 0;
+    state.player.powers.dark_embrace = 1;
+    state.player.powers.evolve = 1;
+    state.piles.hand = vec![
+        CardInstance::new(CardId::new(1), cards::WARCRY_ID),
+        CardInstance::new(CardId::new(2), cards::POMMEL_STRIKE_ID),
+        CardInstance::new(CardId::new(3), cards::STRIKE_R_ID),
+    ];
+    state.piles.draw_pile = vec![
+        CardInstance::new(CardId::new(4), cards::DEFEND_R_ID),
+        CardInstance::new(CardId::new(5), cards::WOUND_ID),
+    ];
+    state.piles.exhaust_pile.clear();
+
+    let mut next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Warcry opens select with an Evolve draw queued");
+    choose_hand_select(&mut next, 0).expect("select Pommel Strike");
+    confirm_hand_select(&mut next).expect("confirm Warcry selection");
+
+    let hand: Vec<_> = next.piles.hand.iter().map(|card| card.content_id).collect();
+    let pommel = hand
+        .iter()
+        .position(|id| *id == cards::POMMEL_STRIKE_ID)
+        .expect("prequeued Evolve draw takes the selected top card");
+    let generated = hand
+        .iter()
+        .position(|id| {
+            *id != cards::POMMEL_STRIKE_ID
+                && *id != cards::STRIKE_R_ID
+                && *id != cards::DEFEND_R_ID
+                && *id != cards::WOUND_ID
+                && *id != cards::WARCRY_ID
+        })
+        .expect("Dead Branch generates a card");
+    assert!(
+        pommel < generated,
+        "Evolve was already queued behind UseCardAction, so its draw must precede Dead Branch: hand={hand:?}"
+    );
+}
+
+#[test]
 fn warcry_with_no_card_after_draw_exhausts_without_opening_selection() {
     let mut state = CombatState::initial_fixture();
     state.player.energy = 0;
