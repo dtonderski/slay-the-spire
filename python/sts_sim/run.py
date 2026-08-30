@@ -149,17 +149,28 @@ class Snapshot:
     hash: str
 
 
+def _nonnegative_int(value: object, label: str) -> int:
+    if type(value) is not int or value < 0:
+        raise ValueError(f"{label} must be a nonnegative integer")
+    return value
+
+
 @dataclass(frozen=True, slots=True)
 class StepResult:
     """State immediately after one accepted action.
 
     ``combat_outcome`` is classified by the authoritative native transition,
-    before Python requests another combat-model decision.
+    before Python requests another combat-model decision. ``player_turn_advances``
+    uses the same native counter as beam-clone episode accounting.
     """
 
     terminal: bool
     decision: Decision
-    combat_outcome: str | None = None
+    combat_outcome: str | None
+    player_turn_advances: int
+
+    def __post_init__(self) -> None:
+        _nonnegative_int(self.player_turn_advances, "player_turn_advances")
 
 
 class RunEnv:
@@ -270,7 +281,12 @@ class RunEnv:
     def step(self, action: Action) -> StepResult:
         """Apply one action returned by this environment or an identical clone."""
 
-        combat_outcome = self._native.step_action(action._handle)
+        payload = _mapping(json.loads(self._native.step_action_json(action._handle)))
+        if set(payload) != {"combat_outcome", "player_turn_advances"}:
+            raise ValueError("native step payload has missing or unknown fields")
+        combat_outcome = payload["combat_outcome"]
+        if combat_outcome is not None and type(combat_outcome) is not str:
+            raise TypeError("native combat outcome must be a string or null")
         decision = self.decision()
         combat_terminal = isinstance(
             decision.observation, FairCombatObservation
@@ -284,6 +300,9 @@ class RunEnv:
             ),
             decision=decision,
             combat_outcome=combat_outcome,
+            player_turn_advances=_nonnegative_int(
+                payload["player_turn_advances"], "player_turn_advances"
+            ),
         )
 
     def beam_clone_episode_payload(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
@@ -10,9 +11,11 @@ import pytest
 import torch
 
 import sts_sim.rl.data as data_module
+import sts_sim.rl.training as training_module
 from sts_sim import FairCombatObservation, RunEnv
 from sts_sim.rl import (
     COMBAT_PROXY_V1,
+    BatchedTrainingExamples,
     CombatModelConfig,
     CombatOutcome,
     FairCombatPolicyValueNet,
@@ -20,6 +23,7 @@ from sts_sim.rl import (
     RepositoryVersion,
     SymbolicCombatDataset,
     SymbolicTrainingRecord,
+    TensorizedTrainingExample,
     TrainingConfig,
     VocabularyBuilder,
     collate_training_examples,
@@ -199,6 +203,19 @@ def _resign_dataset_manifest(payload: dict[str, object]) -> None:
     ).hexdigest()
 
 
+def _resign_root_manifest(payload: dict[str, object]) -> None:
+    payload["cohort_digest"] = data_module._cohort_digest(
+        requested_seeds=tuple(cast(list[str], payload["requested_seeds"])),
+        generator_name=cast(str, payload["generator_name"]),
+        generator_version=cast(str, payload["generator_version"]),
+        generator_source_digest=cast(str, payload["generator_source_digest"]),
+        split_salt=cast(str, payload["split_salt"]),
+        ascension=cast(int, payload["ascension"]),
+        max_run_steps=cast(int, payload["max_run_steps"]),
+    )
+    _resign_dataset_manifest(payload)
+
+
 def test_root_and_beam_dataset_generation_is_byte_deterministic(tmp_path: Path) -> None:
     seeds = ["BEAMCLONE0", "BEAMCLONE12"]
     left = generate_legal_roots(tmp_path / "roots-left", seeds, max_run_steps=128)
@@ -207,6 +224,9 @@ def test_root_and_beam_dataset_generation_is_byte_deterministic(tmp_path: Path) 
     assert (tmp_path / "roots-left/root-manifest.json").read_bytes() == (
         tmp_path / "roots-right/root-manifest.json"
     ).read_bytes()
+    assert left.cohort_digest == right.cohort_digest
+    assert left.requested_seeds == ("BEAMCLONE0", "BEAMCLONE12")
+    assert left.split_salt == "combat-agent-phase2-v1"
     assert {root.split for root in left.roots} == {"train", "development"}
     for root in left.roots:
         assert (tmp_path / "roots-left" / root.relative_path).read_bytes() == (
@@ -235,6 +255,8 @@ def test_root_and_beam_dataset_generation_is_byte_deterministic(tmp_path: Path) 
         max_player_turns=10,
     )
     assert first.manifest_digest == second.manifest_digest
+    assert first.cohort_digest == left.cohort_digest
+    assert first.teacher_search_contract_digest == second.teacher_search_contract_digest
     assert first.root_manifest_path == "provenance/root-manifest.json"
     assert (tmp_path / "data-left/provenance/root-manifest.json").read_bytes() == (
         tmp_path / "roots-left/root-manifest.json"
@@ -546,7 +568,41 @@ def test_training_resume_and_development_report_are_deterministic(tmp_path: Path
         tmp_path / "development/dataset-manifest.json", resumed, split="development"
     )
     assert first == second
+    assert first["report_version"] == 3
+    exact_numerator = cast(int, first["exact_numerator"])
+    exact_denominator = cast(int, first["exact_denominator"])
+    truncated_numerator = cast(int, first["truncated_numerator"])
+    truncated_denominator = cast(int, first["truncated_denominator"])
+    nontruncated_numerator = cast(int, first["nontruncated_numerator"])
+    nontruncated_denominator = cast(int, first["nontruncated_denominator"])
+    assert exact_denominator == len(cast(list[object], first["per_record"]))
+    assert first["accuracy"] == exact_numerator / exact_denominator
+    assert truncated_numerator + nontruncated_numerator == exact_numerator
+    assert truncated_denominator + nontruncated_denominator == exact_denominator
     assert first["errors"] == 0
+    assert first["records"] == exact_denominator
+    assert first["correct"] == exact_numerator
+    rows = [cast(dict[str, object], row) for row in cast(list[object], first["per_record"])]
+    truncated_root_ids = {cast(str, row["root_id"]) for row in rows if row["truncated"] is True}
+    assert first["truncated_root_count"] == len(truncated_root_ids)
+    assert first["value_mae_rows"] == sum(
+        1 for row in rows if row["value_target_mask"] is True and "error" not in row
+    )
+    assert all("error" not in row for row in rows)
+    for row in cast(list[object], first["per_record"]):
+        payload = cast(dict[str, object], row)
+        assert {
+            "record_id",
+            "root_id",
+            "status",
+            "truncated",
+            "value_target_mask",
+            "target_value",
+            "selected_action_index",
+            "teacher_action_index",
+            "correct",
+            "predicted_value",
+        } <= set(payload)
     for key in (
         "checkpoint_file_digest",
         "checkpoint_model_state_digest",
@@ -556,11 +612,31 @@ def test_training_resume_and_development_report_are_deterministic(tmp_path: Path
         "vocabulary_fingerprint",
         "encoder_contract_digest",
         "reward_config_digest",
+        "checkpoint_training_root_manifest_digest",
+        "checkpoint_training_cohort_digest",
+        "teacher_search_contract_digest",
         "root_manifest_digest",
+        "cohort_digest",
         "dataset_manifest_digest",
         "dataset_shard_digest",
     ):
         assert len(cast(str, first[key])) == 64
+    wrong_cohort = tmp_path / "wrong-cohort.pt"
+    cohort_mutation = dict(right)
+    cohort_mutation["cohort_digest"] = "a" * 64
+    torch.save(cohort_mutation, wrong_cohort)
+    with pytest.raises(ValueError, match="cohort_digest"):
+        train_beam_clone(
+            tmp_path / "train/dataset-manifest.json", wrong_cohort, config, resume=True
+        )
+    wrong_teacher = tmp_path / "wrong-teacher.pt"
+    teacher_mutation = dict(right)
+    teacher_mutation["teacher_search_contract_digest"] = "b" * 64
+    torch.save(teacher_mutation, wrong_teacher)
+    with pytest.raises(ValueError, match="teacher_search_contract_digest"):
+        train_beam_clone(
+            tmp_path / "train/dataset-manifest.json", wrong_teacher, config, resume=True
+        )
 
 
 def test_sealed_roots_are_withheld_by_default_and_audited_materialization_is_explicit(
@@ -580,6 +656,9 @@ def test_sealed_roots_are_withheld_by_default_and_audited_materialization_is_exp
         materialize_audited_splits=True,
     )
     assert audited.audited_splits_materialized is True
+    assert ordinary.cohort_digest == audited.cohort_digest
+    assert ordinary.manifest_digest != audited.manifest_digest
+    assert ordinary.requested_seeds == audited.requested_seeds == ("BEAMCLONE17",)
     assert {root.split for root in audited.roots} == {"sealed_test"}
     assert all(root.relative_path.startswith("sealed_test/roots/") for root in audited.roots)
     generate_beam_dataset(
@@ -598,6 +677,138 @@ def test_sealed_roots_are_withheld_by_default_and_audited_materialization_is_exp
     with pytest.raises(PermissionError, match="explicit audited access"):
         load_dataset_manifest(
             tmp_path / "sealed/dataset-manifest.json", requested_split="sealed_test"
+        )
+
+
+def _smoke_training_config() -> TrainingConfig:
+    return TrainingConfig(
+        batch_size=2,
+        total_steps=1,
+        model_width=16,
+        model_heads=4,
+        model_layers=1,
+        feedforward_width=32,
+        minimum_roots=1,
+        minimum_lineages=1,
+    )
+
+
+def test_explicit_audited_evaluation_requires_matching_cohort_and_teacher_search(
+    tmp_path: Path,
+) -> None:
+    seeds = ["BEAMCLONE17", "BEAMCLONE0"]
+    ordinary = generate_legal_roots(tmp_path / "train-roots", seeds, max_run_steps=128)
+    reversed_order = generate_legal_roots(
+        tmp_path / "train-roots-reversed", list(reversed(seeds)), max_run_steps=128
+    )
+    assert ordinary.requested_seeds == ("BEAMCLONE0", "BEAMCLONE17")
+    assert ordinary.cohort_digest == reversed_order.cohort_digest
+    train = generate_beam_dataset(
+        tmp_path / "train-roots/root-manifest.json",
+        tmp_path / "train",
+        split="train",
+        depth=2,
+        width=4,
+        transition_budget=100,
+        max_decisions=8,
+        max_player_turns=3,
+    )
+    audited = generate_legal_roots(
+        tmp_path / "audited-roots",
+        seeds,
+        max_run_steps=128,
+        materialize_audited_splits=True,
+    )
+    sealed = generate_beam_dataset(
+        tmp_path / "audited-roots/root-manifest.json",
+        tmp_path / "sealed",
+        split="sealed_test",
+        allow_audited_split=True,
+        depth=2,
+        width=4,
+        transition_budget=100,
+        max_decisions=8,
+        max_player_turns=3,
+    )
+    assert (
+        ordinary.cohort_digest
+        == audited.cohort_digest
+        == train.cohort_digest
+        == sealed.cohort_digest
+    )
+    assert train.root_manifest_digest != sealed.root_manifest_digest
+    assert train.teacher_search_contract_digest == sealed.teacher_search_contract_digest
+    checkpoint = tmp_path / "checkpoint.pt"
+    train_beam_clone(tmp_path / "train/dataset-manifest.json", checkpoint, _smoke_training_config())
+    with pytest.raises(PermissionError, match="explicit audited access"):
+        evaluate_beam_clone(
+            tmp_path / "sealed/dataset-manifest.json", checkpoint, split="sealed_test"
+        )
+    report = evaluate_beam_clone(
+        tmp_path / "sealed/dataset-manifest.json",
+        checkpoint,
+        split="sealed_test",
+        allow_audited_split=True,
+    )
+    assert report["report_version"] == 3
+    assert all(
+        "error" not in cast(dict[str, object], row)
+        for row in cast(list[object], report["per_record"])
+    )
+    assert report["checkpoint_training_root_manifest_digest"] == train.root_manifest_digest
+    assert report["root_manifest_digest"] == sealed.root_manifest_digest
+    assert (
+        report["checkpoint_training_cohort_digest"]
+        == report["cohort_digest"]
+        == train.cohort_digest
+    )
+    assert report["teacher_search_contract_digest"] == train.teacher_search_contract_digest
+
+    generate_legal_roots(
+        tmp_path / "disjoint-roots",
+        ["BEAMCLONE4"],
+        max_run_steps=128,
+        materialize_audited_splits=True,
+    )
+    disjoint = generate_beam_dataset(
+        tmp_path / "disjoint-roots/root-manifest.json",
+        tmp_path / "disjoint",
+        split="sealed_test",
+        allow_audited_split=True,
+        depth=2,
+        width=4,
+        transition_budget=100,
+        max_decisions=8,
+        max_player_turns=3,
+    )
+    assert disjoint.cohort_digest != train.cohort_digest
+    with pytest.raises(ValueError, match="disjoint cohort"):
+        evaluate_beam_clone(
+            tmp_path / "disjoint/dataset-manifest.json",
+            checkpoint,
+            split="sealed_test",
+            allow_audited_split=True,
+        )
+
+    mismatched = generate_beam_dataset(
+        tmp_path / "audited-roots/root-manifest.json",
+        tmp_path / "sealed-mismatch",
+        split="sealed_test",
+        allow_audited_split=True,
+        depth=3,
+        width=4,
+        transition_budget=100,
+        max_decisions=8,
+        max_player_turns=3,
+    )
+    assert mismatched.cohort_digest == train.cohort_digest
+    assert mismatched.teacher_search_contract_digest != train.teacher_search_contract_digest
+    with pytest.raises(ValueError, match="teacher/search contract"):
+        evaluate_beam_clone(
+            tmp_path / "sealed-mismatch/dataset-manifest.json",
+            checkpoint,
+            split="sealed_test",
+            allow_audited_split=True,
         )
 
 
@@ -651,6 +862,176 @@ def test_dataset_loader_resolves_named_root_manifest_membership(tmp_path: Path) 
     ).hexdigest()
     manifest_path.write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")))
     with pytest.raises(ValueError, match="named root manifest"):
+        load_dataset_manifest(manifest_path, requested_split="train")
+
+
+def test_manifest_formats_have_no_compatibility_shim(tmp_path: Path) -> None:
+    generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
+    root_path = tmp_path / "roots/root-manifest.json"
+    root_payload = json.loads(root_path.read_text())
+    root_payload["manifest_version"] = 3
+    _resign_dataset_manifest(root_payload)
+    root_path.write_text(json.dumps(root_payload, sort_keys=True, separators=(",", ":")))
+    with pytest.raises(ValueError, match="unsupported or malformed"):
+        load_root_manifest(root_path)
+
+    generate_legal_roots(tmp_path / "fresh-roots", ["BEAMCLONE0"], max_run_steps=128)
+    generate_beam_dataset(
+        tmp_path / "fresh-roots/root-manifest.json",
+        tmp_path / "data",
+        split="train",
+        depth=2,
+        width=4,
+        transition_budget=100,
+        max_decisions=4,
+        max_player_turns=3,
+    )
+    dataset_path = tmp_path / "data/dataset-manifest.json"
+    dataset_payload = json.loads(dataset_path.read_text())
+    dataset_payload["manifest_version"] = 4
+    _resign_dataset_manifest(dataset_payload)
+    dataset_path.write_text(json.dumps(dataset_payload, sort_keys=True, separators=(",", ":")))
+    with pytest.raises(ValueError, match="unsupported or malformed"):
+        load_dataset_manifest(dataset_path, requested_split="train")
+
+
+def test_root_manifest_rejects_unused_claimed_seed_and_decoupled_generator_source(
+    tmp_path: Path,
+) -> None:
+    generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
+    root_path = tmp_path / "roots/root-manifest.json"
+    original = json.loads(root_path.read_text())
+
+    unused = dict(original)
+    unused["requested_seeds"] = sorted([*cast(list[str], unused["requested_seeds"]), "UNUSEDSEED"])
+    _resign_root_manifest(unused)
+    root_path.write_text(json.dumps(unused, sort_keys=True, separators=(",", ":")))
+    with pytest.raises(ValueError, match="requested seed accounting is incomplete"):
+        load_root_manifest(root_path)
+
+    decoupled = dict(original)
+    decoupled["generator_source_digest"] = "e" * 64
+    _resign_root_manifest(decoupled)
+    root_path.write_text(json.dumps(decoupled, sort_keys=True, separators=(",", ":")))
+    with pytest.raises(ValueError, match="generator source digest does not match repository"):
+        load_root_manifest(root_path)
+
+
+def test_injected_evaluation_error_is_denominator_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0", "BEAMCLONE12"], max_run_steps=128)
+    generate_beam_dataset(
+        tmp_path / "roots/root-manifest.json",
+        tmp_path / "train",
+        split="train",
+        depth=2,
+        width=4,
+        transition_budget=100,
+        max_decisions=8,
+        max_player_turns=3,
+    )
+    generate_beam_dataset(
+        tmp_path / "roots/root-manifest.json",
+        tmp_path / "development",
+        split="development",
+        depth=2,
+        width=4,
+        transition_budget=100,
+        max_decisions=8,
+        max_player_turns=3,
+    )
+    checkpoint = tmp_path / "checkpoint.pt"
+    train_beam_clone(tmp_path / "train/dataset-manifest.json", checkpoint, _smoke_training_config())
+    records = tuple(read_jsonl(tmp_path / "development/development/development.jsonl"))
+    failed = records[0]
+    original_collate = training_module.collate_training_examples
+    calls = {"count": 0}
+
+    def failing_collate(
+        items: Sequence[TensorizedTrainingExample],
+    ) -> BatchedTrainingExamples:
+        if calls["count"] == 0:
+            calls["count"] += 1
+            raise RuntimeError("injected evaluation failure")
+        calls["count"] += 1
+        return original_collate(items)
+
+    monkeypatch.setattr(training_module, "collate_training_examples", failing_collate)
+    report = evaluate_beam_clone(
+        tmp_path / "development/dataset-manifest.json", checkpoint, split="development"
+    )
+    rows = [cast(dict[str, object], row) for row in cast(list[object], report["per_record"])]
+    error_rows = [row for row in rows if "error" in row]
+    success_rows = [row for row in rows if "error" not in row]
+    assert report["errors"] == 1
+    assert len(error_rows) == 1
+    assert error_rows[0]["record_id"] == failed.record_id
+    assert error_rows[0]["error"] == "injected evaluation failure"
+    assert error_rows[0]["teacher_action_index"] == failed.chosen_action_index
+    assert error_rows[0]["truncated"] is failed.outcome.truncated
+    assert error_rows[0]["value_target_mask"] is failed.value_target_mask
+    assert "correct" not in error_rows[0]
+    assert "predicted_value" not in error_rows[0]
+    assert "selected_action_index" not in error_rows[0]
+    assert report["records"] == len(records) == report["exact_denominator"]
+    assert (
+        report["correct"]
+        == report["exact_numerator"]
+        == sum(1 for row in success_rows if row["correct"] is True)
+    )
+    truncated_rows = [row for row in rows if row["truncated"] is True]
+    nontruncated_rows = [row for row in rows if row["truncated"] is False]
+    assert report["truncated_denominator"] == len(truncated_rows)
+    assert report["nontruncated_denominator"] == len(nontruncated_rows)
+    if failed.outcome.truncated:
+        assert cast(int, report["truncated_denominator"]) >= 1
+        assert report["truncated_numerator"] == sum(
+            1 for row in success_rows if row["truncated"] is True and row["correct"] is True
+        )
+    else:
+        assert cast(int, report["nontruncated_denominator"]) >= 1
+        assert report["nontruncated_numerator"] == sum(
+            1 for row in success_rows if row["truncated"] is False and row["correct"] is True
+        )
+    assert report["value_mae_rows"] == sum(
+        1 for row in success_rows if row["value_target_mask"] is True
+    )
+    if failed.value_target_mask:
+        assert (
+            report["value_mae_rows"]
+            == sum(1 for row in rows if row["value_target_mask"] is True) - 1
+        )
+
+
+def test_dataset_loader_rejects_cohort_and_teacher_search_digest_mismatch(
+    tmp_path: Path,
+) -> None:
+    generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
+    generate_beam_dataset(
+        tmp_path / "roots/root-manifest.json",
+        tmp_path / "data",
+        split="train",
+        depth=2,
+        width=4,
+        transition_budget=100,
+        max_decisions=4,
+        max_player_turns=3,
+    )
+    manifest_path = tmp_path / "data/dataset-manifest.json"
+    original = json.loads(manifest_path.read_text())
+    cohort = dict(original)
+    cohort["cohort_digest"] = "c" * 64
+    _resign_dataset_manifest(cohort)
+    manifest_path.write_text(json.dumps(cohort, sort_keys=True, separators=(",", ":")))
+    with pytest.raises(ValueError, match="cohort digest"):
+        load_dataset_manifest(manifest_path, requested_split="train")
+
+    teacher = dict(original)
+    teacher["teacher_search_contract_digest"] = "d" * 64
+    _resign_dataset_manifest(teacher)
+    manifest_path.write_text(json.dumps(teacher, sort_keys=True, separators=(",", ":")))
+    with pytest.raises(ValueError, match="teacher/search contract digest"):
         load_dataset_manifest(manifest_path, requested_split="train")
 
 

@@ -314,10 +314,57 @@ pub fn validate_exhaust_select_confirm(run: &RunState) -> SimResult<()> {
     let exhaust_select = combat
         .exhaust_select()
         .ok_or(SimError::IllegalAction("no exhaust select is open"))?;
-    if exhaust_select.purpose == ExhaustSelectPurpose::ExhumeReturnToHand
-        && exhaust_select.selected_hand_indices.is_empty()
-    {
-        return Err(SimError::IllegalAction("exhaust select choice is required"));
+    let unique_selected = unique_selected_indices(&exhaust_select.selected_hand_indices);
+    match exhaust_select.purpose {
+        ExhaustSelectPurpose::TrueGritExhaustOne => {
+            if unique_selected.len() != 1 {
+                return Err(SimError::IllegalAction(
+                    "True Grit requires a selected card",
+                ));
+            }
+            require_hand_index(combat, unique_selected[0])?;
+        }
+        ExhaustSelectPurpose::RecycleExhaustOne => {
+            if unique_selected.len() != 1 {
+                return Err(SimError::IllegalAction("Recycle requires a selected card"));
+            }
+            require_hand_index(combat, unique_selected[0])?;
+        }
+        ExhaustSelectPurpose::BurningPactDraw2 | ExhaustSelectPurpose::BurningPactDraw3 => {
+            if unique_selected.len() != 1 {
+                return Err(SimError::IllegalAction(
+                    "Burning Pact requires exactly one card",
+                ));
+            }
+            require_hand_index(combat, unique_selected[0])?;
+        }
+        ExhaustSelectPurpose::ExhumeReturnToHand => {
+            let index = exhaust_select
+                .selected_hand_indices
+                .first()
+                .copied()
+                .ok_or(SimError::IllegalAction("exhaust select choice is required"))?;
+            if index >= combat.piles.exhaust_pile.len() {
+                return Err(SimError::IllegalAction("exhaust select index out of range"));
+            }
+        }
+        ExhaustSelectPurpose::PurityExhaustUpTo3
+        | ExhaustSelectPurpose::GamblingChip
+        | ExhaustSelectPurpose::Exhaust => {}
+    }
+    Ok(())
+}
+
+fn unique_selected_indices(selected: &[usize]) -> Vec<usize> {
+    let mut unique = selected.to_vec();
+    unique.sort_unstable();
+    unique.dedup();
+    unique
+}
+
+fn require_hand_index(combat: &CombatState, index: usize) -> SimResult<()> {
+    if index >= combat.piles.hand.len() {
+        return Err(SimError::IllegalAction("exhaust select index out of range"));
     }
     Ok(())
 }

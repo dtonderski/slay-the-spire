@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .data import generate_beam_dataset, generate_legal_roots
+from .gameplay import evaluate_matched_gameplay
 from .training import TrainingConfig, evaluate_beam_clone, train_beam_clone
 
 
@@ -155,7 +156,45 @@ def evaluate_main(argv: Sequence[str] | None = None) -> int:
         split=args.split,
         allow_audited_split=args.allow_audited_split,
     )
-    content = json.dumps(report, sort_keys=True, separators=(",", ":"))
+    content = json.dumps(report, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(content, encoding="utf-8")
+    print(content)
+    return 0
+
+
+def rollout_main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="sts-combat-rollout")
+    parser.add_argument("--roots", type=Path, required=True)
+    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--split", default="development")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--allow-audited-split", action="store_true")
+    parser.add_argument("--depth", type=int, default=8)
+    parser.add_argument("--width", type=int, default=24)
+    parser.add_argument("--transition-budget", type=int, default=5_000)
+    parser.add_argument("--max-decisions", type=int, default=512)
+    parser.add_argument("--max-player-turns", type=int, default=100)
+    parser.add_argument(
+        "--deduplicate-search-states", action=argparse.BooleanOptionalAction, default=True
+    )
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args(argv)
+    report = evaluate_matched_gameplay(
+        args.roots,
+        args.checkpoint,
+        split=args.split,
+        evaluation_seed=args.seed,
+        allow_audited_split=args.allow_audited_split,
+        depth=args.depth,
+        width=args.width,
+        transition_budget=args.transition_budget,
+        max_decisions=args.max_decisions,
+        max_player_turns=args.max_player_turns,
+        deduplicate_search_states=args.deduplicate_search_states,
+    )
+    content = json.dumps(report, sort_keys=True, separators=(",", ":"), allow_nan=False)
     if args.output is not None:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(content, encoding="utf-8")

@@ -26,9 +26,11 @@ from .records import (
 )
 from .rewards import COMBAT_PROXY_V1, CombatRewardConfig
 
-ROOT_MANIFEST_VERSION = 3
-DATASET_MANIFEST_VERSION = 4
+ROOT_MANIFEST_VERSION = 4
+DATASET_MANIFEST_VERSION = 5
 _SPLIT_SALT = "combat-agent-phase2-v1"
+_GENERATOR_NAME = "legal_run_policy"
+_GENERATOR_VERSION = "sha256_action_policy_v3"
 _ALLOWED_SPLITS = {"train", "development", "sealed_test", "real_trace_audit"}
 _AUDITED_SPLITS = {"sealed_test", "real_trace_audit"}
 _SOURCE_KIND = "simulator_legal_v1"
@@ -74,6 +76,74 @@ def _digest_payload(payload: dict[str, object], digest_key: str) -> str:
     return _sha256_bytes(_canonical_bytes(unsigned))
 
 
+def _canonical_requested_seeds(seeds: list[str]) -> tuple[str, ...]:
+    if not seeds or len(seeds) != len(set(seeds)):
+        raise ValueError("root seeds must be nonempty and unique")
+    if any(type(seed) is not str or not seed for seed in seeds):
+        raise TypeError("root seeds must be nonempty strings")
+    return tuple(sorted(seeds))
+
+
+def _cohort_contract(
+    *,
+    requested_seeds: tuple[str, ...],
+    generator_name: str,
+    generator_version: str,
+    generator_source_digest: str,
+    split_salt: str,
+    ascension: int,
+    max_run_steps: int,
+) -> dict[str, object]:
+    return {
+        "requested_seeds": list(requested_seeds),
+        "generator_name": generator_name,
+        "generator_version": generator_version,
+        "generator_source_digest": generator_source_digest,
+        "split_salt": split_salt,
+        "ascension": ascension,
+        "max_run_steps": max_run_steps,
+    }
+
+
+def _cohort_digest(
+    *,
+    requested_seeds: tuple[str, ...],
+    generator_name: str,
+    generator_version: str,
+    generator_source_digest: str,
+    split_salt: str,
+    ascension: int,
+    max_run_steps: int,
+) -> str:
+    return _sha256_bytes(
+        _canonical_bytes(
+            _cohort_contract(
+                requested_seeds=requested_seeds,
+                generator_name=generator_name,
+                generator_version=generator_version,
+                generator_source_digest=generator_source_digest,
+                split_salt=split_salt,
+                ascension=ascension,
+                max_run_steps=max_run_steps,
+            )
+        )
+    )
+
+
+def _teacher_search_contract_digest(
+    teacher_name: str, teacher_version: str, search_config: dict[str, object]
+) -> str:
+    return _sha256_bytes(
+        _canonical_bytes(
+            {
+                "teacher_name": teacher_name,
+                "teacher_version": teacher_version,
+                "search_config": search_config,
+            }
+        )
+    )
+
+
 def _split_group_id(lineages: tuple[str, ...]) -> str:
     return _sha256_bytes(_canonical_bytes(list(lineages)))
 
@@ -114,6 +184,9 @@ class RootManifest:
     repository: RepositoryVersion
     ascension: int
     max_run_steps: int
+    split_salt: str
+    requested_seeds: tuple[str, ...]
+    cohort_digest: str
     audited_splits_materialized: bool
     roots: tuple[RootEntry, ...]
     exclusions: tuple[RootExclusion, ...]
@@ -128,6 +201,9 @@ class RootManifest:
             "repository": self.repository.to_dict(),
             "ascension": self.ascension,
             "max_run_steps": self.max_run_steps,
+            "split_salt": self.split_salt,
+            "requested_seeds": list(self.requested_seeds),
+            "cohort_digest": self.cohort_digest,
             "audited_splits_materialized": self.audited_splits_materialized,
             "roots": [
                 {
@@ -151,8 +227,13 @@ class RootManifest:
             or source["manifest_version"] != ROOT_MANIFEST_VERSION
         ):
             raise ValueError("unsupported or malformed root manifest")
-        if type(source["roots"]) is not list or type(source["exclusions"]) is not list:
+        if (
+            type(source["roots"]) is not list
+            or type(source["exclusions"]) is not list
+            or type(source["requested_seeds"]) is not list
+        ):
             raise TypeError("root manifest collections must be arrays")
+        requested_seeds = tuple(cast(list[str], source["requested_seeds"]))
         roots: list[RootEntry] = []
         for raw in cast(list[object], source["roots"]):
             if type(raw) is not dict:
@@ -194,6 +275,9 @@ class RootManifest:
             RepositoryVersion.from_dict(source["repository"]),
             cast(int, source["ascension"]),
             cast(int, source["max_run_steps"]),
+            cast(str, source["split_salt"]),
+            requested_seeds,
+            _require_digest(source["cohort_digest"], "root cohort digest"),
             cast(bool, source["audited_splits_materialized"]),
             tuple(roots),
             tuple(exclusions),
@@ -203,12 +287,35 @@ class RootManifest:
             raise ValueError("root manifest ascension is invalid")
         if type(manifest.max_run_steps) is not int or manifest.max_run_steps <= 0:
             raise ValueError("root manifest step limit is invalid")
+        if type(manifest.split_salt) is not str or manifest.split_salt != _SPLIT_SALT:
+            raise ValueError("root manifest split salt is invalid")
+        if not manifest.requested_seeds or any(
+            type(seed) is not str or not seed for seed in manifest.requested_seeds
+        ):
+            raise TypeError("requested seeds must be nonempty strings")
+        if manifest.requested_seeds != tuple(sorted(set(manifest.requested_seeds))):
+            raise ValueError("requested seeds are not canonical")
         if type(manifest.audited_splits_materialized) is not bool:
             raise TypeError("audited materialization flag must be boolean")
+        if manifest.generator_source_digest != _sha256_bytes(
+            _canonical_bytes(manifest.repository.to_dict())
+        ):
+            raise ValueError("generator source digest does not match repository")
+        if manifest.cohort_digest != _cohort_digest(
+            requested_seeds=manifest.requested_seeds,
+            generator_name=manifest.generator_name,
+            generator_version=manifest.generator_version,
+            generator_source_digest=manifest.generator_source_digest,
+            split_salt=manifest.split_salt,
+            ascension=manifest.ascension,
+            max_run_steps=manifest.max_run_steps,
+        ):
+            raise ValueError("root cohort digest is invalid")
         if manifest.manifest_digest != _digest_payload(manifest.to_dict(), "manifest_digest"):
             raise ValueError("root manifest digest is invalid")
         if tuple(roots) != tuple(sorted(roots, key=lambda root: root.root_id)):
             raise ValueError("root entries are not canonically ordered")
+        requested_set = set(manifest.requested_seeds)
         seen: set[str] = set()
         for root in roots:
             _require_digest(root.root_id, "root ID")
@@ -226,11 +333,22 @@ class RootManifest:
                 raise ValueError("root lineages are not canonical")
             if not root.source_seeds or root.source_seeds != tuple(sorted(set(root.source_seeds))):
                 raise ValueError("root source seeds are not canonical")
+            if any(seed not in requested_set for seed in root.source_seeds):
+                raise ValueError("root source seed is outside the requested cohort")
             expected_group = _split_group_id(root.lineages)
             if root.split_group_id != expected_group:
                 raise ValueError("split group does not match canonical lineages")
             if {_split_for_lineage(lineage) for lineage in root.lineages} != {root.split}:
                 raise ValueError("root provenance crosses splits")
+        accounted: set[str] = set()
+        for root in roots:
+            accounted.update(root.source_seeds)
+        for exclusion in exclusions:
+            if exclusion.source_seed not in requested_set:
+                raise ValueError("exclusion source seed is outside the requested cohort")
+            accounted.add(exclusion.source_seed)
+        if accounted != requested_set:
+            raise ValueError("requested seed accounting is incomplete")
         return manifest
 
 
@@ -296,10 +414,7 @@ def generate_legal_roots(
 ) -> RootManifest:
     """Advance seeded runs only through accepted public legal transitions."""
 
-    if not seeds or len(seeds) != len(set(seeds)):
-        raise ValueError("root seeds must be nonempty and unique")
-    if any(type(seed) is not str or not seed for seed in seeds):
-        raise TypeError("root seeds must be nonempty strings")
+    requested_seeds = _canonical_requested_seeds(seeds)
     if not 0 <= ascension <= 20 or max_run_steps <= 0:
         raise ValueError("invalid root generation bounds")
     if type(materialize_audited_splits) is not bool:
@@ -311,7 +426,7 @@ def generate_legal_roots(
     source_digest = _sha256_bytes(_canonical_bytes(repository.to_dict()))
     root_payloads: dict[str, tuple[dict[str, object], list[str], list[str]]] = {}
     exclusions: list[RootExclusion] = []
-    for seed in sorted(seeds):
+    for seed in requested_seeds:
         env = RunEnv.new_ironclad(seed, ascension)
         try:
             for step in range(max_run_steps + 1):
@@ -377,14 +492,26 @@ def generate_legal_roots(
             )
         )
     exclusions.sort(key=lambda item: (item.source_seed, item.reason, item.detail))
+    cohort_digest = _cohort_digest(
+        requested_seeds=requested_seeds,
+        generator_name=_GENERATOR_NAME,
+        generator_version=_GENERATOR_VERSION,
+        generator_source_digest=source_digest,
+        split_salt=_SPLIT_SALT,
+        ascension=ascension,
+        max_run_steps=max_run_steps,
+    )
     unsigned: dict[str, object] = {
         "manifest_version": ROOT_MANIFEST_VERSION,
-        "generator_name": "legal_run_policy",
-        "generator_version": "sha256_action_policy_v3",
+        "generator_name": _GENERATOR_NAME,
+        "generator_version": _GENERATOR_VERSION,
         "generator_source_digest": source_digest,
         "repository": repository.to_dict(),
         "ascension": ascension,
         "max_run_steps": max_run_steps,
+        "split_salt": _SPLIT_SALT,
+        "requested_seeds": list(requested_seeds),
+        "cohort_digest": cohort_digest,
         "audited_splits_materialized": materialize_audited_splits,
         "roots": [
             {
@@ -398,12 +525,15 @@ def generate_legal_roots(
     }
     manifest = RootManifest(
         ROOT_MANIFEST_VERSION,
-        "legal_run_policy",
-        "sha256_action_policy_v3",
+        _GENERATOR_NAME,
+        _GENERATOR_VERSION,
         source_digest,
         repository,
         ascension,
         max_run_steps,
+        _SPLIT_SALT,
+        requested_seeds,
+        cohort_digest,
         materialize_audited_splits,
         tuple(entries),
         tuple(exclusions),
@@ -437,6 +567,7 @@ class DatasetManifest:
     root_manifest_path: str
     root_manifest_file_digest: str
     root_manifest_digest: str
+    cohort_digest: str
     roots: tuple[DatasetRootMembership, ...]
     exclusions: tuple[DatasetExclusion, ...]
     split: str
@@ -445,6 +576,7 @@ class DatasetManifest:
     reward_config_digest: str
     teacher_name: str
     teacher_version: str
+    teacher_search_contract_digest: str
     source_kind: str
     search_config: dict[str, object]
     repository: RepositoryVersion
@@ -460,6 +592,7 @@ class DatasetManifest:
             "root_manifest_path": self.root_manifest_path,
             "root_manifest_file_digest": self.root_manifest_file_digest,
             "root_manifest_digest": self.root_manifest_digest,
+            "cohort_digest": self.cohort_digest,
             "roots": [{**asdict(root), "lineages": list(root.lineages)} for root in self.roots],
             "exclusions": [asdict(exclusion) for exclusion in self.exclusions],
             "split": self.split,
@@ -468,6 +601,7 @@ class DatasetManifest:
             "reward_config_digest": self.reward_config_digest,
             "teacher_name": self.teacher_name,
             "teacher_version": self.teacher_version,
+            "teacher_search_contract_digest": self.teacher_search_contract_digest,
             "source_kind": self.source_kind,
             "search_config": self.search_config,
             "repository": self.repository.to_dict(),
@@ -535,6 +669,7 @@ def load_dataset_manifest(
         cast(str, source["root_manifest_path"]),
         _require_digest(source["root_manifest_file_digest"], "root manifest file digest"),
         _require_digest(source["root_manifest_digest"], "root manifest digest"),
+        _require_digest(source["cohort_digest"], "dataset cohort digest"),
         tuple(roots),
         tuple(exclusions),
         cast(str, source["split"]),
@@ -543,6 +678,7 @@ def load_dataset_manifest(
         _require_digest(source["reward_config_digest"], "reward config digest"),
         cast(str, source["teacher_name"]),
         cast(str, source["teacher_version"]),
+        _require_digest(source["teacher_search_contract_digest"], "teacher/search contract digest"),
         cast(str, source["source_kind"]),
         cast(dict[str, object], source["search_config"]),
         RepositoryVersion.from_dict(source["repository"]),
@@ -611,6 +747,10 @@ def load_dataset_manifest(
     if reward.digest != manifest.reward_config_digest:
         raise ValueError("dataset reward configuration digest is invalid")
     validate_v2_search_config(manifest.search_config)
+    if manifest.teacher_search_contract_digest != _teacher_search_contract_digest(
+        manifest.teacher_name, manifest.teacher_version, manifest.search_config
+    ):
+        raise ValueError("dataset teacher/search contract digest is invalid")
     if manifest.manifest_digest != _digest_payload(manifest.to_dict(), "manifest_digest"):
         raise ValueError("dataset manifest digest is invalid")
     named_root_path = path.parent / manifest.root_manifest_path
@@ -624,6 +764,8 @@ def load_dataset_manifest(
     )
     if named_root_manifest.manifest_digest != manifest.root_manifest_digest:
         raise ValueError("dataset root manifest digest is invalid")
+    if named_root_manifest.cohort_digest != manifest.cohort_digest:
+        raise ValueError("dataset cohort digest is invalid")
     canonical_root_memberships = {
         root.root_id: root for root in named_root_manifest.roots if root.split == manifest.split
     }
@@ -850,11 +992,15 @@ def generate_beam_dataset(
     root_manifest_bytes = _canonical_bytes(root_manifest.to_dict())
     root_manifest_file_digest = _sha256_bytes(root_manifest_bytes)
     _atomic_write(output_dir / _DATASET_ROOT_MANIFEST_PATH, root_manifest_bytes)
+    teacher_search_contract_digest = _teacher_search_contract_digest(
+        teacher[0], teacher[1], search_config
+    )
     unsigned: dict[str, object] = {
         "manifest_version": DATASET_MANIFEST_VERSION,
         "root_manifest_path": _DATASET_ROOT_MANIFEST_PATH,
         "root_manifest_file_digest": root_manifest_file_digest,
         "root_manifest_digest": root_manifest.manifest_digest,
+        "cohort_digest": root_manifest.cohort_digest,
         "roots": [{**asdict(root), "lineages": list(root.lineages)} for root in memberships],
         "exclusions": [asdict(exclusion) for exclusion in dataset_exclusions],
         "split": split,
@@ -863,6 +1009,7 @@ def generate_beam_dataset(
         "reward_config_digest": reward_config.digest,
         "teacher_name": teacher[0],
         "teacher_version": teacher[1],
+        "teacher_search_contract_digest": teacher_search_contract_digest,
         "source_kind": _SOURCE_KIND,
         "search_config": search_config,
         "repository": repository.to_dict(),
@@ -876,6 +1023,7 @@ def generate_beam_dataset(
         _DATASET_ROOT_MANIFEST_PATH,
         root_manifest_file_digest,
         root_manifest.manifest_digest,
+        root_manifest.cohort_digest,
         memberships,
         dataset_exclusions,
         split,
@@ -884,6 +1032,7 @@ def generate_beam_dataset(
         reward_config.digest,
         teacher[0],
         teacher[1],
+        teacher_search_contract_digest,
         _SOURCE_KIND,
         search_config,
         repository,

@@ -75,8 +75,12 @@ absorb 24 threads.
 3. **Supervised training is ready; Expert Iteration is not.** The implemented
    CLI generates manifest-bound records, fits training-only vocabularies,
    performs masked policy/value optimization, resumes exactly at batch
-   boundaries, and evaluates development records. PUCT, a replay buffer, fair
-   batched leaf evaluation, and sealed candidate promotion remain unimplemented.
+   boundaries, and evaluates development records. Static imitation evaluation
+   (`sts-combat-evaluate`) scores labeled public rows; matched gameplay rollout
+   (`sts-combat-rollout`) compares random, greedy-network, and beam episodes on
+   independently restored roots and does not promote a candidate. PUCT, a replay
+   buffer, fair batched leaf evaluation, and sealed candidate promotion remain
+   unimplemented.
 4. **Training roots are hybrid by contract.** Legally generated simulator roots
    are the scalable training source. Immutable real-trace roots remain fixed
    development/sealed/audit anchors once authoritative streaming extraction is
@@ -346,7 +350,20 @@ validated root manifest, and training fits vocabularies from `train` only. Each
 dataset now embeds canonical root-manifest bytes at a fixed relative path; the
 loader validates both file and manifest digests and re-resolves every root,
 split group, split, and canonical lineage membership without embedding root
-snapshots.
+snapshots. Root manifest V4 stores the requested seed cohort and a cohort
+contract digest over the ordered canonical seed list, generator/source identity,
+split salt, ascension, and `max_run_steps`; access mode and realized roots or
+exclusions are excluded so ordinary and audited generation of the same seed list
+share that digest. Dataset manifest V5 and training checkpoint format 3 also
+bind that cohort digest plus a teacher/search contract digest covering teacher
+name, version, and the full beam search config. Resume validates both digests.
+Audited evaluation against a different realized root manifest requires
+`allow_audited_split`, a valid audited-access dataset, and a matching cohort
+digest; disjoint cohorts and teacher/search mismatches are rejected. Report V3
+records official accuracy over every row, exact and truncated/nontruncated
+numerators and denominators, truncated root count, `value_mae_rows`, and
+per-record root, status, truncation, value-mask, correctness or error, and
+value fields. These format bumps have no compatibility shim.
 
 Training config V1 enforces the pre-frozen floor of 225 roots and 100 distinct
 canonical lineages by default. Explicit lower thresholds are limited to tests
@@ -471,3 +488,9 @@ as an unmet gate rather than a pass.
 - Stage 7 uses development only. `sealed_test` is opened under the explicit
   Stage 8 audit protocol; `real_trace_audit` remains a separately reported final
   diagnostic. Filesystem controls are operational, not cryptographic.
+- Matched gameplay (`evaluate_matched_gameplay` / `sts-combat-rollout`) is a
+  separate diagnostic from static imitation (`sts-combat-evaluate`). It restores
+  each split-root snapshot independently, compares seeded random, greedy-network,
+  and live beam episodes under the checkpoint teacher/search contract, keeps
+  errors and truncations in the win-rate denominator, and does not promote a
+  candidate.

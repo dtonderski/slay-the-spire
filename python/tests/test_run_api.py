@@ -14,6 +14,7 @@ from sts_sim import (
     Relic,
     RunEnv,
     StaleDecisionError,
+    StepResult,
 )
 
 
@@ -39,6 +40,7 @@ def test_run_env_has_one_action_list_and_one_step_method() -> None:
 
     assert result.decision.revision == 1
     assert isinstance(result.decision.observation, FairCombatObservation)
+    assert result.player_turn_advances == 1
 
 
 def test_schema_two_orbs_and_card_dynamic_values_are_typed() -> None:
@@ -185,3 +187,34 @@ def test_content_catalogues_are_complete_python_enums() -> None:
     assert Card.BASH.value == "Bash"
     assert Relic.INK_BOTTLE.value == "Ink Bottle"
     assert Potion.GAMBLERS_BREW.value == "GamblersBrew"
+
+
+def test_step_result_rejects_negative_player_turn_advances() -> None:
+    env = RunEnv.combat_fixture()
+    decision = env.decision()
+    with pytest.raises(ValueError, match="nonnegative"):
+        StepResult(False, decision, None, -1)
+
+
+def test_playing_conclude_reports_a_forced_player_turn_advance() -> None:
+    state = RunEnv.combat_fixture().full_state()
+    combat = cast(dict[str, object], state["combat"])
+    player = cast(dict[str, object], combat["player"])
+    player["energy"] = 3
+    monsters = cast(list[dict[str, object]], combat["monsters"])
+    monsters[0]["hp"] = 100
+    monsters[0]["max_hp"] = 100
+    monsters[0]["intent"] = "Stun"
+    piles = cast(dict[str, object], combat["piles"])
+    piles["hand"] = [
+        {
+            "id": 100,
+            "content_id": 1_915_755_234_499,
+            "temp_cost": None,
+            "combat_only": False,
+        }
+    ]
+    env = RunEnv.from_state_json_for_debugging(json.dumps(state))
+    play = next(action for action in env.decision().actions if action.kind == "play_hand_slot")
+    result = env.step(play)
+    assert result.player_turn_advances == 1

@@ -1,0 +1,365 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+from typing import cast
+
+import pytest
+import torch
+
+from sts_sim import Action, ActionDescriptor, Decision, FairCombatObservation, RunEnv
+from sts_sim.rl import (
+    CombatModelConfig,
+    FairCombatPolicyValueNet,
+    PolicyEpisode,
+    Vocabularies,
+    VocabularyBuilder,
+    aggregate_paired_differences,
+    aggregate_policy_metrics,
+    evaluate_matched_gameplay,
+    evaluate_matched_roots,
+    gameplay,
+    random_policy_index,
+    select_greedy_action,
+)
+from sts_sim.rl.gameplay import canonical_public_action_descriptors
+
+
+def _end_turn(decision: Decision) -> Action:
+    for action in decision.actions:
+        if action.kind == "end_turn":
+            return action
+    return decision.actions[0]
+
+
+def _fixture_snapshot() -> tuple[str, bytes]:
+    snapshot = RunEnv.combat_fixture().snapshot()
+    snapshot_bytes = snapshot.json.encode()
+    return hashlib.sha256(snapshot_bytes).hexdigest(), snapshot_bytes
+
+
+def _tiny_search_config(**overrides: object) -> dict[str, object]:
+    config: dict[str, object] = {
+        "depth": 2,
+        "width": 4,
+        "transition_budget": 100,
+        "max_decisions": 1,
+        "max_player_turns": 100,
+        "deadline": None,
+        "replan": "every_public_decision",
+        "deduplicate_search_states": True,
+    }
+    config.update(overrides)
+    return config
+
+
+def _tiny_policy_net() -> tuple[RunEnv, FairCombatPolicyValueNet, Vocabularies]:
+    env = RunEnv.combat_fixture()
+    decision = env.decision()
+    observation = decision.observation
+    assert isinstance(observation, FairCombatObservation)
+    descriptors = tuple(action.descriptor() for action in decision.actions)
+    builder = VocabularyBuilder()
+    builder.add(observation, descriptors)
+    vocabularies = builder.freeze()
+    torch.manual_seed(7)
+    model = FairCombatPolicyValueNet(
+        vocabularies,
+        CombatModelConfig(width=32, heads=4, layers=1, feedforward_width=64),
+    ).eval()
+    return env, model, vocabularies
+
+
+def test_random_policy_index_golden_descriptor_hash() -> None:
+    descriptors = canonical_public_action_descriptors(
+        (ActionDescriptor(family="combat", kind="end_turn"),)
+    )
+    payload = [7, "root-id", 0, descriptors]
+    digest = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    )
+    assert digest.hexdigest() == "bb9162d8fa97c14415e236e3c309761d76359f51718467f66afd9b94e6c67779"
+    assert random_policy_index(
+        evaluation_seed=7,
+        root_id="root-id",
+        accepted_decision_index=0,
+        descriptors=descriptors,
+    ) == int.from_bytes(digest.digest()[:8], "big") % len(descriptors)
+
+
+def test_greedy_returns_original_sidecar_action() -> None:
+    env, model, vocabularies = _tiny_policy_net()
+    decision = env.decision()
+    selected = select_greedy_action(decision, model, vocabularies)
+    assert any(candidate is selected for candidate in decision.actions)
+
+
+def test_public_caps_match_native_truncation_semantics() -> None:
+    def choose(decision: Decision, accepted_decision_index: int) -> Action:
+        del accepted_decision_index
+        return _end_turn(decision)
+
+    decisions = gameplay._capped_public_episode(
+        RunEnv.combat_fixture(),
+        max_decisions=1,
+        max_player_turns=100,
+        choose=choose,
+    )
+    assert decisions.status == "truncated"
+    assert decisions.accepted_decisions == 1
+    assert decisions.truncation_trigger == "accepted_decisions"
+    assert type(decisions.terminal_hp) is int
+
+    turns = gameplay._capped_public_episode(
+        RunEnv.combat_fixture(),
+        max_decisions=512,
+        max_player_turns=1,
+        choose=choose,
+    )
+    assert turns.status == "truncated"
+    assert turns.truncation_trigger == "player_turns"
+    assert turns.player_turns > 1
+
+    native = RunEnv.combat_fixture().beam_clone_episode_payload(
+        depth=2,
+        width=4,
+        transition_budget=100,
+        max_decisions=1,
+        max_player_turns=100,
+    )
+    outcome = cast(dict[str, object], native["outcome"])
+    assert outcome["status"] == "truncated"
+    assert outcome["accepted_decisions"] == 1
+    assert outcome["truncation_trigger"] == "accepted_decisions"
+
+
+def test_initial_hp_zero_is_lost_like_native() -> None:
+    state = RunEnv.combat_fixture().full_state()
+    combat = cast(dict[str, object], state["combat"])
+    player = cast(dict[str, object], combat["player"])
+    player["hp"] = 0
+    state["player_hp"] = 0
+    env = RunEnv.from_state_json_for_debugging(json.dumps(state))
+    episode = gameplay.rollout_random_policy(
+        env,
+        evaluation_seed=0,
+        root_id="hp-zero",
+        max_decisions=8,
+        max_player_turns=8,
+    )
+    assert episode.status == "lost"
+    assert episode.accepted_decisions == 0
+    assert episode.player_turns == 1
+    assert episode.terminal_hp == 0
+    native = RunEnv.from_state_json_for_debugging(json.dumps(state)).beam_clone_episode_payload(
+        depth=2, width=4, transition_budget=100, max_decisions=1, max_player_turns=1
+    )
+    assert cast(dict[str, object], native["outcome"])["status"] == "lost"
+
+
+def test_injected_error_and_truncation_keep_denominator_and_partial_metrics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def choose(decision: Decision, accepted_decision_index: int) -> Action:
+        if accepted_decision_index >= 1:
+            raise ValueError("injected failure")
+        return _end_turn(decision)
+
+    failed = gameplay._capped_public_episode(
+        RunEnv.combat_fixture(),
+        max_decisions=8,
+        max_player_turns=8,
+        choose=choose,
+    )
+    assert failed.status == "error"
+    assert failed.accepted_decisions == 1
+    assert failed.player_turns >= 1
+    assert type(failed.terminal_hp) is int
+    assert failed.error == "injected failure"
+
+    root_hp = gameplay._detached_player_hp(RunEnv.combat_fixture())
+
+    def boom(
+        self: RunEnv,
+        *,
+        depth: int,
+        width: int,
+        transition_budget: int,
+        max_decisions: int,
+        max_player_turns: int,
+        deduplicate_search_states: bool,
+    ) -> dict[str, object]:
+        del self, depth, width, transition_budget, max_decisions, max_player_turns
+        del deduplicate_search_states
+        raise RuntimeError("beam setup failed")
+
+    monkeypatch.setattr(RunEnv, "beam_clone_episode_payload", boom)
+    beam_failed = gameplay.rollout_beam_policy(
+        RunEnv.combat_fixture(),
+        depth=2,
+        width=4,
+        transition_budget=100,
+        max_decisions=1,
+        max_player_turns=100,
+        deduplicate_search_states=True,
+    )
+    assert beam_failed.status == "error"
+    assert beam_failed.accepted_decisions == 0
+    assert beam_failed.player_turns == 1
+    assert beam_failed.terminal_hp == root_hp
+
+    truncated = PolicyEpisode("truncated", 3, 4, 7, truncation_trigger="accepted_decisions")
+    won = PolicyEpisode("won", 2, 2, 10)
+    metrics = aggregate_policy_metrics((won, failed, truncated))
+    assert metrics["win_numerator"] == 1
+    assert metrics["win_denominator"] == 3
+    assert metrics["errors"] == 1
+    assert metrics["truncations"] == 1
+    assert cast(dict[str, object], metrics["accepted_decisions"])["count"] == 3
+    assert cast(dict[str, object], metrics["terminal_hp"])["count"] == 3
+
+    paired = aggregate_paired_differences(
+        (won, failed),
+        (PolicyEpisode("lost", 5, 3, 1), PolicyEpisode("won", 1, 1, 9)),
+    )
+    per_root = cast(list[dict[str, object]], paired["per_root"])
+    assert per_root[0]["accepted_decision_delta"] == 3
+    assert per_root[1]["accepted_decision_delta"] is None
+    assert cast(dict[str, object], paired["accepted_decision_delta"])["count"] == 1
+    assert cast(dict[str, object], paired["hp_delta"])["count"] == 2
+
+
+def test_unsorted_and_duplicate_matched_roots_are_rejected() -> None:
+    _, model, vocabularies = _tiny_policy_net()
+    search = _tiny_search_config()
+    with pytest.raises(ValueError, match="canonically ordered"):
+        evaluate_matched_roots(
+            split_roots=(("b", b"x"), ("a", b"x")),
+            evaluation_seed=0,
+            model=model,
+            vocabularies=vocabularies,
+            search_config=search,
+            max_decisions=1,
+            max_player_turns=100,
+        )
+    with pytest.raises(ValueError, match="duplicate matched root ID"):
+        evaluate_matched_roots(
+            split_roots=(("a", b"x"), ("a", b"y")),
+            evaluation_seed=0,
+            model=model,
+            vocabularies=vocabularies,
+            search_config=search,
+            max_decisions=1,
+            max_player_turns=100,
+        )
+
+
+def test_audited_split_gating_does_not_materialize_development(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[bool] = []
+
+    def fake_load(
+        path: Path, *, verify_roots: bool = True, allow_audited_materialization: bool = False
+    ) -> object:
+        del path, verify_roots
+        seen.append(allow_audited_materialization)
+        raise RuntimeError("stop-after-load")
+
+    monkeypatch.setattr(gameplay, "load_root_manifest", fake_load)
+    roots = tmp_path / "root-manifest.json"
+    checkpoint = tmp_path / "checkpoint.pt"
+    roots.write_text("{}", encoding="utf-8")
+    checkpoint.write_bytes(b"x")
+    with pytest.raises(RuntimeError, match="stop-after-load"):
+        evaluate_matched_gameplay(roots, checkpoint, split="development", allow_audited_split=True)
+    assert seen == [False]
+    with pytest.raises(PermissionError, match="explicit audited access"):
+        evaluate_matched_gameplay(roots, checkpoint, split="sealed_test")
+    with pytest.raises(RuntimeError, match="stop-after-load"):
+        evaluate_matched_gameplay(roots, checkpoint, split="sealed_test", allow_audited_split=True)
+    assert seen[-1] is True
+
+
+def test_teacher_search_contract_mismatch_is_rejected_before_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class _Root:
+        split = "development"
+        root_id = "a"
+        relative_path = "a.json"
+
+    class _Manifest:
+        roots = (_Root(),)
+        requested_seeds = ("SEED",)
+        manifest_digest = "c" * 64
+        cohort_digest = "d" * 64
+
+    class _Config:
+        torch_threads = 1
+
+    def fake_load(*_args: object, **_kwargs: object) -> _Manifest:
+        return _Manifest()
+
+    def fake_torch_load(*_args: object, **_kwargs: object) -> dict[str, bool]:
+        return {"payload": True}
+
+    def fake_envelope(_payload: object) -> tuple[dict[str, object], _Config]:
+        return (
+            {
+                "teacher_search_contract_digest": "a" * 64,
+                "runtime_identity_digest": "b" * 64,
+                "source_digest": "c" * 64,
+                "root_manifest_digest": "c" * 64,
+                "cohort_digest": "d" * 64,
+            },
+            _Config(),
+        )
+
+    def fake_configure(_threads: int) -> None:
+        return None
+
+    def fake_digest(_payload: object) -> str:
+        return "b" * 64
+
+    monkeypatch.setattr(gameplay, "load_root_manifest", fake_load)
+    monkeypatch.setattr(gameplay.torch, "load", fake_torch_load)
+    monkeypatch.setattr(gameplay, "_validate_checkpoint_envelope", fake_envelope)
+    monkeypatch.setattr(gameplay, "_configure_cpu", fake_configure)
+    monkeypatch.setattr(gameplay, "_runtime_identity", lambda: {"runtime": True})
+    monkeypatch.setattr(gameplay, "_digest", fake_digest)
+    monkeypatch.setattr(gameplay, "_source_digest", lambda: "c" * 64)
+    roots = tmp_path / "root-manifest.json"
+    checkpoint = tmp_path / "checkpoint.pt"
+    roots.write_text("{}", encoding="utf-8")
+    checkpoint.write_bytes(b"x")
+    with pytest.raises(ValueError, match="teacher/search contract"):
+        evaluate_matched_gameplay(roots, checkpoint, split="development")
+
+
+def test_matched_roots_report_is_deterministically_serializable() -> None:
+    root_id, snapshot_bytes = _fixture_snapshot()
+    _, model, vocabularies = _tiny_policy_net()
+    first = evaluate_matched_roots(
+        split_roots=((root_id, snapshot_bytes),),
+        evaluation_seed=0,
+        model=model,
+        vocabularies=vocabularies,
+        search_config=_tiny_search_config(),
+        max_decisions=1,
+        max_player_turns=100,
+    )
+    second = evaluate_matched_roots(
+        split_roots=((root_id, snapshot_bytes),),
+        evaluation_seed=0,
+        model=model,
+        vocabularies=vocabularies,
+        search_config=_tiny_search_config(),
+        max_decisions=1,
+        max_player_turns=100,
+    )
+    encoded = json.dumps(first, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    assert first == second
+    assert json.loads(encoded) == first
+    assert encoded == json.dumps(json.loads(encoded), sort_keys=True, separators=(",", ":"))

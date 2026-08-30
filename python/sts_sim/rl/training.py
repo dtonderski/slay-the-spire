@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import platform
 import random
@@ -29,7 +30,7 @@ from .records import (
 )
 from .tensor import Vocabularies, VocabularyBuilder, encoder_contract_digest
 
-TRAINING_CHECKPOINT_FORMAT = 2
+TRAINING_CHECKPOINT_FORMAT = 3
 _CHECKPOINT_KEYS = {
     "checkpoint_format",
     "config",
@@ -37,6 +38,8 @@ _CHECKPOINT_KEYS = {
     "dataset_manifest_digest",
     "dataset_shard_digest",
     "root_manifest_digest",
+    "cohort_digest",
+    "teacher_search_contract_digest",
     "reward_config_digest",
     "source_digest",
     "runtime_identity",
@@ -58,7 +61,7 @@ _CHECKPOINT_KEYS = {
 
 
 def _canonical_bytes(payload: object) -> bytes:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
 
 
 def _digest(payload: object) -> str:
@@ -165,6 +168,8 @@ def _validate_checkpoint_envelope(payload: object) -> tuple[dict[str, Any], Trai
         "dataset_manifest_digest",
         "dataset_shard_digest",
         "root_manifest_digest",
+        "cohort_digest",
+        "teacher_search_contract_digest",
         "reward_config_digest",
         "source_digest",
         "runtime_identity_digest",
@@ -347,6 +352,8 @@ def train_beam_clone(
             "dataset_manifest_digest": manifest.manifest_digest,
             "dataset_shard_digest": manifest.shard_digest,
             "root_manifest_digest": manifest.root_manifest_digest,
+            "cohort_digest": manifest.cohort_digest,
+            "teacher_search_contract_digest": manifest.teacher_search_contract_digest,
             "reward_config_digest": manifest.reward_config_digest,
             "source_digest": source_digest,
             "runtime_identity_digest": runtime_identity_digest,
@@ -425,6 +432,8 @@ def train_beam_clone(
             "dataset_manifest_digest": manifest.manifest_digest,
             "dataset_shard_digest": manifest.shard_digest,
             "root_manifest_digest": manifest.root_manifest_digest,
+            "cohort_digest": manifest.cohort_digest,
+            "teacher_search_contract_digest": manifest.teacher_search_contract_digest,
             "reward_config_digest": manifest.reward_config_digest,
             "source_digest": source_digest,
             "runtime_identity": runtime_identity,
@@ -478,8 +487,17 @@ def evaluate_beam_clone(
         raise ValueError("evaluation checkpoint runtime identity mismatch")
     if payload["source_digest"] != _source_digest():
         raise ValueError("evaluation checkpoint source digest mismatch")
-    if payload["root_manifest_digest"] != manifest.root_manifest_digest:
-        raise ValueError("evaluation root manifest mismatch")
+    training_root_manifest_digest = cast(str, payload["root_manifest_digest"])
+    training_cohort_digest = cast(str, payload["cohort_digest"])
+    if payload["teacher_search_contract_digest"] != manifest.teacher_search_contract_digest:
+        raise ValueError("evaluation teacher/search contract mismatch")
+    if training_root_manifest_digest != manifest.root_manifest_digest:
+        if not (allow_audited_split and manifest.audited_access):
+            raise ValueError("evaluation root manifest mismatch")
+        if training_cohort_digest != manifest.cohort_digest:
+            raise ValueError("evaluation disjoint cohort")
+    elif training_cohort_digest != manifest.cohort_digest:
+        raise ValueError("evaluation disjoint cohort")
     if payload["reward_config_digest"] != manifest.reward_config_digest:
         raise ValueError("evaluation reward config mismatch")
     vocabularies = Vocabularies.from_dict(payload["vocabularies"])
@@ -489,39 +507,73 @@ def evaluate_beam_clone(
     model.eval()
     records = tuple(read_jsonl(dataset_manifest_path.parent / manifest.shard_path))
     dataset = SymbolicCombatDataset(records, vocabularies)
-    correct = 0
-    errors = 0
+    exact_numerator = 0
+    truncated_numerator = 0
+    truncated_denominator = 0
+    truncated_roots: set[str] = set()
+    nontruncated_numerator = 0
+    nontruncated_denominator = 0
     value_absolute_error = 0.0
-    value_rows = 0
+    value_mae_rows = 0
+    errors = 0
     per_record: list[dict[str, object]] = []
     with torch.inference_mode():
         for index in range(len(dataset)):
+            record = records[index]
+            truncated = record.outcome.truncated
+            if truncated:
+                truncated_denominator += 1
+                truncated_roots.add(record.root_id)
+            else:
+                nontruncated_denominator += 1
+            row: dict[str, object] = {
+                "record_id": record.record_id,
+                "root_id": record.root_id,
+                "status": record.outcome.status,
+                "truncated": truncated,
+                "value_target_mask": record.value_target_mask,
+                "target_value": record.target_value,
+                "teacher_action_index": record.chosen_action_index,
+            }
             try:
                 example = dataset[index]
                 batch = collate_training_examples((example,))
                 output = model(batch.decision)
                 logits = output.logits[0, : example.decision.action_count]
                 selected = int(torch.argmax(logits).item())
-                expected = records[index].chosen_action_index
-                correct += int(selected == expected)
-                if records[index].value_target_mask:
-                    value_absolute_error += abs(
-                        float(output.value[0]) - float(batch.value_target[0])
-                    )
-                    value_rows += 1
-                per_record.append(
+                expected = record.chosen_action_index
+                correct = selected == expected
+                predicted_value = float(output.value[0])
+                if not math.isfinite(predicted_value):
+                    raise ValueError("predicted value is not finite")
+                value_error: float | None = None
+                if record.value_target_mask:
+                    target_value = float(batch.value_target[0])
+                    if not math.isfinite(target_value):
+                        raise ValueError("value target is not finite")
+                    value_error = abs(predicted_value - target_value)
+                exact_numerator += int(correct)
+                if truncated:
+                    truncated_numerator += int(correct)
+                else:
+                    nontruncated_numerator += int(correct)
+                if value_error is not None:
+                    value_absolute_error += value_error
+                    value_mae_rows += 1
+                row.update(
                     {
-                        "record_id": records[index].record_id,
                         "selected_action_index": selected,
-                        "teacher_action_index": expected,
-                        "correct": selected == expected,
+                        "correct": correct,
+                        "predicted_value": predicted_value,
                     }
                 )
             except (RuntimeError, TypeError, ValueError) as error:
                 errors += 1
-                per_record.append({"record_id": records[index].record_id, "error": str(error)})
+                row["error"] = str(error)
+            per_record.append(row)
+    exact_denominator = len(records)
     report: dict[str, object] = {
-        "report_version": 2,
+        "report_version": 3,
         "split": split,
         "checkpoint_step": payload["global_step"],
         "checkpoint_file_digest": hashlib.sha256(checkpoint_bytes).hexdigest(),
@@ -534,14 +586,26 @@ def evaluate_beam_clone(
         "vocabulary_fingerprint": payload["vocabulary_fingerprint"],
         "encoder_contract_digest": payload["encoder_contract_digest"],
         "reward_config_digest": manifest.reward_config_digest,
+        "checkpoint_training_root_manifest_digest": training_root_manifest_digest,
+        "checkpoint_training_cohort_digest": training_cohort_digest,
+        "teacher_search_contract_digest": manifest.teacher_search_contract_digest,
         "dataset_manifest_digest": manifest.manifest_digest,
         "dataset_shard_digest": manifest.shard_digest,
         "root_manifest_digest": manifest.root_manifest_digest,
-        "records": len(records),
-        "correct": correct,
+        "cohort_digest": manifest.cohort_digest,
+        "records": exact_denominator,
+        "correct": exact_numerator,
         "errors": errors,
-        "accuracy": correct / len(records),
-        "value_mae": None if value_rows == 0 else value_absolute_error / value_rows,
+        "accuracy": exact_numerator / exact_denominator,
+        "exact_numerator": exact_numerator,
+        "exact_denominator": exact_denominator,
+        "truncated_numerator": truncated_numerator,
+        "truncated_denominator": truncated_denominator,
+        "truncated_root_count": len(truncated_roots),
+        "nontruncated_numerator": nontruncated_numerator,
+        "nontruncated_denominator": nontruncated_denominator,
+        "value_mae": None if value_mae_rows == 0 else value_absolute_error / value_mae_rows,
+        "value_mae_rows": value_mae_rows,
         "per_record": per_record,
     }
     report["report_digest"] = _digest(report)

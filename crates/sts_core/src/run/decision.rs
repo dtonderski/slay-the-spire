@@ -389,9 +389,13 @@ mod tests {
     use super::*;
     use crate::{
         combat::{
-            CombatPhase, DrawSelectPurpose, DrawSelectState, HandSelectPurpose, HandSelectState,
+            CombatPhase, DrawSelectPurpose, DrawSelectState, ExhaustSelectPurpose,
+            ExhaustSelectState, HandSelectPurpose, HandSelectState,
         },
-        content::cards::{BASH_ID, DEFEND_R_ID, SECRET_WEAPON_ID, STRIKE_R_ID},
+        content::cards::{
+            BASH_ID, BURNING_PACT_ID, DEFEND_R_ID, EXHUME_ID, PURITY_ID, RECYCLE_ANY_COLOR_ID,
+            SECRET_WEAPON_ID, STRIKE_R_ID, THINKING_AHEAD_ID, TRUE_GRIT_PLUS_ID,
+        },
         legal_map_actions_on_run, CardGridScreen, CardId, CardInstance, GridPurpose,
     };
 
@@ -733,5 +737,286 @@ mod tests {
         assert!(selected_actions.contains(&RunDecisionAction::Run(RunAction::ConfirmHandSelect)));
         assert!(selected_actions.contains(&use_potion));
         assert!(selected_actions.contains(&discard_potion));
+    }
+
+    fn confirm_exhaust() -> RunDecisionAction {
+        RunDecisionAction::Run(RunAction::ConfirmExhaustSelect)
+    }
+
+    fn choose_exhaust(index: usize) -> RunDecisionAction {
+        RunDecisionAction::Run(RunAction::ChooseExhaustSelect { index })
+    }
+
+    fn confirm_hand() -> RunDecisionAction {
+        RunDecisionAction::Run(RunAction::ConfirmHandSelect)
+    }
+
+    fn choose_hand(index: usize) -> RunDecisionAction {
+        RunDecisionAction::Run(RunAction::ChooseHandSelect { index })
+    }
+
+    fn play_card(run: &RunState, card_id: u64) -> RunState {
+        apply_run_decision_action(
+            run,
+            RunDecisionAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(card_id),
+                target: None,
+            }),
+        )
+        .expect("card plays")
+    }
+
+    fn assert_every_legal_action_applies(run: &RunState) {
+        let actions = legal_run_decision_actions(run).expect("legal actions enumerate");
+        for action in actions {
+            apply_run_decision_action(run, action)
+                .unwrap_or_else(|error| panic!("{action:?} is legal but failed to apply: {error}"));
+        }
+    }
+
+    fn combat_with_hand(cards: Vec<CardInstance>) -> RunState {
+        let mut run = RunState::combat_fixture();
+        {
+            let combat = run.combat.as_mut().expect("combat fixture");
+            combat.player.energy = 3;
+            combat.piles.hand = cards;
+            combat.piles.draw_pile.clear();
+            combat.piles.discard_pile.clear();
+            combat.piles.exhaust_pile.clear();
+        }
+        run
+    }
+
+    #[test]
+    fn exact_one_exhaust_confirm_is_illegal_until_one_card_is_chosen() {
+        for (source, extra) in [
+            (TRUE_GRIT_PLUS_ID, STRIKE_R_ID),
+            (BURNING_PACT_ID, STRIKE_R_ID),
+            (RECYCLE_ANY_COLOR_ID, STRIKE_R_ID),
+        ] {
+            let run = combat_with_hand(vec![
+                CardInstance::new(CardId::new(1), source),
+                CardInstance::new(CardId::new(2), extra),
+                CardInstance::new(CardId::new(3), DEFEND_R_ID),
+                CardInstance::new(CardId::new(4), BASH_ID),
+            ]);
+            let opened = play_card(&run, 1);
+            assert!(
+                opened
+                    .combat
+                    .as_ref()
+                    .and_then(|combat| combat.exhaust_select())
+                    .is_some(),
+                "{source:?} should open exhaust select"
+            );
+            let empty_actions = legal_run_decision_actions(&opened).expect("empty select");
+            assert!(
+                !empty_actions.contains(&confirm_exhaust()),
+                "empty {source:?} confirm must be illegal"
+            );
+            assert_every_legal_action_applies(&opened);
+
+            let selected = apply_run_decision_action(&opened, choose_exhaust(0))
+                .expect("first exhaust choice applies");
+            let selected_actions =
+                legal_run_decision_actions(&selected).expect("selected exhaust actions");
+            assert!(
+                selected_actions.contains(&confirm_exhaust()),
+                "{source:?} confirm must be legal after one choice"
+            );
+            assert!(
+                selected_actions.iter().any(|action| {
+                    matches!(
+                        action,
+                        RunDecisionAction::Run(RunAction::ChooseExhaustSelect { .. })
+                    )
+                }),
+                "player legality still exposes exhaust retargets"
+            );
+            assert_every_legal_action_applies(&selected);
+        }
+    }
+
+    #[test]
+    fn empty_optional_exhaust_confirm_stays_legal() {
+        let mut gambling = RunState::combat_fixture();
+        crate::combat::open_gambling_chip_select(gambling.combat.as_mut().expect("combat fixture"))
+            .expect("Gambling Chip opens");
+        let gambling_actions = legal_run_decision_actions(&gambling).expect("Gambling Chip legal");
+        assert!(gambling_actions.contains(&confirm_exhaust()));
+        assert_every_legal_action_applies(&gambling);
+
+        let purity = play_card(
+            &combat_with_hand(vec![
+                CardInstance::new(CardId::new(1), PURITY_ID),
+                CardInstance::new(CardId::new(2), STRIKE_R_ID),
+                CardInstance::new(CardId::new(3), DEFEND_R_ID),
+                CardInstance::new(CardId::new(4), BASH_ID),
+            ]),
+            1,
+        );
+        let purity_actions = legal_run_decision_actions(&purity).expect("Purity legal");
+        assert!(purity_actions.contains(&confirm_exhaust()));
+        assert_every_legal_action_applies(&purity);
+
+        let mut elixir = RunState::combat_fixture();
+        elixir.combat.as_mut().expect("combat fixture").decision =
+            Some(CombatDecisionState::ExhaustSelect {
+                state: ExhaustSelectState {
+                    purpose: ExhaustSelectPurpose::Exhaust,
+                    source_card_id: None,
+                    source_card: None,
+                    source_card_force_exhaust: false,
+                    selected_hand_indices: Vec::new(),
+                    interrupted_by_cultist_potion: false,
+                    pending_actions: Default::default(),
+                },
+            });
+        let elixir_actions = legal_run_decision_actions(&elixir).expect("Exhaust legal");
+        assert!(elixir_actions.contains(&confirm_exhaust()));
+        assert_every_legal_action_applies(&elixir);
+    }
+
+    #[test]
+    fn empty_exhume_confirm_is_illegal_until_one_card_is_chosen() {
+        let mut run = combat_with_hand(vec![
+            CardInstance::new(CardId::new(1), EXHUME_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+        ]);
+        {
+            let combat = run.combat.as_mut().expect("combat fixture");
+            combat.piles.exhaust_pile = vec![
+                CardInstance::new(CardId::new(10), DEFEND_R_ID),
+                CardInstance::new(CardId::new(11), BASH_ID),
+            ];
+        }
+        let opened = play_card(&run, 1);
+        assert!(opened
+            .combat
+            .as_ref()
+            .and_then(|combat| combat.exhaust_select())
+            .is_some());
+        let empty_actions = legal_run_decision_actions(&opened).expect("empty Exhume");
+        assert!(!empty_actions.contains(&confirm_exhaust()));
+        assert_every_legal_action_applies(&opened);
+
+        let selected =
+            apply_run_decision_action(&opened, choose_exhaust(0)).expect("Exhume choice applies");
+        assert!(
+            selected
+                .combat
+                .as_ref()
+                .and_then(|combat| combat.exhaust_select())
+                .is_none(),
+            "Exhume choose auto-closes the exhaust select"
+        );
+        assert_every_legal_action_applies(&selected);
+    }
+
+    #[test]
+    fn thinking_ahead_confirm_is_illegal_until_a_card_is_chosen() {
+        let mut run = combat_with_hand(vec![
+            CardInstance::new(CardId::new(1), THINKING_AHEAD_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+            CardInstance::new(CardId::new(4), BASH_ID),
+            CardInstance::new(CardId::new(5), STRIKE_R_ID),
+        ]);
+        {
+            let combat = run.combat.as_mut().expect("combat fixture");
+            combat.piles.draw_pile = vec![
+                CardInstance::new(CardId::new(6), STRIKE_R_ID),
+                CardInstance::new(CardId::new(7), DEFEND_R_ID),
+            ];
+        }
+        let opened = play_card(&run, 1);
+        assert!(opened
+            .combat
+            .as_ref()
+            .and_then(|combat| combat.hand_select())
+            .is_some());
+        let empty_actions = legal_run_decision_actions(&opened).expect("empty Thinking Ahead");
+        assert!(!empty_actions.contains(&confirm_hand()));
+        assert_every_legal_action_applies(&opened);
+
+        let selected =
+            apply_run_decision_action(&opened, choose_hand(0)).expect("Thinking Ahead choice");
+        let selected_actions =
+            legal_run_decision_actions(&selected).expect("selected Thinking Ahead");
+        assert!(selected_actions.contains(&confirm_hand()));
+        assert!(!selected_actions.contains(&choose_hand(0)));
+        assert!(selected_actions.contains(&choose_hand(1)));
+        assert_every_legal_action_applies(&selected);
+    }
+
+    #[test]
+    fn burning_pact_second_choice_replaces_the_selected_card() {
+        let opened = play_card(
+            &combat_with_hand(vec![
+                CardInstance::new(CardId::new(1), BURNING_PACT_ID),
+                CardInstance::new(CardId::new(2), STRIKE_R_ID),
+                CardInstance::new(CardId::new(3), DEFEND_R_ID),
+                CardInstance::new(CardId::new(4), BASH_ID),
+            ]),
+            1,
+        );
+        let first = apply_run_decision_action(&opened, choose_exhaust(0))
+            .expect("first Burning Pact choice");
+        let first_selected = first
+            .combat
+            .as_ref()
+            .and_then(|combat| combat.exhaust_select())
+            .expect("select remains open")
+            .selected_hand_indices
+            .clone();
+        assert_eq!(first_selected.len(), 1);
+
+        let second = apply_run_decision_action(&first, choose_exhaust(0))
+            .expect("second Burning Pact choice swaps");
+        let second_select = second
+            .combat
+            .as_ref()
+            .and_then(|combat| combat.exhaust_select())
+            .expect("select remains open");
+        assert_eq!(second_select.selected_hand_indices.len(), 1);
+        assert_ne!(second_select.selected_hand_indices, first_selected);
+        assert!(legal_run_decision_actions(&second)
+            .expect("swapped Burning Pact")
+            .contains(&confirm_exhaust()));
+        assert_every_legal_action_applies(&second);
+    }
+
+    #[test]
+    fn constructed_empty_exact_one_exhaust_confirm_is_rejected() {
+        for purpose in [
+            ExhaustSelectPurpose::TrueGritExhaustOne,
+            ExhaustSelectPurpose::RecycleExhaustOne,
+            ExhaustSelectPurpose::BurningPactDraw2,
+            ExhaustSelectPurpose::BurningPactDraw3,
+            ExhaustSelectPurpose::ExhumeReturnToHand,
+        ] {
+            let mut run = RunState::combat_fixture();
+            {
+                let combat = run.combat.as_mut().expect("combat fixture");
+                combat.piles.exhaust_pile = vec![CardInstance::new(CardId::new(20), STRIKE_R_ID)];
+                combat.decision = Some(CombatDecisionState::ExhaustSelect {
+                    state: ExhaustSelectState {
+                        purpose,
+                        source_card_id: Some(combat.piles.hand[0].id),
+                        source_card: None,
+                        source_card_force_exhaust: false,
+                        selected_hand_indices: Vec::new(),
+                        interrupted_by_cultist_potion: false,
+                        pending_actions: Default::default(),
+                    },
+                });
+            }
+            assert!(
+                !legal_run_decision_actions(&run)
+                    .expect("constructed empty select enumerates")
+                    .contains(&confirm_exhaust()),
+                "empty {purpose:?} confirm must be dropped"
+            );
+        }
     }
 }

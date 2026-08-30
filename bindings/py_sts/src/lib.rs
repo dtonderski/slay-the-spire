@@ -87,6 +87,12 @@ struct FairStepWire {
 }
 
 #[derive(serde::Serialize)]
+struct PublicStepWire {
+    combat_outcome: Option<&'static str>,
+    player_turn_advances: usize,
+}
+
+#[derive(serde::Serialize)]
 struct BeamCloneSearchWire {
     nodes: usize,
     value: f64,
@@ -705,30 +711,16 @@ impl PyOmniRunEnv {
     }
 
     pub fn step_action(&mut self, action: &PyAction) -> PyResult<Option<String>> {
-        if action.revision != self.revision {
-            return Err(StaleDecisionError::new_err("public run decision is stale"));
-        }
-        let is_currently_legal = public_run_actions(&self.state, self.revision)?
-            .iter()
-            .any(|candidate| candidate.action == action.action);
-        if !is_currently_legal {
-            return Err(InvalidChoiceError::new_err("public run action is invalid"));
-        }
-        let next = apply_exact_run_action(&self.state, &action.action)
-            .map_err(|_| InvalidChoiceError::new_err("public run action is invalid"))?;
-        let combat_outcome = if self.state.phase == RunPhase::Combat {
-            classify_combat_episode_transition(&self.state, &action.action, &next)
-                .map(str::to_owned)
-        } else {
-            None
-        };
-        let revision = self
-            .revision
-            .checked_next()
-            .ok_or_else(|| PyRuntimeError::new_err("public decision revision exhausted"))?;
-        self.state = next;
-        self.revision = revision;
-        Ok(combat_outcome)
+        let (combat_outcome, _) = apply_public_run_action(self, action)?;
+        Ok(combat_outcome.map(str::to_owned))
+    }
+
+    pub fn step_action_json(&mut self, action: &PyAction) -> PyResult<String> {
+        let (combat_outcome, player_turn_advances) = apply_public_run_action(self, action)?;
+        to_json(&PublicStepWire {
+            combat_outcome,
+            player_turn_advances,
+        })
     }
 
     pub fn step(&mut self, action: &PyExactRunAction) -> PyResult<PyExactRunStepResult> {
@@ -1387,7 +1379,7 @@ fn beam_clone_episode_json(
     to_json(&BeamCloneEpisodeWire {
         schema_version: 1,
         teacher_name: "public_decision_replanning_beam",
-        teacher_version: "replan_each_public_decision_v1",
+        teacher_version: "replan_each_public_decision_v2",
         steps,
         outcome: CombatEpisodeOutcomeWire {
             status,
@@ -1405,6 +1397,36 @@ fn beam_clone_episode_json(
             truncation_trigger,
         },
     })
+}
+
+fn apply_public_run_action(
+    env: &mut PyOmniRunEnv,
+    action: &PyAction,
+) -> PyResult<(Option<&'static str>, usize)> {
+    if action.revision != env.revision {
+        return Err(StaleDecisionError::new_err("public run decision is stale"));
+    }
+    let is_currently_legal = public_run_actions(&env.state, env.revision)?
+        .iter()
+        .any(|candidate| candidate.action == action.action);
+    if !is_currently_legal {
+        return Err(InvalidChoiceError::new_err("public run action is invalid"));
+    }
+    let next = apply_exact_run_action(&env.state, &action.action)
+        .map_err(|_| InvalidChoiceError::new_err("public run action is invalid"))?;
+    let combat_outcome = if env.state.phase == RunPhase::Combat {
+        classify_combat_episode_transition(&env.state, &action.action, &next)
+    } else {
+        None
+    };
+    let player_turn_advances = player_turn_advances(&env.state, &action.action, &next);
+    let revision = env
+        .revision
+        .checked_next()
+        .ok_or_else(|| PyRuntimeError::new_err("public decision revision exhausted"))?;
+    env.state = next;
+    env.revision = revision;
+    Ok((combat_outcome, player_turn_advances))
 }
 
 fn apply_exact_run_action(
@@ -1588,7 +1610,10 @@ fn terminal_reason(phase: CombatPhase) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sts_core::Potion;
+    use sts_core::content::cards::{
+        BASH_ID, CONCLUDE_ANY_COLOR_ID, DEFEND_R_ID, STRIKE_R_ID, THINKING_AHEAD_ID,
+    };
+    use sts_core::{CardInstance, Potion};
 
     #[test]
     fn card_catalogue_is_complete_sorted_unique_and_public() {
@@ -2125,6 +2150,117 @@ mod tests {
                 &after_selection,
             ),
             1
+        );
+    }
+
+    #[test]
+    fn conclude_play_is_a_forced_turn_source() {
+        let mut before = RunState::combat_fixture();
+        let before_combat = before.combat.as_mut().expect("combat fixture");
+        before_combat.player.energy = 1;
+        before_combat.piles.hand = vec![CardInstance::new(CardId::new(100), CONCLUDE_ANY_COLOR_ID)];
+        let after = before.clone();
+        assert_eq!(
+            player_turn_advances(
+                &before,
+                &RunDecisionAction::Combat(CombatAction::PlayCard {
+                    card_id: CardId::new(100),
+                    target: None,
+                }),
+                &after,
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn step_action_json_reports_the_same_forced_turn_delta_as_beam_clone() {
+        let mut before = RunState::combat_fixture();
+        {
+            let combat = before.combat.as_mut().expect("combat fixture");
+            combat.player.energy = 3;
+            combat.piles.hand = vec![CardInstance::new(CardId::new(100), CONCLUDE_ANY_COLOR_ID)];
+            combat.monsters[0].hp = 100;
+            combat.monsters[0].max_hp = 100;
+        }
+        let mut env = PyOmniRunEnv {
+            state: before.clone(),
+            revision: DecisionRevision::new(0),
+        };
+        let conclude = env
+            .legal_actions()
+            .expect("public actions")
+            .into_iter()
+            .find(|action| action.kind() == "play_hand_slot")
+            .expect("Conclude is playable");
+        let payload = env
+            .step_action_json(&conclude)
+            .expect("public Conclude applies");
+        let parsed: serde_json::Value = serde_json::from_str(&payload).expect("step JSON");
+        assert_eq!(
+            parsed["player_turn_advances"],
+            player_turn_advances(&before, &conclude.action, &env.state)
+        );
+        assert_eq!(parsed["player_turn_advances"], 1);
+    }
+
+    #[test]
+    fn thinking_ahead_beam_clone_does_not_toggle_until_truncation() {
+        let mut run = RunState::combat_fixture();
+        {
+            let combat = run.combat.as_mut().expect("combat fixture");
+            combat.player.energy = 3;
+            combat.piles.hand = vec![
+                CardInstance::new(CardId::new(1), THINKING_AHEAD_ID),
+                CardInstance::new(CardId::new(2), STRIKE_R_ID),
+                CardInstance::new(CardId::new(3), DEFEND_R_ID),
+                CardInstance::new(CardId::new(4), BASH_ID),
+                CardInstance::new(CardId::new(5), STRIKE_R_ID),
+            ];
+            combat.piles.draw_pile = vec![
+                CardInstance::new(CardId::new(6), STRIKE_R_ID),
+                CardInstance::new(CardId::new(7), DEFEND_R_ID),
+            ];
+        }
+        let opened = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            }),
+        )
+        .expect("Thinking Ahead opens hand select");
+        assert!(opened
+            .combat
+            .as_ref()
+            .and_then(|combat| combat.hand_select())
+            .is_some());
+
+        let payload = beam_clone_episode_json(&opened, 2, 8, 500, 8, 100, false)
+            .expect("beam clone from Thinking Ahead select");
+        let parsed: serde_json::Value = serde_json::from_str(&payload).expect("episode JSON");
+        assert_eq!(parsed["teacher_version"], "replan_each_public_decision_v2");
+        let steps = parsed["steps"].as_array().expect("steps array");
+        let selected_kinds: Vec<&str> = steps
+            .iter()
+            .map(|step| {
+                let index = step["selected_index"].as_u64().expect("selected_index") as usize;
+                step["choices"][index]["kind"]
+                    .as_str()
+                    .expect("choice kind")
+            })
+            .collect();
+        let toggle_count = selected_kinds
+            .iter()
+            .filter(|kind| **kind == "toggle_visible_card")
+            .count();
+        assert!(
+            toggle_count <= 1,
+            "Thinking Ahead beam clone retargeted: {selected_kinds:?}"
+        );
+        assert!(
+            selected_kinds.contains(&"confirm_selection"),
+            "Thinking Ahead beam clone never confirmed: {selected_kinds:?}"
         );
     }
 }

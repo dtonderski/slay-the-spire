@@ -9,6 +9,7 @@ use std::{
 use sts_core::{
     apply_run_decision_action,
     card::CardType,
+    combat::{ExhaustSelectPurpose, HandSelectPurpose},
     content::{cards::get_card_definition, monsters::get_monster_definition},
     legal_combat_actions, legal_run_decision_actions,
     potion::PotionRarity,
@@ -825,9 +826,25 @@ pub fn planner_actions(state: &RunState, config: &SearchConfig) -> SimResult<Vec
         return Ok(Vec::new());
     }
 
-    Ok(legal_run_decision_actions(state)?
+    let legal = legal_run_decision_actions(state)?;
+    let suppress_hand_retargets =
+        planner_suppresses_completed_exact_count_hand_retargets(state, &legal);
+    let suppress_exhaust_retargets =
+        planner_suppresses_completed_exact_count_exhaust_retargets(state, &legal);
+
+    Ok(legal
         .into_iter()
         .filter_map(|action| match action {
+            RunDecisionAction::Run(RunAction::ChooseHandSelect { .. })
+                if suppress_hand_retargets =>
+            {
+                None
+            }
+            RunDecisionAction::Run(RunAction::ChooseExhaustSelect { .. })
+                if suppress_exhaust_retargets =>
+            {
+                None
+            }
             RunDecisionAction::Combat(action) => Some(PlannerAction::Combat(action)),
             RunDecisionAction::Run(action @ RunAction::UsePotion { slot, .. })
                 if planner_allows_potion(state, config, slot) =>
@@ -848,6 +865,44 @@ pub fn planner_actions(state: &RunState, config: &SearchConfig) -> SimResult<Vec
             _ => None,
         })
         .collect())
+}
+
+fn planner_suppresses_completed_exact_count_hand_retargets(
+    state: &RunState,
+    legal: &[RunDecisionAction],
+) -> bool {
+    let Some(hand_select) = state.combat.as_ref().and_then(CombatState::hand_select) else {
+        return false;
+    };
+    if !legal.contains(&RunDecisionAction::Run(RunAction::ConfirmHandSelect)) {
+        return false;
+    }
+    // Optional/multi Forethought+ stays retargetable even though empty confirm is legal.
+    // Prepared is exact-count: Confirm is only legal once the required number is selected.
+    !matches!(
+        hand_select.purpose,
+        HandSelectPurpose::ForethoughtPutAnyOnDraw
+    )
+}
+
+fn planner_suppresses_completed_exact_count_exhaust_retargets(
+    state: &RunState,
+    legal: &[RunDecisionAction],
+) -> bool {
+    let Some(exhaust_select) = state.combat.as_ref().and_then(CombatState::exhaust_select) else {
+        return false;
+    };
+    if !legal.contains(&RunDecisionAction::Run(RunAction::ConfirmExhaustSelect)) {
+        return false;
+    }
+    matches!(
+        exhaust_select.purpose,
+        ExhaustSelectPurpose::ExhumeReturnToHand
+            | ExhaustSelectPurpose::BurningPactDraw2
+            | ExhaustSelectPurpose::BurningPactDraw3
+            | ExhaustSelectPurpose::TrueGritExhaustOne
+            | ExhaustSelectPurpose::RecycleExhaustOne
+    )
 }
 
 fn planner_allows_potion(state: &RunState, config: &SearchConfig, slot: usize) -> bool {
@@ -1364,6 +1419,14 @@ pub fn search_with_warm_start(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sts_core::{
+        combat::{ExhaustSelectPurpose, ExhaustSelectState, HandSelectPurpose, HandSelectState},
+        content::cards::{
+            BASH_ID, BURNING_PACT_ID, DEFEND_R_ID, STRIKE_R_ID, THINKING_AHEAD_ID,
+            TRUE_GRIT_PLUS_ID,
+        },
+        CardId, CardInstance, CombatDecisionState,
+    };
 
     fn fixture_config() -> SearchConfig {
         SearchConfig {
@@ -1842,5 +1905,243 @@ mod tests {
                 )
             }));
         }
+    }
+
+    fn play_card(run: &RunState, card_id: u64) -> RunState {
+        apply_planner_action(
+            run,
+            &PlannerAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(card_id),
+                target: None,
+            }),
+        )
+        .expect("card plays")
+    }
+
+    fn combat_with_hand(cards: Vec<CardInstance>) -> RunState {
+        let mut run = RunState::combat_fixture();
+        {
+            let combat = run.combat.as_mut().expect("combat fixture");
+            combat.player.energy = 3;
+            combat.piles.hand = cards;
+            combat.piles.draw_pile.clear();
+            combat.piles.discard_pile.clear();
+            combat.piles.exhaust_pile.clear();
+        }
+        run
+    }
+
+    fn teacher_config_actions(run: &RunState) -> Vec<PlannerAction> {
+        planner_actions(run, &fixture_config()).expect("planner actions")
+    }
+
+    fn has_choose_exhaust(actions: &[PlannerAction]) -> bool {
+        actions.iter().any(|action| {
+            matches!(
+                action,
+                PlannerAction::Run(RunAction::ChooseExhaustSelect { .. })
+            )
+        })
+    }
+
+    fn has_confirm_exhaust(actions: &[PlannerAction]) -> bool {
+        actions
+            .iter()
+            .any(|action| matches!(action, PlannerAction::Run(RunAction::ConfirmExhaustSelect)))
+    }
+
+    fn has_choose_hand(actions: &[PlannerAction]) -> bool {
+        actions.iter().any(|action| {
+            matches!(
+                action,
+                PlannerAction::Run(RunAction::ChooseHandSelect { .. })
+            )
+        })
+    }
+
+    fn has_confirm_hand(actions: &[PlannerAction]) -> bool {
+        actions
+            .iter()
+            .any(|action| matches!(action, PlannerAction::Run(RunAction::ConfirmHandSelect)))
+    }
+
+    #[test]
+    fn empty_exact_one_exhaust_teacher_chooses_instead_of_confirming() {
+        for source in [TRUE_GRIT_PLUS_ID, BURNING_PACT_ID] {
+            let opened = play_card(
+                &combat_with_hand(vec![
+                    CardInstance::new(CardId::new(1), source),
+                    CardInstance::new(CardId::new(2), STRIKE_R_ID),
+                    CardInstance::new(CardId::new(3), DEFEND_R_ID),
+                    CardInstance::new(CardId::new(4), BASH_ID),
+                ]),
+                1,
+            );
+            let actions = teacher_config_actions(&opened);
+            assert!(
+                has_choose_exhaust(&actions),
+                "{source:?} empty select must offer choose"
+            );
+            assert!(
+                !has_confirm_exhaust(&actions),
+                "{source:?} empty confirm must not enter search"
+            );
+
+            let teacher = beam_teacher_decision(&opened, 2, 8, 2_000, false)
+                .expect("empty exact-one exhaust teacher succeeds");
+            assert!(
+                matches!(
+                    teacher.action,
+                    RunDecisionAction::Run(RunAction::ChooseExhaustSelect { .. })
+                ),
+                "teacher first action for {source:?} was {:?}",
+                teacher.action
+            );
+        }
+    }
+
+    #[test]
+    fn completed_exact_one_exhaust_search_drops_retargets_but_player_legal_keeps_them() {
+        let opened = play_card(
+            &combat_with_hand(vec![
+                CardInstance::new(CardId::new(1), TRUE_GRIT_PLUS_ID),
+                CardInstance::new(CardId::new(2), STRIKE_R_ID),
+                CardInstance::new(CardId::new(3), DEFEND_R_ID),
+                CardInstance::new(CardId::new(4), BASH_ID),
+            ]),
+            1,
+        );
+        let selected = apply_planner_action(
+            &opened,
+            &PlannerAction::Run(RunAction::ChooseExhaustSelect { index: 0 }),
+        )
+        .expect("True Grit choice applies");
+
+        let legal = legal_run_decision_actions(&selected).expect("player legal actions");
+        assert!(legal.contains(&RunDecisionAction::Run(RunAction::ConfirmExhaustSelect)));
+        assert!(legal.iter().any(|action| {
+            matches!(
+                action,
+                RunDecisionAction::Run(RunAction::ChooseExhaustSelect { .. })
+            )
+        }));
+
+        let planner = teacher_config_actions(&selected);
+        assert!(has_confirm_exhaust(&planner));
+        assert!(!has_choose_exhaust(&planner));
+    }
+
+    #[test]
+    fn thinking_ahead_teacher_confirms_after_the_first_choice() {
+        let mut run = combat_with_hand(vec![
+            CardInstance::new(CardId::new(1), THINKING_AHEAD_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+            CardInstance::new(CardId::new(4), BASH_ID),
+            CardInstance::new(CardId::new(5), STRIKE_R_ID),
+        ]);
+        {
+            let combat = run.combat.as_mut().expect("combat fixture");
+            combat.piles.draw_pile = vec![
+                CardInstance::new(CardId::new(6), STRIKE_R_ID),
+                CardInstance::new(CardId::new(7), DEFEND_R_ID),
+            ];
+        }
+        let opened = play_card(&run, 1);
+        let first = beam_teacher_decision(&opened, 2, 8, 2_000, false)
+            .expect("empty Thinking Ahead teacher succeeds");
+        assert!(matches!(
+            first.action,
+            RunDecisionAction::Run(RunAction::ChooseHandSelect { .. })
+        ));
+
+        let mut state =
+            apply_run_decision_action(&opened, first.action).expect("first choose applies");
+        let mut choose_indices = Vec::new();
+        if let RunDecisionAction::Run(RunAction::ChooseHandSelect { index }) = first.action {
+            choose_indices.push(index);
+        }
+        for _ in 0..3 {
+            let teacher = beam_teacher_decision(&state, 2, 8, 2_000, false)
+                .expect("Thinking Ahead replan succeeds");
+            match teacher.action {
+                RunDecisionAction::Run(RunAction::ConfirmHandSelect) => {
+                    let planner = teacher_config_actions(&state);
+                    assert!(has_confirm_hand(&planner));
+                    assert!(
+                        !has_choose_hand(&planner),
+                        "completed exact-one hand select must not retarget in search"
+                    );
+                    return;
+                }
+                RunDecisionAction::Run(RunAction::ChooseHandSelect { index }) => {
+                    choose_indices.push(index);
+                    state = apply_run_decision_action(&state, teacher.action)
+                        .expect("retarget applies");
+                }
+                other => panic!("unexpected Thinking Ahead teacher action {other:?}"),
+            }
+        }
+        panic!("Thinking Ahead teacher retargeted without confirming: {choose_indices:?}");
+    }
+
+    #[test]
+    fn optional_exhaust_and_forethought_any_keep_choose_when_confirm_is_legal() {
+        let mut gambling = RunState::combat_fixture();
+        gambling.potions = vec![Potion::Energy];
+        gambling.empty_potion_slots = vec![1, 2];
+        sts_core::combat::open_gambling_chip_select(
+            gambling.combat.as_mut().expect("combat fixture"),
+        )
+        .expect("Gambling Chip opens");
+        let gambling_actions = teacher_config_actions(&gambling);
+        assert!(has_confirm_exhaust(&gambling_actions));
+        assert!(has_choose_exhaust(&gambling_actions));
+        assert!(gambling_actions.iter().any(|action| {
+            matches!(
+                action,
+                PlannerAction::Potion(RunAction::UsePotion {
+                    slot: 0,
+                    target: None
+                })
+            )
+        }));
+
+        let mut forethought = RunState::combat_fixture();
+        {
+            let combat = forethought.combat.as_mut().expect("combat fixture");
+            let source_card_id = combat.piles.hand[0].id;
+            combat.decision = Some(CombatDecisionState::HandSelect {
+                state: HandSelectState {
+                    purpose: HandSelectPurpose::ForethoughtPutAnyOnDraw,
+                    source_card_id,
+                    selected_hand_index: None,
+                    selected_hand_indices: Vec::new(),
+                    dual_wield_restore_on_confirm: Vec::new(),
+                    dual_wield_force_exhaust: false,
+                },
+                pending_actions: Default::default(),
+            });
+        }
+        let forethought_actions = teacher_config_actions(&forethought);
+        assert!(has_confirm_hand(&forethought_actions));
+        assert!(has_choose_hand(&forethought_actions));
+
+        let mut elixir = RunState::combat_fixture();
+        elixir.combat.as_mut().expect("combat fixture").decision =
+            Some(CombatDecisionState::ExhaustSelect {
+                state: ExhaustSelectState {
+                    purpose: ExhaustSelectPurpose::Exhaust,
+                    source_card_id: None,
+                    source_card: None,
+                    source_card_force_exhaust: false,
+                    selected_hand_indices: Vec::new(),
+                    interrupted_by_cultist_potion: false,
+                    pending_actions: Default::default(),
+                },
+            });
+        let elixir_actions = teacher_config_actions(&elixir);
+        assert!(has_confirm_exhaust(&elixir_actions));
+        assert!(has_choose_exhaust(&elixir_actions));
     }
 }

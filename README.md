@@ -76,6 +76,21 @@ uv run sts-combat-evaluate \
   --output /tmp/sts-development-report.json
 ```
 
+`sts-combat-evaluate` is static imitation accuracy on already-labeled public
+decisions. `sts-combat-rollout` is a separate diagnostic: it independently
+restores identical split-root snapshot bytes and compares a seeded SHA-256
+random policy, a greedy network that scores only `FairCombatObservation` plus
+current public action descriptors, and the native privileged replanning beam.
+Errors and truncations stay in the win-rate denominator. The rollout report is
+not a promotion or replacement claim.
+
+```bash
+uv run sts-combat-rollout \
+  --roots /tmp/sts-roots/root-manifest.json \
+  --checkpoint /tmp/sts-checkpoint.pt --split development \
+  --seed 0 --output /tmp/sts-gameplay-report.json
+```
+
 Roots advance only through accepted public legal actions. Dataset generation
 copies the canonical named root manifest to `provenance/root-manifest.json` and
 accounts for every requested root as either a membership or a typed exclusion.

@@ -5802,6 +5802,8 @@ pub fn choose_exhaust_select(state: &mut CombatState, ui_index: usize) -> SimRes
         exhaust_select.purpose,
         crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne
             | crate::combat::ExhaustSelectPurpose::RecycleExhaustOne
+            | crate::combat::ExhaustSelectPurpose::BurningPactDraw2
+            | crate::combat::ExhaustSelectPurpose::BurningPactDraw3
     ) {
         exhaust_select.selected_hand_indices.clear();
         exhaust_select.selected_hand_indices.push(pile_index);
