@@ -76,6 +76,22 @@ uv run sts-combat-evaluate \
   --output /tmp/sts-development-report.json
 ```
 
+The current trainer is supervised beam cloning. PUCT visit targets are not yet
+training input. Optional offline W&B tracking records scalar loss and symbolic
+provenance only; it never uploads, syncs, or logs tensors:
+
+```bash
+uv sync --extra rl --extra tracking
+uv run sts-combat-train \
+  --dataset /tmp/sts-train/dataset-manifest.json \
+  --checkpoint /tmp/sts-checkpoint.pt --steps 1000 \
+  --minimum-roots 225 --minimum-lineages 100 \
+  --wandb-offline --wandb-project sts-combat --wandb-dir ../target/wandb
+ls ../target/wandb/wandb
+# later, only if you choose to upload a local offline run:
+# wandb sync ../target/wandb/wandb/offline-run-*
+```
+
 `sts-combat-evaluate` is static imitation accuracy on already-labeled public
 decisions. `sts-combat-rollout` is a separate diagnostic: it independently
 restores identical split-root snapshot bytes and compares a seeded SHA-256

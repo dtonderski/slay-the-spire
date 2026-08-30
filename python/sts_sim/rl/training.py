@@ -29,6 +29,7 @@ from .records import (
     read_jsonl,
 )
 from .tensor import Vocabularies, VocabularyBuilder, encoder_contract_digest
+from .tracking import OfflineWandbConfig, start_offline_wandb
 
 TRAINING_CHECKPOINT_FORMAT = 3
 _CHECKPOINT_KEYS = {
@@ -325,9 +326,12 @@ def train_beam_clone(
     *,
     resume: bool = False,
     stop_after_steps: int | None = None,
+    wandb_offline: OfflineWandbConfig | None = None,
 ) -> TrainingResult:
     """Train through ``config.total_steps`` and atomically checkpoint every batch."""
 
+    if wandb_offline is not None and type(wandb_offline) is not OfflineWandbConfig:
+        raise TypeError("wandb_offline must be OfflineWandbConfig or None")
     _configure_cpu(config.torch_threads)
     manifest, records = _load_records(
         dataset_manifest_path,
@@ -342,126 +346,162 @@ def train_beam_clone(
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
     metrics: list[dict[str, float | int]] = []
-
-    if resume:
-        payload, stored_config = _validate_checkpoint_envelope(
-            torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-        )
-        checks = {
-            "config_digest": config.digest,
-            "dataset_manifest_digest": manifest.manifest_digest,
-            "dataset_shard_digest": manifest.shard_digest,
-            "root_manifest_digest": manifest.root_manifest_digest,
-            "cohort_digest": manifest.cohort_digest,
-            "teacher_search_contract_digest": manifest.teacher_search_contract_digest,
-            "reward_config_digest": manifest.reward_config_digest,
-            "source_digest": source_digest,
-            "runtime_identity_digest": runtime_identity_digest,
-        }
-        for name, expected_value in checks.items():
-            if payload[name] != expected_value:
-                raise ValueError(f"training checkpoint {name} mismatch")
-        if stored_config != config:
-            raise ValueError("training checkpoint config mismatch")
-        vocabularies = Vocabularies.from_dict(payload["vocabularies"])
-        model = FairCombatPolicyValueNet(vocabularies, config.model_config())
-        model.load_state_dict(payload["model_state"], strict=True)
-        optimizer = torch.optim.AdamW(
-            model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
-        )
-        optimizer.load_state_dict(payload["optimizer_state"])
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda _: 1.0)
-        scheduler.load_state_dict(payload["scheduler_state"])
-        global_step = cast(int, payload["global_step"])
-        cursor = cast(int, payload["cursor"])
-        order = tuple(cast(list[int], payload["order"]))
-        if len(order) != len(records) or order != _training_order(len(records), config.seed):
-            raise ValueError("training checkpoint sample order mismatch")
-        random.setstate(payload["python_rng_state"])
-        np.random.set_state(payload["numpy_rng_state"])
-        torch.set_rng_state(payload["torch_rng_state"])
-    else:
-        vocabularies = _fit_vocabulary(records)
-        model = FairCombatPolicyValueNet(vocabularies, config.model_config())
-        optimizer = torch.optim.AdamW(
-            model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
-        )
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda _: 1.0)
-        global_step = 0
-        cursor = 0
-        order = _training_order(len(records), config.seed)
-
-    dataset = SymbolicCombatDataset(records, vocabularies)
-    target_step = config.total_steps
-    if stop_after_steps is not None:
-        if type(stop_after_steps) is not int or not global_step < stop_after_steps <= target_step:
-            raise ValueError(
-                "stop_after_steps must be after the current step and within total_steps"
+    session = None
+    try:
+        if resume:
+            payload, stored_config = _validate_checkpoint_envelope(
+                torch.load(checkpoint_path, map_location="cpu", weights_only=False)
             )
-        target_step = stop_after_steps
-    model.train()
-    while global_step < target_step:
-        indices = tuple(
-            order[(cursor + offset) % len(order)] for offset in range(config.batch_size)
-        )
-        cursor = (cursor + config.batch_size) % len(order)
-        batch = collate_training_examples(tuple(dataset[index] for index in indices))
-        output = model(batch.decision)
-        loss = policy_value_loss(
-            output,
-            batch.policy_target,
-            batch.value_target,
-            batch.decision.action_mask,
-            batch.value_target_mask,
-        )
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        optimizer.step()
-        scheduler.step()
-        global_step += 1
-        metric: dict[str, float | int] = {
-            "step": global_step,
-            "loss": float(loss.detach()),
-        }
-        metrics.append(metric)
-        checkpoint: dict[str, object] = {
-            "checkpoint_format": TRAINING_CHECKPOINT_FORMAT,
-            "config": asdict(config),
-            "config_digest": config.digest,
-            "dataset_manifest_digest": manifest.manifest_digest,
-            "dataset_shard_digest": manifest.shard_digest,
-            "root_manifest_digest": manifest.root_manifest_digest,
-            "cohort_digest": manifest.cohort_digest,
-            "teacher_search_contract_digest": manifest.teacher_search_contract_digest,
-            "reward_config_digest": manifest.reward_config_digest,
-            "source_digest": source_digest,
-            "runtime_identity": runtime_identity,
-            "runtime_identity_digest": runtime_identity_digest,
-            "vocabularies": vocabularies.to_dict(),
-            "vocabulary_fingerprint": vocabularies.fingerprint,
-            "encoder_contract_digest": encoder_contract_digest(vocabularies),
-            "model_config": asdict(config.model_config()),
-            "model_state": model.state_dict(),
-            "optimizer_state": optimizer.state_dict(),
-            "scheduler_state": scheduler.state_dict(),
-            "global_step": global_step,
-            "cursor": cursor,
-            "order": list(order),
-            "python_rng_state": random.getstate(),
-            "numpy_rng_state": np.random.get_state(),
-            "torch_rng_state": torch.get_rng_state(),
-        }
-        _atomic_torch_save(checkpoint_path, checkpoint)
+            checks = {
+                "config_digest": config.digest,
+                "dataset_manifest_digest": manifest.manifest_digest,
+                "dataset_shard_digest": manifest.shard_digest,
+                "root_manifest_digest": manifest.root_manifest_digest,
+                "cohort_digest": manifest.cohort_digest,
+                "teacher_search_contract_digest": manifest.teacher_search_contract_digest,
+                "reward_config_digest": manifest.reward_config_digest,
+                "source_digest": source_digest,
+                "runtime_identity_digest": runtime_identity_digest,
+            }
+            for name, expected_value in checks.items():
+                if payload[name] != expected_value:
+                    raise ValueError(f"training checkpoint {name} mismatch")
+            if stored_config != config:
+                raise ValueError("training checkpoint config mismatch")
+            vocabularies = Vocabularies.from_dict(payload["vocabularies"])
+            model = FairCombatPolicyValueNet(vocabularies, config.model_config())
+            model.load_state_dict(payload["model_state"], strict=True)
+            optimizer = torch.optim.AdamW(
+                model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
+            )
+            optimizer.load_state_dict(payload["optimizer_state"])
+            scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda _: 1.0)
+            scheduler.load_state_dict(payload["scheduler_state"])
+            global_step = cast(int, payload["global_step"])
+            cursor = cast(int, payload["cursor"])
+            order = tuple(cast(list[int], payload["order"]))
+            if len(order) != len(records) or order != _training_order(len(records), config.seed):
+                raise ValueError("training checkpoint sample order mismatch")
+            random.setstate(payload["python_rng_state"])
+            np.random.set_state(payload["numpy_rng_state"])
+            torch.set_rng_state(payload["torch_rng_state"])
+        else:
+            vocabularies = _fit_vocabulary(records)
+            model = FairCombatPolicyValueNet(vocabularies, config.model_config())
+            optimizer = torch.optim.AdamW(
+                model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
+            )
+            scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda _: 1.0)
+            global_step = 0
+            cursor = 0
+            order = _training_order(len(records), config.seed)
 
-    return TrainingResult(
-        checkpoint_path,
-        global_step,
-        tuple(metrics),
-        runtime_identity_digest,
-        vocabularies.fingerprint,
-        encoder_contract_digest(vocabularies),
-    )
+        dataset = SymbolicCombatDataset(records, vocabularies)
+        target_step = config.total_steps
+        if stop_after_steps is not None:
+            if type(stop_after_steps) is not int or not global_step < stop_after_steps <= target_step:
+                raise ValueError(
+                    "stop_after_steps must be after the current step and within total_steps"
+                )
+            target_step = stop_after_steps
+        if wandb_offline is not None:
+            session = start_offline_wandb(
+                wandb_offline,
+                {
+                    "trainer": "beam_clone",
+                    "puct_targets_in_training": False,
+                    "resume": resume,
+                    "resume_starting_step": global_step,
+                    "training_config": asdict(config),
+                    "config_digest": config.digest,
+                    "dataset_manifest_digest": manifest.manifest_digest,
+                    "dataset_shard_digest": manifest.shard_digest,
+                    "root_manifest_digest": manifest.root_manifest_digest,
+                    "cohort_digest": manifest.cohort_digest,
+                    "teacher_search_contract_digest": manifest.teacher_search_contract_digest,
+                    "reward_config_digest": manifest.reward_config_digest,
+                    "source_digest": source_digest,
+                    "runtime_identity_digest": runtime_identity_digest,
+                    "vocabulary_fingerprint": vocabularies.fingerprint,
+                    "encoder_contract_digest": encoder_contract_digest(vocabularies),
+                },
+            )
+        model.train()
+        while global_step < target_step:
+            indices = tuple(
+                order[(cursor + offset) % len(order)] for offset in range(config.batch_size)
+            )
+            cursor = (cursor + config.batch_size) % len(order)
+            batch = collate_training_examples(tuple(dataset[index] for index in indices))
+            output = model(batch.decision)
+            loss = policy_value_loss(
+                output,
+                batch.policy_target,
+                batch.value_target,
+                batch.decision.action_mask,
+                batch.value_target_mask,
+            )
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+            scheduler.step()
+            global_step += 1
+            metric: dict[str, float | int] = {
+                "step": global_step,
+                "loss": float(loss.detach()),
+            }
+            metrics.append(metric)
+            if session is not None:
+                session.log_scalars({"loss": metric["loss"]}, step=global_step)
+            checkpoint: dict[str, object] = {
+                "checkpoint_format": TRAINING_CHECKPOINT_FORMAT,
+                "config": asdict(config),
+                "config_digest": config.digest,
+                "dataset_manifest_digest": manifest.manifest_digest,
+                "dataset_shard_digest": manifest.shard_digest,
+                "root_manifest_digest": manifest.root_manifest_digest,
+                "cohort_digest": manifest.cohort_digest,
+                "teacher_search_contract_digest": manifest.teacher_search_contract_digest,
+                "reward_config_digest": manifest.reward_config_digest,
+                "source_digest": source_digest,
+                "runtime_identity": runtime_identity,
+                "runtime_identity_digest": runtime_identity_digest,
+                "vocabularies": vocabularies.to_dict(),
+                "vocabulary_fingerprint": vocabularies.fingerprint,
+                "encoder_contract_digest": encoder_contract_digest(vocabularies),
+                "model_config": asdict(config.model_config()),
+                "model_state": model.state_dict(),
+                "optimizer_state": optimizer.state_dict(),
+                "scheduler_state": scheduler.state_dict(),
+                "global_step": global_step,
+                "cursor": cursor,
+                "order": list(order),
+                "python_rng_state": random.getstate(),
+                "numpy_rng_state": np.random.get_state(),
+                "torch_rng_state": torch.get_rng_state(),
+            }
+            _atomic_torch_save(checkpoint_path, checkpoint)
+        if session is not None:
+            session.log_summary(
+                {
+                    "checkpoint_path": str(checkpoint_path),
+                    "checkpoint_digest": hashlib.sha256(checkpoint_path.read_bytes()).hexdigest(),
+                    "model_state_digest": _model_state_digest(model.state_dict()),
+                    "global_step": global_step,
+                }
+            )
+        return TrainingResult(
+            checkpoint_path,
+            global_step,
+            tuple(metrics),
+            runtime_identity_digest,
+            vocabularies.fingerprint,
+            encoder_contract_digest(vocabularies),
+        )
+    finally:
+        if session is not None:
+            session.finish()
 
 
 def evaluate_beam_clone(

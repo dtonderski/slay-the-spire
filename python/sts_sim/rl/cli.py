@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .data import generate_beam_dataset, generate_legal_roots
 from .gameplay import evaluate_matched_gameplay
+from .tracking import OfflineWandbConfig, default_offline_wandb_directory
 from .training import TrainingConfig, evaluate_beam_clone, train_beam_clone
 
 
@@ -119,12 +120,33 @@ def train_main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--model-heads", type=int, default=4)
     parser.add_argument("--model-layers", type=int, default=2)
     parser.add_argument("--feedforward-width", type=int, default=192)
+    parser.add_argument(
+        "--wandb-offline",
+        action="store_true",
+        help="opt-in offline W&B tracking; requires the tracking extra and never uploads",
+    )
+    parser.add_argument("--wandb-project", default="sts-combat")
+    parser.add_argument("--wandb-run-name", default=None)
+    parser.add_argument(
+        "--wandb-dir",
+        type=Path,
+        default=None,
+        help="offline W&B directory (default: <repo>/target/wandb)",
+    )
     args = parser.parse_args(argv)
+    wandb_offline = None
+    if args.wandb_offline:
+        wandb_offline = OfflineWandbConfig(
+            project=args.wandb_project,
+            directory=args.wandb_dir or default_offline_wandb_directory(),
+            run_name=args.wandb_run_name,
+        )
     result = train_beam_clone(
         args.dataset,
         args.checkpoint,
         _training_config(args),
         resume=args.resume,
+        wandb_offline=wandb_offline,
     )
     print(
         json.dumps(

@@ -80,6 +80,11 @@ The existing beam planner is the initial expert:
 5. Initialize PUCT with that network, then replace beam one-hot targets with
    MCTS visit distributions.
 
+The implemented trainer remains supervised beam cloning. Optional offline W&B
+tracking can record scalar `step`/`loss` plus symbolic config and provenance
+digests; it is opt-in, never uploads, and does not change checkpoint bytes.
+PUCT visit targets are not yet training input.
+
 A naive privileged PUCT now exists: it expands public `PlayerChoice` rows over
 authoritative `RunState` clones, evaluates one fair leaf at a time, and selects
 the root action by visit count. Search requires a finite positive `c_puct` and

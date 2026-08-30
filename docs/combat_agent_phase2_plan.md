@@ -11,7 +11,9 @@ evaluation protocol are out of scope.
 The first training-ready slice now implements deterministic legal simulator
 roots, a public-decision replanning teacher that reuses the extracted `sts_search`
 beam core, symbolic Record V2 datasets, masked terminal values, exact CPU
-checkpoint/resume, and development evaluation.
+checkpoint/resume, optional offline W&B scalar/provenance tracking, and
+development evaluation. Training remains beam cloning; PUCT targets are not yet
+training input.
 It intentionally does not claim batched PUCT, candidate promotion, or
 trace-derived root extraction. The native episode payload currently reports the full HP/max-HP/gold,
 potion, status, decision/turn, and truncation contract; card/relic counter deltas

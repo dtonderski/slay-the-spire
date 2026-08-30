@@ -20,6 +20,9 @@ rl = [
     "numpy>=2",
     "torch>=2.7",
 ]
+tracking = [
+    "wandb>=0.19",
+]
 
 [dependency-groups]
 dev = [
