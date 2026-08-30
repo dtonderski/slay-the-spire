@@ -624,12 +624,13 @@ mod tests {
         run.potions = vec![Potion::LiquidMemories];
         run.empty_potion_slots.clear();
         let recalled = CardInstance::new(CardId::new(91), STRIKE_R_ID);
+        let other = CardInstance::new(CardId::new(92), STRIKE_R_ID);
         run.combat
             .as_mut()
             .expect("combat")
             .piles
             .discard_pile
-            .push(recalled);
+            .extend([recalled, other]);
         let run = apply_run_decision_action(
             &run,
             RunDecisionAction::Run(RunAction::UsePotion {
@@ -658,9 +659,10 @@ mod tests {
 
         assert!(matches!(
             actions.as_slice(),
-            [PlannerAction::Run(RunAction::ChooseDiscardSelect {
-                index: 0
-            })]
+            [
+                PlannerAction::Run(RunAction::ChooseDiscardSelect { index: 0 }),
+                PlannerAction::Run(RunAction::ChooseDiscardSelect { index: 1 })
+            ]
         ));
         assert_eq!(
             expected_command(&state, &run, &actions[0]),

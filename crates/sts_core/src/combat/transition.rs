@@ -5411,8 +5411,21 @@ pub fn open_discard_select_with_max_choices(
     state: &mut CombatState,
     max_choices: usize,
 ) -> SimResult<()> {
-    if state.piles.discard_pile.is_empty() {
-        return Err(SimError::IllegalAction("discard pile is empty"));
+    // BetterDiscardPileToHandAction completes without opening the grid when
+    // there is nothing to return. Its non-optional path also returns every
+    // discard card automatically when the pile does not exceed the amount.
+    if state.piles.discard_pile.is_empty() || max_choices == 0 {
+        return Ok(());
+    }
+    if state.piles.discard_pile.len() <= max_choices {
+        while !state.piles.discard_pile.is_empty()
+            && state.piles.hand.len() < crate::combat::draw::MAX_HAND_SIZE
+        {
+            let mut card = state.piles.discard_pile.remove(0);
+            crate::combat::cost::set_card_cost_for_turn(&mut card, 0)?;
+            state.piles.hand.push(card);
+        }
+        return Ok(());
     }
     state.decision = Some(CombatDecisionState::DiscardSelect {
         state: crate::combat::DiscardSelectState {
@@ -5492,14 +5505,24 @@ pub fn confirm_liquid_memories_select(state: &mut CombatState) -> SimResult<()> 
             return Err(SimError::IllegalAction("discard select index out of range"));
         }
     }
+    let available_hand_slots =
+        crate::combat::draw::MAX_HAND_SIZE.saturating_sub(state.piles.hand.len());
     let mut cards = Vec::new();
     for index in selected.into_iter().rev() {
-        let mut card = state.piles.discard_pile.remove(index);
-        crate::combat::cost::set_card_cost_for_turn(&mut card, 0)?;
-        cards.push(card);
+        cards.push(state.piles.discard_pile[index]);
     }
     cards.reverse();
-    state.piles.hand.extend(cards);
+    for mut card in cards.into_iter().take(available_hand_slots) {
+        let index = state
+            .piles
+            .discard_pile
+            .iter()
+            .position(|candidate| candidate.id == card.id)
+            .ok_or(SimError::UnknownCard(card.id))?;
+        state.piles.discard_pile.remove(index);
+        crate::combat::cost::set_card_cost_for_turn(&mut card, 0)?;
+        state.piles.hand.push(card);
+    }
     resume_actions_after_discard_select(state, discard_select.pending_actions)?;
     state.activate_next_queued_decision_if_idle();
     Ok(())

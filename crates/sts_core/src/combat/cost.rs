@@ -69,6 +69,10 @@ pub(crate) fn printed_card_cost(card: &CardInstance) -> SimResult<i32> {
 
 pub(crate) fn set_card_cost_for_turn(card: &mut CardInstance, cost: u8) -> SimResult<()> {
     validate_combat_card_cost_metadata(card)?;
+    // AbstractCard.setCostForTurn is a no-op for X-cost and unplayable cards.
+    if effective_card_cost(card)? < 0 {
+        return Ok(());
+    }
     if !card.temp_cost_turn_only {
         card.combat_cost_under_turn_override = card.temp_cost;
     }
@@ -150,7 +154,10 @@ pub(crate) fn effective_card_cost_with_corruption(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{content::cards::STRIKE_R_ID, CardId, ContentId};
+    use crate::{
+        content::cards::{STRIKE_R_ID, WHIRLWIND_ID},
+        CardId, ContentId,
+    };
 
     #[test]
     fn card_cost_metadata_fails_closed() {
@@ -199,6 +206,15 @@ mod tests {
         turn_only.temp_cost = Some(0);
         turn_only.temp_cost_turn_only = true;
         assert_eq!(printed_card_cost(&turn_only), Ok(1));
+    }
+
+    #[test]
+    fn turn_cost_override_is_a_noop_for_x_cost_cards() {
+        let mut card = CardInstance::new(CardId::new(1), WHIRLWIND_ID);
+        set_card_cost_for_turn(&mut card, 0).expect("X-cost override is ignored");
+        assert_eq!(card.temp_cost, None);
+        assert!(!card.temp_cost_turn_only);
+        assert_eq!(effective_card_cost(&card), Ok(-1));
     }
 
     #[test]

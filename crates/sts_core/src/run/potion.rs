@@ -3663,4 +3663,94 @@ mod tests {
             1
         );
     }
+
+    #[test]
+    fn liquid_memories_empty_and_small_discard_piles_complete_without_selection() {
+        let use_liquid_memories = |mut run: RunState| {
+            run.potions = vec![Potion::LiquidMemories];
+            run.empty_potion_slots = vec![1, 2];
+            apply_potion_action(
+                &run,
+                RunAction::UsePotion {
+                    slot: 0,
+                    target: None,
+                },
+            )
+            .expect("Liquid Memories resolves")
+        };
+
+        let mut empty = RunState::combat_fixture();
+        empty
+            .combat
+            .as_mut()
+            .expect("combat fixture")
+            .piles
+            .discard_pile
+            .clear();
+        let empty = use_liquid_memories(empty);
+        let combat = empty.combat.as_ref().expect("combat remains open");
+        assert!(combat.decision.is_none());
+        assert!(combat.piles.discard_pile.is_empty());
+        assert_eq!(empty.potion_at_slot(0), None);
+
+        let mut singleton = RunState::combat_fixture();
+        let returned_id = CardId::new(10_000);
+        singleton
+            .combat
+            .as_mut()
+            .expect("combat fixture")
+            .piles
+            .discard_pile = vec![CardInstance::new(returned_id, STRIKE_R_ID)];
+        let singleton = use_liquid_memories(singleton);
+        let combat = singleton.combat.expect("combat remains open");
+        assert!(combat.decision.is_none());
+        assert!(combat.piles.discard_pile.is_empty());
+        assert!(combat
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == returned_id && card.temp_cost == Some(0)));
+
+        let mut full_hand = RunState::combat_fixture();
+        let combat = full_hand.combat.as_mut().expect("combat fixture");
+        combat.piles.hand = (0..crate::combat::draw::MAX_HAND_SIZE)
+            .map(|id| CardInstance::new(CardId::new(20_000 + id as u64), STRIKE_R_ID))
+            .collect();
+        combat.piles.discard_pile = vec![CardInstance::new(returned_id, STRIKE_R_ID)];
+        let full_hand = use_liquid_memories(full_hand);
+        let combat = full_hand.combat.expect("combat remains open");
+        assert!(combat.decision.is_none());
+        assert_eq!(combat.piles.hand.len(), crate::combat::draw::MAX_HAND_SIZE);
+        assert_eq!(combat.piles.discard_pile.len(), 1);
+
+        let mut grid = RunState::combat_fixture();
+        grid.potions = vec![Potion::LiquidMemories];
+        grid.empty_potion_slots = vec![1, 2];
+        let combat = grid.combat.as_mut().expect("combat fixture");
+        combat.piles.hand = (0..crate::combat::draw::MAX_HAND_SIZE)
+            .map(|id| CardInstance::new(CardId::new(20_000 + id as u64), STRIKE_R_ID))
+            .collect();
+        combat.piles.discard_pile = vec![
+            CardInstance::new(returned_id, STRIKE_R_ID),
+            CardInstance::new(CardId::new(10_001), STRIKE_R_ID),
+        ];
+        let opened = apply_potion_action(
+            &grid,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("Liquid Memories opens the grid for a larger discard pile");
+        let confirmed = apply_discard_select_choice(&opened, 0).expect("choose with a full hand");
+        let combat = confirmed.combat.expect("combat remains open");
+        assert!(combat.decision.is_none());
+        assert_eq!(combat.piles.hand.len(), crate::combat::draw::MAX_HAND_SIZE);
+        assert_eq!(combat.piles.discard_pile.len(), 2);
+        assert!(combat
+            .piles
+            .discard_pile
+            .iter()
+            .all(|card| card.temp_cost.is_none()));
+    }
 }
