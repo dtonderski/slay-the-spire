@@ -7,10 +7,10 @@ use crate::{
         close_discovery_source_card_with_force_exhaust, confirm_discard_select,
         confirm_draw_select, confirm_exhaust_select_with_dead_branch_count, confirm_hand_select,
         confirm_hand_select_without_retrieval, discard_select_ui_to_discard_index,
-        draw_select_ui_to_draw_index, exhaust_select_ui_to_hand_index,
-        flush_pending_player_spikes_damage_if_ready, hand_select_ui_to_hand_index,
-        open_discard_select_with_max_choices, open_exhaust_select, open_gambling_chip_select,
-        player_draw_cards, player_shuffle_discard_into_draw, top_draw_card_definition,
+        draw_select_ui_to_draw_index, flush_pending_player_spikes_damage_if_ready,
+        hand_select_ui_to_hand_index, open_discard_select_with_max_choices, open_exhaust_select,
+        open_gambling_chip_select, player_draw_cards, player_shuffle_discard_into_draw,
+        top_draw_card_definition,
     },
     combat::{
         apply_burning_blood, CombatDecisionState, CombatPhase, CombatState, DiscardSelectPurpose,
@@ -302,8 +302,10 @@ pub fn validate_exhaust_select_choice(run: &RunState, index: usize) -> SimResult
         .combat
         .as_ref()
         .ok_or(SimError::IllegalAction("exhaust select requires combat"))?;
-    exhaust_select_ui_to_hand_index(combat, index)?;
-    Ok(())
+    // Probe the same non-RNG selection transition used by apply so legality
+    // cannot advertise a Purity addition after its selection cap.
+    let mut probe = combat.clone();
+    choose_exhaust_select(&mut probe, index)
 }
 
 pub fn validate_exhaust_select_confirm(run: &RunState) -> SimResult<()> {

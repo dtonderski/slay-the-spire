@@ -1422,7 +1422,7 @@ mod tests {
     use sts_core::{
         combat::{ExhaustSelectPurpose, ExhaustSelectState, HandSelectPurpose, HandSelectState},
         content::cards::{
-            BASH_ID, BURNING_PACT_ID, DEFEND_R_ID, STRIKE_R_ID, THINKING_AHEAD_ID,
+            BASH_ID, BURNING_PACT_ID, DEFEND_R_ID, PURITY_ID, STRIKE_R_ID, THINKING_AHEAD_ID,
             TRUE_GRIT_PLUS_ID,
         },
         CardId, CardInstance, CombatDecisionState,
@@ -2143,5 +2143,42 @@ mod tests {
         let elixir_actions = teacher_config_actions(&elixir);
         assert!(has_confirm_exhaust(&elixir_actions));
         assert!(has_choose_exhaust(&elixir_actions));
+
+        let mut purity = RunState::combat_fixture();
+        {
+            let combat = purity.combat.as_mut().expect("combat fixture");
+            let source_card_id = CardId::new(100);
+            combat.piles.hand = vec![
+                CardInstance::new(source_card_id, PURITY_ID),
+                CardInstance::new(CardId::new(101), STRIKE_R_ID),
+                CardInstance::new(CardId::new(102), STRIKE_R_ID),
+                CardInstance::new(CardId::new(103), STRIKE_R_ID),
+                CardInstance::new(CardId::new(104), STRIKE_R_ID),
+            ];
+            combat.decision = Some(CombatDecisionState::ExhaustSelect {
+                state: ExhaustSelectState {
+                    purpose: ExhaustSelectPurpose::PurityExhaustUpTo3,
+                    source_card_id: Some(source_card_id),
+                    source_card: None,
+                    source_card_force_exhaust: false,
+                    selected_hand_indices: vec![1, 2, 3],
+                    interrupted_by_cultist_potion: false,
+                    pending_actions: Default::default(),
+                },
+            });
+        }
+        let purity_actions = teacher_config_actions(&purity);
+        assert!(has_confirm_exhaust(&purity_actions));
+        assert_eq!(
+            purity_actions
+                .iter()
+                .filter_map(|action| match action {
+                    PlannerAction::Run(RunAction::ChooseExhaustSelect { index }) => Some(*index),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            Vec::<usize>::new(),
+            "Purity at its cap drops additions after selected cards leave the visible grid"
+        );
     }
 }
