@@ -37,6 +37,12 @@ from .model import (
     save_checkpoint,
 )
 from .provenance import RepositoryVersion, capture_repository_version, file_digest
+from .puct import (
+    network_leaf_evaluator,
+    puct_search_payload,
+    rollout_puct_policy,
+    select_puct_action,
+)
 from .records import (
     BatchedTrainingExamples,
     CombatOutcome,
@@ -131,12 +137,16 @@ __all__ = [
     "load_checkpoint",
     "load_dataset_manifest",
     "load_root_manifest",
+    "network_leaf_evaluator",
     "policy_value_loss",
+    "puct_search_payload",
     "random_policy_index",
     "read_jsonl",
     "rollout_model_combat",
+    "rollout_puct_policy",
     "save_checkpoint",
     "select_greedy_action",
+    "select_puct_action",
     "summarize_rollouts",
     "teacher_conflict_report",
     "tensorize_combat",

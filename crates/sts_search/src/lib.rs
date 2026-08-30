@@ -1,5 +1,13 @@
 //! Deterministic planning over authoritative simulator `RunState` values.
 
+mod puct;
+
+pub use puct::{
+    puct_search, CombatProxyConfig, FairLeafEvaluation, FairLeafEvaluator, PuctConfig, PuctError,
+    PuctSearchResult, FAIR_LEAF_BATCH_SCHEMA, PRIVILEGED_PUCT_TEACHER_NAME,
+    PRIVILEGED_PUCT_TEACHER_VERSION,
+};
+
 use serde::Serialize;
 use std::cmp::Ordering;
 use std::{

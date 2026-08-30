@@ -1,7 +1,7 @@
 # Combat RL Architecture
 
-Status: design contract; the initial fair tensorizer and tiny policy/value model are implemented.
-Last updated: 2026-08-27.
+Status: design contract; the initial fair tensorizer, tiny policy/value model, and naive synchronous privileged PUCT are implemented.
+Last updated: 2026-08-30.
 
 The first learned combat agent uses AlphaZero-style Expert Iteration over
 collected combat roots. Its policy/value network receives only fair public
@@ -80,8 +80,11 @@ The existing beam planner is the initial expert:
 5. Initialize PUCT with that network, then replace beam one-hot targets with
    MCTS visit distributions.
 
-Beam examples are scaffolding. Reduce their replay weight after PUCT produces
-reliable targets so the learned agent is not capped by the handcrafted teacher.
+A naive privileged PUCT now exists: it expands public `PlayerChoice` rows over
+authoritative `RunState` clones, evaluates one fair leaf at a time, and selects
+the root action by visit count. It does not yet batch leaves, apply virtual
+loss, or share transpositions. Beam examples remain scaffolding until that
+search produces reliable visit targets.
 
 ## State Encoder
 

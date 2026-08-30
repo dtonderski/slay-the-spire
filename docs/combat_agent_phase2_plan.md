@@ -1,7 +1,7 @@
 # Combat Agent Phase 2 Plan
 
-Status: beam-cloning training vertical slice implemented; production stage gates and PUCT remain planned.
-Last updated: 2026-08-28.
+Status: beam-cloning training vertical slice implemented; naive synchronous PUCT exists; Stage 6 batching/virtual-loss/performance gates remain open.
+Last updated: 2026-08-30.
 
 This document settles the architecture decisions that precede writing the
 Expert Iteration loop, and stages the work behind measurable gates. It is
@@ -12,8 +12,8 @@ The first training-ready slice now implements deterministic legal simulator
 roots, a public-decision replanning teacher that reuses the extracted `sts_search`
 beam core, symbolic Record V2 datasets, masked terminal values, exact CPU
 checkpoint/resume, and development evaluation.
-It intentionally does not claim PUCT, candidate promotion, or trace-derived root
-extraction. The native episode payload currently reports the full HP/max-HP/gold,
+It intentionally does not claim batched PUCT, candidate promotion, or
+trace-derived root extraction. The native episode payload currently reports the full HP/max-HP/gold,
 potion, status, decision/turn, and truncation contract; card/relic counter deltas
 remain an empty versioned field until core owns their terminal capture.
 
@@ -78,9 +78,10 @@ absorb 24 threads.
    boundaries, and evaluates development records. Static imitation evaluation
    (`sts-combat-evaluate`) scores labeled public rows; matched gameplay rollout
    (`sts-combat-rollout`) compares random, greedy-network, and beam episodes on
-   independently restored roots and does not promote a candidate. PUCT, a replay
-   buffer, fair batched leaf evaluation, and sealed candidate promotion remain
-   unimplemented.
+   independently restored roots and does not promote a candidate. Naive
+   synchronous privileged PUCT now searches one public decision at a time with
+   batch size 1 and no virtual loss. A replay buffer, fair batched leaf
+   evaluation, and sealed candidate promotion remain unimplemented.
 4. **Training roots are hybrid by contract.** Legally generated simulator roots
    are the scalable training source. Immutable real-trace roots remain fixed
    development/sealed/audit anchors once authoritative streaming extraction is
@@ -215,7 +216,10 @@ under the approved no-shim policy; no duplicate compatibility adapter remains.
 
 PUCT lives in `sts_search`, over authoritative `RunState` transitions, generic
 over a fair leaf-evaluator trait. PyO3 and any future Rust encoder adapter live
-in `py_sts`, not `sts_search` or `sts_core`.
+in `py_sts`, not `sts_search` or `sts_core`. The current vertical slice is
+synchronous batch-size-1 PUCT: it reports visits, value, transitions,
+simulations, and evaluations, but does not yet implement virtual loss, batched
+leaf evaluation, or the Stage 6 performance gate.
 
 ```text
 Rust PUCT

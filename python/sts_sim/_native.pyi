@@ -114,6 +114,13 @@ class OmniRunEnv:
         max_player_turns: int = ...,
         deduplicate_search_states: bool = ...,
     ) -> str: ...
+    def puct_search_json(
+        self,
+        evaluator: object,
+        c_puct: float = ...,
+        transition_budget: int = ...,
+        reward_config_json: str | None = ...,
+    ) -> str: ...
 
 class FairCombatEnv:
     @staticmethod

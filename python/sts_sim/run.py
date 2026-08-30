@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import cast
@@ -332,6 +333,32 @@ class RunEnv:
                     max_decisions,
                     max_player_turns,
                     deduplicate_search_states,
+                )
+            )
+        )
+
+    def puct_search_payload(
+        self,
+        evaluator: Callable[[str], str],
+        *,
+        c_puct: float = 1.5,
+        transition_budget: int = 64,
+        reward_config_json: str | None = None,
+    ) -> dict[str, object]:
+        """Run naive privileged PUCT from the current combat state.
+
+        The evaluator callback receives only a detached fair observation plus
+        public choices as batch-shaped JSON and must return JSON priors/value.
+        The live environment is not mutated.
+        """
+
+        return _mapping(
+            json.loads(
+                self._native.puct_search_json(
+                    evaluator,
+                    c_puct,
+                    transition_budget,
+                    reward_config_json,
                 )
             )
         )

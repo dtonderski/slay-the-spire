@@ -1,6 +1,7 @@
 use pyo3::create_exception;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyAnyMethods;
 use sts_core::potion::IRONCLAD_POTION_POOL;
 use sts_core::{
     apply_combat_action_with_events, apply_run_decision_action, fair_combat_observation,
@@ -11,6 +12,10 @@ use sts_core::{
     MapAction, MonsterId, PlayerChoice, PlayerChoiceError, PlayerChoiceRequest, Potion, Relic,
     RestAction, RunAction, RunDecisionAction, RunPhase, RunState, Snapshot, TargetRequirement,
     ALL_RELICS, SNAPSHOT_SCHEMA_VERSION,
+};
+use sts_search::{
+    puct_search, CombatProxyConfig, FairLeafEvaluation, FairLeafEvaluator, PuctConfig,
+    FAIR_LEAF_BATCH_SCHEMA, PRIVILEGED_PUCT_TEACHER_NAME, PRIVILEGED_PUCT_TEACHER_VERSION,
 };
 
 create_exception!(_native, NoActiveCombatError, PyValueError);
@@ -778,6 +783,23 @@ impl PyOmniRunEnv {
         )
     }
 
+    #[pyo3(signature = (evaluator, c_puct=1.5, transition_budget=64, reward_config_json=None))]
+    pub fn puct_search_json(
+        &self,
+        evaluator: Bound<'_, PyAny>,
+        c_puct: f64,
+        transition_budget: usize,
+        reward_config_json: Option<&str>,
+    ) -> PyResult<String> {
+        puct_search_json(
+            &self.state,
+            evaluator.unbind(),
+            c_puct,
+            transition_budget,
+            reward_config_json,
+        )
+    }
+
     fn __repr__(&self) -> PyResult<String> {
         Ok(format!(
             "RunEnv(phase={}, revision={}, snapshot_hash={})",
@@ -1397,6 +1419,138 @@ fn beam_clone_episode_json(
             truncation_trigger,
         },
     })
+}
+
+#[derive(serde::Serialize)]
+struct PuctSearchWire {
+    teacher_name: &'static str,
+    teacher_version: &'static str,
+    selected_index: usize,
+    visits: Vec<u64>,
+    priors: Vec<f64>,
+    value: f64,
+    transitions: usize,
+    completed_simulations: usize,
+    unique_evaluations: usize,
+    budget_exhausted: bool,
+    choices: Vec<PlayerChoice>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FairLeafBatchResponse {
+    #[serde(default)]
+    schema: Option<String>,
+    batch: Vec<FairLeafBatchItem>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FairLeafBatchItem {
+    priors: Vec<f64>,
+    value: f64,
+}
+
+struct CallbackLeafEvaluator {
+    callback: Py<PyAny>,
+}
+
+impl FairLeafEvaluator for CallbackLeafEvaluator {
+    fn evaluate(
+        &mut self,
+        observation: &FairCombatObservation,
+        choices: &[PlayerChoice],
+    ) -> Result<FairLeafEvaluation, String> {
+        Python::attach(|py| {
+            let request = serde_json::json!({
+                "schema": FAIR_LEAF_BATCH_SCHEMA,
+                "batch": [{
+                    "observation": observation,
+                    "choices": choices,
+                }],
+            });
+            let request_json =
+                serde_json::to_string(&request).map_err(|error| error.to_string())?;
+            let result = self
+                .callback
+                .bind(py)
+                .call1((request_json,))
+                .map_err(|error| error.to_string())?;
+            let response_json: String = result
+                .extract::<String>()
+                .map_err(|error: PyErr| error.to_string())?;
+            parse_fair_leaf_response(&response_json)
+        })
+    }
+}
+
+fn parse_fair_leaf_response(response_json: &str) -> Result<FairLeafEvaluation, String> {
+    let response: FairLeafBatchResponse =
+        serde_json::from_str(response_json).map_err(|error| error.to_string())?;
+    if let Some(schema) = response.schema.as_deref() {
+        if schema != FAIR_LEAF_BATCH_SCHEMA {
+            return Err(format!("unsupported fair leaf response schema {schema}"));
+        }
+    }
+    if response.batch.len() != 1 {
+        return Err("naive PUCT evaluator requires batch size 1".to_owned());
+    }
+    Ok(FairLeafEvaluation {
+        priors: response.batch[0].priors.clone(),
+        value: response.batch[0].value,
+    })
+}
+
+fn parse_reward_config(reward_config_json: Option<&str>) -> Result<CombatProxyConfig, String> {
+    match reward_config_json {
+        None | Some("") => {
+            let config = CombatProxyConfig::default();
+            config.validate().map_err(|error| error.to_string())?;
+            Ok(config)
+        }
+        Some(json) => {
+            let config: CombatProxyConfig =
+                serde_json::from_str(json).map_err(|error| error.to_string())?;
+            config.validate().map_err(|error| error.to_string())?;
+            Ok(config)
+        }
+    }
+}
+
+fn puct_search_json(
+    root: &RunState,
+    evaluator: Py<PyAny>,
+    c_puct: f64,
+    transition_budget: usize,
+    reward_config_json: Option<&str>,
+) -> PyResult<String> {
+    let reward = parse_reward_config(reward_config_json).map_err(PyValueError::new_err)?;
+    let config = PuctConfig {
+        c_puct,
+        transition_budget,
+        reward,
+    };
+    let mut evaluator = CallbackLeafEvaluator {
+        callback: evaluator,
+    };
+    let result = puct_search(root, &config, &mut evaluator).map_err(puct_error)?;
+    to_json(&PuctSearchWire {
+        teacher_name: PRIVILEGED_PUCT_TEACHER_NAME,
+        teacher_version: PRIVILEGED_PUCT_TEACHER_VERSION,
+        selected_index: result.selected_index,
+        visits: result.visits,
+        priors: result.priors,
+        value: result.value,
+        transitions: result.transitions,
+        completed_simulations: result.completed_simulations,
+        unique_evaluations: result.unique_evaluations,
+        budget_exhausted: result.budget_exhausted,
+        choices: result.choices,
+    })
+}
+
+fn puct_error(error: sts_search::PuctError) -> PyErr {
+    PyRuntimeError::new_err(error.to_string())
 }
 
 fn apply_public_run_action(
