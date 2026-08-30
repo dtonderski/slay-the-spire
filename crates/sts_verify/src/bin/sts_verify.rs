@@ -13,12 +13,12 @@ use std::{
 
 use sts_verify::{
     assess_verification, assess_verification_with_options, canonical_diff, corpus_path,
-    import_communication_mod_trace, import_slaythedata_jsonl_line, import_slaythedata_run_json,
-    load_corpus_file, minimize_communication_mod_trace, replay_communication_mod_trace_reader,
-    slaythedata_replay_plan, slaythedata_replay_preflight, verify_communication_mod_trace,
-    verify_communication_mod_trace_diagnostic_reader, verify_communication_mod_trace_reader,
-    AssessmentOptions, MinimizeError, SimRealError, SimRealReport, SlayTheDataDiagnosticSeverity,
-    VerificationOutcome, REPLAY_ARTIFACT_SCHEMA,
+    extract_real_trace_audit, import_communication_mod_trace, import_slaythedata_jsonl_line,
+    import_slaythedata_run_json, load_corpus_file, minimize_communication_mod_trace,
+    replay_communication_mod_trace_reader, slaythedata_replay_plan, slaythedata_replay_preflight,
+    verify_communication_mod_trace, verify_communication_mod_trace_diagnostic_reader,
+    verify_communication_mod_trace_reader, AssessmentOptions, MinimizeError, SimRealError,
+    SimRealReport, SlayTheDataDiagnosticSeverity, VerificationOutcome, REPLAY_ARTIFACT_SCHEMA,
 };
 
 fn verify_trace_path(
@@ -59,7 +59,7 @@ fn main() {
     let mut args = env::args().skip(1);
     let Some(command) = args.next() else {
         eprintln!(
-            "usage: sts_verify <trace|diff|parity|rng-trace|replay|minimize|status|corpus> ..."
+            "usage: sts_verify <trace|diff|parity|rng-trace|replay|real-trace-audit|minimize|status|corpus> ..."
         );
         exit(1);
     };
@@ -765,6 +765,52 @@ fn main() {
                 exit(exit_code);
             }
         }
+        "real-trace-audit" => {
+            let Some(subcommand) = args.next() else {
+                real_trace_audit_usage_and_exit();
+            };
+            if subcommand != "extract" {
+                eprintln!("unknown real-trace-audit command: {subcommand}");
+                real_trace_audit_usage_and_exit();
+            }
+            let mut traces_dir = None;
+            let mut challenge = None;
+            let mut output_dir = None;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--traces" => traces_dir = Some(required_flag_value(&mut args, "--traces")),
+                    "--challenge" => {
+                        challenge = Some(required_flag_value(&mut args, "--challenge"))
+                    }
+                    "--output" => output_dir = Some(required_flag_value(&mut args, "--output")),
+                    other => {
+                        eprintln!("unknown real-trace-audit extract flag: {other}");
+                        real_trace_audit_usage_and_exit();
+                    }
+                }
+            }
+            let (Some(traces_dir), Some(challenge), Some(output_dir)) =
+                (traces_dir, challenge, output_dir)
+            else {
+                real_trace_audit_usage_and_exit();
+            };
+            match extract_real_trace_audit(
+                Path::new(&traces_dir),
+                Path::new(&challenge),
+                Path::new(&output_dir),
+            ) {
+                Ok(summary) => {
+                    print!("{}", summary.stdout());
+                    if !summary.passed {
+                        exit(2);
+                    }
+                }
+                Err(error) => {
+                    eprintln!("{error}");
+                    exit(1);
+                }
+            }
+        }
         _ => {
             eprintln!("unknown command: {command}");
             exit(1);
@@ -983,6 +1029,20 @@ fn verification_outcome_exit_code(outcome: &VerificationOutcome) -> i32 {
         VerificationOutcome::InvalidInput { .. } => 1,
         VerificationOutcome::Failed { .. } => 2,
     }
+}
+
+fn real_trace_audit_usage_and_exit() -> ! {
+    eprintln!(
+        "usage: sts_verify real-trace-audit extract --traces DIR --challenge FILE --output DIR"
+    );
+    exit(1);
+}
+
+fn required_flag_value<I: Iterator<Item = String>>(args: &mut I, flag: &str) -> String {
+    args.next().unwrap_or_else(|| {
+        eprintln!("{flag} requires a value");
+        real_trace_audit_usage_and_exit();
+    })
 }
 
 fn rng_trace_usage_and_exit(reason: &str) -> ! {

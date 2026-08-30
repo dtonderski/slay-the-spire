@@ -11,6 +11,11 @@ fn record_replay_checkpoint(
     let Some(action) = action else {
         return;
     };
+    if capture.capture_roots {
+        if let Some(state) = state {
+            super::capture_actionable_root(capture, &action, state);
+        }
+    }
     let snapshot = state.map(|state| Snapshot {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
         state: state.clone(),

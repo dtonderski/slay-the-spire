@@ -1,5 +1,6 @@
 //! CommunicationMod trace replay against the simulator for supported fields.
 
+use crate::canonical_json::{canonical_json_bytes, sha256_hex};
 use crate::{
     canonical_value_diff, parse_trace_jsonl_line, TraceAction, TraceLine, TraceProfile, TraceState,
     VerificationIntegrity,
@@ -156,7 +157,30 @@ pub(crate) struct ReplayCapture {
     pub(crate) requested_step: Option<u32>,
     pub(crate) checkpoints: Vec<ReplayCheckpoint>,
     pub(crate) selected_checkpoint: Option<ReplayCheckpointState>,
+    pub(crate) capture_roots: bool,
+    pub(crate) roots: Vec<ReplayCombatRoot>,
+    pub(crate) previous_state_was_actionable: bool,
+    pub(crate) next_combat_ordinal: u32,
+    pub(crate) capture_error: Option<String>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplayCombatRoot {
+    pub combat_ordinal: u32,
+    pub action_step: u32,
+    pub snapshot: Snapshot<RunState>,
+}
+
+#[derive(Debug)]
+pub struct TraceRootCapture {
+    pub report: SimRealReport,
+    pub roots: Vec<ReplayCombatRoot>,
+    pub capture_error: Option<String>,
+}
+
+pub const ROOT_ENCODING: &str = "snapshot_canonical_json_v1";
+pub const ACTIONABLE_PREDICATE: &str =
+    "combat_waiting_for_player_with_nonempty_public_legal_actions";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StartRunCommand {
@@ -312,6 +336,141 @@ pub fn replay_communication_mod_trace_reader<R: BufRead>(
         final_snapshot,
         selected_checkpoint: capture.selected_checkpoint,
     })
+}
+
+/// Replays one CommunicationMod trace and captures the first actionable
+/// authoritative simulator state of every distinct combat.
+///
+/// Observed trace state remains comparison evidence only. Candidates are kept
+/// in memory here; callers must publish them only after a complete-pass
+/// assessment.
+pub fn extract_communication_mod_trace_reader<R: BufRead>(
+    reader: R,
+) -> Result<TraceRootCapture, SimRealError> {
+    let mut capture = ReplayCapture {
+        capture_roots: true,
+        ..ReplayCapture::default()
+    };
+    let report =
+        verify_seed_start_reader(reader, VerificationReadMode::Strict, Some(&mut capture))?;
+    Ok(TraceRootCapture {
+        report,
+        roots: capture.roots,
+        capture_error: capture.capture_error,
+    })
+}
+
+pub(crate) fn is_actionable_combat_state(run: &RunState) -> Result<bool, String> {
+    if run.phase != RunPhase::Combat {
+        return Ok(false);
+    }
+    let Some(combat) = run.combat.as_ref() else {
+        return Ok(false);
+    };
+    if combat.phase != CombatPhase::WaitingForPlayer {
+        return Ok(false);
+    }
+    let actions = legal_run_decision_actions(run).map_err(|error| error.to_string())?;
+    if actions.is_empty() {
+        return Ok(false);
+    }
+    Ok(!actions
+        .iter()
+        .all(|action| matches!(action, RunDecisionAction::Run(RunAction::Proceed))))
+}
+
+pub(crate) fn encode_root_snapshot(snapshot: &Snapshot<RunState>) -> Result<Vec<u8>, String> {
+    if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION {
+        return Err(format!(
+            "root snapshot schema {} is not {SNAPSHOT_SCHEMA_VERSION}",
+            snapshot.schema_version
+        ));
+    }
+    let value = serde_json::to_value(snapshot).map_err(|error| error.to_string())?;
+    Ok(canonical_json_bytes(&value))
+}
+
+pub(crate) fn validate_encoded_root_snapshot(
+    snapshot: &Snapshot<RunState>,
+) -> Result<Vec<u8>, String> {
+    snapshot
+        .state
+        .validate()
+        .map_err(|error| error.to_string())?;
+    if !is_actionable_combat_state(&snapshot.state)? {
+        return Err("root snapshot is not an actionable combat decision".to_owned());
+    }
+    let bytes = encode_root_snapshot(snapshot)?;
+    let json = std::str::from_utf8(&bytes).map_err(|error| error.to_string())?;
+    let restored = sts_core::restore_run_snapshot_json(json).map_err(|error| error.to_string())?;
+    if restored.schema_version != SNAPSHOT_SCHEMA_VERSION {
+        return Err(format!(
+            "restored root snapshot schema {} is not {SNAPSHOT_SCHEMA_VERSION}",
+            restored.schema_version
+        ));
+    }
+    restored
+        .state
+        .validate()
+        .map_err(|error| error.to_string())?;
+    if restored.state != snapshot.state {
+        return Err("restored root snapshot does not equal the captured state".to_owned());
+    }
+    if !is_actionable_combat_state(&restored.state)? {
+        return Err("restored root snapshot is not an actionable combat decision".to_owned());
+    }
+    let reemitted = encode_root_snapshot(&restored)?;
+    if reemitted != bytes {
+        return Err("root snapshot re-encode is not byte-identical".to_owned());
+    }
+    Ok(bytes)
+}
+
+pub(crate) fn capture_actionable_root(
+    capture: &mut ReplayCapture,
+    action: &TraceAction,
+    state: &RunState,
+) {
+    if !capture.capture_roots || capture.capture_error.is_some() {
+        return;
+    }
+    let actionable = match is_actionable_combat_state(state) {
+        Ok(actionable) => actionable,
+        Err(error) => {
+            capture.capture_error = Some(error);
+            return;
+        }
+    };
+    if !actionable {
+        capture.previous_state_was_actionable = false;
+        return;
+    }
+    if capture.previous_state_was_actionable {
+        return;
+    }
+    let snapshot = Snapshot {
+        schema_version: SNAPSHOT_SCHEMA_VERSION,
+        state: state.clone(),
+    };
+    if let Err(error) = validate_encoded_root_snapshot(&snapshot) {
+        capture.capture_error = Some(error);
+        return;
+    }
+    let Some(next_ordinal) = capture.next_combat_ordinal.checked_add(1) else {
+        capture.capture_error = Some("combat root ordinal overflow".to_owned());
+        return;
+    };
+    capture.next_combat_ordinal = next_ordinal;
+    capture.roots.push(ReplayCombatRoot {
+        combat_ordinal: capture.next_combat_ordinal,
+        action_step: action.step,
+        snapshot,
+    });
+    capture.previous_state_was_actionable = true;
+}
+
+pub(crate) fn root_id_for_bytes(bytes: &[u8]) -> String {
+    sha256_hex(bytes)
 }
 
 struct PendingStreamingAction {

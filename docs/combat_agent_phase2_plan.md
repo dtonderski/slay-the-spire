@@ -466,11 +466,10 @@ candidate that fails is rejected; the sealed split is not reused for tuning.
 Only a passing Stage 8 agent may be described as beating or replacing the beam
 incumbent.
 
-`real_trace_audit` is reachable only through explicit challenge provenance, and
-every root produced so far comes from simulator seeds, so the split is currently
-empty and its gate passes without evaluating anything. Stage 8 must report the
-audit split's root count alongside its verdict, and an empty audit split counts
-as an unmet gate rather than a pass.
+`real_trace_audit` is reachable only through explicit challenge provenance.
+Simulator-seed roots never satisfy that split. Stage 8 must report the audit
+root count alongside its verdict; an empty audit split is an unmet gate rather
+than a pass.
 
 ## Settled Phase-2 Policies
 

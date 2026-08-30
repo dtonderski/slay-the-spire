@@ -1431,3 +1431,87 @@ fn reward_choose_routes_a_bottle_overlay_to_the_active_grid() {
     assert!(settled.card_grid.is_none());
     assert!(settled.deck.iter().any(|card| card.bottled));
 }
+
+fn dummy_trace_action(step: u32, command: &str) -> TraceAction {
+    TraceAction {
+        step,
+        command: command.to_owned(),
+        sent_at: None,
+        command_meta: None,
+        playtime_seconds: None,
+    }
+}
+
+#[test]
+fn combat_root_capture_keeps_one_root_per_fight_and_skips_proceed_only_states() {
+    let mut capture = ReplayCapture {
+        capture_roots: true,
+        ..ReplayCapture::default()
+    };
+    let combat = RunState::combat_fixture();
+    capture_actionable_root(&mut capture, &dummy_trace_action(4, "PLAY 0"), &combat);
+    capture_actionable_root(&mut capture, &dummy_trace_action(5, "STATE"), &combat);
+    assert_eq!(capture.roots.len(), 1);
+    assert_eq!(capture.roots[0].combat_ordinal, 1);
+    assert_eq!(capture.roots[0].action_step, 4);
+    assert!(capture.capture_error.is_none());
+
+    let mut left = combat.clone();
+    left.phase = RunPhase::Reward;
+    capture_actionable_root(&mut capture, &dummy_trace_action(6, "PROCEED"), &left);
+    capture_actionable_root(&mut capture, &dummy_trace_action(12, "PLAY 1"), &combat);
+    assert_eq!(capture.roots.len(), 2);
+    assert_eq!(capture.roots[1].combat_ordinal, 2);
+    assert_eq!(capture.roots[1].action_step, 12);
+
+    let mut lost = RunState::combat_fixture();
+    lost.combat.as_mut().expect("combat").phase = CombatPhase::Lost;
+    let mut proceed_capture = ReplayCapture {
+        capture_roots: true,
+        ..ReplayCapture::default()
+    };
+    capture_actionable_root(
+        &mut proceed_capture,
+        &dummy_trace_action(20, "PROCEED"),
+        &lost,
+    );
+    assert!(proceed_capture.roots.is_empty());
+    assert!(proceed_capture.capture_error.is_none());
+}
+
+#[test]
+fn combat_root_encoding_round_trips_and_does_not_use_fnv_ids() {
+    let snapshot = Snapshot {
+        schema_version: SNAPSHOT_SCHEMA_VERSION,
+        state: RunState::combat_fixture(),
+    };
+    let bytes = validate_encoded_root_snapshot(&snapshot).expect("root encodes");
+    let root_id = root_id_for_bytes(&bytes);
+    assert_eq!(root_id.len(), 64);
+    assert_ne!(root_id, snapshot.hash().expect("fnv").to_string());
+    assert_eq!(encode_root_snapshot(&snapshot).expect("re-encode"), bytes);
+}
+
+#[test]
+fn extract_keeps_clean_start_without_combat_roots_and_rejects_malformed_tails() {
+    let content = trace(vec![
+        metadata(Some(7), true),
+        json!({
+            "type":"action","step":1,"command":"START IRONCLAD 0 1",
+            "command_meta":{
+                "command_id":"start-1",
+                "source_command_execution_seq":0,
+                "source_command_settlement_seq":0
+            }
+        }),
+        json!({"type":"state","step":1,"message":schema7_quiescent("start-1", 1, 1)}),
+    ]);
+    let capture = extract_communication_mod_trace_reader(content.as_bytes())
+        .expect("schema-7 START extracts");
+    assert!(capture.roots.is_empty());
+    assert!(capture.capture_error.is_none());
+
+    let mut malformed = content;
+    malformed.push_str("{not-json\n");
+    assert!(extract_communication_mod_trace_reader(malformed.as_bytes()).is_err());
+}

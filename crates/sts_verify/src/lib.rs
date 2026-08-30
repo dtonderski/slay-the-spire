@@ -1,9 +1,11 @@
 #![forbid(unsafe_code)]
 #![doc = "Trace formats, canonical diffs, and fixture loaders for simulator verification."]
 
+pub mod canonical_json;
 pub mod diff;
 pub mod minimize;
 pub mod outcome;
+pub mod real_trace_audit;
 pub mod sim_real;
 pub mod slaythedata;
 pub mod trace;
@@ -17,14 +19,16 @@ pub use outcome::{
     assess_verification, assess_verification_with_options, AssessmentOptions, VerificationFailure,
     VerificationIntegrity, VerificationOutcome,
 };
+pub use real_trace_audit::{extract_real_trace_audit, RealTraceAuditError, RealTraceAuditSummary};
 pub use sim_real::{
-    replay_communication_mod_trace, replay_communication_mod_trace_reader,
-    verify_communication_mod_trace, verify_communication_mod_trace_diagnostic_reader,
-    verify_communication_mod_trace_reader, verify_seed_start_communication_mod_trace,
-    ActionDisposition, ActionDispositionKind, ReplayCheckpoint, ReplayCheckpointState,
-    ReplayResult, SeedStartBoundary, SeedStartReport, SimRealError, SimRealReport, StartRunCommand,
+    extract_communication_mod_trace_reader, replay_communication_mod_trace,
+    replay_communication_mod_trace_reader, verify_communication_mod_trace,
+    verify_communication_mod_trace_diagnostic_reader, verify_communication_mod_trace_reader,
+    verify_seed_start_communication_mod_trace, ActionDisposition, ActionDispositionKind,
+    ReplayCheckpoint, ReplayCheckpointState, ReplayCombatRoot, ReplayResult, SeedStartBoundary,
+    SeedStartReport, SimRealError, SimRealReport, StartRunCommand, TraceRootCapture,
     UnexpectedDiff, UnsupportedTransition, VerificationReadMode, VerifiedTransition,
-    REPLAY_ARTIFACT_SCHEMA,
+    ACTIONABLE_PREDICATE, REPLAY_ARTIFACT_SCHEMA, ROOT_ENCODING,
 };
 pub use slaythedata::{
     import_slaythedata_jsonl_line, import_slaythedata_run_json, import_slaythedata_run_value,

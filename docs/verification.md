@@ -120,6 +120,32 @@ terminality, and disposition accounting continue through EOF. CommunicationMod
 post-state observations are comparison evidence only, including when a trace is
 replayed with `--at-step` or `--timeline`.
 
+Schema-7 `real_trace_audit` roots are extracted from immutable traces by one
+streaming seed-start replay per file. The extractor captures the first
+actionable authoritative simulator combat state of each distinct fight, never
+hydrates from observed game state, and publishes a root only after clean-through-EOF
+parity. Root IDs are SHA-256 digests of canonical compact sorted-key snapshot
+bytes, not the FNV snapshot hash used by replay checkpoints. An explicit
+canonical challenge declaration `real-trace-audit-v1` selects traces by relative
+path and raw-byte SHA-256; there is no directory glob. It must bind the
+CommunicationMod and SuperFastMode artifacts, rejects unknown fields, and
+requires every resolved trace path to remain inside the canonical trace root.
+The extractor also refuses to attest when its build-time Git/source identity
+no longer matches the checkout it reports. Empty audit membership is a failed
+gate.
+
+```bash
+cargo run -q -p sts_verify -- real-trace-audit extract \
+  --traces /path/to/schema7-traces \
+  --challenge /path/to/challenge.json \
+  --output /path/to/real-trace-audit
+```
+
+Exit `0` only when every declared source is accounted and `root_count > 0`.
+A valid empty or all-excluded cohort writes the manifest and exits `2`.
+Malformed challenges, source digest mismatches, nonempty output directories,
+and equal-ID/unequal-byte collisions exit `1` without pretending the gate passed.
+
 Generate corpus-wide status from the external directory:
 
 ```bash
