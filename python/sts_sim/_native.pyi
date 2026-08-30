@@ -118,8 +118,11 @@ class OmniRunEnv:
         self,
         evaluator: object,
         c_puct: float = ...,
+        simulation_budget: int = ...,
         transition_budget: int = ...,
         reward_config_json: str | None = ...,
+        episode_root_max_hp: int | None = ...,
+        episode_root_gold: int | None = ...,
     ) -> str: ...
 
 class FairCombatEnv:

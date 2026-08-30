@@ -783,20 +783,27 @@ impl PyOmniRunEnv {
         )
     }
 
-    #[pyo3(signature = (evaluator, c_puct=1.5, transition_budget=64, reward_config_json=None))]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (evaluator, c_puct=1.5, simulation_budget=64, transition_budget=64, reward_config_json=None, episode_root_max_hp=None, episode_root_gold=None))]
     pub fn puct_search_json(
         &self,
         evaluator: Bound<'_, PyAny>,
         c_puct: f64,
+        simulation_budget: usize,
         transition_budget: usize,
         reward_config_json: Option<&str>,
+        episode_root_max_hp: Option<i32>,
+        episode_root_gold: Option<i32>,
     ) -> PyResult<String> {
         puct_search_json(
             &self.state,
             evaluator.unbind(),
             c_puct,
+            simulation_budget,
             transition_budget,
             reward_config_json,
+            episode_root_max_hp,
+            episode_root_gold,
         )
     }
 
@@ -1439,8 +1446,7 @@ struct PuctSearchWire {
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FairLeafBatchResponse {
-    #[serde(default)]
-    schema: Option<String>,
+    schema: String,
     batch: Vec<FairLeafBatchItem>,
 }
 
@@ -1453,6 +1459,7 @@ struct FairLeafBatchItem {
 
 struct CallbackLeafEvaluator {
     callback: Py<PyAny>,
+    error: Option<PyErr>,
 }
 
 impl FairLeafEvaluator for CallbackLeafEvaluator {
@@ -1471,14 +1478,20 @@ impl FairLeafEvaluator for CallbackLeafEvaluator {
             });
             let request_json =
                 serde_json::to_string(&request).map_err(|error| error.to_string())?;
-            let result = self
-                .callback
-                .bind(py)
-                .call1((request_json,))
-                .map_err(|error| error.to_string())?;
-            let response_json: String = result
-                .extract::<String>()
-                .map_err(|error: PyErr| error.to_string())?;
+            let result = match self.callback.bind(py).call1((request_json,)) {
+                Ok(result) => result,
+                Err(error) => {
+                    self.error = Some(error);
+                    return Err("python evaluator failed".to_owned());
+                }
+            };
+            let response_json: String = match result.extract::<String>() {
+                Ok(response) => response,
+                Err(error) => {
+                    self.error = Some(error);
+                    return Err("python evaluator failed".to_owned());
+                }
+            };
             parse_fair_leaf_response(&response_json)
         })
     }
@@ -1487,10 +1500,11 @@ impl FairLeafEvaluator for CallbackLeafEvaluator {
 fn parse_fair_leaf_response(response_json: &str) -> Result<FairLeafEvaluation, String> {
     let response: FairLeafBatchResponse =
         serde_json::from_str(response_json).map_err(|error| error.to_string())?;
-    if let Some(schema) = response.schema.as_deref() {
-        if schema != FAIR_LEAF_BATCH_SCHEMA {
-            return Err(format!("unsupported fair leaf response schema {schema}"));
-        }
+    if response.schema != FAIR_LEAF_BATCH_SCHEMA {
+        return Err(format!(
+            "unsupported fair leaf response schema {}",
+            response.schema
+        ));
     }
     if response.batch.len() != 1 {
         return Err("naive PUCT evaluator requires batch size 1".to_owned());
@@ -1517,23 +1531,40 @@ fn parse_reward_config(reward_config_json: Option<&str>) -> Result<CombatProxyCo
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn puct_search_json(
     root: &RunState,
     evaluator: Py<PyAny>,
     c_puct: f64,
+    simulation_budget: usize,
     transition_budget: usize,
     reward_config_json: Option<&str>,
+    episode_root_max_hp: Option<i32>,
+    episode_root_gold: Option<i32>,
 ) -> PyResult<String> {
     let reward = parse_reward_config(reward_config_json).map_err(PyValueError::new_err)?;
+    let (_, state_max_hp) = run_player_hp(root);
     let config = PuctConfig {
         c_puct,
+        simulation_budget,
         transition_budget,
         reward,
+        episode_root_max_hp: episode_root_max_hp.unwrap_or(state_max_hp),
+        episode_root_gold: episode_root_gold.unwrap_or(root.gold),
     };
     let mut evaluator = CallbackLeafEvaluator {
         callback: evaluator,
+        error: None,
     };
-    let result = puct_search(root, &config, &mut evaluator).map_err(puct_error)?;
+    let result = match puct_search(root, &config, &mut evaluator) {
+        Ok(result) => result,
+        Err(error) => {
+            if let Some(callback_error) = evaluator.error.take() {
+                return Err(callback_error);
+            }
+            return Err(puct_error(error));
+        }
+    };
     to_json(&PuctSearchWire {
         teacher_name: PRIVILEGED_PUCT_TEACHER_NAME,
         teacher_version: PRIVILEGED_PUCT_TEACHER_VERSION,

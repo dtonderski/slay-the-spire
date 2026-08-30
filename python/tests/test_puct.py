@@ -8,7 +8,9 @@ import torch
 
 from sts_sim import FairCombatObservation, RunEnv
 from sts_sim.rl import (
+    COMBAT_PROXY_V1,
     CombatModelConfig,
+    CombatOutcome,
     FairCombatPolicyValueNet,
     Vocabularies,
     VocabularyBuilder,
@@ -16,7 +18,8 @@ from sts_sim.rl import (
     rollout_puct_policy,
     select_puct_action,
 )
-from sts_sim.rl.puct import FAIR_LEAF_BATCH_SCHEMA, network_leaf_evaluator
+from sts_sim.rl.puct import FAIR_LEAF_BATCH_SCHEMA, PUCT_TEACHER_VERSION, network_leaf_evaluator
+from sts_sim.run import Decision
 
 
 def _tiny_policy_net() -> tuple[RunEnv, FairCombatPolicyValueNet, Vocabularies]:
@@ -57,24 +60,151 @@ def _uniform_evaluator(request_json: str) -> str:
     )
 
 
+def _one_hot_evaluator(request_json: str) -> str:
+    request = json.loads(request_json)
+    choices = request["batch"][0]["choices"]
+    priors = [0.0] * len(choices)
+    priors[-1] = 1.0
+    return json.dumps(
+        {
+            "schema": FAIR_LEAF_BATCH_SCHEMA,
+            "batch": [{"priors": priors, "value": 0.5}],
+        }
+    )
+
+
+def _proxy_outcome(
+    status: str,
+    hp: int,
+    max_hp: int,
+    max_hp_change: int,
+    gold_change: int,
+    potions: int,
+) -> CombatOutcome:
+    return CombatOutcome(
+        status,
+        hp,
+        max_hp,
+        0,
+        max_hp_change,
+        gold_change,
+        tuple("potion" for _ in range(potions)),
+        (),
+        True,
+        False,
+    )
+
+
 def test_puct_payload_is_deterministic_and_budgeted() -> None:
     env = RunEnv.combat_fixture()
-    first = puct_search_payload(env, _uniform_evaluator, transition_budget=6)
-    second = puct_search_payload(env, _uniform_evaluator, transition_budget=6)
+    first = puct_search_payload(env, _uniform_evaluator, simulation_budget=6, transition_budget=6)
+    second = puct_search_payload(env, _uniform_evaluator, simulation_budget=6, transition_budget=6)
     assert first == second
     assert first["teacher_name"] == "privileged_puct"
+    assert first["teacher_version"] == PUCT_TEACHER_VERSION
     assert first["transitions"] == 6
     assert first["completed_simulations"] == 6
     assert first["budget_exhausted"] is True
     assert env.revision == RunEnv.combat_fixture().revision
 
 
+def test_zero_and_one_hot_priors_finish_within_simulation_budget() -> None:
+    env = RunEnv.combat_fixture()
+    zero = puct_search_payload(
+        env,
+        _uniform_evaluator,
+        c_puct=0.0,
+        simulation_budget=16,
+        transition_budget=100,
+    )
+    assert zero["completed_simulations"] == 16
+    assert cast(int, zero["transitions"]) <= 16
+    one_hot = puct_search_payload(
+        env,
+        _one_hot_evaluator,
+        simulation_budget=16,
+        transition_budget=100,
+    )
+    assert one_hot["completed_simulations"] == 16
+    assert cast(int, one_hot["transitions"]) <= 16
+    visits = cast(list[int], one_hot["visits"])
+    assert visits[-1] == max(visits)
+
+
+def test_positive_budgets_are_required() -> None:
+    env = RunEnv.combat_fixture()
+    with pytest.raises(ValueError, match="simulation budget must be positive"):
+        puct_search_payload(env, _uniform_evaluator, simulation_budget=0, transition_budget=1)
+    with pytest.raises(ValueError, match="transition budget must be positive"):
+        puct_search_payload(env, _uniform_evaluator, simulation_budget=1, transition_budget=0)
+
+
 def test_puct_selects_original_sidecar_action() -> None:
     env, model, vocabularies = _tiny_policy_net()
     decision = env.decision()
-    selected = select_puct_action(env, decision, model, vocabularies, transition_budget=4)
+    selected = select_puct_action(
+        env, decision, model, vocabularies, simulation_budget=4, transition_budget=4
+    )
     assert any(candidate is selected for candidate in decision.actions)
     assert env.revision == decision.revision
+
+
+def test_select_puct_action_requires_descriptor_alignment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env, model, vocabularies = _tiny_policy_net()
+    decision = env.decision()
+    import sts_sim.rl.puct as puct_module
+
+    original = puct_module.puct_search_payload
+
+    def misaligned(*args: object, **kwargs: object) -> dict[str, object]:
+        payload = original(*args, **kwargs)
+        choices = list(cast(list[object], payload["choices"]))
+        choices.reverse()
+        payload["choices"] = choices
+        payload["selected_index"] = 0
+        return payload
+
+    monkeypatch.setattr(puct_module, "puct_search_payload", misaligned)
+    with pytest.raises(ValueError, match="not aligned with the public Decision"):
+        select_puct_action(
+            env, decision, model, vocabularies, simulation_budget=2, transition_budget=2
+        )
+
+
+def test_rollout_carries_public_episode_root_baselines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env, model, vocabularies = _tiny_policy_net()
+    decision = env.decision()
+    observation = decision.observation
+    assert isinstance(observation, FairCombatObservation)
+    captured: list[tuple[int | None, int | None]] = []
+
+    def fake_select(*args: object, **kwargs: object) -> object:
+        current = cast(Decision, args[1])
+        captured.append(
+            (
+                cast(int | None, kwargs.get("episode_root_max_hp")),
+                cast(int | None, kwargs.get("episode_root_gold")),
+            )
+        )
+        return current.actions[0]
+
+    monkeypatch.setattr("sts_sim.rl.puct.select_puct_action", fake_select)
+    rollout_puct_policy(
+        RunEnv.combat_fixture(),
+        model,
+        vocabularies,
+        max_decisions=2,
+        max_player_turns=8,
+        simulation_budget=1,
+        transition_budget=1,
+    )
+    assert captured
+    assert all(item == captured[0] for item in captured)
+    assert captured[0] == (observation.player.max_hp, observation.context.gold)
 
 
 def test_puct_episode_respects_caps_and_keeps_errors_in_status(
@@ -87,6 +217,7 @@ def test_puct_episode_respects_caps_and_keeps_errors_in_status(
         vocabularies,
         max_decisions=1,
         max_player_turns=100,
+        simulation_budget=2,
         transition_budget=2,
     )
     assert truncated.status == "truncated"
@@ -97,8 +228,8 @@ def test_puct_episode_respects_caps_and_keeps_errors_in_status(
         raise ValueError("injected evaluator failure")
 
     failed_env = RunEnv.combat_fixture()
-    with pytest.raises(RuntimeError, match="injected evaluator failure"):
-        puct_search_payload(failed_env, boom, transition_budget=2)
+    with pytest.raises(ValueError, match="injected evaluator failure"):
+        puct_search_payload(failed_env, boom, simulation_budget=2, transition_budget=2)
 
     def fail_select(*_args: object, **_kwargs: object) -> None:
         raise ValueError("injected selector failure")
@@ -110,6 +241,7 @@ def test_puct_episode_respects_caps_and_keeps_errors_in_status(
         vocabularies,
         max_decisions=8,
         max_player_turns=8,
+        simulation_budget=1,
         transition_budget=1,
     )
     assert failed.status == "error"
@@ -119,20 +251,25 @@ def test_puct_episode_respects_caps_and_keeps_errors_in_status(
 def test_malformed_evaluator_is_rejected() -> None:
     env = RunEnv.combat_fixture()
 
-    def wrong_length(request_json: str) -> str:
+    def missing_schema(request_json: str) -> str:
         del request_json
         return json.dumps({"batch": [{"priors": [1.0], "value": 0.0}]})
 
     with pytest.raises(RuntimeError):
-        puct_search_payload(env, wrong_length, transition_budget=1)
+        puct_search_payload(env, missing_schema, simulation_budget=1, transition_budget=1)
 
     def bad_value(request_json: str) -> str:
         request = json.loads(request_json)
         count = len(request["batch"][0]["choices"])
-        return json.dumps({"batch": [{"priors": [1.0] * count, "value": 2.0}]})
+        return json.dumps(
+            {
+                "schema": FAIR_LEAF_BATCH_SCHEMA,
+                "batch": [{"priors": [1.0] * count, "value": 2.0}],
+            }
+        )
 
     with pytest.raises(RuntimeError):
-        puct_search_payload(env, bad_value, transition_budget=1)
+        puct_search_payload(env, bad_value, simulation_budget=1, transition_budget=1)
 
 
 def test_network_leaf_evaluator_runs_through_native_puct() -> None:
@@ -141,9 +278,26 @@ def test_network_leaf_evaluator_runs_through_native_puct() -> None:
     payload = puct_search_payload(
         env,
         network_leaf_evaluator(model, vocabularies),
+        simulation_budget=2,
         transition_budget=2,
     )
     assert type(payload["selected_index"]) is int
     assert 0 <= cast(int, payload["selected_index"]) < len(decision.actions)
     assert len(cast(list[object], payload["visits"])) == len(decision.actions)
     assert payload["unique_evaluations"] >= 1
+
+
+def test_rust_proxy_matches_python_combat_proxy_v1() -> None:
+    lost = COMBAT_PROXY_V1.value(_proxy_outcome("lost", 0, 80, 0, 0, 0))
+    escaped = COMBAT_PROXY_V1.value(_proxy_outcome("escaped", 40, 80, 0, 0, 0))
+    won = COMBAT_PROXY_V1.value(_proxy_outcome("won", 80, 80, 0, 0, 0))
+    won_resources = COMBAT_PROXY_V1.value(_proxy_outcome("won", 40, 80, 10, 100, 2))
+    current_root = COMBAT_PROXY_V1.value(_proxy_outcome("won", 40, 80, 0, 0, 0))
+    episode_root = COMBAT_PROXY_V1.value(_proxy_outcome("won", 40, 80, 10, 49, 0))
+    assert lost == -1.0
+    assert escaped == pytest.approx(0.35)
+    assert won == pytest.approx(0.95)
+    assert won_resources == pytest.approx(0.89)
+    assert current_root == pytest.approx(0.85)
+    assert episode_root is not None and current_root is not None
+    assert episode_root > current_root

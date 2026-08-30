@@ -18,7 +18,7 @@ from .tensor import Vocabularies, collate_combat_tensors, tensorize_combat
 
 FAIR_LEAF_BATCH_SCHEMA = "fair_leaf_batch_v1"
 PUCT_TEACHER_NAME = "privileged_puct"
-PUCT_TEACHER_VERSION = "synchronous_batch1_v1"
+PUCT_TEACHER_VERSION = "synchronous_batch1_v2"
 
 _FORBIDDEN_LEAF_FIELDS = (
     "card_id",
@@ -37,21 +37,22 @@ def _mapping(value: object) -> dict[str, object]:
     return cast(dict[str, object], value)
 
 
-def _descriptor_from_choice(choice: Mapping[str, object]) -> ActionDescriptor:
-    def optional_int(name: str) -> int | None:
-        value = choice.get(name)
-        return None if value is None else cast(int, value)
+def _optional_int(choice: Mapping[str, object], name: str) -> int | None:
+    value = choice.get(name)
+    return None if value is None else cast(int, value)
 
+
+def _descriptor_from_choice(choice: Mapping[str, object]) -> ActionDescriptor:
     kind = choice.get("kind")
     if type(kind) is not str:
         raise TypeError("public choice kind must be a string")
     return ActionDescriptor(
         family="combat",
         kind=kind,
-        hand_slot=optional_int("hand_slot"),
-        potion_slot=optional_int("potion_slot"),
-        option_slot=optional_int("option_slot"),
-        target_slot=optional_int("target_slot"),
+        hand_slot=_optional_int(choice, "hand_slot"),
+        potion_slot=_optional_int(choice, "potion_slot"),
+        option_slot=_optional_int(choice, "option_slot"),
+        target_slot=_optional_int(choice, "target_slot"),
     )
 
 
@@ -60,6 +61,35 @@ def _reject_hidden_fields(payload: object) -> None:
     for field in _FORBIDDEN_LEAF_FIELDS:
         if field in encoded:
             raise ValueError(f"hidden field {field} reached the PUCT evaluator")
+
+
+def _positive_budget(value: int, label: str) -> int:
+    if type(value) is not int or value < 1:
+        raise ValueError(f"{label} must be positive")
+    return value
+
+
+def _episode_root_baselines(
+    observation: FairCombatObservation,
+    episode_root_max_hp: int | None,
+    episode_root_gold: int | None,
+) -> tuple[int, int]:
+    max_hp = observation.player.max_hp if episode_root_max_hp is None else episode_root_max_hp
+    gold = observation.context.gold if episode_root_gold is None else episode_root_gold
+    if type(max_hp) is not int or max_hp <= 0:
+        raise ValueError("episode root max HP must be positive")
+    if type(gold) is not int or gold < 0:
+        raise ValueError("episode root gold must be nonnegative")
+    return max_hp, gold
+
+
+def _require_aligned_public_rows(decision: Decision, payload: Mapping[str, object]) -> None:
+    raw_choices = payload.get("choices")
+    if not isinstance(raw_choices, list) or len(raw_choices) != len(decision.actions):
+        raise ValueError("PUCT choice rows are not aligned with the public Decision")
+    for action, raw_choice in zip(decision.actions, raw_choices, strict=True):
+        if action.descriptor() != _descriptor_from_choice(_mapping(raw_choice)):
+            raise ValueError("PUCT choice rows are not aligned with the public Decision")
 
 
 def network_leaf_evaluator(
@@ -129,17 +159,23 @@ def puct_search_payload(
     evaluator: Callable[[str], str],
     *,
     c_puct: float = 1.5,
+    simulation_budget: int = 64,
     transition_budget: int = 64,
     reward_config: CombatRewardConfig | None = None,
+    episode_root_max_hp: int | None = None,
+    episode_root_gold: int | None = None,
 ) -> dict[str, object]:
-    if transition_budget < 0:
-        raise ValueError("transition budget must be nonnegative")
+    _positive_budget(simulation_budget, "simulation budget")
+    _positive_budget(transition_budget, "transition budget")
     config = COMBAT_PROXY_V1 if reward_config is None else reward_config
     payload = env.puct_search_payload(
         evaluator,
         c_puct=c_puct,
+        simulation_budget=simulation_budget,
         transition_budget=transition_budget,
         reward_config_json=json.dumps(config.to_dict(), sort_keys=True, separators=(",", ":")),
+        episode_root_max_hp=episode_root_max_hp,
+        episode_root_gold=episode_root_gold,
     )
     if payload.get("teacher_name") != PUCT_TEACHER_NAME:
         raise ValueError("PUCT payload teacher_name mismatch")
@@ -155,8 +191,11 @@ def select_puct_action(
     vocabularies: Vocabularies,
     *,
     c_puct: float = 1.5,
+    simulation_budget: int = 64,
     transition_budget: int = 64,
     reward_config: CombatRewardConfig | None = None,
+    episode_root_max_hp: int | None = None,
+    episode_root_gold: int | None = None,
 ) -> Action:
     """Choose by PUCT visits and return the original public Action sidecar."""
 
@@ -167,13 +206,18 @@ def select_puct_action(
         raise TypeError("PUCT selector requires a fair combat observation")
     if not decision.actions:
         raise ValueError("PUCT selector requires at least one public action")
+    max_hp, gold = _episode_root_baselines(observation, episode_root_max_hp, episode_root_gold)
     payload = puct_search_payload(
         env,
         network_leaf_evaluator(model, vocabularies),
         c_puct=c_puct,
+        simulation_budget=simulation_budget,
         transition_budget=transition_budget,
         reward_config=reward_config,
+        episode_root_max_hp=max_hp,
+        episode_root_gold=gold,
     )
+    _require_aligned_public_rows(decision, payload)
     index = payload.get("selected_index")
     if type(index) is not int or not 0 <= index < len(decision.actions):
         raise ValueError("PUCT selected an out-of-range public row")
@@ -191,19 +235,32 @@ def rollout_puct_policy(
     max_decisions: int,
     max_player_turns: int,
     c_puct: float = 1.5,
+    simulation_budget: int = 64,
     transition_budget: int = 64,
     reward_config: CombatRewardConfig | None = None,
 ) -> PolicyEpisode:
+    episode_root: tuple[int, int] | None = None
+
     def choose(decision: Decision, accepted_decision_index: int) -> Action:
         del accepted_decision_index
+        observation = decision.observation
+        if not isinstance(observation, FairCombatObservation):
+            raise TypeError("PUCT selector requires a fair combat observation")
+        nonlocal episode_root
+        if episode_root is None:
+            episode_root = _episode_root_baselines(observation, None, None)
+        max_hp, gold = episode_root
         return select_puct_action(
             env,
             decision,
             model,
             vocabularies,
             c_puct=c_puct,
+            simulation_budget=simulation_budget,
             transition_budget=transition_budget,
             reward_config=reward_config,
+            episode_root_max_hp=max_hp,
+            episode_root_gold=gold,
         )
 
     return _capped_public_episode(

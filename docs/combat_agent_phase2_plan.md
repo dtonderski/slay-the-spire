@@ -217,9 +217,12 @@ under the approved no-shim policy; no duplicate compatibility adapter remains.
 PUCT lives in `sts_search`, over authoritative `RunState` transitions, generic
 over a fair leaf-evaluator trait. PyO3 and any future Rust encoder adapter live
 in `py_sts`, not `sts_search` or `sts_core`. The current vertical slice is
-synchronous batch-size-1 PUCT: it reports visits, value, transitions,
-simulations, and evaluations, but does not yet implement virtual loss, batched
-leaf evaluation, or the Stage 6 performance gate.
+synchronous batch-size-1 PUCT: it reports visits, root-mean value, transitions,
+simulations, and evaluations, stops at the first exhausted positive simulation
+or transition budget, and carries public episode-root HP/gold baselines across
+replanning. It does not yet implement virtual loss, batched leaf evaluation, or
+the Stage 6 performance gate. Duplicate resolved authoritative actions and
+missing leaf-response schemas fail closed.
 
 ```text
 Rust PUCT

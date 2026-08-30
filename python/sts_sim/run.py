@@ -342,13 +342,17 @@ class RunEnv:
         evaluator: Callable[[str], str],
         *,
         c_puct: float = 1.5,
+        simulation_budget: int = 64,
         transition_budget: int = 64,
         reward_config_json: str | None = None,
+        episode_root_max_hp: int | None = None,
+        episode_root_gold: int | None = None,
     ) -> dict[str, object]:
         """Run naive privileged PUCT from the current combat state.
 
         The evaluator callback receives only a detached fair observation plus
         public choices as batch-shaped JSON and must return JSON priors/value.
+        Search stops when either the simulation or transition budget is exhausted.
         The live environment is not mutated.
         """
 
@@ -357,8 +361,11 @@ class RunEnv:
                 self._native.puct_search_json(
                     evaluator,
                     c_puct,
+                    simulation_budget,
                     transition_budget,
                     reward_config_json,
+                    episode_root_max_hp,
+                    episode_root_gold,
                 )
             )
         )

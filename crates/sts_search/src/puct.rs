@@ -1,7 +1,9 @@
 //! Naive deterministic privileged PUCT over public combat choices.
 //!
 //! Search clones authoritative `RunState` values. The leaf evaluator receives
-//! only a detached fair observation and the public choice list.
+//! only a detached fair observation and the public choice list. Both the
+//! simulation and transition budgets must be positive; search stops at the
+//! first exhausted budget without overshoot so terminal reuse cannot hang.
 
 use serde::{Deserialize, Serialize};
 use sts_core::{
@@ -12,7 +14,7 @@ use sts_core::{
 
 pub const FAIR_LEAF_BATCH_SCHEMA: &str = "fair_leaf_batch_v1";
 pub const PRIVILEGED_PUCT_TEACHER_NAME: &str = "privileged_puct";
-pub const PRIVILEGED_PUCT_TEACHER_VERSION: &str = "synchronous_batch1_v1";
+pub const PRIVILEGED_PUCT_TEACHER_VERSION: &str = "synchronous_batch1_v2";
 
 const SEARCH_REVISION: DecisionRevision = DecisionRevision::new(0);
 
@@ -127,8 +129,11 @@ impl CombatProxyConfig {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PuctConfig {
     pub c_puct: f64,
+    pub simulation_budget: usize,
     pub transition_budget: usize,
     pub reward: CombatProxyConfig,
+    pub episode_root_max_hp: i32,
+    pub episode_root_gold: i32,
 }
 
 impl PuctConfig {
@@ -136,6 +141,26 @@ impl PuctConfig {
         if !self.c_puct.is_finite() || self.c_puct < 0.0 {
             return Err(PuctError::InvalidConfig(
                 "c_puct must be finite and nonnegative".to_owned(),
+            ));
+        }
+        if self.simulation_budget == 0 {
+            return Err(PuctError::InvalidConfig(
+                "simulation_budget must be positive".to_owned(),
+            ));
+        }
+        if self.transition_budget == 0 {
+            return Err(PuctError::InvalidConfig(
+                "transition_budget must be positive".to_owned(),
+            ));
+        }
+        if self.episode_root_max_hp <= 0 {
+            return Err(PuctError::InvalidConfig(
+                "episode root max HP must be positive".to_owned(),
+            ));
+        }
+        if self.episode_root_gold < 0 {
+            return Err(PuctError::InvalidConfig(
+                "episode root gold must be nonnegative".to_owned(),
             ));
         }
         self.reward.validate()
@@ -251,7 +276,6 @@ pub fn puct_search<E: FairLeafEvaluator>(
         .expect("ongoing root stores its evaluator value in terminal_value until children exist");
     let mut root_node = root_eval;
     root_node.terminal_value = None;
-    let mut unexpanded = root_node.edges.len();
     nodes.push(root_node);
 
     let mut transitions = 0usize;
@@ -259,10 +283,11 @@ pub fn puct_search<E: FairLeafEvaluator>(
     let mut budget_exhausted = false;
 
     loop {
-        if unexpanded == 0 {
-            break;
-        }
-        if transitions >= config.transition_budget {
+        // Stop on either budget before starting another simulation. Revisiting an
+        // expanded terminal increments simulations without consuming a transition.
+        if completed_simulations >= config.simulation_budget
+            || transitions >= config.transition_budget
+        {
             budget_exhausted = true;
             break;
         }
@@ -278,11 +303,9 @@ pub fn puct_search<E: FairLeafEvaluator>(
                 return Err(PuctError::EmptyChoices);
             }
             let edge_idx = select_puct_index(&nodes[node_idx], config.c_puct)?;
-            if nodes[node_idx].edges[edge_idx].child.is_some() {
+            if let Some(child_idx) = nodes[node_idx].edges[edge_idx].child {
                 path.push((node_idx, edge_idx));
-                node_idx = nodes[node_idx].edges[edge_idx]
-                    .child
-                    .expect("expanded child");
+                node_idx = child_idx;
                 continue;
             }
             if transitions >= config.transition_budget {
@@ -294,11 +317,10 @@ pub fn puct_search<E: FairLeafEvaluator>(
             let child_state = apply_run_decision_action(&parent_state, action)
                 .map_err(|error| PuctError::Transition(error.to_string()))?;
             transitions += 1;
-            unexpanded = unexpanded.saturating_sub(1);
             path.push((node_idx, edge_idx));
             let child_idx = nodes.len();
             if let Some(status) = transition_status(&parent_state, &action, &child_state) {
-                let value = proxy_value(root, &child_state, status, &config.reward)?;
+                let value = proxy_value(&child_state, status, config)?;
                 nodes.push(Node {
                     state: child_state,
                     edges: Vec::new(),
@@ -314,7 +336,6 @@ pub fn puct_search<E: FairLeafEvaluator>(
             let value = child
                 .terminal_value
                 .expect("ongoing expand stores evaluator value");
-            unexpanded += child.edges.len();
             child.terminal_value = None;
             nodes.push(child);
             nodes[node_idx].edges[edge_idx].child = Some(child_idx);
@@ -335,23 +356,14 @@ pub fn puct_search<E: FairLeafEvaluator>(
         .collect::<Vec<_>>();
     let selected_index = argmax_visits(&visits);
     let selected_edge = &root_node.edges[selected_index];
-    let selected_q = if selected_edge.visit_count == 0 {
-        root_value
-    } else {
-        selected_edge.value_sum / selected_edge.visit_count as f64
-    };
-    if !selected_q.is_finite() {
-        return Err(PuctError::MalformedEvaluation(
-            "backed-up PUCT value is not finite".to_owned(),
-        ));
-    }
+    let value = root_backed_up_mean(root_node, root_value)?;
     Ok(PuctSearchResult {
         selected_index,
         selected_choice: selected_edge.choice,
         selected_action: selected_edge.action,
         visits,
         priors: root_priors,
-        value: selected_q,
+        value,
         transitions,
         completed_simulations,
         unique_evaluations,
@@ -413,12 +425,13 @@ fn public_choice_actions(
             },
         )
         .map_err(|error| PuctError::ChoiceProjection(error.to_string()))?;
+        if actions.contains(&action) {
+            return Err(PuctError::ChoiceProjection(
+                "public choice resolution maps multiple rows to one authoritative action"
+                    .to_owned(),
+            ));
+        }
         actions.push(action);
-    }
-    if actions.len() != set.choices.len() {
-        return Err(PuctError::ChoiceProjection(
-            "public choice resolution is not bijective".to_owned(),
-        ));
     }
     Ok((set.choices, actions))
 }
@@ -463,7 +476,7 @@ fn validate_evaluation(
 }
 
 fn select_puct_index(node: &Node, c_puct: f64) -> Result<usize, PuctError> {
-    let parent_visits = node.visit_count as f64;
+    let parent_visit_term = (node.visit_count as f64 + 1.0).sqrt();
     let mut best_index = 0usize;
     let mut best_score = f64::NEG_INFINITY;
     for (index, edge) in node.edges.iter().enumerate() {
@@ -477,8 +490,7 @@ fn select_puct_index(node: &Node, c_puct: f64) -> Result<usize, PuctError> {
                 "edge Q is not finite".to_owned(),
             ));
         }
-        let score =
-            q + c_puct * edge.prior * parent_visits.sqrt() / (1.0 + edge.visit_count as f64);
+        let score = q + c_puct * edge.prior * parent_visit_term / (1.0 + edge.visit_count as f64);
         if !score.is_finite() {
             return Err(PuctError::MalformedEvaluation(
                 "PUCT score is not finite".to_owned(),
@@ -502,6 +514,21 @@ fn argmax_visits(visits: &[u64]) -> usize {
         }
     }
     best_index
+}
+
+fn root_backed_up_mean(root: &Node, root_value: f64) -> Result<f64, PuctError> {
+    let value = if root.visit_count == 0 {
+        root_value
+    } else {
+        let value_sum: f64 = root.edges.iter().map(|edge| edge.value_sum).sum();
+        value_sum / root.visit_count as f64
+    };
+    if !value.is_finite() {
+        return Err(PuctError::MalformedEvaluation(
+            "backed-up PUCT value is not finite".to_owned(),
+        ));
+    }
+    Ok(value)
 }
 
 fn backup(nodes: &mut [Node], path: &[(usize, usize)], value: f64) {
@@ -566,20 +593,14 @@ fn remaining_potions(state: &RunState) -> usize {
         .count()
 }
 
-fn proxy_value(
-    root: &RunState,
-    state: &RunState,
-    status: &str,
-    config: &CombatProxyConfig,
-) -> Result<f64, PuctError> {
+fn proxy_value(state: &RunState, status: &str, config: &PuctConfig) -> Result<f64, PuctError> {
     let (terminal_hp, terminal_max_hp) = player_hp_and_max(state);
-    let (_, root_max_hp) = player_hp_and_max(root);
-    config.value(
+    config.reward.value(
         status,
         terminal_hp,
         terminal_max_hp,
-        terminal_max_hp - root_max_hp,
-        state.gold - root.gold,
+        terminal_max_hp - config.episode_root_max_hp,
+        state.gold - config.episode_root_gold,
         remaining_potions(state),
     )
 }
@@ -617,6 +638,28 @@ mod tests {
             }
             Ok(FairLeafEvaluation {
                 priors: vec![1.0; choices.len()],
+                value: self.value,
+            })
+        }
+    }
+
+    struct OneHotEvaluator {
+        value: f64,
+    }
+
+    impl FairLeafEvaluator for OneHotEvaluator {
+        fn evaluate(
+            &mut self,
+            _observation: &FairCombatObservation,
+            choices: &[PlayerChoice],
+        ) -> Result<FairLeafEvaluation, String> {
+            if choices.is_empty() {
+                return Err("one-hot evaluator received no choices".to_owned());
+            }
+            let mut priors = vec![0.0; choices.len()];
+            priors[choices.len() - 1] = 1.0;
+            Ok(FairLeafEvaluation {
+                priors,
                 value: self.value,
             })
         }
@@ -666,18 +709,31 @@ mod tests {
         }
     }
 
-    fn config(budget: usize) -> PuctConfig {
+    fn config(root: &RunState, budget: usize) -> PuctConfig {
+        config_with(root, 1.5, budget, budget)
+    }
+
+    fn config_with(
+        root: &RunState,
+        c_puct: f64,
+        simulation_budget: usize,
+        transition_budget: usize,
+    ) -> PuctConfig {
+        let (_, max_hp) = player_hp_and_max(root);
         PuctConfig {
-            c_puct: 1.5,
-            transition_budget: budget,
+            c_puct,
+            simulation_budget,
+            transition_budget,
             reward: CombatProxyConfig::default(),
+            episode_root_max_hp: max_hp,
+            episode_root_gold: root.gold,
         }
     }
 
     #[test]
     fn search_is_deterministic_and_reports_accounting() {
         let root = RunState::combat_fixture();
-        let search_config = config(8);
+        let search_config = config(&root, 8);
         let mut first_eval = UniformEvaluator {
             value: 0.1,
             calls: 0,
@@ -698,32 +754,89 @@ mod tests {
         assert_eq!(first.visits.iter().sum::<u64>(), 8);
         assert_eq!(first.choices.len(), first.visits.len());
         assert_eq!(first.selected_choice, first.choices[first.selected_index]);
+        assert!((first.value - 0.1).abs() < 1e-12);
     }
 
     #[test]
-    fn transition_budget_does_not_overshoot() {
+    fn dual_budgets_are_positive_and_do_not_overshoot() {
         let root = RunState::combat_fixture();
-        for budget in [0usize, 1, 3, 7] {
+        for (sim, trans) in [(0usize, 1usize), (1, 0)] {
             let mut evaluator = UniformEvaluator {
                 value: 0.0,
                 calls: 0,
             };
-            let result =
-                puct_search(&root, &config(budget), &mut evaluator).expect("budgeted search");
+            let error = puct_search(&root, &config_with(&root, 1.5, sim, trans), &mut evaluator)
+                .expect_err("zero budget");
+            assert!(matches!(error, PuctError::InvalidConfig(_)), "{error}");
+        }
+        for budget in [1usize, 3, 7] {
+            let mut evaluator = UniformEvaluator {
+                value: 0.0,
+                calls: 0,
+            };
+            let result = puct_search(&root, &config(&root, budget), &mut evaluator)
+                .expect("budgeted search");
             assert!(result.transitions <= budget, "budget {budget}");
+            assert!(result.completed_simulations <= budget, "budget {budget}");
             assert!(result.unique_evaluations <= budget.saturating_add(1));
-            if budget == 0 {
-                assert_eq!(result.transitions, 0);
-                assert_eq!(result.completed_simulations, 0);
-                assert_eq!(result.unique_evaluations, 1);
-                assert!(result.visits.iter().all(|visits| *visits == 0));
-                assert_eq!(result.selected_index, 0);
-            }
         }
     }
 
     #[test]
-    fn priors_influence_root_selection() {
+    fn zero_puct_constant_cannot_spin_past_simulation_budget() {
+        let root = RunState::combat_fixture();
+        let mut evaluator = UniformEvaluator {
+            value: 0.0,
+            calls: 0,
+        };
+        let result = puct_search(&root, &config_with(&root, 0.0, 16, 100), &mut evaluator)
+            .expect("zero c_puct search");
+        assert_eq!(result.completed_simulations, 16);
+        assert!(result.transitions <= 16);
+        assert!(result.budget_exhausted);
+    }
+
+    #[test]
+    fn sparse_one_hot_priors_cannot_hang() {
+        let root = RunState::combat_fixture();
+        let mut evaluator = OneHotEvaluator { value: 0.5 };
+        let result = puct_search(&root, &config_with(&root, 1.5, 16, 100), &mut evaluator)
+            .expect("one-hot search");
+        assert_eq!(result.completed_simulations, 16);
+        assert!(result.transitions <= 16);
+        assert!(result.budget_exhausted);
+        let last = result.visits.len() - 1;
+        assert_eq!(
+            result.visits[last],
+            *result.visits.iter().max().expect("visits")
+        );
+    }
+
+    #[test]
+    fn search_stops_at_the_earlier_budget_without_overshoot() {
+        let root = RunState::combat_fixture();
+        let mut trans_eval = UniformEvaluator {
+            value: 0.0,
+            calls: 0,
+        };
+        let trans_limited =
+            puct_search(&root, &config_with(&root, 1.5, 8, 3), &mut trans_eval).expect("trans cap");
+        assert_eq!(trans_limited.transitions, 3);
+        assert_eq!(trans_limited.completed_simulations, 3);
+        assert!(trans_limited.budget_exhausted);
+        let mut sim_eval = UniformEvaluator {
+            value: 0.0,
+            calls: 0,
+        };
+        let sim_limited =
+            puct_search(&root, &config_with(&root, 1.5, 3, 8), &mut sim_eval).expect("sim cap");
+        assert_eq!(sim_limited.completed_simulations, 3);
+        assert!(sim_limited.transitions <= 3);
+        assert!(sim_limited.budget_exhausted);
+    }
+
+    #[test]
+    fn priors_guide_the_first_descent() {
         let root = RunState::combat_fixture();
         let target = player_choices(&root, SEARCH_REVISION)
             .expect("choices")
@@ -732,7 +845,12 @@ mod tests {
             .position(|choice| *choice == PlayerChoice::EndTurn)
             .expect("fixture has EndTurn");
         let mut evaluator = BiasedEvaluator { value: 0.0 };
-        let result = puct_search(&root, &config(24), &mut evaluator).expect("biased search");
+        let first = puct_search(&root, &config(&root, 1), &mut evaluator).expect("first descent");
+        assert_eq!(first.selected_index, target);
+        assert_eq!(first.visits[target], 1);
+        assert_eq!(first.visits.iter().sum::<u64>(), 1);
+        let mut evaluator = BiasedEvaluator { value: 0.0 };
+        let result = puct_search(&root, &config(&root, 24), &mut evaluator).expect("biased search");
         assert_eq!(result.selected_index, target);
         assert_eq!(result.selected_choice, PlayerChoice::EndTurn);
         assert_eq!(
@@ -749,7 +867,7 @@ mod tests {
             value: 0.25,
             calls: 0,
         };
-        let result = puct_search(&root, &config(1), &mut evaluator).expect("one expansion");
+        let result = puct_search(&root, &config(&root, 1), &mut evaluator).expect("one expansion");
         assert_eq!(result.transitions, 1);
         assert_eq!(result.completed_simulations, 1);
         assert!((result.value - 0.25).abs() < 1e-12);
@@ -782,7 +900,8 @@ mod tests {
             },
         ];
         for mut evaluator in cases {
-            let error = puct_search(&root, &config(1), &mut evaluator).expect_err("malformed");
+            let error =
+                puct_search(&root, &config(&root, 1), &mut evaluator).expect_err("malformed");
             assert!(
                 matches!(error, PuctError::MalformedEvaluation(_)),
                 "{error}"
@@ -801,21 +920,32 @@ mod tests {
             value: 0.0,
             calls: 0,
         };
-        puct_search(&root, &config(2), &mut evaluator).expect("search");
+        puct_search(&root, &config(&root, 2), &mut evaluator).expect("search");
         assert!(evaluator.calls >= 1);
     }
 
     #[test]
-    fn combat_proxy_matches_disjoint_status_bands() {
+    fn combat_proxy_matches_python_combat_proxy_v1() {
         let config = CombatProxyConfig::default();
         config.validate().expect("default config");
         let lost = config.value("lost", 0, 80, 0, 0, 0).expect("lost");
         let escaped = config.value("escaped", 40, 80, 0, 0, 0).expect("escaped");
         let won = config.value("won", 80, 80, 0, 0, 0).expect("won");
+        let won_resources = config
+            .value("won", 40, 80, 10, 100, 2)
+            .expect("won resources");
         assert_eq!(lost, -1.0);
+        assert!((escaped - 0.35).abs() < 1e-12);
+        assert!((won - 0.95).abs() < 1e-12);
+        assert!((won_resources - 0.89).abs() < 1e-12);
         assert!(escaped > lost);
         assert!(won > escaped);
-        assert!(won <= 1.0);
+        let current_root = config.value("won", 40, 80, 0, 0, 0).expect("current root");
+        let episode_root = config
+            .value("won", 40, 80, 80 - 70, 99 - 50, 0)
+            .expect("episode baseline delta");
+        assert!((current_root - 0.85).abs() < 1e-12);
+        assert!(episode_root > current_root);
         let overlapping = CombatProxyConfig {
             win_base: 0.3,
             escape_base: 0.25,
