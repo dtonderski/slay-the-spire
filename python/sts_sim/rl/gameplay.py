@@ -424,14 +424,12 @@ def aggregate_paired_differences(
 
 
 def _restore_independently(snapshot_bytes: bytes, root_id: str) -> RunEnv:
-    digest = hashlib.sha256(snapshot_bytes).hexdigest()
-    if digest != root_id:
+    if hashlib.sha256(snapshot_bytes).hexdigest() != root_id:
         raise ValueError(f"root {root_id} bytes do not match root ID")
-    env = RunEnv.from_snapshot(snapshot_bytes.decode())
-    restored = env.snapshot().json.encode()
-    if hashlib.sha256(restored).hexdigest() != digest:
-        raise ValueError(f"independent restore changed root {root_id} bytes")
-    return env
+    # The immutable input bytes identify the root. Snapshot serialization may
+    # canonically migrate an accepted older wire representation, so equality is
+    # checked between independently restored native state hashes by the caller.
+    return RunEnv.from_snapshot(snapshot_bytes.decode())
 
 
 def _run_restored_policy(

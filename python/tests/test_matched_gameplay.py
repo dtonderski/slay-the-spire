@@ -39,6 +39,18 @@ def _fixture_snapshot() -> tuple[str, bytes]:
     return hashlib.sha256(snapshot_bytes).hexdigest(), snapshot_bytes
 
 
+def test_canonical_root_bytes_restore_by_state_hash_not_wire_byte_round_trip() -> None:
+    snapshot = RunEnv.combat_fixture().snapshot()
+    canonical_bytes = json.dumps(
+        json.loads(snapshot.json), sort_keys=True, separators=(",", ":")
+    ).encode()
+    root_id = hashlib.sha256(canonical_bytes).hexdigest()
+    left = gameplay._restore_independently(canonical_bytes, root_id)
+    right = gameplay._restore_independently(canonical_bytes, root_id)
+    assert left.snapshot().hash == right.snapshot().hash
+    assert left.snapshot().json.encode() != canonical_bytes
+
+
 def _tiny_search_config(**overrides: object) -> dict[str, object]:
     config: dict[str, object] = {
         "depth": 2,
