@@ -76,10 +76,23 @@ pub(crate) fn live_state_from_files(files: &BridgeFiles) -> LiveState {
         .get("state_id")
         .or_else(|| files.current_state.get("state_id"))
         .and_then(Value::as_str);
+    let mut legal_actions = actions_from_summary(&summary, &files.current_state, source_state_id);
+    let execution_seq = summary.get("command_execution_seq").cloned();
+    let settlement_seq = summary.get("command_settlement_seq").cloned();
+    for action in &mut legal_actions {
+        if let Some(object) = action.command.as_object_mut() {
+            if let Some(value) = execution_seq.clone() {
+                object.insert("source_command_execution_seq".to_owned(), value);
+            }
+            if let Some(value) = settlement_seq.clone() {
+                object.insert("source_command_settlement_seq".to_owned(), value);
+            }
+        }
+    }
     LiveState {
         sequence,
         phase: phase_from_summary(&summary),
-        legal_actions: actions_from_summary(&summary, &files.current_state, source_state_id),
+        legal_actions,
         raw: json!({
             "status": files.status,
             "summary": summary,
@@ -157,7 +170,7 @@ fn actions_from_summary(
         "Request state",
         "STATE",
         None,
-        None,
+        source_state_id,
     )];
 
     add_choice_actions(
@@ -531,6 +544,9 @@ fn bridge_action(
             "transport": "communication_mod",
             "command": command,
             "source_state_id": source_state_id,
+            "command_id": source_state_id
+                .map(|state_id| format!("{state_id}:{id}"))
+                .unwrap_or_else(|| format!("initial:{id}")),
         }),
         disabled_reason,
     }
@@ -625,6 +641,24 @@ mod tests {
             Some(false)
         );
         assert!(files.status.get("command_in_flight").unwrap().is_null());
+    }
+
+    #[test]
+    fn request_state_identity_is_bound_to_the_current_source_state() {
+        let summary = json!({
+            "available_commands": ["state"],
+            "ready_for_command": true,
+            "in_game": true,
+            "screen_type": "NONE"
+        });
+        let first = actions_from_summary(&summary, &Value::Null, Some("state-1"));
+        let second = actions_from_summary(&summary, &Value::Null, Some("state-2"));
+        let first_id = first[0].command.get("command_id").and_then(Value::as_str);
+        let second_id = second[0].command.get("command_id").and_then(Value::as_str);
+
+        assert_eq!(first_id, Some("state-1:request-state"));
+        assert_eq!(second_id, Some("state-2:request-state"));
+        assert_ne!(first_id, second_id);
     }
 
     #[test]

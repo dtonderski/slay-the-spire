@@ -6,7 +6,10 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::io::{BufRead, Cursor};
+use std::{
+    collections::BTreeSet,
+    io::{BufRead, Cursor},
+};
 use sts_core::card::CardType;
 use sts_core::combat::{ExhaustSelectPurpose, HandSelectPurpose};
 use sts_core::content::cards::{card_instance_is_upgradeable, card_type_and_rarity};
@@ -217,8 +220,8 @@ impl std::fmt::Display for SimRealError {
             ),
             Self::InvalidProfileInput(reason) => write!(f, "invalid pre-run profile input: {reason}"),
             Self::UnsupportedSchema { boundary_schema } => match boundary_schema {
-                Some(schema) => write!(f, "unsupported CommunicationMod boundary schema {schema}; supported schemas are 1, 2, 3, 4, 5, and 6"),
-                None => write!(f, "unsupported CommunicationMod boundary schema: explicit metadata boundary_schema of 1, 2, 3, 4, 5, or 6 is required"),
+                Some(schema) => write!(f, "unsupported CommunicationMod boundary schema {schema}; supported schemas are 1, 2, 3, 4, 5, 6, and 7"),
+                None => write!(f, "unsupported CommunicationMod boundary schema: explicit metadata boundary_schema of 1, 2, 3, 4, 5, 6, or 7 is required"),
             },
             Self::InvalidBoundaryContract { step, reason } => {
                 write!(f, "invalid boundary contract at step {step}: {reason}")
@@ -365,6 +368,8 @@ fn verify_seed_start_reader<R: BufRead>(
     let mut rejected_actions = 0usize;
     let mut first_boundary = None;
     let mut last_command_execution_seq = None;
+    let mut last_command_settlement_seq = None;
+    let mut seen_command_ids = BTreeSet::new();
     let mut diagnostic_stopped = false;
     let mut record_count = 0usize;
 
@@ -383,7 +388,7 @@ fn verify_seed_start_reader<R: BufRead>(
                 });
             }
             metadata_seen = true;
-            if !matches!(metadata.boundary_schema, Some(1..=6)) {
+            if !matches!(metadata.boundary_schema, Some(1..=7)) {
                 return Err(SimRealError::UnsupportedSchema {
                     boundary_schema: metadata.boundary_schema,
                 });
@@ -419,6 +424,20 @@ fn verify_seed_start_reader<R: BufRead>(
 
         match line {
             TraceLine::Action(action) => {
+                if metadata_boundary_schema.is_some_and(|schema| schema >= 7) {
+                    let command_id = action_command_id(&action).ok_or_else(|| {
+                        SimRealError::InvalidBoundaryContract {
+                            step: action.step,
+                            reason: "schema-7 action requires command_meta.command_id".to_owned(),
+                        }
+                    })?;
+                    if !seen_command_ids.insert(command_id.to_owned()) {
+                        return Err(SimRealError::InvalidBoundaryContract {
+                            step: action.step,
+                            reason: format!("duplicate schema-7 command_id {command_id:?}"),
+                        });
+                    }
+                }
                 if pending.is_some() {
                     return Err(SimRealError::InvalidBoundaryContract {
                         step: action.step,
@@ -513,7 +532,24 @@ fn verify_seed_start_reader<R: BufRead>(
                     });
                 }
                 let state_command = command_head_eq(&pending_action.action.command, "STATE");
-                if metadata_boundary_schema.is_some_and(|schema| schema >= 5) {
+                if metadata_boundary_schema.is_some_and(|schema| schema >= 7) {
+                    validate_schema7_completion(
+                        &pending_action.action,
+                        &state.message,
+                        kind,
+                        state_command,
+                        last_command_execution_seq,
+                        last_command_settlement_seq,
+                    )?;
+                    last_command_execution_seq = state
+                        .message
+                        .get("command_execution_seq")
+                        .and_then(Value::as_u64);
+                    last_command_settlement_seq = state
+                        .message
+                        .get("command_settlement_seq")
+                        .and_then(Value::as_u64);
+                } else if metadata_boundary_schema.is_some_and(|schema| schema >= 5) {
                     let execution_seq = state
                         .message
                         .get("command_execution_seq")
@@ -675,7 +711,22 @@ fn verify_seed_start_reader<R: BufRead>(
                         reason: "error does not match the pending action".to_owned(),
                     });
                 }
-                if metadata_boundary_schema.is_some_and(|schema| schema >= 5) {
+                if metadata_boundary_schema.is_some_and(|schema| schema >= 7) {
+                    validate_schema7_rejection(
+                        &pending_action.action,
+                        &error.message,
+                        last_command_execution_seq,
+                        last_command_settlement_seq,
+                    )?;
+                    last_command_execution_seq = error
+                        .message
+                        .get("command_execution_seq")
+                        .and_then(Value::as_u64);
+                    last_command_settlement_seq = error
+                        .message
+                        .get("command_settlement_seq")
+                        .and_then(Value::as_u64);
+                } else if metadata_boundary_schema.is_some_and(|schema| schema >= 5) {
                     let source_execution_seq = action_source_command_execution_seq(
                         &pending_action.action,
                     )
@@ -858,6 +909,66 @@ fn validate_boundary_state(
                     reason: format!("boundary schema 6 requires {field}=0"),
                 });
             }
+        }
+    }
+    if metadata_boundary_schema >= 7 {
+        if message
+            .get("command_settlement_seq")
+            .and_then(Value::as_u64)
+            .is_none()
+        {
+            return Err(SimRealError::InvalidBoundaryContract {
+                step: state.step,
+                reason: "boundary schema 7 requires non-negative integer command_settlement_seq"
+                    .to_owned(),
+            });
+        }
+        let response_kind = message
+            .get("command_response_kind")
+            .and_then(Value::as_str)
+            .ok_or_else(|| SimRealError::InvalidBoundaryContract {
+                step: state.step,
+                reason: "boundary schema 7 requires command_response_kind".to_owned(),
+            })?;
+        if !matches!(response_kind, "settled" | "poll" | "unsolicited") {
+            return Err(SimRealError::InvalidBoundaryContract {
+                step: state.step,
+                reason: format!("unsupported state command_response_kind {response_kind}"),
+            });
+        }
+        let response_id = match message.get("command_response_id") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(id)) if !id.is_empty() => Some(id.as_str()),
+            _ => {
+                return Err(SimRealError::InvalidBoundaryContract {
+                    step: state.step,
+                    reason: "boundary schema 7 requires command_response_id to be a nonempty string or null"
+                        .to_owned(),
+                });
+            }
+        };
+        let transaction_pending = message
+            .get("transaction_pending")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| SimRealError::InvalidBoundaryContract {
+                step: state.step,
+                reason: "boundary schema 7 requires boolean transaction_pending".to_owned(),
+            })?;
+        if matches!(response_kind, "settled" | "poll")
+            && (response_id.is_none() || transaction_pending)
+        {
+            return Err(SimRealError::InvalidBoundaryContract {
+                step: state.step,
+                reason: format!(
+                    "schema-7 {response_kind} state requires a response ID and transaction_pending=false"
+                ),
+            });
+        }
+        if response_kind == "unsolicited" && response_id.is_some() {
+            return Err(SimRealError::InvalidBoundaryContract {
+                step: state.step,
+                reason: "schema-7 unsolicited state must not name a response ID".to_owned(),
+            });
         }
     }
     let kind = message
@@ -3921,6 +4032,227 @@ fn action_source_command_execution_seq(action: &TraceAction) -> Option<u64> {
         .as_ref()?
         .get("source_command_execution_seq")?
         .as_u64()
+}
+
+fn action_source_command_settlement_seq(action: &TraceAction) -> Option<u64> {
+    action
+        .command_meta
+        .as_ref()?
+        .get("source_command_settlement_seq")?
+        .as_u64()
+}
+
+fn action_command_id(action: &TraceAction) -> Option<&str> {
+    action
+        .command_meta
+        .as_ref()?
+        .get("command_id")?
+        .as_str()
+        .filter(|id| !id.is_empty())
+}
+
+fn validate_schema7_completion(
+    action: &TraceAction,
+    message: &Value,
+    kind: &str,
+    state_command: bool,
+    last_execution: Option<u64>,
+    last_settlement: Option<u64>,
+) -> Result<(), SimRealError> {
+    let command_id =
+        action_command_id(action).ok_or_else(|| SimRealError::InvalidBoundaryContract {
+            step: action.step,
+            reason: format!(
+                "schema-7 action {} requires command_meta.command_id",
+                action.command
+            ),
+        })?;
+    let source_execution = action_source_command_execution_seq(action).ok_or_else(|| {
+        SimRealError::InvalidBoundaryContract {
+            step: action.step,
+            reason: "schema-7 action requires command_meta.source_command_execution_seq".to_owned(),
+        }
+    })?;
+    let source_settlement = action_source_command_settlement_seq(action).ok_or_else(|| {
+        SimRealError::InvalidBoundaryContract {
+            step: action.step,
+            reason: "schema-7 action requires command_meta.source_command_settlement_seq"
+                .to_owned(),
+        }
+    })?;
+    if last_execution.is_some_and(|previous| source_execution != previous) {
+        return Err(SimRealError::InvalidBoundaryContract {
+            step: action.step,
+            reason: format!(
+                "source_command_execution_seq {source_execution} does not match preceding completion sequence {}",
+                last_execution.expect("checked")
+            ),
+        });
+    }
+    if last_settlement.is_some_and(|previous| source_settlement != previous) {
+        return Err(SimRealError::InvalidBoundaryContract {
+            step: action.step,
+            reason: format!(
+                "source_command_settlement_seq {source_settlement} does not match preceding completion sequence {}",
+                last_settlement.expect("checked")
+            ),
+        });
+    }
+    let response_id = message.get("command_response_id").and_then(Value::as_str);
+    let response_kind = message.get("command_response_kind").and_then(Value::as_str);
+    let execution_seq = message
+        .get("command_execution_seq")
+        .and_then(Value::as_u64)
+        .expect("schema-7 sequence validated");
+    let settlement_seq = message
+        .get("command_settlement_seq")
+        .and_then(Value::as_u64)
+        .expect("schema-7 settlement validated");
+    if state_command {
+        if kind != "poll" || response_kind != Some("poll") || response_id != Some(command_id) {
+            return Err(SimRealError::InvalidBoundaryContract {
+                step: action.step,
+                reason: format!(
+                    "schema-7 STATE completion identity mismatch for {}",
+                    action.command
+                ),
+            });
+        }
+        if execution_seq != source_execution || settlement_seq != source_settlement {
+            return Err(SimRealError::InvalidBoundaryContract {
+                step: action.step,
+                reason: format!(
+                    "schema-7 STATE sequences must remain source execution {source_execution} and settlement {source_settlement}"
+                ),
+            });
+        }
+        return Ok(());
+    }
+    if !matches!(kind, "interaction_ready" | "quiescent" | "terminal")
+        || response_kind != Some("settled")
+        || response_id != Some(command_id)
+    {
+        return Err(SimRealError::InvalidBoundaryContract {
+            step: action.step,
+            reason: format!(
+                "schema-7 gameplay completion identity mismatch for {}",
+                action.command
+            ),
+        });
+    }
+    let expected_execution =
+        source_execution
+            .checked_add(1)
+            .ok_or_else(|| SimRealError::InvalidBoundaryContract {
+                step: action.step,
+                reason: "schema-7 source command execution sequence overflow".to_owned(),
+            })?;
+    let expected_settlement =
+        source_settlement
+            .checked_add(1)
+            .ok_or_else(|| SimRealError::InvalidBoundaryContract {
+                step: action.step,
+                reason: "schema-7 source command settlement sequence overflow".to_owned(),
+            })?;
+    if execution_seq != expected_execution || settlement_seq != expected_settlement {
+        return Err(SimRealError::InvalidBoundaryContract {
+            step: action.step,
+            reason: format!(
+                "schema-7 gameplay sequences must be source+1 (execution {source_execution} -> {expected_execution}, settlement {source_settlement} -> {expected_settlement})"
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn validate_schema7_rejection(
+    action: &TraceAction,
+    message: &Value,
+    last_execution: Option<u64>,
+    last_settlement: Option<u64>,
+) -> Result<(), SimRealError> {
+    let command_id =
+        action_command_id(action).ok_or_else(|| SimRealError::InvalidBoundaryContract {
+            step: action.step,
+            reason: "schema-7 command error requires command_meta.command_id".to_owned(),
+        })?;
+    let source_execution = action_source_command_execution_seq(action).ok_or_else(|| {
+        SimRealError::InvalidBoundaryContract {
+            step: action.step,
+            reason: "schema-7 command error requires command_meta.source_command_execution_seq"
+                .to_owned(),
+        }
+    })?;
+    let source_settlement = action_source_command_settlement_seq(action).ok_or_else(|| {
+        SimRealError::InvalidBoundaryContract {
+            step: action.step,
+            reason: "schema-7 command error requires command_meta.source_command_settlement_seq"
+                .to_owned(),
+        }
+    })?;
+    if last_execution.is_some_and(|previous| source_execution != previous) {
+        return Err(SimRealError::InvalidBoundaryContract {
+            step: action.step,
+            reason: format!(
+                "source_command_execution_seq {source_execution} does not match preceding completion sequence {}",
+                last_execution.expect("checked")
+            ),
+        });
+    }
+    if last_settlement.is_some_and(|previous| source_settlement != previous) {
+        return Err(SimRealError::InvalidBoundaryContract {
+            step: action.step,
+            reason: format!(
+                "source_command_settlement_seq {source_settlement} does not match preceding completion sequence {}",
+                last_settlement.expect("checked")
+            ),
+        });
+    }
+    if message.get("boundary_schema").and_then(Value::as_u64) != Some(7)
+        || message.get("command_response_id").and_then(Value::as_str) != Some(command_id)
+        || message.get("command_response_kind").and_then(Value::as_str) != Some("rejected")
+        || message.get("transaction_pending").and_then(Value::as_bool) != Some(false)
+    {
+        return Err(SimRealError::InvalidBoundaryContract {
+            step: action.step,
+            reason: "schema-7 command error identity or transaction status mismatch".to_owned(),
+        });
+    }
+    let execution_seq = message
+        .get("command_execution_seq")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| SimRealError::InvalidBoundaryContract {
+            step: action.step,
+            reason: "schema-7 command error requires command_execution_seq".to_owned(),
+        })?;
+    let settlement_seq = message
+        .get("command_settlement_seq")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| SimRealError::InvalidBoundaryContract {
+            step: action.step,
+            reason: "schema-7 command error requires command_settlement_seq".to_owned(),
+        })?;
+    let observation_command =
+        command_head_eq(&action.command, "STATE") || command_head_eq(&action.command, "PROFILE");
+    let expected_execution = if observation_command {
+        source_execution
+    } else {
+        source_execution
+            .checked_add(1)
+            .ok_or_else(|| SimRealError::InvalidBoundaryContract {
+                step: action.step,
+                reason: "schema-7 source command execution sequence overflow".to_owned(),
+            })?
+    };
+    if execution_seq != expected_execution || settlement_seq != source_settlement {
+        return Err(SimRealError::InvalidBoundaryContract {
+            step: action.step,
+            reason: format!(
+                "schema-7 rejection sequences must use expected execution {expected_execution} and unchanged settlement {source_settlement}"
+            ),
+        });
+    }
+    Ok(())
 }
 
 fn command_head_eq(command: &str, expected: &str) -> bool {

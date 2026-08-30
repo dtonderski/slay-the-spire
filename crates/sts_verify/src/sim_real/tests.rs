@@ -271,12 +271,24 @@ fn state_boundary_schema_must_match_metadata() {
 
 #[test]
 fn quiescent_schemas_require_end_turn_queued() {
-    for schema in [2, 3, 4, 5, 6] {
+    for schema in [2, 3, 4, 5, 6, 7] {
         let mut message = boundary_message("quiescent");
         message["boundary_schema"] = json!(schema);
+        let action = if schema == 7 {
+            json!({
+                "type":"action","step":1,"command":"START IRONCLAD 0 1",
+                "command_meta":{
+                    "command_id":"start-1",
+                    "source_command_execution_seq":0,
+                    "source_command_settlement_seq":0
+                }
+            })
+        } else {
+            json!({"type":"action","step":1,"command":"START IRONCLAD 0 1"})
+        };
         let content = trace(vec![
             metadata(Some(schema), true),
-            json!({"type":"action","step":1,"command":"START IRONCLAD 0 1"}),
+            action,
             json!({"type":"state","step":1,"message":message}),
         ]);
         let error = verify_communication_mod_trace(&content)
@@ -362,6 +374,203 @@ fn schema_six_rejects_stale_completion_after_rejected_command_fence() {
     let error = verify_communication_mod_trace(&content)
         .expect_err("completion equal to its action source fence must fail");
     assert!(error.to_string().contains("did not advance beyond"));
+}
+
+fn schema7_quiescent(command_id: &str, execution: u64, settlement: u64) -> Value {
+    let mut message = boundary_message("quiescent");
+    message["boundary_schema"] = json!(7);
+    message["end_turn_queued"] = json!(false);
+    message["command_execution_seq"] = json!(execution);
+    message["command_settlement_seq"] = json!(settlement);
+    message["command_response_id"] = json!(command_id);
+    message["command_response_kind"] = json!("settled");
+    message["transaction_pending"] = json!(false);
+    message
+}
+
+#[test]
+fn schema_seven_requires_exact_identity_and_sequence_deltas() {
+    let first = schema7_quiescent("start-1", 1, 1);
+    let second = schema7_quiescent("choose-1", 2, 2);
+    let content = trace(vec![
+        metadata(Some(7), true),
+        json!({
+            "type":"action","step":1,"command":"START IRONCLAD 0 1",
+            "command_meta":{
+                "command_id":"start-1",
+                "source_command_execution_seq":0,
+                "source_command_settlement_seq":0
+            }
+        }),
+        json!({"type":"state","step":1,"message":first}),
+        json!({
+            "type":"action","step":2,"command":"CHOOSE 0",
+            "command_meta":{
+                "command_id":"choose-1",
+                "source_command_execution_seq":1,
+                "source_command_settlement_seq":1
+            }
+        }),
+        json!({"type":"state","step":2,"message":second}),
+    ]);
+    verify_communication_mod_trace(&content).expect("schema 7 exact deltas verify");
+}
+
+#[test]
+fn schema_seven_state_poll_preserves_sequences_and_echoes_identity() {
+    let first = schema7_quiescent("start-1", 1, 1);
+    let mut poll = schema7_quiescent("state-1", 1, 1);
+    poll["boundary_kind"] = json!("poll");
+    poll["command_response_kind"] = json!("poll");
+    let content = trace(vec![
+        metadata(Some(7), true),
+        json!({
+            "type":"action","step":1,"command":"START IRONCLAD 0 1",
+            "command_meta":{
+                "command_id":"start-1",
+                "source_command_execution_seq":0,
+                "source_command_settlement_seq":0
+            }
+        }),
+        json!({"type":"state","step":1,"message":first}),
+        json!({
+            "type":"action","step":2,"command":"STATE",
+            "command_meta":{
+                "command_id":"state-1",
+                "source_command_execution_seq":1,
+                "source_command_settlement_seq":1
+            }
+        }),
+        json!({"type":"state","step":2,"message":poll}),
+    ]);
+    verify_communication_mod_trace(&content).expect("schema 7 STATE poll verifies");
+}
+
+#[test]
+fn schema_seven_rejects_duplicate_command_identity() {
+    let first = schema7_quiescent("command-1", 1, 1);
+    let second = schema7_quiescent("command-1", 2, 2);
+    let content = trace(vec![
+        metadata(Some(7), true),
+        json!({
+            "type":"action","step":1,"command":"START IRONCLAD 0 1",
+            "command_meta":{
+                "command_id":"command-1",
+                "source_command_execution_seq":0,
+                "source_command_settlement_seq":0
+            }
+        }),
+        json!({"type":"state","step":1,"message":first}),
+        json!({
+            "type":"action","step":2,"command":"CHOOSE 0",
+            "command_meta":{
+                "command_id":"command-1",
+                "source_command_execution_seq":1,
+                "source_command_settlement_seq":1
+            }
+        }),
+        json!({"type":"state","step":2,"message":second}),
+    ]);
+    let error = verify_communication_mod_trace(&content)
+        .expect_err("schema 7 duplicate command identity must fail");
+    assert!(error.to_string().contains("duplicate schema-7 command_id"));
+}
+
+#[test]
+fn schema_seven_rejects_wrong_completion_identity() {
+    let message = schema7_quiescent("other", 1, 1);
+    let content = trace(vec![
+        metadata(Some(7), true),
+        json!({
+            "type":"action","step":1,"command":"START IRONCLAD 0 1",
+            "command_meta":{
+                "command_id":"start-1",
+                "source_command_execution_seq":0,
+                "source_command_settlement_seq":0
+            }
+        }),
+        json!({"type":"state","step":1,"message":message}),
+    ]);
+    let error = verify_communication_mod_trace(&content)
+        .expect_err("schema 7 mismatched command id must fail");
+    assert!(error.to_string().contains("identity mismatch"));
+}
+
+#[test]
+fn schema_seven_rejection_advances_execution_only() {
+    let first = schema7_quiescent("start-1", 1, 1);
+    let content = trace(vec![
+        metadata(Some(7), true),
+        json!({
+            "type":"action","step":1,"command":"START IRONCLAD 0 1",
+            "command_meta":{
+                "command_id":"start-1",
+                "source_command_execution_seq":0,
+                "source_command_settlement_seq":0
+            }
+        }),
+        json!({"type":"state","step":1,"message":first}),
+        json!({
+            "type":"action","step":2,"command":"CHOOSE 99",
+            "command_meta":{
+                "command_id":"bad-1",
+                "source_command_execution_seq":1,
+                "source_command_settlement_seq":1
+            }
+        }),
+        json!({
+            "type":"error","step":2,
+            "message":{
+                "error":"rejected",
+                "boundary_schema":7,
+                "command_response_id":"bad-1",
+                "command_response_kind":"rejected",
+                "command_execution_seq":2,
+                "command_settlement_seq":1,
+                "transaction_pending":false
+            }
+        }),
+    ]);
+    verify_communication_mod_trace(&content).expect("schema 7 rejection sequences verify");
+}
+
+#[test]
+fn schema_seven_observation_rejection_leaves_both_sequences_unchanged() {
+    let first = schema7_quiescent("start-1", 1, 1);
+    let content = trace(vec![
+        metadata(Some(7), true),
+        json!({
+            "type":"action","step":1,"command":"START IRONCLAD 0 1",
+            "command_meta":{
+                "command_id":"start-1",
+                "source_command_execution_seq":0,
+                "source_command_settlement_seq":0
+            }
+        }),
+        json!({"type":"state","step":1,"message":first}),
+        json!({
+            "type":"action","step":2,"command":"STATE",
+            "command_meta":{
+                "command_id":"state-1",
+                "source_command_execution_seq":1,
+                "source_command_settlement_seq":1
+            }
+        }),
+        json!({
+            "type":"error","step":2,
+            "message":{
+                "error":"rejected",
+                "boundary_schema":7,
+                "command_response_id":"state-1",
+                "command_response_kind":"rejected",
+                "command_execution_seq":1,
+                "command_settlement_seq":1,
+                "transaction_pending":false
+            }
+        }),
+    ]);
+    verify_communication_mod_trace(&content)
+        .expect("schema 7 observation rejection sequences verify");
 }
 
 #[test]

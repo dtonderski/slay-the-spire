@@ -169,13 +169,22 @@ fn communication_mod_trace(
         } => Some(run_config),
         _ => None,
     });
-    let mut jsonl = serde_json::to_string(&json!({
+    let boundary_schema = records.iter().find_map(|record| match record {
+        TraceRecord::State { state, .. } => communication_message(&state.raw)
+            .and_then(|message| message.get("boundary_schema").and_then(Value::as_u64)),
+        _ => None,
+    });
+    let mut metadata = json!({
         "type": "metadata",
         "schema": 1,
         "source": "communication_mod",
         "client": "sts_live",
         "run_config": run_config,
-    }))?;
+    });
+    if let Some(schema) = boundary_schema {
+        metadata["boundary_schema"] = json!(schema);
+    }
+    let mut jsonl = serde_json::to_string(&metadata)?;
     jsonl.push('\n');
     let mut states = 0;
     let mut saw_state = false;
@@ -215,12 +224,22 @@ fn communication_mod_trace(
                             saw_state = true;
                         }
                     }
-                    jsonl.push_str(&serde_json::to_string(&json!({
+                    let mut action_line = json!({
                         "type": "action",
                         "step": sequence,
                         "command": command,
                         "playtime_seconds": action.command.get("playtime_seconds"),
-                    }))?);
+                    });
+                    if action.command.get("command_id").is_some()
+                        || action.command.get("source_command_execution_seq").is_some()
+                    {
+                        action_line["command_meta"] = json!({
+                            "command_id": action.command.get("command_id"),
+                            "source_command_execution_seq": action.command.get("source_command_execution_seq"),
+                            "source_command_settlement_seq": action.command.get("source_command_settlement_seq"),
+                        });
+                    }
+                    jsonl.push_str(&serde_json::to_string(&action_line)?);
                     jsonl.push('\n');
                     if saw_state {
                         pending_action_after_state = true;
@@ -262,8 +281,9 @@ fn communication_message(raw: &Value) -> Option<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::{explicit_live_status, is_start_command};
-    use crate::model::TraceRecord;
+    use super::{communication_mod_trace, explicit_live_status, is_start_command, TraceMode};
+    use crate::model::{ActionId, LegalAction, LegalActionKind, LivePhase, LiveState, TraceRecord};
+    use serde_json::json;
 
     #[test]
     fn recognizes_normal_and_verification_start_commands_by_exact_verb() {
@@ -299,5 +319,56 @@ mod tests {
             explicit_live_status(&records).and_then(|status| status.message),
             Some("new verifier result".to_owned())
         );
+    }
+
+    #[test]
+    fn conversion_preserves_boundary_schema_and_command_identity() {
+        let records = vec![
+            TraceRecord::Metadata {
+                schema: 1,
+                source: "test".to_owned(),
+                session_id: crate::model::SessionId("s".to_owned()),
+                bridge_id: crate::model::BridgeId("b".to_owned()),
+                run_config: None,
+            },
+            TraceRecord::Action {
+                sequence: 1,
+                action: LegalAction {
+                    id: ActionId("start".to_owned()),
+                    kind: LegalActionKind::StartRun,
+                    label: "Start".to_owned(),
+                    enabled: true,
+                    command: json!({
+                        "command": "START IRONCLAD 0 CODEX04",
+                        "command_id": "cmd-1",
+                        "source_command_execution_seq": 0,
+                        "source_command_settlement_seq": 0
+                    }),
+                    disabled_reason: None,
+                },
+            },
+            TraceRecord::State {
+                sequence: 1,
+                state: LiveState {
+                    sequence: 1,
+                    phase: LivePhase::Event,
+                    legal_actions: Vec::new(),
+                    raw: json!({
+                        "current_state": {
+                            "message": {
+                                "boundary_schema": 7,
+                                "boundary_kind": "quiescent"
+                            }
+                        }
+                    }),
+                },
+            },
+        ];
+        let converted = communication_mod_trace(&records, TraceMode::SeedStart).unwrap();
+        assert!(converted.jsonl.contains("\"boundary_schema\":7"));
+        assert!(converted.jsonl.contains("\"command_id\":\"cmd-1\""));
+        assert!(converted
+            .jsonl
+            .contains("\"source_command_settlement_seq\":0"));
     }
 }

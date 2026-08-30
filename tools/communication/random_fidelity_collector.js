@@ -322,7 +322,12 @@ function chooseRandomAction(summary, random) {
 }
 
 const GAMEPLAY_BOUNDARY_KINDS = new Set(["interaction_ready", "quiescent", "terminal"]);
-const REQUIRED_BOUNDARY_SCHEMA = 6;
+const REQUIRED_BOUNDARY_SCHEMA = 7;
+const SCHEMA7_STATE_RESPONSE_KINDS = new Set(["settled", "poll", "unsolicited"]);
+
+function isSafeNonNegativeInteger(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
 
 function communicationBoundary(protocolState, { allowUnsettled = false } = {}) {
   const message =
@@ -386,9 +391,42 @@ function communicationBoundary(protocolState, { allowUnsettled = false } = {}) {
       `CommunicationMod schema ${REQUIRED_BOUNDARY_SCHEMA} requires boolean end_turn_queued`,
     );
   }
-  if (!Number.isInteger(message?.command_execution_seq) || message.command_execution_seq < 0) {
+  if (!isSafeNonNegativeInteger(message?.command_execution_seq)) {
     throw new Error(
       `CommunicationMod schema ${REQUIRED_BOUNDARY_SCHEMA} requires a non-negative integer command_execution_seq`,
+    );
+  }
+  if (!isSafeNonNegativeInteger(message?.command_settlement_seq)) {
+    throw new Error(
+      `CommunicationMod schema ${REQUIRED_BOUNDARY_SCHEMA} requires a non-negative integer command_settlement_seq`,
+    );
+  }
+  if (!SCHEMA7_STATE_RESPONSE_KINDS.has(message?.command_response_kind)) {
+    throw new Error(
+      `CommunicationMod schema ${REQUIRED_BOUNDARY_SCHEMA} requires state command_response_kind settled, poll, or unsolicited`,
+    );
+  }
+  if (message?.command_response_id != null && (typeof message.command_response_id !== "string" || !message.command_response_id)) {
+    throw new Error(
+      `CommunicationMod schema ${REQUIRED_BOUNDARY_SCHEMA} requires command_response_id to be a nonempty string or null`,
+    );
+  }
+  if (typeof message?.transaction_pending !== "boolean") {
+    throw new Error(
+      `CommunicationMod schema ${REQUIRED_BOUNDARY_SCHEMA} requires boolean transaction_pending`,
+    );
+  }
+  if (
+    (message.command_response_kind === "settled" || message.command_response_kind === "poll")
+    && (message.command_response_id == null || message.transaction_pending)
+  ) {
+    throw new Error(
+      `CommunicationMod schema ${REQUIRED_BOUNDARY_SCHEMA} completed state requires an ID and transaction_pending=false`,
+    );
+  }
+  if (message.command_response_kind === "unsolicited" && message.command_response_id != null) {
+    throw new Error(
+      `CommunicationMod schema ${REQUIRED_BOUNDARY_SCHEMA} unsolicited state must not name a response ID`,
     );
   }
   for (const field of [
@@ -396,7 +434,7 @@ function communicationBoundary(protocolState, { allowUnsettled = false } = {}) {
     "top_level_effects_size",
     "queued_top_level_effects_size",
   ]) {
-    if (!Number.isInteger(message?.[field]) || message[field] !== 0) {
+    if (!isSafeNonNegativeInteger(message?.[field]) || message[field] !== 0) {
       throw new Error(
         `CommunicationMod schema ${REQUIRED_BOUNDARY_SCHEMA} requires ${field}=0`,
       );
@@ -420,6 +458,45 @@ function communicationBoundary(protocolState, { allowUnsettled = false } = {}) {
     }
   }
   return { kind, message };
+}
+
+function assertSchema7Rejection(action, response) {
+  const commandId = action.command_meta?.command_id;
+  const sourceExecution = action.command_meta?.source_command_execution_seq;
+  const sourceSettlement = action.command_meta?.source_command_settlement_seq;
+  const message = response.message ?? {};
+  const verb = String(action.command ?? "").trim().split(/\s+/)[0].toLowerCase();
+  const observationCommand = verb === "state" || verb === "profile";
+  if (typeof commandId !== "string" || !commandId) {
+    throw new Error(`schema-7 rejected action at step ${action.step} requires command_id`);
+  }
+  if (!isSafeNonNegativeInteger(sourceExecution) || !isSafeNonNegativeInteger(sourceSettlement)) {
+    throw new Error(
+      `schema-7 rejected action at step ${action.step} requires source execution/settlement sequences`,
+    );
+  }
+  if (
+    message.boundary_schema !== 7
+    || message.command_response_id !== commandId
+    || message.command_response_kind !== "rejected"
+    || message.transaction_pending !== false
+  ) {
+    throw new Error(
+      `schema-7 rejected action at step ${action.step} completion identity mismatch`,
+    );
+  }
+  if (
+    !isSafeNonNegativeInteger(message.command_execution_seq)
+    || !isSafeNonNegativeInteger(message.command_settlement_seq)
+    || message.command_execution_seq !== (
+      observationCommand ? sourceExecution : sourceExecution + 1
+    )
+    || message.command_settlement_seq !== sourceSettlement
+  ) {
+    throw new Error(
+      `schema-7 rejected action at step ${action.step} has incorrect execution/settlement sequences`,
+    );
+  }
 }
 
 function needsMapChoiceSettle(summary) {
@@ -640,6 +717,7 @@ function normalizeSettledGameplayRecords(records) {
   }
 
   const normalized = [];
+  const seenCommandIds = new Set();
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index];
     if (record.type === "metadata") {
@@ -652,10 +730,19 @@ function normalizeSettledGameplayRecords(records) {
     if (!Number.isSafeInteger(record.step) || record.step < 0) {
       throw new Error("action step must be a non-negative integer");
     }
+    const commandId = record.command_meta?.command_id;
+    if (typeof commandId !== "string" || !commandId) {
+      throw new Error(`schema-7 action at step ${record.step} requires command_id`);
+    }
+    if (seenCommandIds.has(commandId)) {
+      throw new Error(`duplicate schema-7 command_id ${JSON.stringify(commandId)}`);
+    }
+    seenCommandIds.add(commandId);
     normalized.push(record);
 
     const stateCommand = String(record.command).trim().split(/\s+/)[0].toUpperCase() === "STATE";
     const sourceCommandExecutionSeq = record.command_meta?.source_command_execution_seq;
+    const sourceCommandSettlementSeq = record.command_meta?.source_command_settlement_seq;
     let responseIndex = index + 1;
     let lastBoundaryKind = "missing";
     let completed = false;
@@ -678,6 +765,7 @@ function normalizeSettledGameplayRecords(records) {
         if (response.step !== record.step) {
           throw new Error(`error step ${response.step} does not match action step ${record.step}`);
         }
+        assertSchema7Rejection(record, response);
         normalized.push(response);
         index = responseIndex;
         completed = true;
@@ -691,18 +779,46 @@ function normalizeSettledGameplayRecords(records) {
       lastBoundaryKind = boundary.kind;
       if (
         !stateCommand
-        && (!Number.isInteger(sourceCommandExecutionSeq) || sourceCommandExecutionSeq < 0)
+        && (!isSafeNonNegativeInteger(sourceCommandExecutionSeq)
+          || !isSafeNonNegativeInteger(sourceCommandSettlementSeq)
+          || typeof commandId !== "string"
+          || !commandId)
       ) {
         throw new Error(
-          `schema-5 gameplay action at step ${record.step} requires source_command_execution_seq`,
+          `schema-7 gameplay action at step ${record.step} requires command_id and source execution/settlement sequences`,
+        );
+      }
+      if (
+        stateCommand
+        && (typeof commandId !== "string"
+          || !commandId
+          || !isSafeNonNegativeInteger(sourceCommandExecutionSeq)
+          || !isSafeNonNegativeInteger(sourceCommandSettlementSeq))
+      ) {
+        throw new Error(
+          `schema-7 STATE action at step ${record.step} requires command_id and source execution/settlement sequences`,
         );
       }
       const commandFenceAdvanced = stateCommand
-        || response.message.command_execution_seq > sourceCommandExecutionSeq;
+        ? response.message.command_execution_seq === sourceCommandExecutionSeq
+          && response.message.command_settlement_seq === sourceCommandSettlementSeq
+        : response.message.command_execution_seq === sourceCommandExecutionSeq + 1
+          && response.message.command_settlement_seq === sourceCommandSettlementSeq + 1;
+      const identityMatches = response.message.command_response_id === commandId;
       const completesCommand = stateCommand
         ? boundary.kind === "poll"
-        : GAMEPLAY_BOUNDARY_KINDS.has(boundary.kind) && commandFenceAdvanced;
+          && response.message.command_response_kind === "poll"
+          && identityMatches
+          && commandFenceAdvanced
+        : GAMEPLAY_BOUNDARY_KINDS.has(boundary.kind)
+          && response.message.command_response_kind === "settled"
+          && identityMatches
+          && commandFenceAdvanced;
       if (!completesCommand) {
+        if (response.message.command_response_kind === "unsolicited") {
+          responseIndex += 1;
+          continue;
+        }
         if (
           !stateCommand
           && GAMEPLAY_BOUNDARY_KINDS.has(boundary.kind)

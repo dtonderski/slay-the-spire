@@ -93,17 +93,27 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
             readThread.interrupt();
         }
         if(messageAvailable()) {
+            CommandEnvelope envelope = null;
             try {
-                boolean stateChanged = CommandExecutor.executeCommand(readMessage());
-                if(stateChanged) {
-                    GameStateListener.registerCommandExecution();
-                }
+                envelope = CommandEnvelope.parse(readMessage());
+                GameStateListener.beforeCommand(envelope.commandId, envelope.verb());
+                boolean stateChanged = CommandExecutor.executeCommand(envelope.command);
+                GameStateListener.afterCommand(envelope.commandId, envelope.verb(), stateChanged);
             } catch (InvalidCommandException e) {
+                if (envelope != null) {
+                    GameStateListener.afterRejectedCommand(envelope.commandId, envelope.verb());
+                } else {
+                    GameStateListener.afterUnidentifiedRejectedCommand();
+                }
                 HashMap<String, Object> jsonError = new HashMap<>();
                 jsonError.put("error", e.getMessage());
                 jsonError.put("ready_for_command", GameStateListener.isWaitingForCommand());
                 jsonError.put("boundary_schema", GameStateListener.getBoundarySchema());
                 jsonError.put("command_execution_seq", GameStateListener.getCommandExecutionSeq());
+                jsonError.put("command_settlement_seq", GameStateListener.getCommandSettlementSeq());
+                jsonError.put("command_response_id", GameStateListener.getCommandResponseId());
+                jsonError.put("command_response_kind", GameStateListener.getCommandResponseKind());
+                jsonError.put("transaction_pending", GameStateListener.isTransactionPending());
                 Gson gson = new Gson();
                 sendMessage(gson.toJson(jsonError));
             }

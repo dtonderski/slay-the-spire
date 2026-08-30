@@ -75,13 +75,21 @@ queued end turn, and residual combat queues because the target publishes
 are never imported into simulator state. In both cases the command-execution
 fence must still advance before the state can complete the command. Schema 6
 also requires all published gameplay-affecting effect counts to be zero.
+Schema 7 keeps those queue/effect/end-turn safeguards and adds a target-visible
+command identity: gameplay completions echo `command_response_id` with kind
+`settled` and exact source+1 execution and settlement sequences; `STATE` polls
+echo the same identity with both sequences unchanged; rejections echo the
+identity, advance execution by one, and leave settlement unchanged. The ID is
+provenance only and never enters simulator transitions.
 Intermediate, transient, delayed, or later-frame completion is invalid input
 rather than deferred verification.
 
 Full CommunicationMod payloads are external to Git. The active authoritative
 corpus contains only the current collection epoch: fixed gameplay delta
-(`collection.2`) plus boundary schema 6. A later schema starts a new explicitly
-validated epoch; it is not accepted forward-compatibly. The 602 pre-collection.2
+(`collection.2`) plus boundary schema 6. Schema 7 is a new collection epoch; the
+verifier accepts explicit metadata/state schemas 1 through 7, but schema-7
+traces are not mixed into the locked schema-6 corpus. A later schema starts a
+new explicitly validated epoch; it is not accepted forward-compatibly. The 602 pre-collection.2
 payloads and the failed schema-3/schema-4/schema-5 pilots are non-authoritative
 evidence. Set
 `STS_PERMANENT_CORPUS_DIR` and pass the desired active file explicitly:

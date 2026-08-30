@@ -3,9 +3,12 @@ use serde_json::{json, Value};
 use std::{
     io::{BufRead, BufReader, Write},
     net::{TcpStream, ToSocketAddrs},
+    sync::atomic::{AtomicU64, Ordering},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+
+static COMMAND_ID_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 use super::{
     actions::{
@@ -86,12 +89,14 @@ pub(crate) fn request_control_files(
 
 pub(crate) fn send_guarded_command(
     control: &ControlAddress,
+    command_id: Option<&str>,
     command: &str,
     files: &BridgeFiles,
     stale_after: Duration,
     timeout: Duration,
 ) -> LiveResult<LiveState> {
-    let state = send_observation_command(control, command, files, stale_after, timeout)?;
+    let state =
+        send_observation_command(control, command_id, command, files, stale_after, timeout)?;
     if state_is_newer_than_command_source(&state, files) {
         return Ok(state);
     }
@@ -106,22 +111,31 @@ pub(crate) fn send_profile_command(
     stale_after: Duration,
     timeout: Duration,
 ) -> LiveResult<LiveState> {
-    send_observation_command(control, "PROFILE", files, stale_after, timeout)
+    send_observation_command(control, None, "PROFILE", files, stale_after, timeout)
 }
 
 fn send_observation_command(
     control: &ControlAddress,
+    command_id: Option<&str>,
     command: &str,
     files: &BridgeFiles,
     stale_after: Duration,
     timeout: Duration,
 ) -> LiveResult<LiveState> {
     let owner_token = acquire_control(control, stale_after, timeout)?;
+    let generated_command_id;
+    let command_id = match command_id {
+        Some(command_id) => command_id,
+        None => {
+            generated_command_id = next_control_command_id("command");
+            &generated_command_id
+        }
+    };
     let response = control_request(
         control,
         &json!({
             "type": "command",
-            "command_id": format!("sts-live-{}-{}", std::process::id(), now_ms()),
+            "command_id": command_id,
             "command": command,
             "expected_state_id": files.summary.get("state_id"),
             "expected_state_seq": files.summary.get("state_seq"),
@@ -147,7 +161,7 @@ pub(crate) fn send_abandon_run(
         control,
         &json!({
             "type": "abandon_run",
-            "command_id": format!("sts-live-{}-{}", std::process::id(), now_ms()),
+            "command_id": next_control_command_id("abandon"),
             "owner_token": owner_token,
             "wait_for_state_update": true,
             "update_timeout_ms": timeout.as_millis() as u64,
@@ -275,9 +289,30 @@ fn state_is_newer_than_command_source(state: &LiveState, files: &BridgeFiles) ->
     true
 }
 
+fn next_control_command_id(kind: &str) -> String {
+    let sequence = COMMAND_ID_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!(
+        "sts-live-{kind}-{}-{}-{sequence}",
+        std::process::id(),
+        now_ms()
+    )
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::next_control_command_id;
+
+    #[test]
+    fn generated_command_ids_are_unique_even_within_one_millisecond() {
+        let first = next_control_command_id("state");
+        let second = next_control_command_id("state");
+        assert_ne!(first, second);
+    }
 }

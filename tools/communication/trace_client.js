@@ -55,6 +55,7 @@ let controlAddress = null;
 let stateSeq = 0;
 let controlOwner = null;
 let commandInFlight = null;
+const seenCommandIds = new Set();
 const deferredJsonWrites = new Map();
 
 function writeRecord(record) {
@@ -225,6 +226,10 @@ function summarize(message) {
     game_update_seq: message.game_update_seq ?? null,
     dungeon_update_seq: message.dungeon_update_seq ?? null,
     command_execution_seq: message.command_execution_seq ?? null,
+    command_settlement_seq: message.command_settlement_seq ?? null,
+    command_response_id: message.command_response_id ?? null,
+    command_response_kind: message.command_response_kind ?? null,
+    transaction_pending: message.transaction_pending ?? null,
     current_action: message.current_action ?? gs.current_action ?? null,
     current_action_instance: message.current_action_instance ?? null,
     current_action_update_count: message.current_action_update_count ?? null,
@@ -310,11 +315,38 @@ function summarize(message) {
 }
 
 const GAMEPLAY_BOUNDARY_KINDS = new Set(["interaction_ready", "quiescent", "terminal"]);
-const SUPPORTED_BOUNDARY_SCHEMAS = new Set([1, 2, 3, 4, 5, 6]);
+const SUPPORTED_BOUNDARY_SCHEMAS = new Set([1, 2, 3, 4, 5, 6, 7]);
 
-function stateCompletesCommand(command, summary, acceptedCommandExecutionSeq = null) {
-  if (summary?.error) return true;
+function isSafeNonNegativeInteger(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+
+function stateCompletesCommand(
+  command,
+  summary,
+  acceptedCommandExecutionSeq = null,
+  acceptedCommandSettlementSeq = null,
+  acceptedCommandId = null,
+) {
   const verb = String(command ?? "").trim().split(/\s+/)[0].toLowerCase();
+  if (summary?.error) {
+    if (summary.boundary_schema >= 7) {
+      const observationCommand = verb === "state" || verb === "profile";
+      return summary.command_response_kind === "rejected"
+        && summary.command_response_id === acceptedCommandId
+        && summary.transaction_pending === false
+        && isSafeNonNegativeInteger(summary.command_execution_seq)
+        && isSafeNonNegativeInteger(summary.command_settlement_seq)
+        && isSafeNonNegativeInteger(acceptedCommandExecutionSeq)
+        && isSafeNonNegativeInteger(acceptedCommandSettlementSeq)
+        && summary.command_execution_seq === (
+          observationCommand ? acceptedCommandExecutionSeq : acceptedCommandExecutionSeq + 1
+        )
+        && summary.command_settlement_seq === acceptedCommandSettlementSeq;
+    }
+    return true;
+  }
   if (verb === "profile") return summary?.type === "profile";
   if (!SUPPORTED_BOUNDARY_SCHEMAS.has(summary?.boundary_schema)) return false;
   if (
@@ -338,12 +370,7 @@ function stateCompletesCommand(command, summary, acceptedCommandExecutionSeq = n
     if (summary.end_turn_queued === true && !terminalDeathWithResidualEndTurn) {
       return false;
     }
-    if (
-      summary.boundary_schema >= 5
-      && (!Number.isInteger(summary.command_execution_seq)
-        || !Number.isInteger(acceptedCommandExecutionSeq)
-        || summary.command_execution_seq <= acceptedCommandExecutionSeq)
-    ) {
+    if (!schemaFenceAdvances(summary, acceptedCommandExecutionSeq, acceptedCommandSettlementSeq, acceptedCommandId)) {
       return false;
     }
     // Death/out-of-run states can retain the combat queues that produced the
@@ -357,16 +384,48 @@ function stateCompletesCommand(command, summary, acceptedCommandExecutionSeq = n
   ) {
     return false;
   }
-  if (verb === "state") return summary.boundary_kind === "poll";
-  if (
-    summary.boundary_schema >= 5
-    && (!Number.isInteger(summary.command_execution_seq)
-      || !Number.isInteger(acceptedCommandExecutionSeq)
-      || summary.command_execution_seq <= acceptedCommandExecutionSeq)
-  ) {
+  if (verb === "state") {
+    if (summary.boundary_schema >= 7) {
+      return summary.boundary_kind === "poll"
+        && summary.command_response_kind === "poll"
+        && summary.command_response_id === acceptedCommandId
+        && summary.transaction_pending === false
+        && isSafeNonNegativeInteger(summary.command_execution_seq)
+        && isSafeNonNegativeInteger(summary.command_settlement_seq)
+        && isSafeNonNegativeInteger(acceptedCommandExecutionSeq)
+        && isSafeNonNegativeInteger(acceptedCommandSettlementSeq)
+        && summary.command_execution_seq === acceptedCommandExecutionSeq
+        && summary.command_settlement_seq === acceptedCommandSettlementSeq;
+    }
+    return summary.boundary_kind === "poll";
+  }
+  if (!schemaFenceAdvances(summary, acceptedCommandExecutionSeq, acceptedCommandSettlementSeq, acceptedCommandId)) {
     return false;
   }
   return GAMEPLAY_BOUNDARY_KINDS.has(summary?.boundary_kind);
+}
+
+function schemaFenceAdvances(
+  summary,
+  acceptedCommandExecutionSeq,
+  acceptedCommandSettlementSeq,
+  acceptedCommandId,
+) {
+  if (summary.boundary_schema >= 7) {
+    return summary.command_response_kind === "settled"
+      && summary.command_response_id === acceptedCommandId
+      && summary.transaction_pending === false
+      && isSafeNonNegativeInteger(summary.command_execution_seq)
+      && isSafeNonNegativeInteger(summary.command_settlement_seq)
+      && isSafeNonNegativeInteger(acceptedCommandExecutionSeq)
+      && isSafeNonNegativeInteger(acceptedCommandSettlementSeq)
+      && summary.command_execution_seq === acceptedCommandExecutionSeq + 1
+      && summary.command_settlement_seq === acceptedCommandSettlementSeq + 1;
+  }
+  if (summary.boundary_schema < 5) return true;
+  return isSafeNonNegativeInteger(summary.command_execution_seq)
+    && isSafeNonNegativeInteger(acceptedCommandExecutionSeq)
+    && summary.command_execution_seq > acceptedCommandExecutionSeq;
 }
 
 function publishState(message) {
@@ -382,6 +441,8 @@ function publishState(message) {
       commandInFlight.command,
       summary,
       commandInFlight.accepted_command_execution_seq,
+      commandInFlight.accepted_command_settlement_seq,
+      commandInFlight.command_id,
     )
   ) {
     commandInFlight = null;
@@ -569,7 +630,10 @@ function writeAction(command, commandMeta) {
     });
   }
   process.stderr.write(`[step ${step}] ${command}\n`);
-  process.stdout.write(`${command}\n`);
+  const outbound = commandMeta?.command_id
+    ? JSON.stringify({ command_id: commandMeta.command_id, command })
+    : command;
+  process.stdout.write(`${outbound}\n`);
 }
 
 function readAndClearFileCommand() {
@@ -638,6 +702,17 @@ function validateProtocolCommand(payload) {
   const command = String(payload.command ?? "").trim();
   if (!command) return "command is required";
   if (command.length > 200) return "command is too long";
+  if (payload.command_id !== undefined) {
+    if (
+      typeof payload.command_id !== "string"
+      || payload.command_id.length === 0
+      || payload.command_id.length > 200
+      || /[\s\x00-\x1f\x7f]/.test(payload.command_id)
+    ) {
+      return "command_id must be a nonempty command token of at most 200 characters";
+    }
+    if (seenCommandIds.has(payload.command_id)) return "command_id has already been accepted";
+  }
   const verb = command.split(/\s+/)[0].toLowerCase();
   const isStartCommand = verb === "start" || verb === "start_verify";
   const startupReady = !latestSummary && latestStatus?.status === "ready";
@@ -677,6 +752,18 @@ function validateProtocolCommand(payload) {
 
 function validateAbandonRun(payload) {
   if (!latestSummary) return "no observed state is available";
+  if (
+    payload.command_id !== undefined
+    && (
+      typeof payload.command_id !== "string"
+      || payload.command_id.length === 0
+      || payload.command_id.length > 200
+      || /[\s\x00-\x1f\x7f]/.test(payload.command_id)
+      || seenCommandIds.has(payload.command_id)
+    )
+  ) {
+    return "command_id must be a new nonempty command token of at most 200 characters";
+  }
   if (queuedCommands.length > 0) return "a command is already queued";
   if (commandInFlight && !payload.preempt_in_flight) return "a command is already in flight";
   if (controlOwner && payload.owner_token !== controlOwner.owner_token) {
@@ -703,12 +790,22 @@ async function enqueueAbandonRun(payload) {
     };
   }
   const commandId = payload.command_id || crypto.randomUUID();
+  if (seenCommandIds.has(commandId)) {
+    return {
+      ok: false,
+      error: "command_id has already been accepted",
+      state_id: latestSummary?.state_id ?? null,
+      state_seq: stateSeq,
+      step,
+    };
+  }
   const commandMeta = {
     command_id: commandId,
     command: "ABANDON",
     source_state_id: latestSummary?.state_id ?? null,
     source_state_seq: stateSeq,
     source_command_execution_seq: Number(latestSummary?.command_execution_seq ?? 0),
+    source_command_settlement_seq: Number(latestSummary?.command_settlement_seq ?? 0),
     submitted_at: Date.now() / 1000,
     protocol: "tcp-jsonl",
     owner_id: controlOwner?.owner_id ?? null,
@@ -720,6 +817,7 @@ async function enqueueAbandonRun(payload) {
   const acceptedStateSeq = stateSeq;
   const acceptedStateId = latestSummary?.state_id ?? null;
   const acceptedCommandExecutionSeq = Number(latestSummary?.command_execution_seq ?? 0);
+  const acceptedCommandSettlementSeq = Number(latestSummary?.command_settlement_seq ?? 0);
   const preempted = Boolean(payload.preempt_in_flight && commandInFlight);
   if (preempted) {
     writeRecord({
@@ -733,12 +831,14 @@ async function enqueueAbandonRun(payload) {
     });
     commandInFlight = null;
   }
+  seenCommandIds.add(commandId);
   commandInFlight = {
     command_id: commandId,
     command: commandMeta.command,
     accepted_state_id: acceptedStateId,
     accepted_state_seq: acceptedStateSeq,
     accepted_command_execution_seq: acceptedCommandExecutionSeq,
+    accepted_command_settlement_seq: acceptedCommandSettlementSeq,
     accepted_at: new Date().toISOString(),
     operator_control: "abandon_run",
   };
@@ -760,6 +860,7 @@ async function enqueueAbandonRun(payload) {
     accepted_state_id: acceptedStateId,
     accepted_state_seq: acceptedStateSeq,
     accepted_command_execution_seq: acceptedCommandExecutionSeq,
+    accepted_command_settlement_seq: acceptedCommandSettlementSeq,
   });
   if (preempted) {
     // waitForCommand returns immediately while a command is in flight, so a
@@ -786,6 +887,8 @@ async function enqueueAbandonRun(payload) {
         commandMeta.command,
         state.summary,
         acceptedCommandExecutionSeq,
+        acceptedCommandSettlementSeq,
+        commandId,
       ),
     );
     const observedChanged = observed ? observed.state_id !== acceptedStateId : false;
@@ -934,6 +1037,15 @@ async function handleControlMessage(payload) {
     };
     }
     const commandId = payload.command_id || crypto.randomUUID();
+    if (seenCommandIds.has(commandId)) {
+      return {
+        ok: false,
+        error: "command_id has already been accepted",
+        state_id: latestSummary?.state_id ?? null,
+        state_seq: stateSeq,
+        step,
+      };
+    }
     const command = String(payload.command).trim();
     const verb = command.split(/\s+/)[0].toLowerCase();
     const startupStart = (verb === "start" || verb === "start_verify")
@@ -946,6 +1058,7 @@ async function handleControlMessage(payload) {
       source_state_id: startupStart ? null : payload.expected_state_id ?? latestSummary?.state_id ?? null,
       source_state_seq: startupStart ? stateSeq : payload.expected_state_seq ?? stateSeq,
       source_command_execution_seq: Number(latestSummary?.command_execution_seq ?? 0),
+      source_command_settlement_seq: Number(latestSummary?.command_settlement_seq ?? 0),
       submitted_at: Date.now() / 1000,
       protocol: "tcp-jsonl",
       owner_id: controlOwner?.owner_id ?? null,
@@ -956,12 +1069,15 @@ async function handleControlMessage(payload) {
     const acceptedStateSeq = stateSeq;
     const acceptedStateId = latestSummary?.state_id ?? null;
     const acceptedCommandExecutionSeq = Number(latestSummary?.command_execution_seq ?? 0);
+    const acceptedCommandSettlementSeq = Number(latestSummary?.command_settlement_seq ?? 0);
+    seenCommandIds.add(commandId);
     commandInFlight = {
       command_id: commandId,
       command: commandMeta.command,
       accepted_state_id: acceptedStateId,
       accepted_state_seq: acceptedStateSeq,
       accepted_command_execution_seq: acceptedCommandExecutionSeq,
+      accepted_command_settlement_seq: acceptedCommandSettlementSeq,
       accepted_at: new Date().toISOString(),
     };
     writeRecord({
@@ -973,6 +1089,7 @@ async function handleControlMessage(payload) {
       accepted_state_id: acceptedStateId,
       accepted_state_seq: acceptedStateSeq,
       accepted_command_execution_seq: acceptedCommandExecutionSeq,
+      accepted_command_settlement_seq: acceptedCommandSettlementSeq,
     });
     if (startupStart || startupState) {
       writeAction(commandMeta.command, commandMeta);
@@ -997,6 +1114,8 @@ async function handleControlMessage(payload) {
           commandMeta.command,
           state.summary,
           acceptedCommandExecutionSeq,
+          acceptedCommandSettlementSeq,
+          commandId,
         ),
       );
       const observedChanged = observed ? observed.state_id !== acceptedStateId : false;

@@ -27,9 +27,12 @@ use std::{
     fs,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+
+static FILE_COMMAND_ID_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 // A real game can spend several seconds loading the dungeon after accepting
 // START, especially after a completed/abandoned run.  Keep polling long enough
@@ -110,6 +113,7 @@ impl CommunicationModBridgeManager {
     fn send_command(
         &self,
         bridge_id: &BridgeId,
+        command_id: Option<&str>,
         command: &str,
         source_state_id: Option<&str>,
     ) -> LiveResult<LiveState> {
@@ -140,6 +144,7 @@ impl CommunicationModBridgeManager {
             };
             return send_control_command(
                 &control,
+                command_id,
                 command,
                 &control_files,
                 self.config.stale_after,
@@ -158,7 +163,7 @@ impl CommunicationModBridgeManager {
                 "TCP bridge control is unavailable; set STS_LIVE_ALLOW_FILE_COMMANDS=1 for legacy file commands".to_owned(),
             ));
         }
-        self.send_via_file(command, source_state_id)?;
+        self.send_via_file(command_id, command, source_state_id)?;
         self.state_from_files()
     }
 
@@ -172,6 +177,7 @@ impl CommunicationModBridgeManager {
             {
                 send_control_command(
                     &control,
+                    None,
                     "STATE",
                     &control_files,
                     self.config.stale_after,
@@ -195,7 +201,7 @@ impl CommunicationModBridgeManager {
                 "TCP bridge control is unavailable; set STS_LIVE_ALLOW_FILE_COMMANDS=1 for legacy file commands".to_owned(),
             ));
         }
-        self.send_via_file("ABANDON", None)?;
+        self.send_via_file(None, "ABANDON", None)?;
         self.state_from_files()
     }
 
@@ -220,6 +226,7 @@ impl CommunicationModBridgeManager {
             };
             let Ok(state) = send_control_command(
                 control,
+                None,
                 "STATE",
                 &files,
                 self.config.stale_after,
@@ -251,6 +258,7 @@ impl CommunicationModBridgeManager {
                 request_control_files(control, fallback_status, self.config.command_timeout)?;
             latest = send_control_command(
                 control,
+                None,
                 "STATE",
                 &files,
                 self.config.stale_after,
@@ -266,12 +274,30 @@ impl CommunicationModBridgeManager {
         ))
     }
 
-    fn send_via_file(&self, command: &str, source_state_id: Option<&str>) -> LiveResult<()> {
+    fn send_via_file(
+        &self,
+        command_id: Option<&str>,
+        command: &str,
+        source_state_id: Option<&str>,
+    ) -> LiveResult<()> {
         fs::create_dir_all(&self.config.session_dir)?;
+        let generated_command_id;
+        let command_id = match command_id {
+            Some(command_id) => command_id,
+            None => {
+                let sequence = FILE_COMMAND_ID_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+                generated_command_id = format!(
+                    "sts-live-file-{}-{}-{sequence}",
+                    std::process::id(),
+                    now_ms()
+                );
+                &generated_command_id
+            }
+        };
         fs::write(
             self.config.session_dir.join("next_command.json"),
             serde_json::to_vec(&json!({
-                "command_id": format!("sts-live-file-{}-{}", std::process::id(), now_ms()),
+                "command_id": command_id,
                 "command": command,
                 "source_state_id": source_state_id,
                 "submitted_at_ms": now_ms(),
@@ -350,6 +376,7 @@ impl CommunicationModBridgeManager {
                         // before deciding that the start command is unavailable.
                         send_control_command(
                             &control,
+                            None,
                             "STATE",
                             &control_files,
                             self.config.stale_after,
@@ -372,6 +399,7 @@ impl CommunicationModBridgeManager {
             };
             let state = send_control_command(
                 &control,
+                None,
                 command,
                 &control_files,
                 self.config.stale_after,
@@ -386,7 +414,7 @@ impl CommunicationModBridgeManager {
                 "TCP bridge control is unavailable; set STS_LIVE_ALLOW_FILE_COMMANDS=1 for legacy file commands".to_owned(),
             ));
         }
-        self.send_via_file(command, None)?;
+        self.send_via_file(None, command, None)?;
         self.state_from_files()
     }
 }
@@ -463,6 +491,7 @@ impl BridgeManager for CommunicationModBridgeManager {
                 request_control_files(&control, &files.status, self.config.command_timeout)?;
             send_control_command(
                 &control,
+                None,
                 "STATE",
                 &startup_files,
                 self.config.stale_after,
@@ -549,6 +578,7 @@ impl BridgeManager for CommunicationModBridgeManager {
             match request_control_files(&control, &files.status, self.config.command_timeout) {
                 Ok(control_files) => send_control_command(
                     &control,
+                    None,
                     "STATE",
                     &control_files,
                     self.config.stale_after,
@@ -562,7 +592,7 @@ impl BridgeManager for CommunicationModBridgeManager {
                 Err(err) => Err(err),
             }
         } else if self.config.allow_file_commands {
-            self.send_command(bridge_id, "STATE", None)
+            self.send_command(bridge_id, None, "STATE", None)
         } else {
             Ok(live_state_from_files(&files))
         }
@@ -574,11 +604,12 @@ impl BridgeManager for CommunicationModBridgeManager {
             .get("command")
             .and_then(Value::as_str)
             .ok_or_else(|| LiveError::InvalidAction("action has no bridge command".to_owned()))?;
+        let command_id = action.command.get("command_id").and_then(Value::as_str);
         let source_state_id = action
             .command
             .get("source_state_id")
             .and_then(Value::as_str);
-        let state = self.send_command(bridge_id, command, source_state_id)?;
+        let state = self.send_command(bridge_id, command_id, command, source_state_id)?;
         if action_needs_event_followup_confirmation(command, &state) {
             // Several events publish their follow-up Leave screen one frame
             // before queued deck/relic mutations settle. A confirming STATE

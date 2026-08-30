@@ -322,8 +322,10 @@ scope, and feedback-loop quality matter more than task duration or agent count.
   stabilization from completing a combat command; schema 5 requires a monotonic
   command-execution fence before a gameplay boundary can close; schema 6 also
   waits for gameplay-affecting dungeon effect queues. Replay accepts explicit
-  metadata/state schemas 1 through 6 with typed profile/RNG input. Old passes
-  are evidence, not supported inputs.
+  metadata/state schemas 1 through 7 with typed profile/RNG input. Schema 7 adds
+  target-echoed command identity plus separate attempt and settlement sequences
+  so stale or rejected responses cannot be misattributed. The locked corpus
+  remains schema 6. Old passes are evidence, not supported inputs.
 - A verifier that may inspect the expected output will eventually select its
   transition to match it, and no amount of care in the individual cases
   prevents that. Replay advances from state and action alone; the observation

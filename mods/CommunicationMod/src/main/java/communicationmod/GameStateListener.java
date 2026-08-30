@@ -38,14 +38,25 @@ public class GameStateListener {
     // 6: readiness also waits for gameplay-mutating dungeon effects.
     //    ObtainKeyEffect and ShowCardAndObtainEffect mutate gameplay state
     //    after action queues are otherwise quiescent.
-    private static final int BOUNDARY_SCHEMA = 6;
+    // 7: every command attempt has a target-visible identity. Non-STATE/PROFILE
+    //    attempts, including rejections, advance command_execution_seq once.
+    //    command_settlement_seq advances once when a gameplay command reaches a
+    //    published interaction-ready/quiescent/terminal boundary. Completions
+    //    echo command_response_id and command_response_kind.
+    private static final int BOUNDARY_SCHEMA = 7;
     private static String boundaryKind = "unknown";
     private static boolean pollPending = false;
     private static long gameUpdateSeq = 0L;
     private static long dungeonUpdateSeq = 0L;
-    // Process-lifetime monotonic counter. Do not reset it between runs: the
-    // external bridge also persists, and uses this value as a command fence.
+    // Process-lifetime monotonic counters. Do not reset them between runs: the
+    // external bridge also persists, and uses these values as command fences.
     private static long commandExecutionSeq = 0L;
+    private static long commandSettlementSeq = 0L;
+    private static String activeCommandId = null;
+    private static String commandResponseId = null;
+    private static String commandResponseKind = "unsolicited";
+    private static boolean transactionPending = false;
+    private static boolean waitingBeforeCommand = false;
     private static AbstractGameAction trackedAction = null;
     private static long currentActionInstance = 0L;
     private static long currentActionUpdateCount = 0L;
@@ -71,10 +82,56 @@ public class GameStateListener {
      * Used to indicate that an external command has been executed
      */
     public static void registerCommandExecution() {
-        commandExecutionSeq += 1L;
+        beforeCommand(null, "play");
+    }
+
+    /**
+     * Begins a parsed command attempt before target execution. This makes the
+     * command identity and attempt sequence own every synchronous mutation too.
+     */
+    public static void beforeCommand(String commandId, String verb) {
+        if (CommandEnvelope.isObservationVerb(verb)) {
+            if ("state".equals(verb)) {
+                pollPending = true;
+                activeCommandId = commandId;
+            }
+            return;
+        }
+        waitingBeforeCommand = waitingForCommand;
         waitingForCommand = false;
         boundaryKind = "unknown";
         pollPending = false;
+        commandExecutionSeq += 1L;
+        activeCommandId = commandId;
+        transactionPending = true;
+        commandResponseKind = "unsolicited";
+        commandResponseId = null;
+    }
+
+    /** Completes bookkeeping after a successfully executed command. */
+    public static void afterCommand(String commandId, String verb, boolean stateChanged) {
+        // The attempt must be registered before CommandExecutor runs. Gameplay
+        // settlement is stamped later by the authoritative state boundary.
+    }
+
+    /** Records rejection of the command attempt begun by beforeCommand. */
+    public static void afterRejectedCommand(String commandId, String verb) {
+        if (!CommandEnvelope.isObservationVerb(verb)) {
+            waitingForCommand = waitingBeforeCommand;
+            waitingBeforeCommand = false;
+            transactionPending = false;
+        }
+        boundaryKind = "unknown";
+        pollPending = false;
+        commandResponseId = commandId;
+        commandResponseKind = "rejected";
+        activeCommandId = null;
+    }
+
+    /** Clears any stale identity when command framing itself could not be parsed. */
+    public static void afterUnidentifiedRejectedCommand() {
+        commandResponseId = null;
+        commandResponseKind = "rejected";
     }
 
     /** Marks an explicit STATE response, which is observation rather than gameplay settlement. */
@@ -307,6 +364,7 @@ public class GameStateListener {
             externalChange = false;
             waitingForCommand = true;
             boundaryKind = "terminal";
+            stampPublishedGameplayResponse();
         }
         return stateChange;
     }
@@ -326,6 +384,7 @@ public class GameStateListener {
                 externalChange = false;
                 waitingForCommand = true;
                 boundaryKind = classifyDungeonBoundary();
+                stampPublishedGameplayResponse();
                 previousPhase = AbstractDungeon.getCurrRoom().phase;
                 previousScreen = AbstractDungeon.screen;
                 previousScreenUp = AbstractDungeon.isScreenUp;
@@ -421,6 +480,20 @@ public class GameStateListener {
         return actionManagerIsQuiescent() ? "quiescent" : "interaction_ready";
     }
 
+    static void stampPublishedGameplayResponse() {
+        if (!transactionPending) {
+            commandResponseKind = "unsolicited";
+            commandResponseId = null;
+            return;
+        }
+        commandSettlementSeq += 1L;
+        commandResponseKind = "settled";
+        commandResponseId = activeCommandId;
+        transactionPending = false;
+        waitingBeforeCommand = false;
+        activeCommandId = null;
+    }
+
     public static boolean isWaitingForCommand() {
         return waitingForCommand;
     }
@@ -444,9 +517,30 @@ public class GameStateListener {
 
     /** Returns the boundary for one response and consumes an explicit poll marker. */
     public static String consumeBoundaryKind() {
-        String result = getBoundaryKind();
-        pollPending = false;
-        return result;
+        if (pollPending) {
+            commandResponseKind = "poll";
+            commandResponseId = activeCommandId;
+            activeCommandId = null;
+            pollPending = false;
+            return "poll";
+        }
+        return boundaryKind;
+    }
+
+    public static long getCommandSettlementSeq() {
+        return commandSettlementSeq;
+    }
+
+    public static String getCommandResponseId() {
+        return commandResponseId;
+    }
+
+    public static String getCommandResponseKind() {
+        return commandResponseKind;
+    }
+
+    public static boolean isTransactionPending() {
+        return transactionPending;
     }
 
     public static long getGameUpdateSeq() {

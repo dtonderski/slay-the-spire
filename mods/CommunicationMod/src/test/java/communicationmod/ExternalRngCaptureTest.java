@@ -43,7 +43,7 @@ public class ExternalRngCaptureTest {
             assertTrue(ExternalRngCapture.drainPending().isEmpty());
 
             GameStateListener.resetStateVariables();
-            assertEquals(6, GameStateListener.getBoundarySchema());
+            assertEquals(7, GameStateListener.getBoundarySchema());
             assertFalse(GameStateListener.hasCompletingBoundary());
             long executionSeq = GameStateListener.getCommandExecutionSeq();
             GameStateListener.registerCommandExecution();

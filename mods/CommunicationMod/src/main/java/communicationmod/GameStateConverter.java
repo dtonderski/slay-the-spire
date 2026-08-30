@@ -58,6 +58,10 @@ public class GameStateConverter {
         response.put("game_update_seq", GameStateListener.getGameUpdateSeq());
         response.put("dungeon_update_seq", GameStateListener.getDungeonUpdateSeq());
         response.put("command_execution_seq", GameStateListener.getCommandExecutionSeq());
+        response.put("command_settlement_seq", GameStateListener.getCommandSettlementSeq());
+        response.put("command_response_id", GameStateListener.getCommandResponseId());
+        response.put("command_response_kind", GameStateListener.getCommandResponseKind());
+        response.put("transaction_pending", GameStateListener.isTransactionPending());
         response.put("current_action", GameStateListener.getCurrentActionName());
         response.put("current_action_instance", GameStateListener.getCurrentActionInstance());
         response.put("current_action_update_count", GameStateListener.getCurrentActionUpdateCount());

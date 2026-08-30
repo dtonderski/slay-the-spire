@@ -89,12 +89,16 @@ assert.strictEqual(
 );
 
 const boundaryMessage = {
-  boundary_schema: 6,
+  boundary_schema: 7,
   boundary_kind: "interaction_ready",
   ready_for_command: true,
   game_update_seq: 100,
   dungeon_update_seq: 90,
   command_execution_seq: 12,
+  command_settlement_seq: 4,
+  command_response_id: "cmd-end",
+  command_response_kind: "settled",
+  transaction_pending: false,
   effects_size: 0,
   top_level_effects_size: 0,
   queued_top_level_effects_size: 0,
@@ -117,7 +121,7 @@ assert.throws(
 );
 assert.throws(
   () => communicationBoundary({ message: { ...boundaryMessage, boundary_schema: 1 } }),
-  /boundary_schema=6 is required/,
+  /boundary_schema=7 is required/,
 );
 assert.throws(
   () => communicationBoundary({ message: { ...boundaryMessage, boundary_kind: "quiescent" } }),
@@ -130,7 +134,7 @@ assert.throws(
 for (const invalid of ["1", null, false, 1.5]) {
   assert.throws(
     () => communicationBoundary({ message: { ...boundaryMessage, boundary_schema: invalid } }),
-    /boundary_schema=6 is required/,
+    /boundary_schema=7 is required/,
   );
 }
 assert.throws(
@@ -396,12 +400,12 @@ const enriched = addCollectionMetadata(
   10000,
   { note_card: "Strike_R", note_upgrades: 1, final_act_available: true },
   "test-source-v1",
-  6,
+  7,
 );
 assert.strictEqual(enriched.length, 2);
 assert.deepStrictEqual(enriched[0].boss_unlocks, bossUnlocks);
 assert.strictEqual(enriched[0].schema, 1);
-assert.strictEqual(enriched[0].boundary_schema, 6);
+assert.strictEqual(enriched[0].boundary_schema, 7);
 assert.strictEqual(enriched[0].source_version, "test-source-v1");
 assert.throws(
   () => addCollectionMetadata(
@@ -412,9 +416,9 @@ assert.throws(
     10000,
     { note_card: "Strike_R", note_upgrades: 1, final_act_available: true },
     "test-source-v1",
-    6,
+    7,
   ),
-  /trace boundary_schema changed from 6 to 1/,
+  /trace boundary_schema changed from 7 to 1/,
 );
 assert.deepStrictEqual(enriched[0].run_config.profile, {
   note_card: "Strike_R",
@@ -473,18 +477,26 @@ assert.throws(
     { type: "action", step: 20, command: "CHOOSE 1" },
     { type: "state", step: 20, message: { game_state: { choice_list: ["leave"] } } },
   ]),
-  /boundary_schema=6 is required/,
+  /boundary_schema=7 is required/,
 );
 
-const fencedAction = (step, command, sourceCommandExecutionSeq = 11) => ({
+const fencedAction = (step, command, sourceCommandExecutionSeq = 11, commandId = "cmd-end") => ({
   type: "action",
   step,
   command,
-  command_meta: { source_command_execution_seq: sourceCommandExecutionSeq },
+  command_meta: {
+    command_id: commandId,
+    source_command_execution_seq: sourceCommandExecutionSeq,
+    source_command_settlement_seq: 3,
+  },
 });
 const quiescentBoundaryMessage = {
   ...boundaryMessage,
   boundary_kind: "quiescent",
+  command_response_kind: "settled",
+  command_response_id: "cmd-end",
+  command_execution_seq: 12,
+  command_settlement_seq: 4,
   current_action: null,
   current_action_instance: null,
   current_action_update_count: null,
@@ -506,8 +518,29 @@ assert.deepStrictEqual(
   [schemaTwoRecords[0], externalRng, schemaTwoRecords[2]],
 );
 const rejectedRecords = [
-  { type: "action", step: 33, command: "CHOOSE 99" },
-  { type: "error", step: 33, message: { error: "invalid choice" } },
+  {
+    type: "action",
+    step: 33,
+    command: "CHOOSE 99",
+    command_meta: {
+      command_id: "cmd-bad",
+      source_command_execution_seq: 11,
+      source_command_settlement_seq: 3,
+    },
+  },
+  {
+    type: "error",
+    step: 33,
+    message: {
+      error: "invalid choice",
+      boundary_schema: 7,
+      command_response_id: "cmd-bad",
+      command_response_kind: "rejected",
+      command_execution_seq: 12,
+      command_settlement_seq: 3,
+      transaction_pending: false,
+    },
+  },
 ];
 assert.deepStrictEqual(normalizeSettledGameplayRecords(rejectedRecords), rejectedRecords);
 assert.throws(
@@ -541,15 +574,29 @@ assert.throws(
     fencedAction(31, "END"),
     { type: "state", step: 31, message: { game_state: {} } },
   ]),
-  /boundary_schema=6 is required/,
+  /boundary_schema=7 is required/,
 );
 const schemaTwoStateRecords = [
-  { type: "action", step: 31, command: "STATE" },
+  {
+    type: "action",
+    step: 31,
+    command: "STATE",
+    command_meta: {
+      command_id: "cmd-state",
+      source_command_execution_seq: 12,
+      source_command_settlement_seq: 4,
+    },
+  },
   { type: "state", step: 31, message: quiescentBoundaryMessage },
   {
     type: "state",
     step: 31,
-    message: { ...quiescentBoundaryMessage, boundary_kind: "poll" },
+    message: {
+      ...quiescentBoundaryMessage,
+      boundary_kind: "poll",
+      command_response_kind: "poll",
+      command_response_id: "cmd-state",
+    },
   },
 ];
 assert.deepStrictEqual(

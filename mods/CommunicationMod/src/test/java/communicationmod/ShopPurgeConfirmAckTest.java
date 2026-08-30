@@ -114,7 +114,7 @@ public class ShopPurgeConfirmAckTest {
         assertTrue(ShopScreenPatch.UpdatePurgePatch.shouldResumeAfterShopScreenUpdatePurge(true, true));
 
         GameStateListener.resetStateVariables();
-        assertEquals(6, GameStateListener.getBoundarySchema());
+        assertEquals(7, GameStateListener.getBoundarySchema());
         assertFalse(GameStateListener.isStateUpdateBlocked());
 
         GameStateListener.blockStateUpdate();

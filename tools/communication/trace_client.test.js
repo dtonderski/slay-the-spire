@@ -40,6 +40,11 @@ function waitFor(predicate, timeoutMs = 3000, label = "condition") {
   });
 }
 
+function stdoutHasCommand(stdout, command) {
+  if (stdout.includes(`${command}\n`)) return true;
+  return stdout.includes(`"command":${JSON.stringify(command)}`);
+}
+
 function readJsonLines(filePath) {
   return fs.readFileSync(filePath, "utf8")
     .trim()
@@ -140,7 +145,7 @@ async function testCommandMetadataIsPreservedInTraceActions() {
     fs.writeFileSync(path.join(sessionDir, "next_command.json"), `${JSON.stringify(metadata)}\n`);
     fs.writeFileSync(path.join(sessionDir, "next_command.txt"), "CHOOSE 0\n");
 
-    await waitFor(() => stdout.includes("CHOOSE 0\n"), 3000, "CHOOSE output");
+    await waitFor(() => stdoutHasCommand(stdout, "CHOOSE 0"), 3000, "CHOOSE output");
     child.stdin.end();
     await new Promise((resolve) => child.on("exit", resolve));
 
@@ -357,7 +362,7 @@ async function testTcpControlRejectsStaleAndAcceptsGuardedCommand() {
       wait_for_state_update: true,
       update_timeout_ms: 3000,
     });
-    await waitFor(() => stdout.includes("CHOOSE 0\n"));
+    await waitFor(() => stdoutHasCommand(stdout, "CHOOSE 0"));
     child.stdin.write(`${JSON.stringify({
       in_game: true,
       ready_for_command: true,
@@ -618,7 +623,7 @@ async function testTcpControlDisablesLegacyFileCommandsByDefault() {
     });
     assert.match(rejected.error, /legacy next_command\.txt command rejected/);
     await new Promise((resolve) => setTimeout(resolve, 150));
-    assert.strictEqual(stdout.includes("CHOOSE 0\n"), false, stderr);
+    assert.strictEqual(stdoutHasCommand(stdout, "CHOOSE 0"), false, stderr);
 
     const accepted = await controlRequest(status.control.port, {
       type: "command",
@@ -628,7 +633,7 @@ async function testTcpControlDisablesLegacyFileCommandsByDefault() {
       owner_token: acquired.owner_token,
     });
     assert.strictEqual(accepted.ok, true);
-    await waitFor(() => stdout.includes("CHOOSE 0\n"));
+    await waitFor(() => stdoutHasCommand(stdout, "CHOOSE 0"));
     const acceptedStatusPath = path.join(sessionDir, "status.json");
     const sentStatus = await waitFor(() => {
       const parsed = JSON.parse(fs.readFileSync(acceptedStatusPath, "utf8"));
@@ -712,7 +717,7 @@ async function testTcpControlRecordsObservedUpdateTimeout() {
     assert.match(accepted.observed_update.error, /timed out/);
     assert.strictEqual(accepted.observed_update.observed_changed, false);
     assert.strictEqual(accepted.observed_update.application_status, "timeout");
-    await waitFor(() => stdout.includes("CHOOSE 0\n"));
+    await waitFor(() => stdoutHasCommand(stdout, "CHOOSE 0"));
     const pendingStatus = JSON.parse(fs.readFileSync(path.join(sessionDir, "status.json"), "utf8"));
     assert.strictEqual(pendingStatus.pending_command, true);
     assert.strictEqual(pendingStatus.command_in_flight.command, "CHOOSE 0");
@@ -795,7 +800,7 @@ async function testExternalRngIsRecordedAgainstProducingAction() {
       && JSON.parse(fs.readFileSync(path.join(sessionDir, "status.json"), "utf8")).status === "waiting",
     3000, "RNG bridge waiting");
     fs.writeFileSync(path.join(sessionDir, "next_command.txt"), "CHOOSE 0\n");
-    await waitFor(() => stdout.includes("CHOOSE 0\n"), 3000, "Courier purchase output");
+    await waitFor(() => stdoutHasCommand(stdout, "CHOOSE 0"), 3000, "Courier purchase output");
 
     const draws = [{
       kind: "card_group_get_random_card_by_type",
@@ -890,7 +895,7 @@ async function testTcpControlRejectsAbandonBehindDispatchedCommand() {
       owner_token: acquired.owner_token,
     });
     assert.strictEqual(first.ok, true);
-    await waitFor(() => stdout.includes("CHOOSE 0\n"));
+    await waitFor(() => stdoutHasCommand(stdout, "CHOOSE 0"));
 
     const abandon = await controlRequest(status.control.port, {
       type: "abandon_run",
@@ -920,7 +925,7 @@ async function testTcpControlRejectsAbandonBehindDispatchedCommand() {
       game_state: { screen_type: "COMBAT_REWARD", floor: 13 },
     })}\n`);
     await new Promise((resolve) => setTimeout(resolve, 100));
-    assert.strictEqual(stdout.includes("ABANDON\n"), false);
+    assert.strictEqual(stdoutHasCommand(stdout, "ABANDON"), false);
 
     const nextState = await controlRequest(status.control.port, { type: "state" });
     const settle = await controlRequest(status.control.port, {
@@ -998,7 +1003,7 @@ async function testTcpControlAbandonRunBypassesAvailableCommands() {
       wait_for_state_update: true,
       update_timeout_ms: 3000,
     });
-    await waitFor(() => stdout.includes("ABANDON\n"));
+    await waitFor(() => stdoutHasCommand(stdout, "ABANDON"));
     child.stdin.write(`${JSON.stringify({
       in_game: false,
       ready_for_command: true,
@@ -1091,7 +1096,7 @@ async function testTcpControlProfileRestoresGuardMetadataForNextStart() {
       wait_for_state_update: true,
       update_timeout_ms: 3000,
     });
-    await waitFor(() => stdout.includes("PROFILE\n"));
+    await waitFor(() => stdoutHasCommand(stdout, "PROFILE"));
     child.stdin.write(`${JSON.stringify({
       type: "profile",
       profile: {
@@ -1124,7 +1129,7 @@ async function testTcpControlProfileRestoresGuardMetadataForNextStart() {
       wait_for_state_update: false,
     });
     assert.strictEqual(start.ok, true, start.error || stderr);
-    await waitFor(() => stdout.includes("START IRONCLAD 0 CODEX04\n"));
+    await waitFor(() => stdoutHasCommand(stdout, "START IRONCLAD 0 CODEX04"));
   } finally {
     if (!child.killed && child.exitCode === null) child.kill();
     fs.rmSync(root, { recursive: true, force: true });
@@ -1170,7 +1175,7 @@ async function testTcpControlAcceptsAdvertisedStartFromUnreadyMenu() {
       wait_for_state_update: false,
     });
     assert.strictEqual(accepted.ok, true, stderr);
-    await waitFor(() => stdout.includes("START_VERIFY IRONCLAD 0 TESTSEED 10000\n"));
+    await waitFor(() => stdoutHasCommand(stdout, "START_VERIFY IRONCLAD 0 TESTSEED 10000"));
   } finally {
     if (!child.killed && child.exitCode === null) child.kill();
     fs.rmSync(root, { recursive: true, force: true });
@@ -1239,7 +1244,7 @@ async function testTcpControlRejectsSecondCommandUntilStateUpdate() {
       wait_for_state_update: true,
       update_timeout_ms: 3000,
     });
-    await waitFor(() => stdout.includes("CHOOSE 0\n"));
+    await waitFor(() => stdoutHasCommand(stdout, "CHOOSE 0"));
     child.stdin.write(`${JSON.stringify({
       in_game: true,
       ready_for_command: true,
@@ -1361,7 +1366,7 @@ async function testTcpControlKeepsDispatchedTimeoutInFlightUntilError() {
       wait_for_state_update: true,
       update_timeout_ms: 50,
     });
-    await waitFor(() => stdout.includes("CANCEL\n"));
+    await waitFor(() => stdoutHasCommand(stdout, "CANCEL"));
     const cancelResult = await cancel;
     assert.strictEqual(cancelResult.ok, true);
     assert.strictEqual(cancelResult.observed_update.ok, false);
@@ -1446,7 +1451,7 @@ async function testTcpControlAllowsOnlyStateBeforeStartupObservation() {
       wait_for_state_update: true,
       update_timeout_ms: 3000,
     });
-    await waitFor(() => stdout.includes("STATE\n"));
+    await waitFor(() => stdoutHasCommand(stdout, "STATE"));
     child.stdin.write(`${JSON.stringify({
       in_game: false,
       ready_for_command: true,
@@ -1519,7 +1524,7 @@ async function testTcpControlAllowsStartupStartBeforeObservedState() {
     assert.strictEqual(start.ok, true, start.error);
     assert.strictEqual(start.accepted_state_id, null);
     assert.strictEqual(start.accepted_state_seq, 0);
-    await waitFor(() => stdout.includes("START_VERIFY IRONCLAD 0 CODEX04 10000\n"), 3000);
+    await waitFor(() => stdoutHasCommand(stdout, "START_VERIFY IRONCLAD 0 CODEX04 10000"), 3000);
 
     child.stdin.end();
     await new Promise((resolve) => child.on("exit", resolve));
@@ -1605,7 +1610,7 @@ async function testTcpControlCompletesGameplayOnTerminalStateWithResidualCombatQ
       wait_for_state_update: true,
       update_timeout_ms: 3000,
     });
-    await waitFor(() => stdout.includes("END\n"), 3000, "END output");
+    await waitFor(() => stdoutHasCommand(stdout, "END"), 3000, "END output");
 
     child.stdin.write(`${JSON.stringify({
       in_game: true,
@@ -1785,7 +1790,7 @@ async function testTcpControlPreemptsInFlightCommandWithAbandon() {
       owner_token: acquired.owner_token,
     });
     assert.strictEqual(first.ok, true);
-    await waitFor(() => stdout.includes("CHOOSE 8\n"));
+    await waitFor(() => stdoutHasCommand(stdout, "CHOOSE 8"));
 
     const rejected = await controlRequest(status.control.port, {
       type: "abandon_run",
@@ -1804,7 +1809,7 @@ async function testTcpControlPreemptsInFlightCommandWithAbandon() {
       update_timeout_ms: 200,
     });
     assert.strictEqual(abandon.ok, true, abandon.error);
-    await waitFor(() => stdout.includes("ABANDON\n"), 3000, "preempt ABANDON output");
+    await waitFor(() => stdoutHasCommand(stdout, "ABANDON"), 3000, "preempt ABANDON output");
 
     child.stdin.write(`${JSON.stringify({
       in_game: false,
@@ -1840,6 +1845,123 @@ async function testTcpControlPreemptsInFlightCommandWithAbandon() {
   }
 }
 
+async function testSchemaSevenTcpCompletionAndDuplicateIdentity() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-trace-client-schema7-"));
+  const sessionDir = path.join(root, "session");
+  const outDir = path.join(root, "out");
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+
+  const child = spawn(process.execPath, [traceClientPath], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      TRACE_SESSION_DIR: sessionDir,
+      TRACE_OUT_DIR: outDir,
+      TRACE_CONTROL_PORT: "0",
+      TRACE_AUTO_STATE_MS: "0",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
+  child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+
+  const state = (overrides = {}) => ({
+    in_game: true,
+    ready_for_command: true,
+    available_commands: ["choose", "state"],
+    boundary_schema: 7,
+    boundary_kind: "interaction_ready",
+    end_turn_queued: false,
+    game_update_seq: 10,
+    dungeon_update_seq: 8,
+    command_execution_seq: 5,
+    command_settlement_seq: 3,
+    command_response_id: null,
+    command_response_kind: "unsolicited",
+    transaction_pending: false,
+    effects_size: 0,
+    top_level_effects_size: 0,
+    queued_top_level_effects_size: 0,
+    current_action: null,
+    current_action_instance: null,
+    current_action_update_count: null,
+    actions_queued: 0,
+    card_queue_size: 0,
+    pre_turn_actions_size: 0,
+    game_state: { screen_type: "EVENT", floor: 2, choice_list: ["Pray"] },
+    ...overrides,
+  });
+
+  try {
+    await waitFor(() => stdout.includes("ready\n"));
+    child.stdin.write(`${JSON.stringify(state())}\n`);
+    const status = await waitFor(() => {
+      const file = path.join(sessionDir, "status.json");
+      if (!fs.existsSync(file)) return null;
+      const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+      return parsed.control?.port ? parsed : null;
+    }, 3000, "schema-7 control port");
+    const current = await controlRequest(status.control.port, { type: "state" });
+    const commandId = "schema7-choose-1";
+    const completion = controlRequest(status.control.port, {
+      type: "command",
+      command_id: commandId,
+      command: "CHOOSE 0",
+      expected_state_id: current.state_id,
+      expected_state_seq: current.state_seq,
+      wait_for_state_update: true,
+      update_timeout_ms: 2000,
+    });
+    await waitFor(
+      () => stdout.includes(`${JSON.stringify({ command_id: commandId, command: "CHOOSE 0" })}\n`),
+      3000,
+      `schema-7 command envelope; stdout=${stdout}; stderr=${stderr}`,
+    );
+
+    child.stdin.write(`${JSON.stringify(state({
+      game_update_seq: 11,
+      command_response_kind: "unsolicited",
+      transaction_pending: true,
+    }))}\n`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const pending = await controlRequest(status.control.port, { type: "state" });
+    assert.strictEqual(pending.pending_command, true);
+
+    child.stdin.write(`${JSON.stringify(state({
+      game_update_seq: 12,
+      command_execution_seq: 6,
+      command_settlement_seq: 4,
+      command_response_id: commandId,
+      command_response_kind: "settled",
+      transaction_pending: false,
+    }))}\n`);
+    const completed = await completion;
+    assert.strictEqual(completed.ok, true, completed.error);
+    assert.strictEqual(completed.observed_update.ok, true);
+    assert.strictEqual(completed.observed_update.state.pending_command, false);
+
+    const latest = await controlRequest(status.control.port, { type: "state" });
+    const duplicate = await controlRequest(status.control.port, {
+      type: "command",
+      command_id: commandId,
+      command: "CHOOSE 0",
+      expected_state_id: latest.state_id,
+      expected_state_seq: latest.state_seq,
+    });
+    assert.strictEqual(duplicate.ok, false);
+    assert.match(duplicate.error, /already been accepted/);
+
+    child.stdin.end();
+    await new Promise((resolve) => child.on("exit", resolve));
+  } finally {
+    if (!child.killed && child.exitCode === null) child.kill();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 Promise.resolve()
   .then(() => runTest(testCommandMetadataIsPreservedInTraceActions))
   .then(() => runTest(testExternalRngIsRecordedAgainstProducingAction))
@@ -1858,6 +1980,7 @@ Promise.resolve()
   .then(() => runTest(testTcpControlAllowsOnlyStateBeforeStartupObservation))
   .then(() => runTest(testTcpControlAllowsStartupStartBeforeObservedState))
   .then(() => runTest(testTcpControlKeepsDispatchedTimeoutInFlightUntilError))
+  .then(() => runTest(testSchemaSevenTcpCompletionAndDuplicateIdentity))
   .then(() => {
     console.log("trace_client tests passed");
   })
