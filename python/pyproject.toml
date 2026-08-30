@@ -21,7 +21,7 @@ rl = [
     "torch>=2.7",
 ]
 tracking = [
-    "wandb>=0.19",
+    "wandb>=0.29,<0.30",
 ]
 
 [dependency-groups]

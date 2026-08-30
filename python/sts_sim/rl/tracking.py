@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import random
+import warnings
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -64,6 +65,14 @@ class OfflineWandbSession:
         self._run = run
         self._previous_env = dict(previous_env)
         self._finished = False
+        self._logging_enabled = True
+
+    @property
+    def active(self) -> bool:
+        return self._logging_enabled and not self._finished
+
+    def disable_logging(self) -> None:
+        self._logging_enabled = False
 
     def log_scalars(self, metrics: Mapping[str, object], *, step: int) -> None:
         _reject_tensors(metrics)
@@ -120,10 +129,18 @@ def start_offline_wandb(
             raise RuntimeError("wandb.init returned no run")
         return OfflineWandbSession(wandb, run, previous_env)
     except Exception:
-        if run is not None:
-            with _isolated_rng():
-                wandb.finish()
-        _restore_env(previous_env)
+        try:
+            if run is not None:
+                with _isolated_rng():
+                    wandb.finish()
+        except Exception as cleanup_error:  # noqa: BLE001
+            warnings.warn(
+                f"offline W&B init cleanup finish failed: {cleanup_error}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        finally:
+            _restore_env(previous_env)
         raise
 
 
@@ -137,12 +154,16 @@ def _import_wandb() -> _WandbModule:
     return cast(_WandbModule, wandb)
 
 
-def _reject_tensors(payload: Mapping[str, object]) -> None:
-    for value in payload.values():
-        if isinstance(value, torch.Tensor):
-            raise TypeError("offline W&B tracking refuses tensors")
-        if isinstance(value, Mapping):
-            _reject_tensors(cast(Mapping[str, object], value))
+def _reject_tensors(payload: object) -> None:
+    if isinstance(payload, torch.Tensor):
+        raise TypeError("offline W&B tracking refuses tensors")
+    if isinstance(payload, Mapping):
+        for value in payload.values():
+            _reject_tensors(value)
+        return
+    if isinstance(payload, (list, tuple)):
+        for value in payload:
+            _reject_tensors(value)
 
 
 class _RngSnapshot:

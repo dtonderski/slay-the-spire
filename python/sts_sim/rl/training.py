@@ -10,6 +10,7 @@ import platform
 import random
 import sys
 import tempfile
+import warnings
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -29,7 +30,7 @@ from .records import (
     read_jsonl,
 )
 from .tensor import Vocabularies, VocabularyBuilder, encoder_contract_digest
-from .tracking import OfflineWandbConfig, start_offline_wandb
+from .tracking import OfflineWandbConfig, OfflineWandbSession, start_offline_wandb
 
 TRAINING_CHECKPOINT_FORMAT = 3
 _CHECKPOINT_KEYS = {
@@ -319,6 +320,32 @@ def _training_order(length: int, seed: int) -> tuple[int, ...]:
     return tuple(int(index) for index in torch.randperm(length, generator=generator).tolist())
 
 
+def _tracking_warn(action: str, error: BaseException) -> None:
+    warnings.warn(
+        (
+            f"offline W&B {action} failed after successful init; "
+            f"training and checkpoint are preserved: {error}"
+        ),
+        RuntimeWarning,
+        stacklevel=2,
+    )
+
+
+def _fail_open_tracking(
+    session: OfflineWandbSession | None,
+    action: str,
+    error: BaseException,
+) -> None:
+    _tracking_warn(action, error)
+    if session is None:
+        return
+    session.disable_logging()
+    try:
+        session.finish()
+    except Exception as finish_error:  # noqa: BLE001
+        _tracking_warn("finish", finish_error)
+
+
 def train_beam_clone(
     dataset_manifest_path: Path,
     checkpoint_path: Path,
@@ -346,7 +373,7 @@ def train_beam_clone(
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
     metrics: list[dict[str, float | int]] = []
-    session = None
+    session: OfflineWandbSession | None = None
     try:
         if resume:
             payload, stored_config = _validate_checkpoint_envelope(
@@ -399,7 +426,10 @@ def train_beam_clone(
         dataset = SymbolicCombatDataset(records, vocabularies)
         target_step = config.total_steps
         if stop_after_steps is not None:
-            if type(stop_after_steps) is not int or not global_step < stop_after_steps <= target_step:
+            if (
+                type(stop_after_steps) is not int
+                or not global_step < stop_after_steps <= target_step
+            ):
                 raise ValueError(
                     "stop_after_steps must be after the current step and within total_steps"
                 )
@@ -452,8 +482,6 @@ def train_beam_clone(
                 "loss": float(loss.detach()),
             }
             metrics.append(metric)
-            if session is not None:
-                session.log_scalars({"loss": metric["loss"]}, step=global_step)
             checkpoint: dict[str, object] = {
                 "checkpoint_format": TRAINING_CHECKPOINT_FORMAT,
                 "config": asdict(config),
@@ -482,15 +510,25 @@ def train_beam_clone(
                 "torch_rng_state": torch.get_rng_state(),
             }
             _atomic_torch_save(checkpoint_path, checkpoint)
-        if session is not None:
-            session.log_summary(
-                {
-                    "checkpoint_path": str(checkpoint_path),
-                    "checkpoint_digest": hashlib.sha256(checkpoint_path.read_bytes()).hexdigest(),
-                    "model_state_digest": _model_state_digest(model.state_dict()),
-                    "global_step": global_step,
-                }
-            )
+            if session is not None and session.active:
+                try:
+                    session.log_scalars({"loss": metric["loss"]}, step=global_step)
+                except Exception as error:  # noqa: BLE001
+                    _fail_open_tracking(session, "log", error)
+        if session is not None and session.active:
+            try:
+                session.log_summary(
+                    {
+                        "checkpoint_path": str(checkpoint_path),
+                        "checkpoint_digest": hashlib.sha256(
+                            checkpoint_path.read_bytes()
+                        ).hexdigest(),
+                        "model_state_digest": _model_state_digest(model.state_dict()),
+                        "global_step": global_step,
+                    }
+                )
+            except Exception as error:  # noqa: BLE001
+                _fail_open_tracking(session, "summary", error)
         return TrainingResult(
             checkpoint_path,
             global_step,
@@ -501,7 +539,10 @@ def train_beam_clone(
         )
     finally:
         if session is not None:
-            session.finish()
+            try:
+                session.finish()
+            except Exception as error:  # noqa: BLE001
+                _tracking_warn("finish", error)
 
 
 def evaluate_beam_clone(

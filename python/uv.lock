@@ -1983,7 +1983,7 @@ dev = [
 requires-dist = [
     { name = "numpy", marker = "extra == 'rl'", specifier = ">=2" },
     { name = "torch", marker = "extra == 'rl'", specifier = ">=2.7" },
-    { name = "wandb", marker = "extra == 'tracking'", specifier = ">=0.19" },
+    { name = "wandb", marker = "extra == 'tracking'", specifier = ">=0.29,<0.30" },
 ]
 provides-extras = ["rl", "tracking"]
 

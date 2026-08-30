@@ -78,7 +78,11 @@ uv run sts-combat-evaluate \
 
 The current trainer is supervised beam cloning. PUCT visit targets are not yet
 training input. Optional offline W&B tracking records scalar loss and symbolic
-provenance only; it never uploads, syncs, or logs tensors:
+provenance only; it never uploads, syncs, or logs tensors. Each `--resume` with
+`--wandb-offline` starts a separate offline run segment rather than continuing a
+previous W&B run id. `target/wandb` lives under Cargo's `target/` directory and
+is removed by `cargo clean`. Source or `uv.lock` changes change the source-bound
+`source_digest` / runtime identity and intentionally reject old checkpoints.
 
 ```bash
 uv sync --extra rl --extra tracking
