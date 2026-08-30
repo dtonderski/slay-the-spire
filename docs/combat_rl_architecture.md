@@ -80,12 +80,16 @@ The existing beam planner is the initial expert:
 5. Initialize PUCT with that network, then replace beam one-hot targets with
    MCTS visit distributions.
 
-The implemented trainer remains supervised beam cloning. Optional offline W&B
-tracking can record scalar `step`/`loss` plus symbolic config and provenance
-digests; it is opt-in, never uploads, and does not change checkpoint bytes.
-Each offline `--resume` is a separate W&B run segment. Source or lockfile
-changes intentionally invalidate source-bound checkpoints. `target/wandb` is
-removed by `cargo clean`. PUCT visit targets are not yet training input.
+The implemented trainer remains supervised imitation. Beam cloning writes
+Record V2 / manifest V5 one-hot labels and terminal `combat_proxy_v1` values.
+Privileged PUCT distillation writes Record V3 / manifest V6 labels: raw root
+visit counts as the policy target and the backed-up root-mean as
+`privileged_puct_root_mean_v1`, still bound to the terminal reward contract used
+inside search. Optional offline W&B tracking records scalar `step`/`loss` plus
+symbolic config and provenance digests; it is opt-in, never uploads, and does
+not change checkpoint bytes. Each offline `--resume` is a separate W&B run
+segment. Source or lockfile changes intentionally invalidate source-bound
+checkpoints. `target/wandb` is removed by `cargo clean`.
 
 A naive privileged PUCT now exists: it expands public `PlayerChoice` rows over
 authoritative `RunState` clones, evaluates one fair leaf at a time, and selects
@@ -97,8 +101,10 @@ baseline. Revisiting an expanded terminal is standard MCTS backup and can
 overweight short terminal lines in the visit target. The leaf callback is
 synchronous and GIL-blocking; `fair_leaf_batch_v1` is batch-size 1 and not an
 extensible request protocol. It does not yet batch leaves, apply virtual loss,
-or share transpositions. Beam examples remain scaffolding until that search
-produces reliable visit targets.
+or share transpositions. `sts-combat-data puct-label` and
+`sts-combat-puct-rollout` consume that teacher. Equal per-decision transition
+budgets for beam and PUCT do not imply equal compute; PUCT also has a separate
+simulation budget. This teacher is privileged, not a fair deployable agent.
 
 ## State Encoder
 

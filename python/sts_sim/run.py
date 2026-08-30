@@ -372,6 +372,37 @@ class RunEnv:
             )
         )
 
+    def puct_clone_episode_payload(
+        self,
+        evaluator: Callable[[str], str],
+        *,
+        c_puct: float = 1.5,
+        simulation_budget: int = 64,
+        transition_budget: int = 64,
+        max_decisions: int = 512,
+        max_player_turns: int = 100,
+        reward_config_json: str | None = None,
+    ) -> dict[str, object]:
+        """Run a detached privileged PUCT teacher episode from this combat root.
+
+        The live environment is not mutated. The evaluator callback receives only
+        a detached fair observation plus public choices.
+        """
+
+        return _mapping(
+            json.loads(
+                self._native.puct_clone_episode_json(
+                    evaluator,
+                    c_puct,
+                    simulation_budget,
+                    transition_budget,
+                    max_decisions,
+                    max_player_turns,
+                    reward_config_json,
+                )
+            )
+        )
+
     def full_state(self) -> dict[str, object]:
         """Return the complete privileged simulator state as a detached dictionary."""
 

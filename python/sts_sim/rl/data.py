@@ -14,6 +14,9 @@ from ..fair import FairCombatObservation
 from ..run import Action, RunEnv
 from .provenance import RepositoryVersion, capture_repository_version
 from .records import (
+    PUCT_TEACHER_NAME,
+    PUCT_TEACHER_VERSION,
+    PUCT_VALUE_TARGET_NAME,
     CombatOutcome,
     JsonValue,
     SymbolicTrainingRecord,
@@ -21,13 +24,17 @@ from .records import (
     fair_observation_digest,
     fair_observation_from_payload,
     fair_observation_payload,
+    first_argmax_visits,
     read_jsonl,
     validate_v2_search_config,
+    validate_v3_search_config,
 )
 from .rewards import COMBAT_PROXY_V1, CombatRewardConfig
 
 ROOT_MANIFEST_VERSION = 4
 DATASET_MANIFEST_VERSION = 5
+DATASET_MANIFEST_V6 = 6
+_ACCEPTED_DATASET_MANIFEST_VERSIONS = {DATASET_MANIFEST_VERSION, DATASET_MANIFEST_V6}
 _SPLIT_SALT = "combat-agent-phase2-v1"
 _GENERATOR_NAME = "legal_run_policy"
 _GENERATOR_VERSION = "sha256_action_policy_v3"
@@ -622,7 +629,7 @@ def load_dataset_manifest(
     source = cast(dict[str, object], raw)
     if (
         set(source) != set(DatasetManifest.__dataclass_fields__)
-        or source["manifest_version"] != DATASET_MANIFEST_VERSION
+        or source["manifest_version"] not in _ACCEPTED_DATASET_MANIFEST_VERSIONS
     ):
         raise ValueError("unsupported or malformed dataset manifest")
     if (
@@ -746,7 +753,22 @@ def load_dataset_manifest(
     reward = CombatRewardConfig(**cast(dict[str, Any], manifest.reward_config))
     if reward.digest != manifest.reward_config_digest:
         raise ValueError("dataset reward configuration digest is invalid")
-    validate_v2_search_config(manifest.search_config)
+    if manifest.manifest_version == DATASET_MANIFEST_VERSION:
+        validate_v2_search_config(manifest.search_config)
+        if (
+            manifest.teacher_name == PUCT_TEACHER_NAME
+            or manifest.teacher_version == PUCT_TEACHER_VERSION
+        ):
+            raise ValueError("V5 datasets cannot mix PUCT teacher identity")
+    elif manifest.manifest_version == DATASET_MANIFEST_V6:
+        validate_v3_search_config(manifest.search_config)
+        if (
+            manifest.teacher_name != PUCT_TEACHER_NAME
+            or manifest.teacher_version != PUCT_TEACHER_VERSION
+        ):
+            raise ValueError("V6 datasets require the privileged PUCT teacher")
+    else:
+        raise ValueError("unsupported or malformed dataset manifest")
     if manifest.teacher_search_contract_digest != _teacher_search_contract_digest(
         manifest.teacher_name, manifest.teacher_version, manifest.search_config
     ):
@@ -796,14 +818,35 @@ def load_dataset_manifest(
         raise ValueError("dataset record order or count is invalid")
     memberships = {root.root_id: root for root in roots}
     seen_memberships: set[str] = set()
+    record_versions = {record.record_version for record in records}
+    if len(record_versions) != 1:
+        raise ValueError("dataset mixes record schema epochs")
+    expected_record_version = 2 if manifest.manifest_version == DATASET_MANIFEST_VERSION else 3
     for record in records:
-        if record.record_version != 2:
-            raise ValueError("dataset requires training record schema V2")
-        if (
-            sum(record.teacher_visit_counts) != 1
-            or record.teacher_visit_counts[record.chosen_action_index] != 1
-        ):
-            raise ValueError("beam-clone teacher labels must be one-hot at the chosen action")
+        if record.record_version != expected_record_version:
+            raise ValueError("dataset record schema does not match the manifest epoch")
+        if expected_record_version == 2:
+            if (
+                sum(record.teacher_visit_counts) != 1
+                or record.teacher_visit_counts[record.chosen_action_index] != 1
+            ):
+                raise ValueError("beam-clone teacher labels must be one-hot at the chosen action")
+            if record.value_target_name != reward.name:
+                raise ValueError("dataset record reward contract mismatch")
+            expected_value = reward.value(record.outcome)
+            if record.target_value != expected_value or record.value_target_mask != (
+                expected_value is not None
+            ):
+                raise ValueError("dataset record value target does not match serialized outcome")
+        else:
+            if record.value_target_name != PUCT_VALUE_TARGET_NAME:
+                raise ValueError("PUCT records must use privileged_puct_root_mean_v1")
+            if sum(record.teacher_visit_counts) <= 0:
+                raise ValueError("PUCT teacher labels must have positive visit mass")
+            if record.chosen_action_index != first_argmax_visits(record.teacher_visit_counts):
+                raise ValueError("PUCT chosen action is not the first visit-count argmax")
+            if record.target_value is None or not record.value_target_mask:
+                raise ValueError("PUCT root-mean value targets must be present and unmasked")
         membership = memberships.get(record.root_id)
         if membership is None or record.split_group_id != membership.split_group_id:
             raise ValueError("dataset record root/group membership mismatch")
@@ -815,10 +858,7 @@ def load_dataset_manifest(
             or record.planner_version != manifest.teacher_version
         ):
             raise ValueError("dataset record teacher mismatch")
-        if (
-            record.reward_config_digest != manifest.reward_config_digest
-            or record.value_target_name != reward.name
-        ):
+        if record.reward_config_digest != manifest.reward_config_digest:
             raise ValueError("dataset record reward contract mismatch")
         if (
             record.source_kind != manifest.source_kind
@@ -827,11 +867,6 @@ def load_dataset_manifest(
             raise ValueError("dataset record source/search configuration mismatch")
         if record.repository != manifest.repository:
             raise ValueError("dataset record repository mismatch")
-        expected_value = reward.value(record.outcome)
-        if record.target_value != expected_value or record.value_target_mask != (
-            expected_value is not None
-        ):
-            raise ValueError("dataset record value target does not match serialized outcome")
         # Reparse descriptors to enforce the tensorizable canonical action schema.
         for action in record.actions:
             action_descriptor_from_payload(

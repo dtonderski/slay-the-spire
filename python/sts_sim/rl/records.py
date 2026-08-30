@@ -70,6 +70,29 @@ _V2_SEARCH_CONFIG_KEYS = {
     "replan",
     "deduplicate_search_states",
 }
+_V3_SEARCH_CONFIG_KEYS = {
+    "c_puct",
+    "simulation_budget",
+    "transition_budget",
+    "max_decisions",
+    "max_player_turns",
+    "deadline",
+    "replan",
+    "privileged",
+    "leaf_schema",
+    "value_target_name",
+    "checkpoint_file_digest",
+    "checkpoint_model_state_digest",
+    "checkpoint_config_digest",
+    "source_digest",
+    "runtime_identity_digest",
+    "vocabulary_fingerprint",
+    "encoder_contract_digest",
+}
+PUCT_VALUE_TARGET_NAME = "privileged_puct_root_mean_v1"
+PUCT_TEACHER_NAME = "privileged_puct"
+PUCT_TEACHER_VERSION = "synchronous_batch1_v3"
+FAIR_LEAF_BATCH_SCHEMA = "fair_leaf_batch_v1"
 _COMBAT_ACTION_SLOTS: dict[str, tuple[set[str], set[str]]] = {
     "play_hand_slot": ({"hand_slot"}, {"target_slot"}),
     "end_turn": (set(), set()),
@@ -323,6 +346,20 @@ def action_descriptor_from_payload(payload: object) -> ActionDescriptor:
     )
 
 
+def first_argmax_visits(counts: Sequence[int]) -> int:
+    if not counts:
+        raise ValueError("visit counts must be nonempty")
+    best_index = 0
+    best = counts[0]
+    for index, value in enumerate(counts):
+        if type(value) is not int or value < 0:
+            raise ValueError("visit counts must be nonnegative integers")
+        if value > best:
+            best = value
+            best_index = index
+    return best_index
+
+
 def validate_v2_search_config(payload: Mapping[str, object]) -> None:
     if set(payload) != _V2_SEARCH_CONFIG_KEYS:
         raise ValueError("V2 search config has missing or unknown fields")
@@ -335,6 +372,49 @@ def validate_v2_search_config(payload: Mapping[str, object]) -> None:
         raise ValueError("unknown teacher replanning policy")
     if type(payload["deduplicate_search_states"]) is not bool:
         raise TypeError("deduplicate_search_states must be boolean")
+
+
+def validate_v3_search_config(payload: Mapping[str, object]) -> None:
+    if set(payload) != _V3_SEARCH_CONFIG_KEYS:
+        raise ValueError("V3 search config has missing or unknown fields")
+    c_puct = payload["c_puct"]
+    if type(c_puct) is int:
+        exploration = float(c_puct)
+    elif type(c_puct) is float:
+        exploration = c_puct
+    else:
+        raise ValueError("search config c_puct must be finite and positive")
+    if not math.isfinite(exploration) or exploration <= 0.0:
+        raise ValueError("search config c_puct must be finite and positive")
+    for key in ("simulation_budget", "transition_budget", "max_decisions", "max_player_turns"):
+        if type(payload[key]) is not int or cast(int, payload[key]) <= 0:
+            raise TypeError(f"search config {key} must be a positive integer")
+    if payload["deadline"] is not None:
+        raise ValueError("offline teacher deadline must be null")
+    if payload["replan"] != "every_public_decision":
+        raise ValueError("unknown teacher replanning policy")
+    if payload["privileged"] is not True:
+        raise ValueError("PUCT teacher search must be explicitly privileged")
+    if payload["leaf_schema"] != FAIR_LEAF_BATCH_SCHEMA:
+        raise ValueError("PUCT leaf schema must be fair_leaf_batch_v1")
+    if payload["value_target_name"] != PUCT_VALUE_TARGET_NAME:
+        raise ValueError("PUCT value target name mismatch")
+    for key in (
+        "checkpoint_file_digest",
+        "checkpoint_model_state_digest",
+        "checkpoint_config_digest",
+        "source_digest",
+        "runtime_identity_digest",
+        "vocabulary_fingerprint",
+        "encoder_contract_digest",
+    ):
+        value = payload[key]
+        if (
+            type(value) is not str
+            or len(value) != 64
+            or any(character not in "0123456789abcdef" for character in value)
+        ):
+            raise ValueError(f"search config {key} must be a lowercase SHA-256 digest")
 
 
 def _optional_integer(payload: Mapping[str, object], key: str) -> int | None:
@@ -565,9 +645,16 @@ class SymbolicTrainingRecord:
                 raise ValueError("target value must be finite and in [-1, 1]")
             if not self.value_target_mask:
                 raise ValueError("present target value must not be masked")
-        if self.outcome.truncated != (not self.value_target_mask):
+        if self.record_version == 3:
+            if self.value_target_name != PUCT_VALUE_TARGET_NAME:
+                raise ValueError("V3 records must use privileged_puct_root_mean_v1")
+            if self.target_value is None or not self.value_target_mask:
+                raise ValueError("V3 PUCT root-mean targets must be present and unmasked")
+            if self.chosen_action_index != first_argmax_visits(self.teacher_visit_counts):
+                raise ValueError("V3 chosen action is not the first visit-count argmax")
+        elif self.outcome.truncated != (not self.value_target_mask):
             raise ValueError("outcome truncation and value target mask disagree")
-        if self.record_version not in {1, 2}:
+        if self.record_version not in {1, 2, 3}:
             raise ValueError("unsupported training record version")
         if type(self.decision_index) is not int or self.decision_index < 0:
             raise ValueError("decision index must be nonnegative")
@@ -576,11 +663,13 @@ class SymbolicTrainingRecord:
                 raise TypeError(f"{name} must be a nonempty string")
         if self.record_version == 2:
             validate_v2_search_config(cast(Mapping[str, object], self.search_config))
+        elif self.record_version == 3:
+            validate_v3_search_config(cast(Mapping[str, object], self.search_config))
         frozen = _freeze_json(dict(self.search_config), "search config")
         if not isinstance(frozen, Mapping):
             raise TypeError("search config must be an object")
         object.__setattr__(self, "search_config", frozen)
-        if self.record_version == 2:
+        if self.record_version in {2, 3}:
             for name in ("root_id", "root_manifest_digest", "reward_config_digest"):
                 value = getattr(self, name)
                 if (
@@ -623,7 +712,7 @@ class SymbolicTrainingRecord:
             "repository": self.repository.to_dict(),
             "observation_digest": self.observation_digest,
         }
-        if self.record_version == 2:
+        if self.record_version in {2, 3}:
             payload.update(
                 {
                     "record_version": self.record_version,

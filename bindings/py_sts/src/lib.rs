@@ -14,9 +14,10 @@ use sts_core::{
     ALL_RELICS, SNAPSHOT_SCHEMA_VERSION,
 };
 use sts_search::{
-    classify_combat_episode_transition, classify_combat_state, puct_search, CombatProxyConfig,
-    FairLeafEvaluation, FairLeafEvaluator, PuctConfig, PuctError, FAIR_LEAF_BATCH_SCHEMA,
-    PRIVILEGED_PUCT_TEACHER_NAME, PRIVILEGED_PUCT_TEACHER_VERSION,
+    classify_combat_episode_transition, classify_combat_state, puct_clone_episode, puct_search,
+    CombatProxyConfig, FairLeafEvaluation, FairLeafEvaluator, PuctCloneConfig, PuctConfig,
+    PuctError, FAIR_LEAF_BATCH_SCHEMA, PRIVILEGED_PUCT_TEACHER_NAME,
+    PRIVILEGED_PUCT_TEACHER_VERSION,
 };
 
 create_exception!(_native, NoActiveCombatError, PyValueError);
@@ -808,6 +809,30 @@ impl PyOmniRunEnv {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (evaluator, c_puct=1.5, simulation_budget=64, transition_budget=64, max_decisions=512, max_player_turns=100, reward_config_json=None))]
+    pub fn puct_clone_episode_json(
+        &self,
+        evaluator: Bound<'_, PyAny>,
+        c_puct: f64,
+        simulation_budget: usize,
+        transition_budget: usize,
+        max_decisions: usize,
+        max_player_turns: usize,
+        reward_config_json: Option<&str>,
+    ) -> PyResult<String> {
+        puct_clone_episode_json(
+            &self.state,
+            evaluator.unbind(),
+            c_puct,
+            simulation_budget,
+            transition_budget,
+            max_decisions,
+            max_player_turns,
+            reward_config_json,
+        )
+    }
+
     fn __repr__(&self) -> PyResult<String> {
         Ok(format!(
             "RunEnv(phase={}, revision={}, snapshot_hash={})",
@@ -1177,61 +1202,7 @@ fn run_player_hp(state: &RunState) -> (i32, i32) {
 }
 
 fn player_turn_advances(before: &RunState, action: &RunDecisionAction, after: &RunState) -> usize {
-    let (Some(before_combat), Some(after_combat)) = (before.combat.as_ref(), after.combat.as_ref())
-    else {
-        return 0;
-    };
-    if after_combat.phase != CombatPhase::WaitingForPlayer {
-        return 0;
-    }
-
-    // This counter is authoritative when maintained, and preserves deltas
-    // greater than one. It is not the sole signal because some relic sets do
-    // not maintain it.
-    let counter_delta = after_combat
-        .relic_counters
-        .player_turns_started
-        .saturating_sub(before_combat.relic_counters.player_turns_started)
-        as usize;
-    if counter_delta > 0 {
-        return counter_delta;
-    }
-    if matches!(action, RunDecisionAction::Combat(CombatAction::EndTurn)) {
-        return 1;
-    }
-
-    // Conclude's PressEndTurnButtonAction is a modeled forced turn source just
-    // like explicit END, but its accepted public action remains PlayCard.
-    let forced_turn_card = match action {
-        RunDecisionAction::Combat(CombatAction::PlayCard { card_id, .. }) => before_combat
-            .piles
-            .hand
-            .iter()
-            .find(|card| card.id == *card_id)
-            .is_some_and(|card| card.content_id == sts_core::content::cards::CONCLUDE_ANY_COLOR_ID),
-        _ => false,
-    };
-    if forced_turn_card {
-        return 1;
-    }
-
-    // Time Warp can execute end_player_turn from the twelfth card transition
-    // or from a later selection transition. Both are authoritative state
-    // evidence that the forced turn completed.
-    let time_warp_wrapped = before_combat.monsters.iter().any(|before_monster| {
-        before_monster.alive
-            && before_monster.content_id == sts_core::content::monsters::TIME_EATER_ID
-            && before_monster.powers.time_warp == 11
-            && after_combat.monsters.iter().any(|after_monster| {
-                after_monster.content_id == before_monster.content_id
-                    && after_monster.powers.time_warp == 0
-            })
-    });
-    let forced_end_settled = (before_combat.time_warp_end_turn
-        || before_combat.defer_time_warp_end_turn)
-        && !after_combat.time_warp_end_turn
-        && !after_combat.defer_time_warp_end_turn;
-    usize::from(time_warp_wrapped || forced_end_settled)
+    sts_search::player_turn_advances(before, action, after)
 }
 
 fn beam_clone_episode_json(
@@ -1400,6 +1371,28 @@ struct PuctSearchWire {
     choices: Vec<PlayerChoice>,
 }
 
+#[derive(serde::Serialize)]
+struct PuctCloneStepWire {
+    observation: FairCombatObservation,
+    choices: Vec<PlayerChoice>,
+    selected_index: usize,
+    visits: Vec<u64>,
+    value: f64,
+    transitions: usize,
+    completed_simulations: usize,
+    leaf_evaluations: usize,
+    stop_reason: &'static str,
+}
+
+#[derive(serde::Serialize)]
+struct PuctCloneEpisodeWire {
+    schema_version: u32,
+    teacher_name: &'static str,
+    teacher_version: &'static str,
+    steps: Vec<PuctCloneStepWire>,
+    outcome: CombatEpisodeOutcomeWire,
+}
+
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FairLeafBatchResponse {
@@ -1538,6 +1531,81 @@ fn puct_search_json(
         leaf_evaluations: result.leaf_evaluations,
         stop_reason: result.stop_reason.as_str(),
         choices: result.choices,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn puct_clone_episode_json(
+    root: &RunState,
+    evaluator: Py<PyAny>,
+    c_puct: f64,
+    simulation_budget: usize,
+    transition_budget: usize,
+    max_decisions: usize,
+    max_player_turns: usize,
+    reward_config_json: Option<&str>,
+) -> PyResult<String> {
+    let reward = parse_reward_config(reward_config_json).map_err(PyValueError::new_err)?;
+    let (_, state_max_hp) = run_player_hp(root);
+    let config = PuctCloneConfig {
+        search: PuctConfig {
+            c_puct,
+            simulation_budget,
+            transition_budget,
+            reward,
+            episode_root_max_hp: state_max_hp,
+            episode_root_gold: root.gold,
+        },
+        max_decisions,
+        max_player_turns,
+    };
+    let mut evaluator = CallbackLeafEvaluator {
+        callback: evaluator,
+        error: None,
+    };
+    let episode = match puct_clone_episode(root, &config, &mut evaluator) {
+        Ok(episode) => episode,
+        Err(error) => {
+            if let Some(callback_error) = evaluator.error.take() {
+                return Err(callback_error);
+            }
+            return Err(puct_error(error));
+        }
+    };
+    to_json(&PuctCloneEpisodeWire {
+        schema_version: 1,
+        teacher_name: PRIVILEGED_PUCT_TEACHER_NAME,
+        teacher_version: PRIVILEGED_PUCT_TEACHER_VERSION,
+        steps: episode
+            .steps
+            .into_iter()
+            .map(|step| PuctCloneStepWire {
+                observation: step.observation,
+                choices: step.choices,
+                selected_index: step.selected_index,
+                visits: step.visits,
+                value: step.value,
+                transitions: step.transitions,
+                completed_simulations: step.completed_simulations,
+                leaf_evaluations: step.leaf_evaluations,
+                stop_reason: step.stop_reason.as_str(),
+            })
+            .collect(),
+        outcome: CombatEpisodeOutcomeWire {
+            status: episode.outcome.status,
+            terminal_hp: episode.outcome.terminal_hp,
+            terminal_max_hp: episode.outcome.terminal_max_hp,
+            hp_change: episode.outcome.hp_change,
+            max_hp_change: episode.outcome.max_hp_change,
+            gold_change: episode.outcome.gold_change,
+            potion_slots: episode.outcome.potion_slots,
+            counter_changes: Vec::new(),
+            terminal: episode.outcome.terminal,
+            truncated: episode.outcome.truncated,
+            accepted_decisions: episode.outcome.accepted_decisions,
+            player_turns: episode.outcome.player_turns,
+            truncation_trigger: episode.outcome.truncation_trigger,
+        },
     })
 }
 

@@ -22,6 +22,8 @@ from .gameplay import (
     aggregate_paired_differences,
     aggregate_policy_metrics,
     evaluate_matched_gameplay,
+    evaluate_matched_puct_gameplay,
+    evaluate_matched_puct_roots,
     evaluate_matched_roots,
     random_policy_index,
     select_greedy_action,
@@ -39,10 +41,12 @@ from .model import (
 from .provenance import RepositoryVersion, capture_repository_version, file_digest
 from .puct import (
     network_leaf_evaluator,
+    puct_clone_episode_payload,
     puct_search_payload,
     rollout_puct_policy,
     select_puct_action,
 )
+from .puct_data import generate_puct_dataset
 from .records import (
     BatchedTrainingExamples,
     CombatOutcome,
@@ -128,17 +132,21 @@ __all__ = [
     "encoder_contract_digest",
     "evaluate_beam_clone",
     "evaluate_matched_gameplay",
+    "evaluate_matched_puct_gameplay",
+    "evaluate_matched_puct_roots",
     "evaluate_matched_roots",
     "fair_observation_digest",
     "field_coverage_mismatches",
     "file_digest",
     "generate_beam_dataset",
     "generate_legal_roots",
+    "generate_puct_dataset",
     "load_checkpoint",
     "load_dataset_manifest",
     "load_root_manifest",
     "network_leaf_evaluator",
     "policy_value_loss",
+    "puct_clone_episode_payload",
     "puct_search_payload",
     "random_policy_index",
     "read_jsonl",

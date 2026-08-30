@@ -295,8 +295,9 @@ def _load_records(
     records = tuple(read_jsonl(manifest_path.parent / manifest.shard_path))
     if not records:
         raise ValueError("training dataset is empty")
-    if any(record.record_version != 2 for record in records):
-        raise ValueError("training requires record schema V2")
+    versions = {record.record_version for record in records}
+    if versions != {2} and versions != {3}:
+        raise ValueError("training requires a single record schema epoch (V2 or V3)")
     root_count = len(manifest.roots)
     lineage_count = len({lineage for root in manifest.roots for lineage in root.lineages})
     if root_count < minimum_roots or lineage_count < minimum_lineages:
@@ -435,11 +436,14 @@ def train_beam_clone(
                 )
             target_step = stop_after_steps
         if wandb_offline is not None:
+            puct_targets = manifest.teacher_name == "privileged_puct"
             session = start_offline_wandb(
                 wandb_offline,
                 {
-                    "trainer": "beam_clone",
-                    "puct_targets_in_training": False,
+                    "trainer": ("privileged_puct_distill" if puct_targets else "beam_clone"),
+                    "teacher_name": manifest.teacher_name,
+                    "teacher_version": manifest.teacher_version,
+                    "puct_targets_in_training": puct_targets,
                     "resume": resume,
                     "resume_starting_step": global_step,
                     "training_config": asdict(config),

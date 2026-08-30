@@ -124,6 +124,16 @@ class OmniRunEnv:
         episode_root_max_hp: int | None = ...,
         episode_root_gold: int | None = ...,
     ) -> str: ...
+    def puct_clone_episode_json(
+        self,
+        evaluator: object,
+        c_puct: float = ...,
+        simulation_budget: int = ...,
+        transition_budget: int = ...,
+        max_decisions: int = ...,
+        max_player_turns: int = ...,
+        reward_config_json: str | None = ...,
+    ) -> str: ...
 
 class FairCombatEnv:
     @staticmethod

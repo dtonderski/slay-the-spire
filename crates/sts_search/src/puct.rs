@@ -14,10 +14,12 @@
 //! request protocol; request/response correlation ids are deferred.
 
 use serde::{Deserialize, Serialize};
+use sts_core::content::cards::CONCLUDE_ANY_COLOR_ID;
+use sts_core::content::monsters::TIME_EATER_ID;
 use sts_core::{
-    apply_run_decision_action, fair_combat_observation, player_choices, resolve_player_choice,
-    CombatPhase, DecisionRevision, FairCombatObservation, PlayerChoice, PlayerChoiceRequest,
-    Potion, RunAction, RunDecisionAction, RunPhase, RunState,
+    apply_run_decision_action, fair_combat_observation, player_choices, potion_key,
+    resolve_player_choice, CombatAction, CombatPhase, DecisionRevision, FairCombatObservation,
+    PlayerChoice, PlayerChoiceRequest, Potion, RunAction, RunDecisionAction, RunPhase, RunState,
 };
 
 pub const FAIR_LEAF_BATCH_SCHEMA: &str = "fair_leaf_batch_v1";
@@ -219,6 +221,66 @@ pub struct PuctSearchResult {
     pub leaf_evaluations: usize,
     pub stop_reason: PuctStopReason,
     pub choices: Vec<PlayerChoice>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PuctCloneConfig {
+    pub search: PuctConfig,
+    pub max_decisions: usize,
+    pub max_player_turns: usize,
+}
+
+impl PuctCloneConfig {
+    pub fn validate(&self) -> Result<(), PuctError> {
+        self.search.validate()?;
+        if self.max_decisions == 0 {
+            return Err(PuctError::InvalidConfig(
+                "max_decisions must be positive".to_owned(),
+            ));
+        }
+        if self.max_player_turns == 0 {
+            return Err(PuctError::InvalidConfig(
+                "max_player_turns must be positive".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PuctCloneStep {
+    pub observation: FairCombatObservation,
+    pub choices: Vec<PlayerChoice>,
+    pub selected_index: usize,
+    pub visits: Vec<u64>,
+    pub value: f64,
+    pub transitions: usize,
+    pub completed_simulations: usize,
+    pub leaf_evaluations: usize,
+    pub stop_reason: PuctStopReason,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PuctCloneOutcome {
+    pub status: &'static str,
+    pub terminal_hp: i32,
+    pub terminal_max_hp: i32,
+    pub hp_change: i32,
+    pub max_hp_change: i32,
+    pub gold_change: i32,
+    pub remaining_potions: usize,
+    pub potion_slots: Vec<Option<&'static str>>,
+    pub terminal: bool,
+    pub truncated: bool,
+    pub accepted_decisions: usize,
+    pub player_turns: usize,
+    pub truncation_trigger: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PuctCloneEpisode {
+    pub steps: Vec<PuctCloneStep>,
+    pub outcome: PuctCloneOutcome,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -597,6 +659,157 @@ pub fn classify_combat_episode_transition(
         return Some("lost");
     }
     Some("won")
+}
+
+pub fn puct_clone_episode<E: FairLeafEvaluator>(
+    root: &RunState,
+    config: &PuctCloneConfig,
+    evaluator: &mut E,
+) -> Result<PuctCloneEpisode, PuctError> {
+    config.validate()?;
+    if root.phase != RunPhase::Combat || root.combat.is_none() {
+        return Err(PuctError::NotInCombat);
+    }
+    root.validate()
+        .map_err(|error| PuctError::InvalidConfig(error.to_string()))?;
+    let (root_hp, root_max_hp) = player_hp_and_max(root);
+    let root_gold = root.gold;
+    let mut state = root.clone();
+    let mut steps = Vec::new();
+    let mut accepted_decisions = 0usize;
+    let mut player_turns = 1usize;
+    let mut terminal_status = classify_combat_state(root);
+    let mut truncation_trigger = None;
+
+    while terminal_status.is_none() {
+        let search = puct_search(&state, &config.search, evaluator)?;
+        let visit_sum = search.visits.iter().copied().sum::<u64>();
+        if visit_sum != search.completed_simulations as u64 {
+            return Err(PuctError::MalformedEvaluation(
+                "PUCT visit mass must equal completed simulations".to_owned(),
+            ));
+        }
+        if search.transitions > config.search.transition_budget
+            || search.completed_simulations > config.search.simulation_budget
+        {
+            return Err(PuctError::MalformedEvaluation(
+                "PUCT episode overshot its search budgets".to_owned(),
+            ));
+        }
+        let observation = fair_combat_observation(&state)
+            .map_err(|error| PuctError::Observation(error.to_string()))?;
+        steps.push(PuctCloneStep {
+            observation,
+            choices: search.choices.clone(),
+            selected_index: search.selected_index,
+            visits: search.visits.clone(),
+            value: search.value,
+            transitions: search.transitions,
+            completed_simulations: search.completed_simulations,
+            leaf_evaluations: search.leaf_evaluations,
+            stop_reason: search.stop_reason,
+        });
+        let action = search.selected_action;
+        let next = apply_run_decision_action(&state, action)
+            .map_err(|error| PuctError::Transition(error.to_string()))?;
+        accepted_decisions += 1;
+        player_turns = player_turns.saturating_add(player_turn_advances(&state, &action, &next));
+        if let Some(status) = classify_combat_episode_transition(&state, &action, &next) {
+            terminal_status = Some(status);
+            state = next;
+            break;
+        }
+        if accepted_decisions >= config.max_decisions {
+            truncation_trigger = Some("accepted_decisions");
+            state = next;
+            break;
+        }
+        if player_turns > config.max_player_turns {
+            truncation_trigger = Some("player_turns");
+            state = next;
+            break;
+        }
+        state = next;
+    }
+
+    let status = terminal_status.unwrap_or("truncated");
+    let (terminal_hp, terminal_max_hp) = player_hp_and_max(&state);
+    let terminal = terminal_status.is_some();
+    Ok(PuctCloneEpisode {
+        steps,
+        outcome: PuctCloneOutcome {
+            status,
+            terminal_hp,
+            terminal_max_hp,
+            hp_change: terminal_hp - root_hp,
+            max_hp_change: terminal_max_hp - root_max_hp,
+            gold_change: state.gold - root_gold,
+            remaining_potions: remaining_potions(&state),
+            potion_slots: (0..state.potion_capacity())
+                .map(|slot| state.potion_at_slot(slot).map(potion_key))
+                .collect(),
+            terminal,
+            truncated: !terminal,
+            accepted_decisions,
+            player_turns,
+            truncation_trigger,
+        },
+    })
+}
+
+#[must_use]
+pub fn player_turn_advances(
+    before: &RunState,
+    action: &RunDecisionAction,
+    after: &RunState,
+) -> usize {
+    let (Some(before_combat), Some(after_combat)) = (before.combat.as_ref(), after.combat.as_ref())
+    else {
+        return 0;
+    };
+    if after_combat.phase != CombatPhase::WaitingForPlayer {
+        return 0;
+    }
+
+    let counter_delta = after_combat
+        .relic_counters
+        .player_turns_started
+        .saturating_sub(before_combat.relic_counters.player_turns_started)
+        as usize;
+    if counter_delta > 0 {
+        return counter_delta;
+    }
+    if matches!(action, RunDecisionAction::Combat(CombatAction::EndTurn)) {
+        return 1;
+    }
+
+    let forced_turn_card = match action {
+        RunDecisionAction::Combat(CombatAction::PlayCard { card_id, .. }) => before_combat
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.id == *card_id)
+            .is_some_and(|card| card.content_id == CONCLUDE_ANY_COLOR_ID),
+        _ => false,
+    };
+    if forced_turn_card {
+        return 1;
+    }
+
+    let time_warp_wrapped = before_combat.monsters.iter().any(|before_monster| {
+        before_monster.alive
+            && before_monster.content_id == TIME_EATER_ID
+            && before_monster.powers.time_warp == 11
+            && after_combat.monsters.iter().any(|after_monster| {
+                after_monster.content_id == before_monster.content_id
+                    && after_monster.powers.time_warp == 0
+            })
+    });
+    let forced_end_settled = (before_combat.time_warp_end_turn
+        || before_combat.defer_time_warp_end_turn)
+        && !after_combat.time_warp_end_turn
+        && !after_combat.defer_time_warp_end_turn;
+    usize::from(time_warp_wrapped || forced_end_settled)
 }
 
 fn player_hp_and_max(state: &RunState) -> (i32, i32) {
@@ -1036,5 +1249,86 @@ mod tests {
             ),
             Some("escaped")
         );
+    }
+
+    fn clone_config(root: &RunState, max_decisions: usize) -> PuctCloneConfig {
+        PuctCloneConfig {
+            search: config(root, 4),
+            max_decisions,
+            max_player_turns: 100,
+        }
+    }
+
+    #[test]
+    fn clone_episode_is_deterministic_and_does_not_mutate_the_root() {
+        let root = RunState::combat_fixture();
+        let before = serde_json::to_vec(&root).expect("serialize root");
+        let mut first_eval = UniformEvaluator {
+            value: 0.1,
+            calls: 0,
+        };
+        let first =
+            puct_clone_episode(&root, &clone_config(&root, 1), &mut first_eval).expect("first");
+        let after = serde_json::to_vec(&root).expect("serialize root after");
+        assert_eq!(before, after);
+        let mut second_eval = UniformEvaluator {
+            value: 0.1,
+            calls: 0,
+        };
+        let second =
+            puct_clone_episode(&root, &clone_config(&root, 1), &mut second_eval).expect("second");
+        assert_eq!(first, second);
+        assert_eq!(first.steps.len(), 1);
+        assert_eq!(first.outcome.status, "truncated");
+        assert_eq!(first.outcome.truncation_trigger, Some("accepted_decisions"));
+        assert_eq!(first.outcome.accepted_decisions, 1);
+        let step = &first.steps[0];
+        assert_eq!(
+            step.visits.iter().sum::<u64>(),
+            step.completed_simulations as u64
+        );
+        assert!(step.transitions <= 4);
+        assert!(step.completed_simulations <= 4);
+        let selected = step.selected_index;
+        assert_eq!(
+            step.visits[selected],
+            *step.visits.iter().max().expect("visits")
+        );
+        assert!(step
+            .visits
+            .iter()
+            .take(selected)
+            .all(|visits| *visits < step.visits[selected]));
+        assert!((step.value - 0.1).abs() < 1e-12);
+    }
+
+    #[test]
+    fn clone_episode_classifies_an_initial_terminal_without_search() {
+        let mut lost = RunState::combat_fixture();
+        let combat = lost.combat.as_mut().expect("combat fixture");
+        combat.phase = CombatPhase::Lost;
+        combat.player.hp = 0;
+        lost.player_hp = 0;
+        let mut evaluator = UniformEvaluator {
+            value: 0.0,
+            calls: 0,
+        };
+        let episode =
+            puct_clone_episode(&lost, &clone_config(&lost, 8), &mut evaluator).expect("lost root");
+        assert!(episode.steps.is_empty());
+        assert_eq!(episode.outcome.status, "lost");
+        assert_eq!(episode.outcome.accepted_decisions, 0);
+        assert_eq!(evaluator.calls, 0);
+    }
+
+    #[test]
+    fn clone_episode_evaluator_payload_stays_fair() {
+        let root = RunState::combat_fixture();
+        let mut evaluator = UniformEvaluator {
+            value: 0.0,
+            calls: 0,
+        };
+        puct_clone_episode(&root, &clone_config(&root, 1), &mut evaluator).expect("search");
+        assert!(evaluator.calls >= 1);
     }
 }

@@ -207,6 +207,43 @@ def puct_search_payload(
     return payload
 
 
+def puct_clone_episode_payload(
+    env: RunEnv,
+    evaluator: Callable[[str], str],
+    *,
+    c_puct: float = 1.5,
+    simulation_budget: int = 64,
+    transition_budget: int = 64,
+    max_decisions: int = 512,
+    max_player_turns: int = 100,
+    reward_config: CombatRewardConfig | None = None,
+) -> dict[str, object]:
+    """Run a detached privileged PUCT teacher episode from the current root."""
+
+    _positive_exploration(c_puct, "c_puct")
+    _positive_budget(simulation_budget, "simulation budget")
+    _positive_budget(transition_budget, "transition budget")
+    _positive_budget(max_decisions, "max decisions")
+    _positive_budget(max_player_turns, "max player turns")
+    config = COMBAT_PROXY_V1 if reward_config is None else reward_config
+    payload = env.puct_clone_episode_payload(
+        evaluator,
+        c_puct=c_puct,
+        simulation_budget=simulation_budget,
+        transition_budget=transition_budget,
+        max_decisions=max_decisions,
+        max_player_turns=max_player_turns,
+        reward_config_json=json.dumps(config.to_dict(), sort_keys=True, separators=(",", ":")),
+    )
+    if payload.get("teacher_name") != PUCT_TEACHER_NAME:
+        raise ValueError("PUCT episode teacher_name mismatch")
+    if payload.get("teacher_version") != PUCT_TEACHER_VERSION:
+        raise ValueError("PUCT episode teacher_version mismatch")
+    if payload.get("schema_version") != 1:
+        raise ValueError("unsupported native PUCT episode schema")
+    return payload
+
+
 def select_puct_action(
     env: RunEnv,
     decision: Decision,

@@ -74,10 +74,20 @@ uv run sts-combat-evaluate \
   --dataset /tmp/sts-development/dataset-manifest.json \
   --checkpoint /tmp/sts-checkpoint.pt --split development \
   --output /tmp/sts-development-report.json
+uv run sts-combat-data puct-label \
+  --roots /tmp/sts-roots/root-manifest.json \
+  --checkpoint /tmp/sts-checkpoint.pt \
+  --output /tmp/sts-puct-train --split train \
+  --simulation-budget 64 --transition-budget 64
+uv run sts-combat-puct-rollout \
+  --roots /tmp/sts-roots/root-manifest.json \
+  --checkpoint /tmp/sts-checkpoint.pt --split development \
+  --transition-budget 64 --simulation-budget 64
 ```
 
-The current trainer is supervised beam cloning. PUCT visit targets are not yet
-training input. Optional offline W&B tracking records scalar loss and symbolic
+The trainer is supervised imitation. Beam `label` writes V2 one-hot targets;
+`puct-label` writes privileged PUCT V3 visit counts and root-mean values from a
+source-bound format-3 checkpoint. Optional offline W&B tracking records scalar loss and symbolic
 provenance only; it never uploads, syncs, or logs tensors. Each `--resume` with
 `--wandb-offline` starts a separate offline run segment rather than continuing a
 previous W&B run id. `target/wandb` lives under Cargo's `target/` directory and

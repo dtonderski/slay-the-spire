@@ -1,6 +1,6 @@
 # Combat Agent Phase 2 Plan
 
-Status: beam-cloning training vertical slice implemented; naive synchronous PUCT exists; Stage 6 batching/virtual-loss/performance gates remain open.
+Status: beam-cloning training vertical slice implemented; naive synchronous privileged PUCT distillation (Record V3 / manifest V6) exists; Stage 6 batching/virtual-loss/performance gates remain open.
 Last updated: 2026-08-31.
 
 This document settles the architecture decisions that precede writing the
@@ -12,8 +12,9 @@ The first training-ready slice now implements deterministic legal simulator
 roots, a public-decision replanning teacher that reuses the extracted `sts_search`
 beam core, symbolic Record V2 datasets, masked terminal values, exact CPU
 checkpoint/resume, optional offline W&B scalar/provenance tracking, and
-development evaluation. Training remains beam cloning; PUCT targets are not yet
-training input. Offline W&B resume starts a new run segment; `target/wandb` is
+development evaluation. Training can clone beam V2 labels or privileged PUCT V3
+visit/root-mean labels; W&B metadata follows the dataset teacher. Offline W&B
+resume starts a new run segment; `target/wandb` is
 removed by `cargo clean`; source/`uv.lock` changes reject old checkpoints.
 It intentionally does not claim batched PUCT, candidate promotion, or
 trace-derived root extraction. The native episode payload currently reports the full HP/max-HP/gold,

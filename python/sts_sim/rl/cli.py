@@ -8,7 +8,8 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .data import generate_beam_dataset, generate_legal_roots
-from .gameplay import evaluate_matched_gameplay
+from .gameplay import evaluate_matched_gameplay, evaluate_matched_puct_gameplay
+from .puct_data import generate_puct_dataset
 from .tracking import OfflineWandbConfig, default_offline_wandb_directory
 from .training import TrainingConfig, evaluate_beam_clone, train_beam_clone
 
@@ -41,6 +42,17 @@ def _data_parser() -> argparse.ArgumentParser:
         "--deduplicate-search-states", action=argparse.BooleanOptionalAction, default=True
     )
     label.add_argument("--allow-audited-split", action="store_true")
+    puct_label = subcommands.add_parser("puct-label")
+    puct_label.add_argument("--roots", type=Path, required=True)
+    puct_label.add_argument("--output", type=Path, required=True)
+    puct_label.add_argument("--checkpoint", type=Path, required=True)
+    puct_label.add_argument("--split", default="train")
+    puct_label.add_argument("--c-puct", type=float, default=1.5)
+    puct_label.add_argument("--simulation-budget", type=int, default=64)
+    puct_label.add_argument("--transition-budget", type=int, default=64)
+    puct_label.add_argument("--max-decisions", type=int, default=512)
+    puct_label.add_argument("--max-player-turns", type=int, default=100)
+    puct_label.add_argument("--allow-audited-split", action="store_true")
     return parser
 
 
@@ -58,6 +70,19 @@ def data_main(argv: Sequence[str] | None = None) -> int:
             ascension=args.ascension,
             max_run_steps=args.max_run_steps,
             materialize_audited_splits=args.materialize_audited_splits,
+        )
+    elif args.command == "puct-label":
+        manifest = generate_puct_dataset(
+            args.roots,
+            args.output,
+            args.checkpoint,
+            split=args.split,
+            c_puct=args.c_puct,
+            simulation_budget=args.simulation_budget,
+            transition_budget=args.transition_budget,
+            max_decisions=args.max_decisions,
+            max_player_turns=args.max_player_turns,
+            allow_audited_split=args.allow_audited_split,
         )
     else:
         manifest = generate_beam_dataset(
@@ -177,6 +202,48 @@ def evaluate_main(argv: Sequence[str] | None = None) -> int:
         args.checkpoint,
         split=args.split,
         allow_audited_split=args.allow_audited_split,
+    )
+    content = json.dumps(report, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(content, encoding="utf-8")
+    print(content)
+    return 0
+
+
+def puct_rollout_main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="sts-combat-puct-rollout")
+    parser.add_argument("--roots", type=Path, required=True)
+    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--split", default="development")
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--allow-audited-split", action="store_true")
+    parser.add_argument("--c-puct", type=float, default=1.5)
+    parser.add_argument("--simulation-budget", type=int, default=64)
+    parser.add_argument("--transition-budget", type=int, default=64)
+    parser.add_argument("--beam-depth", type=int, default=8)
+    parser.add_argument("--beam-width", type=int, default=24)
+    parser.add_argument("--max-decisions", type=int, default=512)
+    parser.add_argument("--max-player-turns", type=int, default=100)
+    parser.add_argument(
+        "--deduplicate-search-states", action=argparse.BooleanOptionalAction, default=True
+    )
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args(argv)
+    report = evaluate_matched_puct_gameplay(
+        args.roots,
+        args.checkpoint,
+        split=args.split,
+        evaluation_seed=args.seed,
+        allow_audited_split=args.allow_audited_split,
+        c_puct=args.c_puct,
+        simulation_budget=args.simulation_budget,
+        transition_budget=args.transition_budget,
+        beam_depth=args.beam_depth,
+        beam_width=args.beam_width,
+        max_decisions=args.max_decisions,
+        max_player_turns=args.max_player_turns,
+        deduplicate_search_states=args.deduplicate_search_states,
     )
     content = json.dumps(report, sort_keys=True, separators=(",", ":"), allow_nan=False)
     if args.output is not None:
