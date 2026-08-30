@@ -82,12 +82,16 @@ The existing beam planner is the initial expert:
 
 A naive privileged PUCT now exists: it expands public `PlayerChoice` rows over
 authoritative `RunState` clones, evaluates one fair leaf at a time, and selects
-the root action by visit count. Search requires positive simulation and
-transition budgets and stops at the first exhausted budget without overshoot,
-uses `sqrt(parent_visits+1)` exploration, reports the root-mean backup value,
-and scores terminals against the public episode-root max HP/gold baseline. It
-does not yet batch leaves, apply virtual loss, or share transpositions. Beam
-examples remain scaffolding until that search produces reliable visit targets.
+the root action by visit count. Search requires a finite positive `c_puct` and
+positive simulation and transition budgets, always stops at the first exhausted
+bound, uses `sqrt(parent_visits+1)` exploration, reports the root-mean backup
+value, and scores terminals against the public episode-root max HP/gold
+baseline. Revisiting an expanded terminal is standard MCTS backup and can
+overweight short terminal lines in the visit target. The leaf callback is
+synchronous and GIL-blocking; `fair_leaf_batch_v1` is batch-size 1 and not an
+extensible request protocol. It does not yet batch leaves, apply virtual loss,
+or share transpositions. Beam examples remain scaffolding until that search
+produces reliable visit targets.
 
 ## State Encoder
 

@@ -3,9 +3,9 @@
 mod puct;
 
 pub use puct::{
-    puct_search, CombatProxyConfig, FairLeafEvaluation, FairLeafEvaluator, PuctConfig, PuctError,
-    PuctSearchResult, FAIR_LEAF_BATCH_SCHEMA, PRIVILEGED_PUCT_TEACHER_NAME,
-    PRIVILEGED_PUCT_TEACHER_VERSION,
+    classify_combat_episode_transition, classify_combat_state, puct_search, CombatProxyConfig,
+    FairLeafEvaluation, FairLeafEvaluator, PuctConfig, PuctError, PuctSearchResult, PuctStopReason,
+    FAIR_LEAF_BATCH_SCHEMA, PRIVILEGED_PUCT_TEACHER_NAME, PRIVILEGED_PUCT_TEACHER_VERSION,
 };
 
 use serde::Serialize;

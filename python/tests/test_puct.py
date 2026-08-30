@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from typing import cast
+from collections.abc import Callable
+from typing import Literal, cast
 
 import pytest
 import torch
@@ -11,6 +12,7 @@ from sts_sim.rl import (
     COMBAT_PROXY_V1,
     CombatModelConfig,
     CombatOutcome,
+    CombatRewardConfig,
     FairCombatPolicyValueNet,
     Vocabularies,
     VocabularyBuilder,
@@ -74,7 +76,7 @@ def _one_hot_evaluator(request_json: str) -> str:
 
 
 def _proxy_outcome(
-    status: str,
+    status: Literal["won", "lost", "escaped", "truncated"],
     hp: int,
     max_hp: int,
     max_hp_change: int,
@@ -104,21 +106,20 @@ def test_puct_payload_is_deterministic_and_budgeted() -> None:
     assert first["teacher_version"] == PUCT_TEACHER_VERSION
     assert first["transitions"] == 6
     assert first["completed_simulations"] == 6
-    assert first["budget_exhausted"] is True
+    assert first["stop_reason"] == "simulation_budget"
     assert env.revision == RunEnv.combat_fixture().revision
 
 
-def test_zero_and_one_hot_priors_finish_within_simulation_budget() -> None:
+def test_zero_c_puct_is_rejected_and_one_hot_priors_still_terminate() -> None:
     env = RunEnv.combat_fixture()
-    zero = puct_search_payload(
-        env,
-        _uniform_evaluator,
-        c_puct=0.0,
-        simulation_budget=16,
-        transition_budget=100,
-    )
-    assert zero["completed_simulations"] == 16
-    assert cast(int, zero["transitions"]) <= 16
+    with pytest.raises(ValueError, match="c_puct must be finite and positive"):
+        puct_search_payload(
+            env,
+            _uniform_evaluator,
+            c_puct=0.0,
+            simulation_budget=16,
+            transition_budget=100,
+        )
     one_hot = puct_search_payload(
         env,
         _one_hot_evaluator,
@@ -127,6 +128,7 @@ def test_zero_and_one_hot_priors_finish_within_simulation_budget() -> None:
     )
     assert one_hot["completed_simulations"] == 16
     assert cast(int, one_hot["transitions"]) <= 16
+    assert one_hot["stop_reason"] == "simulation_budget"
     visits = cast(list[int], one_hot["visits"])
     assert visits[-1] == max(visits)
 
@@ -158,8 +160,27 @@ def test_select_puct_action_requires_descriptor_alignment(
 
     original = puct_module.puct_search_payload
 
-    def misaligned(*args: object, **kwargs: object) -> dict[str, object]:
-        payload = original(*args, **kwargs)
+    def misaligned(
+        env: RunEnv,
+        evaluator: Callable[[str], str],
+        *,
+        c_puct: float = 1.5,
+        simulation_budget: int = 64,
+        transition_budget: int = 64,
+        reward_config: CombatRewardConfig | None = None,
+        episode_root_max_hp: int | None = None,
+        episode_root_gold: int | None = None,
+    ) -> dict[str, object]:
+        payload = original(
+            env,
+            evaluator,
+            c_puct=c_puct,
+            simulation_budget=simulation_budget,
+            transition_budget=transition_budget,
+            reward_config=reward_config,
+            episode_root_max_hp=episode_root_max_hp,
+            episode_root_gold=episode_root_gold,
+        )
         choices = list(cast(list[object], payload["choices"]))
         choices.reverse()
         payload["choices"] = choices
@@ -255,7 +276,7 @@ def test_malformed_evaluator_is_rejected() -> None:
         del request_json
         return json.dumps({"batch": [{"priors": [1.0], "value": 0.0}]})
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError, match="missing field `schema`"):
         puct_search_payload(env, missing_schema, simulation_budget=1, transition_budget=1)
 
     def bad_value(request_json: str) -> str:
@@ -268,7 +289,7 @@ def test_malformed_evaluator_is_rejected() -> None:
             }
         )
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         puct_search_payload(env, bad_value, simulation_budget=1, transition_budget=1)
 
 
@@ -281,10 +302,13 @@ def test_network_leaf_evaluator_runs_through_native_puct() -> None:
         simulation_budget=2,
         transition_budget=2,
     )
-    assert type(payload["selected_index"]) is int
-    assert 0 <= cast(int, payload["selected_index"]) < len(decision.actions)
+    index = payload["selected_index"]
+    assert type(index) is int
+    assert 0 <= index < len(decision.actions)
     assert len(cast(list[object], payload["visits"])) == len(decision.actions)
-    assert payload["unique_evaluations"] >= 1
+    leaf_evaluations = payload["leaf_evaluations"]
+    assert type(leaf_evaluations) is int
+    assert leaf_evaluations >= 1
 
 
 def test_rust_proxy_matches_python_combat_proxy_v1() -> None:
@@ -301,3 +325,27 @@ def test_rust_proxy_matches_python_combat_proxy_v1() -> None:
     assert current_root == pytest.approx(0.85)
     assert episode_root is not None and current_root is not None
     assert episode_root > current_root
+
+
+def test_empty_reward_json_is_rejected() -> None:
+    env = RunEnv.combat_fixture()
+    with pytest.raises(ValueError, match="reward config JSON must be a nonempty"):
+        env.puct_search_payload(
+            _uniform_evaluator,
+            simulation_budget=1,
+            transition_budget=1,
+            reward_config_json="",
+        )
+
+
+def test_transition_budget_stop_reason_is_reported() -> None:
+    env = RunEnv.combat_fixture()
+    payload = puct_search_payload(
+        env,
+        _uniform_evaluator,
+        simulation_budget=8,
+        transition_budget=3,
+    )
+    assert payload["transitions"] == 3
+    assert payload["completed_simulations"] == 3
+    assert payload["stop_reason"] == "transition_budget"

@@ -14,8 +14,9 @@ use sts_core::{
     ALL_RELICS, SNAPSHOT_SCHEMA_VERSION,
 };
 use sts_search::{
-    puct_search, CombatProxyConfig, FairLeafEvaluation, FairLeafEvaluator, PuctConfig,
-    FAIR_LEAF_BATCH_SCHEMA, PRIVILEGED_PUCT_TEACHER_NAME, PRIVILEGED_PUCT_TEACHER_VERSION,
+    classify_combat_episode_transition, classify_combat_state, puct_search, CombatProxyConfig,
+    FairLeafEvaluation, FairLeafEvaluator, PuctConfig, PuctError, FAIR_LEAF_BATCH_SCHEMA,
+    PRIVILEGED_PUCT_TEACHER_NAME, PRIVILEGED_PUCT_TEACHER_VERSION,
 };
 
 create_exception!(_native, NoActiveCombatError, PyValueError);
@@ -1175,50 +1176,6 @@ fn run_player_hp(state: &RunState) -> (i32, i32) {
         .unwrap_or((state.player_hp, state.player_max_hp))
 }
 
-fn classify_combat_state(state: &RunState) -> Option<&'static str> {
-    let combat = state.combat.as_ref()?;
-    if combat.phase == CombatPhase::Lost || combat.player.hp <= 0 {
-        Some("lost")
-    } else if combat.phase == CombatPhase::Won {
-        Some("won")
-    } else {
-        None
-    }
-}
-
-fn classify_combat_episode_transition(
-    before: &RunState,
-    action: &RunDecisionAction,
-    after: &RunState,
-) -> Option<&'static str> {
-    // Proceed is run-screen cleanup after an already terminal combat, not a
-    // second combat outcome. In particular, lost -> Proceed must not become a win.
-    if classify_combat_state(before).is_some() {
-        return None;
-    }
-    if let Some(status) = classify_combat_state(after) {
-        return Some(status);
-    }
-    if after.phase == RunPhase::Combat {
-        return None;
-    }
-    let escaped = matches!(
-        action,
-        RunDecisionAction::Run(RunAction::UsePotion { slot, .. })
-            if before.potion_at_slot(*slot) == Some(Potion::SmokeBomb)
-    );
-    if escaped {
-        return Some("escaped");
-    }
-    // Victory clears the combat and opens the next run screen, so it is
-    // recognized by exclusion. Guard the one case exclusion would get maximally
-    // wrong and label a dead player's exit as the best possible outcome.
-    if run_player_hp(after).0 <= 0 {
-        return Some("lost");
-    }
-    Some("won")
-}
-
 fn player_turn_advances(before: &RunState, action: &RunDecisionAction, after: &RunState) -> usize {
     let (Some(before_combat), Some(after_combat)) = (before.combat.as_ref(), after.combat.as_ref())
     else {
@@ -1438,8 +1395,8 @@ struct PuctSearchWire {
     value: f64,
     transitions: usize,
     completed_simulations: usize,
-    unique_evaluations: usize,
-    budget_exhausted: bool,
+    leaf_evaluations: usize,
+    stop_reason: &'static str,
     choices: Vec<PlayerChoice>,
 }
 
@@ -1468,6 +1425,9 @@ impl FairLeafEvaluator for CallbackLeafEvaluator {
         observation: &FairCombatObservation,
         choices: &[PlayerChoice],
     ) -> Result<FairLeafEvaluation, String> {
+        // Synchronous v-slice: the evaluator runs on the calling thread and
+        // holds the Python GIL for the entire callback. Releasing the GIL or
+        // batching leaves is deferred to Stage 6.
         Python::attach(|py| {
             let request = serde_json::json!({
                 "schema": FAIR_LEAF_BATCH_SCHEMA,
@@ -1517,11 +1477,12 @@ fn parse_fair_leaf_response(response_json: &str) -> Result<FairLeafEvaluation, S
 
 fn parse_reward_config(reward_config_json: Option<&str>) -> Result<CombatProxyConfig, String> {
     match reward_config_json {
-        None | Some("") => {
+        None => {
             let config = CombatProxyConfig::default();
             config.validate().map_err(|error| error.to_string())?;
             Ok(config)
         }
+        Some("") => Err("reward config JSON must be a nonempty combat_proxy_v1 object".to_owned()),
         Some(json) => {
             let config: CombatProxyConfig =
                 serde_json::from_str(json).map_err(|error| error.to_string())?;
@@ -1574,14 +1535,25 @@ fn puct_search_json(
         value: result.value,
         transitions: result.transitions,
         completed_simulations: result.completed_simulations,
-        unique_evaluations: result.unique_evaluations,
-        budget_exhausted: result.budget_exhausted,
+        leaf_evaluations: result.leaf_evaluations,
+        stop_reason: result.stop_reason.as_str(),
         choices: result.choices,
     })
 }
 
-fn puct_error(error: sts_search::PuctError) -> PyErr {
-    PyRuntimeError::new_err(error.to_string())
+fn puct_error(error: PuctError) -> PyErr {
+    let message = error.to_string();
+    match error {
+        PuctError::NotInCombat => NotInCombatError::new_err(message),
+        PuctError::TerminalRoot => DecisionUnavailableError::new_err(message),
+        PuctError::EmptyChoices => InvalidChoiceError::new_err(message),
+        PuctError::InvalidConfig(reason) => PyValueError::new_err(reason),
+        PuctError::ChoiceProjection(reason) => InvalidChoiceError::new_err(reason),
+        PuctError::Observation(reason) => InvalidAuthoritativeStateError::new_err(reason),
+        PuctError::Transition(reason) => InvalidAuthoritativeStateError::new_err(reason),
+        PuctError::Evaluator(reason) => PyRuntimeError::new_err(reason),
+        PuctError::MalformedEvaluation(reason) => PyValueError::new_err(reason),
+    }
 }
 
 fn apply_public_run_action(

@@ -218,9 +218,13 @@ PUCT lives in `sts_search`, over authoritative `RunState` transitions, generic
 over a fair leaf-evaluator trait. PyO3 and any future Rust encoder adapter live
 in `py_sts`, not `sts_search` or `sts_core`. The current vertical slice is
 synchronous batch-size-1 PUCT: it reports visits, root-mean value, transitions,
-simulations, and evaluations, stops at the first exhausted positive simulation
-or transition budget, and carries public episode-root HP/gold baselines across
-replanning. It does not yet implement virtual loss, batched leaf evaluation, or
+simulations, leaf evaluations, and a `stop_reason` of `simulation_budget` or
+`transition_budget`. `c_puct` must be finite and positive. Search always runs to
+one of those bounds, carries public episode-root HP/gold baselines across
+replanning, and invokes the fair leaf callback synchronously while holding the
+Python GIL. Terminal revisits use standard MCTS backup, so visit targets can
+overweight short terminal lines. `fair_leaf_batch_v1` is intentionally not
+extensible. It does not yet implement virtual loss, batched leaf evaluation, or
 the Stage 6 performance gate. Duplicate resolved authoritative actions and
 missing leaf-response schemas fail closed.
 

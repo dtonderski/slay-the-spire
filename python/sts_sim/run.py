@@ -352,8 +352,10 @@ class RunEnv:
 
         The evaluator callback receives only a detached fair observation plus
         public choices as batch-shaped JSON and must return JSON priors/value.
-        Search stops when either the simulation or transition budget is exhausted.
-        The live environment is not mutated.
+        It runs synchronously while holding the Python GIL. Search always stops
+        at `simulation_budget` or `transition_budget`. `selected_index` is valid
+        only against the current Decision from this same environment; do not
+        apply it to a later or cloned decision. The live environment is not mutated.
         """
 
         return _mapping(

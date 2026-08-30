@@ -18,7 +18,9 @@ from .tensor import Vocabularies, collate_combat_tensors, tensorize_combat
 
 FAIR_LEAF_BATCH_SCHEMA = "fair_leaf_batch_v1"
 PUCT_TEACHER_NAME = "privileged_puct"
-PUCT_TEACHER_VERSION = "synchronous_batch1_v2"
+PUCT_TEACHER_VERSION = "synchronous_batch1_v3"
+# fair_leaf_batch_v1 is intentionally batch-size 1 and not an extensible request
+# protocol. Request/response correlation ids are deferred until batched search.
 
 _FORBIDDEN_LEAF_FIELDS = (
     "card_id",
@@ -39,7 +41,11 @@ def _mapping(value: object) -> dict[str, object]:
 
 def _optional_int(choice: Mapping[str, object], name: str) -> int | None:
     value = choice.get(name)
-    return None if value is None else cast(int, value)
+    if value is None:
+        return None
+    if type(value) is not int:
+        raise TypeError(f"public choice {name} must be an int")
+    return value
 
 
 def _descriptor_from_choice(choice: Mapping[str, object]) -> ActionDescriptor:
@@ -69,6 +75,12 @@ def _positive_budget(value: int, label: str) -> int:
     return value
 
 
+def _positive_exploration(value: float, label: str) -> float:
+    if type(value) not in {int, float} or not math.isfinite(float(value)) or float(value) <= 0.0:
+        raise ValueError(f"{label} must be finite and positive")
+    return float(value)
+
+
 def _episode_root_baselines(
     observation: FairCombatObservation,
     episode_root_max_hp: int | None,
@@ -96,7 +108,10 @@ def network_leaf_evaluator(
     model: FairCombatPolicyValueNet,
     vocabularies: Vocabularies,
 ) -> Callable[[str], str]:
-    """Return a batch-shaped JSON callback that scores one fair leaf."""
+    """Return a batch-shaped JSON callback that scores one fair leaf.
+
+    The callback is invoked synchronously while search holds the Python GIL.
+    """
 
     def evaluate(request_json: str) -> str:
         request = _mapping(json.loads(request_json))
@@ -165,6 +180,14 @@ def puct_search_payload(
     episode_root_max_hp: int | None = None,
     episode_root_gold: int | None = None,
 ) -> dict[str, object]:
+    """Run naive privileged PUCT from the current combat state.
+
+    `selected_index` is valid only against the current environment Decision at
+    the time of this call. Do not apply it to a later, cloned, or restored
+    decision. Search always stops at `simulation_budget` or `transition_budget`.
+    The evaluator callback runs synchronously and holds the Python GIL.
+    """
+    _positive_exploration(c_puct, "c_puct")
     _positive_budget(simulation_budget, "simulation budget")
     _positive_budget(transition_budget, "transition budget")
     config = COMBAT_PROXY_V1 if reward_config is None else reward_config
@@ -197,7 +220,10 @@ def select_puct_action(
     episode_root_max_hp: int | None = None,
     episode_root_gold: int | None = None,
 ) -> Action:
-    """Choose by PUCT visits and return the original public Action sidecar."""
+    """Choose by PUCT visits and return the original public Action sidecar.
+
+    The returned action is the current Decision row at `selected_index`.
+    """
 
     if decision.revision != env.revision:
         raise ValueError("PUCT selector requires the current environment decision")
@@ -221,10 +247,7 @@ def select_puct_action(
     index = payload.get("selected_index")
     if type(index) is not int or not 0 <= index < len(decision.actions):
         raise ValueError("PUCT selected an out-of-range public row")
-    selected = decision.actions[index]
-    if not any(candidate is selected for candidate in decision.actions):
-        raise ValueError("PUCT must select an original public Action")
-    return selected
+    return decision.actions[index]
 
 
 def rollout_puct_policy(

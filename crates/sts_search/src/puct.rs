@@ -2,8 +2,16 @@
 //!
 //! Search clones authoritative `RunState` values. The leaf evaluator receives
 //! only a detached fair observation and the public choice list. Both the
-//! simulation and transition budgets must be positive; search stops at the
-//! first exhausted budget without overshoot so terminal reuse cannot hang.
+//! simulation and transition budgets must be positive; every search stops at
+//! the first exhausted bound. `c_puct` must be finite and positive.
+//!
+//! Revisiting an already expanded terminal is standard MCTS backup: the stored
+//! terminal value is applied again and visit counts increment without consuming
+//! a transition. Highest-visit action selection can therefore overweight short
+//! terminal lines relative to longer unfinished branches.
+//!
+//! `fair_leaf_batch_v1` is intentionally batch-size 1 and not an extensible
+//! request protocol; request/response correlation ids are deferred.
 
 use serde::{Deserialize, Serialize};
 use sts_core::{
@@ -14,11 +22,12 @@ use sts_core::{
 
 pub const FAIR_LEAF_BATCH_SCHEMA: &str = "fair_leaf_batch_v1";
 pub const PRIVILEGED_PUCT_TEACHER_NAME: &str = "privileged_puct";
-pub const PRIVILEGED_PUCT_TEACHER_VERSION: &str = "synchronous_batch1_v2";
+pub const PRIVILEGED_PUCT_TEACHER_VERSION: &str = "synchronous_batch1_v3";
 
 const SEARCH_REVISION: DecisionRevision = DecisionRevision::new(0);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CombatProxyConfig {
     pub name: String,
     pub version: u32,
@@ -138,9 +147,9 @@ pub struct PuctConfig {
 
 impl PuctConfig {
     pub fn validate(&self) -> Result<(), PuctError> {
-        if !self.c_puct.is_finite() || self.c_puct < 0.0 {
+        if !self.c_puct.is_finite() || self.c_puct <= 0.0 {
             return Err(PuctError::InvalidConfig(
-                "c_puct must be finite and nonnegative".to_owned(),
+                "c_puct must be finite and positive".to_owned(),
             ));
         }
         if self.simulation_budget == 0 {
@@ -181,6 +190,22 @@ pub trait FairLeafEvaluator {
     ) -> Result<FairLeafEvaluation, String>;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PuctStopReason {
+    SimulationBudget,
+    TransitionBudget,
+}
+
+impl PuctStopReason {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::SimulationBudget => "simulation_budget",
+            Self::TransitionBudget => "transition_budget",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PuctSearchResult {
     pub selected_index: usize,
@@ -191,8 +216,8 @@ pub struct PuctSearchResult {
     pub value: f64,
     pub transitions: usize,
     pub completed_simulations: usize,
-    pub unique_evaluations: usize,
-    pub budget_exhausted: bool,
+    pub leaf_evaluations: usize,
+    pub stop_reason: PuctStopReason,
     pub choices: Vec<PlayerChoice>,
 }
 
@@ -252,49 +277,38 @@ pub fn puct_search<E: FairLeafEvaluator>(
     if root.phase != RunPhase::Combat || root.combat.is_none() {
         return Err(PuctError::NotInCombat);
     }
-    if combat_status(root).is_some() {
+    if classify_combat_state(root).is_some() {
         return Err(PuctError::TerminalRoot);
     }
     root.validate()
         .map_err(|error| PuctError::InvalidConfig(error.to_string()))?;
 
     let mut nodes = Vec::new();
-    let mut unique_evaluations = 0usize;
-    let root_eval = expand_ongoing(root, evaluator, &mut unique_evaluations)?;
-    let root_priors = root_eval
+    let mut leaf_evaluations = 0usize;
+    let mut root_node = expand_ongoing(root, evaluator, &mut leaf_evaluations)?;
+    let root_priors = root_node
         .edges
         .iter()
         .map(|edge| edge.prior)
         .collect::<Vec<_>>();
-    let root_choices = root_eval
+    let root_choices = root_node
         .edges
         .iter()
         .map(|edge| edge.choice)
         .collect::<Vec<_>>();
-    let root_value = root_eval
-        .terminal_value
-        .expect("ongoing root stores its evaluator value in terminal_value until children exist");
-    let mut root_node = root_eval;
     root_node.terminal_value = None;
     nodes.push(root_node);
 
     let mut transitions = 0usize;
     let mut completed_simulations = 0usize;
-    let mut budget_exhausted = false;
 
-    loop {
-        // Stop on either budget before starting another simulation. Revisiting an
-        // expanded terminal increments simulations without consuming a transition.
-        if completed_simulations >= config.simulation_budget
-            || transitions >= config.transition_budget
-        {
-            budget_exhausted = true;
-            break;
-        }
+    while completed_simulations < config.simulation_budget && transitions < config.transition_budget
+    {
         let mut path: Vec<(usize, usize)> = Vec::new();
         let mut node_idx = 0usize;
         loop {
             if let Some(value) = nodes[node_idx].terminal_value {
+                // Standard terminal revisit: backup the stored value again.
                 backup(&mut nodes, &path, value);
                 completed_simulations += 1;
                 break;
@@ -308,10 +322,6 @@ pub fn puct_search<E: FairLeafEvaluator>(
                 node_idx = child_idx;
                 continue;
             }
-            if transitions >= config.transition_budget {
-                budget_exhausted = true;
-                break;
-            }
             let action = nodes[node_idx].edges[edge_idx].action;
             let parent_state = nodes[node_idx].state.clone();
             let child_state = apply_run_decision_action(&parent_state, action)
@@ -319,7 +329,9 @@ pub fn puct_search<E: FairLeafEvaluator>(
             transitions += 1;
             path.push((node_idx, edge_idx));
             let child_idx = nodes.len();
-            if let Some(status) = transition_status(&parent_state, &action, &child_state) {
+            if let Some(status) =
+                classify_combat_episode_transition(&parent_state, &action, &child_state)
+            {
                 let value = proxy_value(&child_state, status, config)?;
                 nodes.push(Node {
                     state: child_state,
@@ -332,7 +344,7 @@ pub fn puct_search<E: FairLeafEvaluator>(
                 completed_simulations += 1;
                 break;
             }
-            let mut child = expand_ongoing(&child_state, evaluator, &mut unique_evaluations)?;
+            let mut child = expand_ongoing(&child_state, evaluator, &mut leaf_evaluations)?;
             let value = child
                 .terminal_value
                 .expect("ongoing expand stores evaluator value");
@@ -343,11 +355,13 @@ pub fn puct_search<E: FairLeafEvaluator>(
             completed_simulations += 1;
             break;
         }
-        if budget_exhausted {
-            break;
-        }
     }
 
+    let stop_reason = if completed_simulations >= config.simulation_budget {
+        PuctStopReason::SimulationBudget
+    } else {
+        PuctStopReason::TransitionBudget
+    };
     let root_node = &nodes[0];
     let visits = root_node
         .edges
@@ -356,7 +370,7 @@ pub fn puct_search<E: FairLeafEvaluator>(
         .collect::<Vec<_>>();
     let selected_index = argmax_visits(&visits);
     let selected_edge = &root_node.edges[selected_index];
-    let value = root_backed_up_mean(root_node, root_value)?;
+    let value = root_backed_up_mean(root_node)?;
     Ok(PuctSearchResult {
         selected_index,
         selected_choice: selected_edge.choice,
@@ -366,8 +380,8 @@ pub fn puct_search<E: FairLeafEvaluator>(
         value,
         transitions,
         completed_simulations,
-        unique_evaluations,
-        budget_exhausted,
+        leaf_evaluations,
+        stop_reason,
         choices: root_choices,
     })
 }
@@ -375,7 +389,7 @@ pub fn puct_search<E: FairLeafEvaluator>(
 fn expand_ongoing<E: FairLeafEvaluator>(
     state: &RunState,
     evaluator: &mut E,
-    unique_evaluations: &mut usize,
+    leaf_evaluations: &mut usize,
 ) -> Result<Node, PuctError> {
     let (choices, actions) = public_choice_actions(state)?;
     let observation = fair_combat_observation(state)
@@ -383,7 +397,7 @@ fn expand_ongoing<E: FairLeafEvaluator>(
     let evaluation = evaluator
         .evaluate(&observation, &choices)
         .map_err(PuctError::Evaluator)?;
-    *unique_evaluations += 1;
+    *leaf_evaluations += 1;
     let (priors, value) = validate_evaluation(choices.len(), &evaluation)?;
     let edges = choices
         .into_iter()
@@ -516,13 +530,14 @@ fn argmax_visits(visits: &[u64]) -> usize {
     best_index
 }
 
-fn root_backed_up_mean(root: &Node, root_value: f64) -> Result<f64, PuctError> {
-    let value = if root.visit_count == 0 {
-        root_value
-    } else {
-        let value_sum: f64 = root.edges.iter().map(|edge| edge.value_sum).sum();
-        value_sum / root.visit_count as f64
-    };
+fn root_backed_up_mean(root: &Node) -> Result<f64, PuctError> {
+    if root.visit_count == 0 {
+        return Err(PuctError::InvalidConfig(
+            "PUCT completed no simulations".to_owned(),
+        ));
+    }
+    let value_sum: f64 = root.edges.iter().map(|edge| edge.value_sum).sum();
+    let value = value_sum / root.visit_count as f64;
     if !value.is_finite() {
         return Err(PuctError::MalformedEvaluation(
             "backed-up PUCT value is not finite".to_owned(),
@@ -540,7 +555,7 @@ fn backup(nodes: &mut [Node], path: &[(usize, usize)], value: f64) {
     }
 }
 
-fn combat_status(state: &RunState) -> Option<&'static str> {
+pub fn classify_combat_state(state: &RunState) -> Option<&'static str> {
     let combat = state.combat.as_ref()?;
     if combat.phase == CombatPhase::Lost || combat.player.hp <= 0 {
         Some("lost")
@@ -551,15 +566,17 @@ fn combat_status(state: &RunState) -> Option<&'static str> {
     }
 }
 
-fn transition_status(
+pub fn classify_combat_episode_transition(
     before: &RunState,
     action: &RunDecisionAction,
     after: &RunState,
 ) -> Option<&'static str> {
-    if combat_status(before).is_some() {
+    // Proceed is run-screen cleanup after an already terminal combat, not a
+    // second combat outcome. In particular, lost -> Proceed must not become a win.
+    if classify_combat_state(before).is_some() {
         return None;
     }
-    if let Some(status) = combat_status(after) {
+    if let Some(status) = classify_combat_state(after) {
         return Some(status);
     }
     if after.phase == RunPhase::Combat {
@@ -573,6 +590,9 @@ fn transition_status(
     if escaped {
         return Some("escaped");
     }
+    // Victory clears the combat and opens the next run screen, so it is
+    // recognized by exclusion. Guard the one case exclusion would get maximally
+    // wrong and label a dead player's exit as the best possible outcome.
     if player_hp_and_max(after).0 <= 0 {
         return Some("lost");
     }
@@ -608,7 +628,7 @@ fn proxy_value(state: &RunState, status: &str, config: &PuctConfig) -> Result<f6
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sts_core::fair_combat_observation;
+    use sts_core::{fair_combat_observation, CombatAction};
 
     struct UniformEvaluator {
         value: f64,
@@ -748,9 +768,9 @@ mod tests {
         assert_eq!(first.transitions, 8);
         assert!(first.transitions <= search_config.transition_budget);
         assert_eq!(first.completed_simulations, 8);
-        assert_eq!(first.unique_evaluations, first_eval.calls);
-        assert!(first.unique_evaluations >= 1);
-        assert!(first.budget_exhausted);
+        assert_eq!(first.leaf_evaluations, first_eval.calls);
+        assert!(first.leaf_evaluations >= 1);
+        assert_eq!(first.stop_reason, PuctStopReason::SimulationBudget);
         assert_eq!(first.visits.iter().sum::<u64>(), 8);
         assert_eq!(first.choices.len(), first.visits.len());
         assert_eq!(first.selected_choice, first.choices[first.selected_index]);
@@ -778,22 +798,21 @@ mod tests {
                 .expect("budgeted search");
             assert!(result.transitions <= budget, "budget {budget}");
             assert!(result.completed_simulations <= budget, "budget {budget}");
-            assert!(result.unique_evaluations <= budget.saturating_add(1));
+            assert!(result.leaf_evaluations <= budget.saturating_add(1));
         }
     }
 
     #[test]
-    fn zero_puct_constant_cannot_spin_past_simulation_budget() {
+    fn zero_puct_constant_is_rejected() {
         let root = RunState::combat_fixture();
         let mut evaluator = UniformEvaluator {
             value: 0.0,
             calls: 0,
         };
-        let result = puct_search(&root, &config_with(&root, 0.0, 16, 100), &mut evaluator)
-            .expect("zero c_puct search");
-        assert_eq!(result.completed_simulations, 16);
-        assert!(result.transitions <= 16);
-        assert!(result.budget_exhausted);
+        let error = puct_search(&root, &config_with(&root, 0.0, 16, 100), &mut evaluator)
+            .expect_err("zero c_puct");
+        assert!(matches!(error, PuctError::InvalidConfig(_)), "{error}");
+        assert_eq!(evaluator.calls, 0);
     }
 
     #[test]
@@ -804,7 +823,7 @@ mod tests {
             .expect("one-hot search");
         assert_eq!(result.completed_simulations, 16);
         assert!(result.transitions <= 16);
-        assert!(result.budget_exhausted);
+        assert_eq!(result.stop_reason, PuctStopReason::SimulationBudget);
         let last = result.visits.len() - 1;
         assert_eq!(
             result.visits[last],
@@ -823,7 +842,7 @@ mod tests {
             puct_search(&root, &config_with(&root, 1.5, 8, 3), &mut trans_eval).expect("trans cap");
         assert_eq!(trans_limited.transitions, 3);
         assert_eq!(trans_limited.completed_simulations, 3);
-        assert!(trans_limited.budget_exhausted);
+        assert_eq!(trans_limited.stop_reason, PuctStopReason::TransitionBudget);
         let mut sim_eval = UniformEvaluator {
             value: 0.0,
             calls: 0,
@@ -832,7 +851,7 @@ mod tests {
             puct_search(&root, &config_with(&root, 1.5, 3, 8), &mut sim_eval).expect("sim cap");
         assert_eq!(sim_limited.completed_simulations, 3);
         assert!(sim_limited.transitions <= 3);
-        assert!(sim_limited.budget_exhausted);
+        assert_eq!(sim_limited.stop_reason, PuctStopReason::SimulationBudget);
     }
 
     #[test]
@@ -953,5 +972,69 @@ mod tests {
             ..CombatProxyConfig::default()
         };
         assert!(overlapping.validate().is_err());
+        let extra = serde_json::from_str::<CombatProxyConfig>(
+            r#"{"name":"combat_proxy_v1","version":1,"win_base":0.75,"escape_base":0.25,"loss_value":-1.0,"hp_fraction_weight":0.2,"max_hp_change_per_ten_weight":0.01,"gold_change_per_hundred_weight":0.01,"potion_weight":0.01,"resource_clip":0.2,"extra":1}"#,
+        );
+        assert!(extra.is_err());
+    }
+
+    #[test]
+    fn terminal_cleanup_does_not_create_a_second_combat_outcome() {
+        let mut lost = RunState::combat_fixture();
+        let combat = lost.combat.as_mut().expect("combat fixture");
+        combat.phase = CombatPhase::Lost;
+        combat.player.hp = 0;
+        lost.player_hp = 0;
+        let after = lost.clone();
+
+        assert_eq!(classify_combat_state(&lost), Some("lost"));
+        assert_eq!(
+            classify_combat_episode_transition(
+                &lost,
+                &RunDecisionAction::Run(RunAction::Proceed),
+                &after,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_dead_player_leaving_combat_is_not_classified_as_a_win() {
+        let before = RunState::combat_fixture();
+        let mut after = before.clone();
+        after.combat = None;
+        after.phase = RunPhase::Reward;
+        after.player_hp = 0;
+
+        assert_eq!(
+            classify_combat_episode_transition(
+                &before,
+                &RunDecisionAction::Combat(CombatAction::EndTurn),
+                &after,
+            ),
+            Some("lost")
+        );
+    }
+
+    #[test]
+    fn smoke_bomb_exit_is_classified_as_escaped() {
+        let mut before = RunState::combat_fixture();
+        before.potions = vec![Potion::SmokeBomb];
+        let mut after = before.clone();
+        after.combat = None;
+        after.phase = RunPhase::Idle;
+        after.potions.clear();
+
+        assert_eq!(
+            classify_combat_episode_transition(
+                &before,
+                &RunDecisionAction::Run(RunAction::UsePotion {
+                    slot: 0,
+                    target: None,
+                }),
+                &after,
+            ),
+            Some("escaped")
+        );
     }
 }
