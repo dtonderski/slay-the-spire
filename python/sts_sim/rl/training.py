@@ -155,6 +155,19 @@ def _model_state_digest(state: object) -> str:
     return digest.hexdigest()
 
 
+def _bounded_fmean(values: Sequence[float]) -> float:
+    if not values:
+        raise ValueError("cannot bound the mean of an empty series")
+    minimum = min(values)
+    maximum = max(values)
+    mean = statistics.fmean(values)
+    if mean < minimum:
+        return minimum
+    if mean > maximum:
+        return maximum
+    return mean
+
+
 def _training_target_values(
     records: Sequence[SymbolicTrainingRecord],
 ) -> tuple[float, ...]:
@@ -186,14 +199,9 @@ def _compute_training_target_statistics(
     else:
         minimum = min(values)
         maximum = max(values)
-        mean = statistics.fmean(values)
-        if mean < minimum:
-            mean = minimum
-        elif mean > maximum:
-            mean = maximum
         unsigned = {
             "count": len(values),
-            "mean": mean,
+            "mean": _bounded_fmean(values),
             "min": minimum,
             "max": maximum,
             "population_stddev": statistics.pstdev(values),
@@ -855,7 +863,7 @@ def evaluate_beam_clone(
     else:
         target_min = min(observed_targets)
         target_max = max(observed_targets)
-        target_mean = statistics.fmean(observed_targets)
+        target_mean = _bounded_fmean(observed_targets)
         target_stddev = statistics.pstdev(observed_targets)
         student_mae = statistics.fmean(
             [
@@ -934,7 +942,9 @@ def evaluate_beam_clone(
         "always_first_index_denominator_note": (
             "always-first baselines are symbolic teacher statistics over every labeled "
             "record and do not require model inference; model exact/any-max accuracies "
-            "keep inference errors in the denominator as misses"
+            "keep inference errors in the denominator as misses. Under accepted V2/V3/V4 "
+            "first-argmax schemas, always_first_index_in_max_visit_set is equivalent to "
+            "always_first_index because chosen_action_index is the first visit-count argmax."
         ),
         "truncated_numerator": truncated_numerator,
         "truncated_denominator": truncated_denominator,

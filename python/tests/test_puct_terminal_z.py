@@ -33,6 +33,7 @@ from sts_sim.rl.records import (
     CombatOutcome,
     JsonValue,
     collate_training_examples,
+    puct_episode_id,
 )
 from sts_sim.rl.rewards import COMBAT_PROXY_V1
 from sts_sim.rl.tensor import BatchedCombatDecision, VocabularyBuilder
@@ -40,6 +41,7 @@ from sts_sim.rl.tracking import OfflineWandbConfig
 from sts_sim.rl.training import (
     TRAINING_CHECKPOINT_FORMAT,
     TRAINING_CHECKPOINT_FORMAT_V3,
+    _bounded_fmean,
     _canonical_unmasked_target,
     _compute_training_target_statistics,
     _kish_ess,
@@ -99,6 +101,10 @@ def test_v4_record_round_trip_and_terminal_z_identity(tmp_path: Path) -> None:
         assert -1.0 <= record.search_root_mean_value <= 1.0
         assert record.search_config["value_target_name"] == COMBAT_PROXY_VALUE_TARGET_NAME
         assert record.search_config["search_root_mean_name"] == PUCT_SEARCH_ROOT_MEAN_NAME
+        assert record.episode_id != "legacy"
+        assert record.episode_id == puct_episode_id(
+            record.root_id, record.search_config, cast(str, record.reward_config_digest)
+        )
         if record.outcome.truncated:
             assert expected is None
             assert record.target_value is None
@@ -307,6 +313,15 @@ def test_static_v4_metrics_match_formulas(tmp_path: Path) -> None:
     assert report["always_first_index_in_max_visit_set_numerator"] == sum(
         record.teacher_visit_counts[0] == max(record.teacher_visit_counts) for record in records
     )
+    assert (
+        report["always_first_index_numerator"]
+        == report["always_first_index_in_max_visit_set_numerator"]
+    )
+    assert (
+        report["always_first_index_accuracy"]
+        == report["always_first_index_in_max_visit_set_accuracy"]
+    )
+    assert "equivalent to always_first_index" in str(report["always_first_index_denominator_note"])
     assert report["always_first_index_denominator"] == len(records)
     assert report["root_count"] == len({record.root_id for record in records})
     sizes = tuple(Counter(record.root_id for record in records).values())
@@ -330,7 +345,8 @@ def test_static_v4_metrics_match_formulas(tmp_path: Path) -> None:
     ]
     preds = [float(cast(int | float, row["predicted_value"])) for row in successful]
     assert report["value_mae_rows"] == len(shard_targets) == len(preds)
-    assert report["target_value_mean"] == statistics.fmean(shard_targets)
+    expected_mean = _bounded_fmean(shard_targets)
+    assert report["target_value_mean"] == expected_mean
     assert report["value_mae"] == statistics.fmean(
         [abs(predicted - target) for predicted, target in zip(preds, shard_targets, strict=True)]
     )
@@ -340,9 +356,10 @@ def test_static_v4_metrics_match_formulas(tmp_path: Path) -> None:
     pred_mean = statistics.fmean(preds)
     assert report["prediction_mean"] == pred_mean
     assert report["prediction_mean_mae"] == _mean_absolute_deviation(shard_targets, pred_mean)
-    assert report["target_mean_mae"] == _mean_absolute_deviation(
-        shard_targets, statistics.fmean(shard_targets)
-    )
+    assert report["target_mean_mae"] == _mean_absolute_deviation(shard_targets, expected_mean)
+    if set(shard_targets) == {0.95}:
+        assert report["target_value_mean"] == report["target_value_max"] == 0.95
+        assert report["target_mean_mae"] == 0.0
     assert report["target_median_mae"] == _mean_absolute_deviation(
         shard_targets, float(statistics.median(shard_targets))
     )
@@ -368,6 +385,23 @@ def test_wandb_v7_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert fake.run.config["puct_targets_in_training"] is True
     assert fake.run.config["trainer"] == "privileged_puct_distill"
     assert fake.run.config["teacher_name"] == PUCT_TEACHER_NAME
+
+
+def test_bounded_fmean_clamps_identical_0_95_labels() -> None:
+    values = (0.95,) * 19
+    raw = statistics.fmean(values)
+    bounded = _bounded_fmean(values)
+    assert raw > max(values)
+    assert bounded == max(values) == min(values) == 0.95
+    assert _mean_absolute_deviation(values, bounded) == 0.0
+    stats = {
+        "count": len(values),
+        "mean": bounded,
+        "min": min(values),
+        "max": max(values),
+        "population_stddev": statistics.pstdev(values),
+    }
+    assert min(values) <= stats["mean"] <= max(values)
 
 
 def test_value_metric_helpers_cover_defined_and_undefined_paths() -> None:
@@ -434,6 +468,10 @@ def test_inference_error_stays_in_model_denominator(
     assert report["always_first_index_in_max_visit_set_numerator"] == sum(
         record.teacher_visit_counts[0] == max(record.teacher_visit_counts) for record in records
     )
+    assert (
+        report["always_first_index_numerator"]
+        == report["always_first_index_in_max_visit_set_numerator"]
+    )
     assert cast(int, report["exact_numerator"]) <= len(records) - 1
     assert cast(float, report["accuracy"]) == cast(int, report["exact_numerator"]) / len(records)
     error_rows = [
@@ -445,7 +483,7 @@ def test_inference_error_stays_in_model_denominator(
     assert cast(int, report["value_pair_root_count"]) <= cast(int, report["root_count"])
 
 
-def test_v4_dataset_rejects_mixed_episode_terminal_z(tmp_path: Path) -> None:
+def test_v4_dataset_rejects_mixed_episode_outcome(tmp_path: Path) -> None:
     manifest_path, _teacher = _tiny_puct_dataset(tmp_path)
     records = list(read_jsonl(manifest_path.parent / "train/train.jsonl"))
     counts = Counter(record.episode_id for record in records)
@@ -469,5 +507,29 @@ def test_v4_dataset_rejects_mixed_episode_terminal_z(tmp_path: Path) -> None:
     manifest_payload["record_ids"] = [cast(str, record.record_id) for record in records]
     _resign_dataset_manifest(manifest_payload)
     manifest_path.write_text(json.dumps(manifest_payload, sort_keys=True, separators=(",", ":")))
-    with pytest.raises(ValueError, match="not identical across decisions"):
+    with pytest.raises(
+        ValueError, match="^V4 PUCT episode outcome is not identical across decisions$"
+    ):
         load_dataset_manifest(manifest_path, requested_split="train")
+
+
+def test_v4_rejects_legacy_and_noncanonical_episode_ids(tmp_path: Path) -> None:
+    manifest_path, _checkpoint = _tiny_puct_dataset(tmp_path)
+    records = tuple(read_jsonl(manifest_path.parent / "train/train.jsonl"))
+    payload = records[0].to_dict()
+    legacy = dict(payload)
+    legacy["episode_id"] = "legacy"
+    legacy["record_id"] = None
+    with pytest.raises(ValueError, match="must not use the default legacy episode ID"):
+        SymbolicTrainingRecord.from_dict(legacy)
+    wrong = dict(payload)
+    wrong["episode_id"] = "0" * 64
+    wrong["record_id"] = None
+    with pytest.raises(ValueError, match="does not match canonical root/search/reward identity"):
+        SymbolicTrainingRecord.from_dict(wrong)
+    expected = puct_episode_id(
+        records[0].root_id,
+        records[0].search_config,
+        cast(str, records[0].reward_config_digest),
+    )
+    assert records[0].episode_id == expected

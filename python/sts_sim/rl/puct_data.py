@@ -45,6 +45,7 @@ from .records import (
     fair_observation_from_payload,
     fair_observation_payload,
     first_argmax_visits,
+    puct_episode_id,
     validate_v4_search_config,
 )
 from .rewards import COMBAT_PROXY_V1, CombatRewardConfig
@@ -210,9 +211,7 @@ def generate_puct_dataset(
             if teacher is not None and teacher != native_teacher:
                 raise ValueError("native teacher metadata changed within dataset")
             outcome = CombatOutcome.from_dict(payload["outcome"])
-            episode_id = _sha256_bytes(
-                _canonical_bytes([root.root_id, search_config, reward_config.digest])
-            )
+            episode_id = puct_episode_id(root.root_id, search_config, reward_config.digest)
             steps = cast(list[dict[str, object]], payload["steps"])
             if not steps:
                 raise ValueError("terminal or post-combat root cannot produce training records")

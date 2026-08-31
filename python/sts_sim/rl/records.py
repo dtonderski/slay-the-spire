@@ -367,6 +367,13 @@ def first_argmax_visits(counts: Sequence[int]) -> int:
     return best_index
 
 
+def puct_episode_id(root_id: str, search_config: object, reward_config_digest: str) -> str:
+    payload = _thaw_json(cast(JsonValue, search_config))
+    return hashlib.sha256(
+        _canonical_json([root_id, payload, reward_config_digest]).encode()
+    ).hexdigest()
+
+
 def validate_v2_search_config(payload: Mapping[str, object]) -> None:
     if set(payload) != _V2_SEARCH_CONFIG_KEYS:
         raise ValueError("V2 search config has missing or unknown fields")
@@ -752,6 +759,18 @@ class SymbolicTrainingRecord:
                     or any(character not in "0123456789abcdef" for character in value)
                 ):
                     raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+            if self.record_version == 4:
+                if self.episode_id == "legacy":
+                    raise ValueError("V4 records must not use the default legacy episode ID")
+                expected_episode = puct_episode_id(
+                    self.root_id,
+                    self.search_config,
+                    cast(str, self.reward_config_digest),
+                )
+                if self.episode_id != expected_episode:
+                    raise ValueError(
+                        "V4 episode ID does not match canonical root/search/reward identity"
+                    )
             identity = hashlib.sha256(
                 _canonical_json(self._substantive_payload()).encode()
             ).hexdigest()

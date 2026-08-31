@@ -26,6 +26,7 @@ from .records import (
     fair_observation_from_payload,
     fair_observation_payload,
     first_argmax_visits,
+    puct_episode_id,
     read_jsonl,
     validate_v2_search_config,
     validate_v3_search_config,
@@ -1019,6 +1020,17 @@ def load_dataset_manifest(
                 raise ValueError("dataset record value target does not match serialized outcome")
             if record.search_root_mean_value is None:
                 raise ValueError("V4 PUCT search root-mean diagnostic must be present")
+            if record.episode_id == "legacy":
+                raise ValueError("V4 records must not use the default legacy episode ID")
+            expected_episode = puct_episode_id(
+                record.root_id,
+                record.search_config,
+                cast(str, record.reward_config_digest),
+            )
+            if record.episode_id != expected_episode:
+                raise ValueError(
+                    "V4 episode ID does not match canonical root/search/reward identity"
+                )
         membership = memberships.get(record.root_id)
         if membership is None or record.split_group_id != membership.split_group_id:
             raise ValueError("dataset record root/group membership mismatch")
@@ -1053,6 +1065,9 @@ def load_dataset_manifest(
                 continue
             if previous.outcome != record.outcome:
                 raise ValueError("V4 PUCT episode outcome is not identical across decisions")
+            # Defense-in-depth: per-record V4 already requires target_value/mask to
+            # equal reward.value(outcome), so identical outcomes imply identical z/mask.
+            # This branch is not independently reachable through a valid V4 constructor.
             if (
                 previous.target_value != record.target_value
                 or previous.value_target_mask != record.value_target_mask
