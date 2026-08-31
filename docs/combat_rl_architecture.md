@@ -45,7 +45,10 @@ combats and intervening run decisions, then captures the first
 `waiting_for_player` decision of the requested combat. Depth sampling stays at
 ascension 0; it is not a substitute for unvalidated higher-ascension mechanics.
 Runs that die, terminate, or hit the step cap before that depth are typed
-exclusions, not silent drops.
+exclusions, not silent drops. Exclusion details report the generic reached combat
+index versus the requested depth. Earlier combats that are not capturable
+`waiting_for_player` roots are still advanced when they have a legal public
+action; the strict capture check applies only to the requested combat.
 
 ```text
 sample training combat root

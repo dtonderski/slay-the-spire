@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from ..fair import FairCombatObservation
-from ..run import Action, RunEnv
+from ..run import Action, Decision, RunEnv
 from .provenance import RepositoryVersion, capture_repository_version
 from .records import (
     PUCT_TEACHER_NAME,
@@ -38,6 +38,7 @@ DATASET_MANIFEST_V6 = 6
 _ACCEPTED_DATASET_MANIFEST_VERSIONS = {DATASET_MANIFEST_VERSION, DATASET_MANIFEST_V6}
 _SPLIT_SALT = "combat-agent-phase2-v1"
 _GENERATOR_NAME = "legal_run_policy"
+_GENERATOR_VERSION_V4 = "sha256_action_policy_v3"
 _GENERATOR_VERSION = "sha256_action_policy_v4"
 _ROOT_MANIFEST_V4_KEYS = frozenset(
     {
@@ -260,10 +261,13 @@ class RootManifest:
             raise TypeError("root manifest must be an object")
         source = cast(dict[str, object], payload)
         version = source.get("manifest_version")
+        if type(version) is not int:
+            raise ValueError("unsupported or malformed root manifest")
         if version == ROOT_MANIFEST_V4:
             if set(source) != _ROOT_MANIFEST_V4_KEYS:
                 raise ValueError("unsupported or malformed root manifest")
             combat_depth = 1
+            expected_generator_version = _GENERATOR_VERSION_V4
         elif version == ROOT_MANIFEST_VERSION:
             if set(source) != _ROOT_MANIFEST_V5_KEYS:
                 raise ValueError("unsupported or malformed root manifest")
@@ -271,8 +275,20 @@ class RootManifest:
             if type(raw_depth) is not int or raw_depth <= 0:
                 raise ValueError("root manifest combat depth is invalid")
             combat_depth = raw_depth
+            expected_generator_version = _GENERATOR_VERSION
         else:
             raise ValueError("unsupported or malformed root manifest")
+        generator_name = source["generator_name"]
+        generator_version = source["generator_version"]
+        if (
+            type(generator_name) is not str
+            or not generator_name
+            or type(generator_version) is not str
+            or not generator_version
+        ):
+            raise TypeError("root manifest generator identity must be nonempty strings")
+        if generator_name != _GENERATOR_NAME or generator_version != expected_generator_version:
+            raise ValueError("root manifest generator identity does not match schema version")
         if (
             type(source["roots"]) is not list
             or type(source["exclusions"]) is not list
@@ -457,6 +473,53 @@ def _require_empty_output_dir(output_dir: Path) -> None:
             raise ValueError("output directory must be empty")
 
 
+def _is_combat_phase(decision: Decision) -> bool:
+    return decision.phase == "combat"
+
+
+def _is_capturable_combat_decision(decision: Decision) -> bool:
+    observation = decision.observation
+    return (
+        _is_combat_phase(decision)
+        and isinstance(observation, FairCombatObservation)
+        and observation.phase == "waiting_for_player"
+        and bool(decision.actions)
+    )
+
+
+def _update_combat_boundary(
+    *,
+    in_combat: bool,
+    combat_index: int,
+    decision: Decision,
+) -> tuple[bool, int, bool]:
+    if _is_combat_phase(decision):
+        if in_combat:
+            return True, combat_index, False
+        return True, combat_index + 1, True
+    return False, combat_index, False
+
+
+def _depth_progress_detail(combat_index: int, combat_depth: int) -> str:
+    return f"reached combat {combat_index} of requested depth {combat_depth}"
+
+
+def _terminal_combat_detail(combat_index: int, combat_depth: int) -> str:
+    return f"combat {combat_index} of requested depth {combat_depth} is not an ongoing policy root"
+
+
+def _combat_entry_exclusion(
+    decision: Decision, *, combat_index: int, combat_depth: int
+) -> str | None:
+    if combat_index == combat_depth:
+        if not _is_capturable_combat_decision(decision):
+            return "terminal_combat"
+        return None
+    if not decision.actions:
+        return "terminal_combat"
+    return None
+
+
 def _capture_combat_root(
     env: RunEnv,
     seed: str,
@@ -468,22 +531,29 @@ def _capture_combat_root(
     in_combat = False
     for step in range(max_run_steps + 1):
         decision = env.decision()
-        observation = decision.observation
-        if isinstance(observation, FairCombatObservation) and not in_combat:
-            combat_index += 1
-            in_combat = True
-            if observation.phase != "waiting_for_player" or not decision.actions:
+        in_combat, combat_index, just_entered = _update_combat_boundary(
+            in_combat=in_combat, combat_index=combat_index, decision=decision
+        )
+        if just_entered:
+            exclusion_reason = _combat_entry_exclusion(
+                decision, combat_index=combat_index, combat_depth=combat_depth
+            )
+            if exclusion_reason == "terminal_combat":
                 return None, RootExclusion(
-                    seed, "terminal_combat", "combat is not an ongoing policy root"
+                    seed,
+                    "terminal_combat",
+                    _terminal_combat_detail(combat_index, combat_depth),
                 )
             if combat_index == combat_depth:
                 return json.loads(env.snapshot().json), None
-        elif not isinstance(observation, FairCombatObservation):
-            in_combat = False
         if step == max_run_steps:
-            return None, RootExclusion(seed, "step_limit", "requested combat depth not reached")
+            return None, RootExclusion(
+                seed, "step_limit", _depth_progress_detail(combat_index, combat_depth)
+            )
         if not decision.actions:
-            return None, RootExclusion(seed, "terminal_run", "requested combat depth not reached")
+            return None, RootExclusion(
+                seed, "terminal_run", _depth_progress_detail(combat_index, combat_depth)
+            )
         env.step(decision.actions[_policy_index(seed, step, decision.actions)])
     raise RuntimeError("combat root capture did not terminate")
 

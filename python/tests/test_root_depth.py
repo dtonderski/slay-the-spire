@@ -8,9 +8,11 @@ import pytest
 
 import sts_sim.rl.data as data_module
 from sts_sim import FairCombatObservation, RunEnv
+from sts_sim.fair import FairContext, FairRunObservation
 from sts_sim.rl import generate_legal_roots, load_root_manifest
 from sts_sim.rl.cli import data_main
-from sts_sim.rl.data import ROOT_MANIFEST_V4, ROOT_MANIFEST_VERSION
+from sts_sim.rl.data import ROOT_MANIFEST_V4, ROOT_MANIFEST_VERSION, RootManifest
+from sts_sim.run import Action, Decision
 
 
 def _resign_root_manifest(payload: dict[str, object]) -> None:
@@ -99,12 +101,14 @@ def test_legacy_v4_root_manifest_round_trips_without_combat_depth(tmp_path: Path
     payload = json.loads(path.read_text())
     payload.pop("combat_depth")
     payload["manifest_version"] = ROOT_MANIFEST_V4
+    payload["generator_version"] = data_module._GENERATOR_VERSION_V4
     _resign_root_manifest(payload)
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     path.write_bytes(encoded)
     loaded = load_root_manifest(path)
     assert loaded.manifest_version == ROOT_MANIFEST_V4
     assert loaded.combat_depth == 1
+    assert loaded.generator_version == data_module._GENERATOR_VERSION_V4
     assert "combat_depth" not in json.loads(path.read_text())
     assert path.read_bytes() == encoded
     assert loaded.to_dict()["manifest_version"] == ROOT_MANIFEST_V4
@@ -180,7 +184,7 @@ def test_step_limit_before_requested_depth_is_typed_and_complete(tmp_path: Path)
     }
     assert any(exclusion.reason == "step_limit" for exclusion in manifest.exclusions)
     assert all(
-        exclusion.detail == "requested combat depth not reached"
+        "reached combat " in exclusion.detail and " of requested depth 2" in exclusion.detail
         for exclusion in manifest.exclusions
         if exclusion.reason in {"step_limit", "terminal_run"}
     )
@@ -211,3 +215,137 @@ def test_roots_cli_passes_combat_depth(tmp_path: Path) -> None:
     payload = json.loads((output / "root-manifest.json").read_text())
     assert payload["combat_depth"] == 1
     assert payload["manifest_version"] == ROOT_MANIFEST_VERSION
+
+
+def _restore_combat_observation(root_dir: Path, manifest: RootManifest) -> FairCombatObservation:
+    env = RunEnv.from_snapshot((root_dir / manifest.roots[0].relative_path).read_text())
+    observation = env.decision().observation
+    assert isinstance(observation, FairCombatObservation)
+    return observation
+
+
+def test_depth_two_root_is_later_public_position_than_depth_one(tmp_path: Path) -> None:
+    first = generate_legal_roots(
+        tmp_path / "depth-1", ["BEAMCLONE0"], max_run_steps=512, combat_depth=1
+    )
+    second = generate_legal_roots(
+        tmp_path / "depth-2", ["BEAMCLONE0"], max_run_steps=512, combat_depth=2
+    )
+    assert first.roots and second.roots
+    assert first.roots[0].root_id != second.roots[0].root_id
+    first_obs = _restore_combat_observation(tmp_path / "depth-1", first)
+    second_obs = _restore_combat_observation(tmp_path / "depth-2", second)
+    assert (second_obs.context.act, second_obs.context.floor) > (
+        first_obs.context.act,
+        first_obs.context.floor,
+    )
+
+
+def test_root_manifest_key_sets_match_dataclass() -> None:
+    assert data_module._ROOT_MANIFEST_V5_KEYS == set(RootManifest.__dataclass_fields__)
+    assert data_module._ROOT_MANIFEST_V4_KEYS == data_module._ROOT_MANIFEST_V5_KEYS - {
+        "combat_depth"
+    }
+
+
+def test_root_manifest_rejects_non_int_versions_and_cross_schema_generators(
+    tmp_path: Path,
+) -> None:
+    generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
+    path = tmp_path / "roots/root-manifest.json"
+    original = json.loads(path.read_text())
+
+    for version in (4.0, 5.0, True, False):
+        payload = dict(original)
+        payload["manifest_version"] = version
+        if version == 4.0:
+            payload.pop("combat_depth", None)
+            payload["generator_version"] = data_module._GENERATOR_VERSION_V4
+        _resign_root_manifest(payload)
+        path.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+        with pytest.raises(ValueError, match="unsupported or malformed"):
+            load_root_manifest(path)
+
+    v5_with_v3 = dict(original)
+    v5_with_v3["generator_version"] = data_module._GENERATOR_VERSION_V4
+    _resign_root_manifest(v5_with_v3)
+    path.write_text(json.dumps(v5_with_v3, sort_keys=True, separators=(",", ":")))
+    with pytest.raises(ValueError, match="generator identity does not match schema version"):
+        load_root_manifest(path)
+
+    v4_with_v4 = dict(original)
+    v4_with_v4.pop("combat_depth")
+    v4_with_v4["manifest_version"] = ROOT_MANIFEST_V4
+    v4_with_v4["generator_version"] = data_module._GENERATOR_VERSION
+    _resign_root_manifest(v4_with_v4)
+    path.write_text(json.dumps(v4_with_v4, sort_keys=True, separators=(",", ":")))
+    with pytest.raises(ValueError, match="generator identity does not match schema version"):
+        load_root_manifest(path)
+
+    wrong_name = dict(original)
+    wrong_name["generator_name"] = "other_policy"
+    _resign_root_manifest(wrong_name)
+    path.write_text(json.dumps(wrong_name, sort_keys=True, separators=(",", ":")))
+    with pytest.raises(ValueError, match="generator identity does not match schema version"):
+        load_root_manifest(path)
+
+
+def _run_kind_combat_decision(actions: tuple[Action, ...]) -> Decision:
+    context = FairContext(ascension=0, act=1, floor=1, gold=99)
+    observation = FairRunObservation(
+        schema_version=1,
+        phase="combat",
+        kind="map",
+        context=context,
+        screen={},
+    )
+    return Decision(
+        revision=0,
+        phase="combat",
+        kind="map",
+        observation=observation,
+        actions=actions,
+    )
+
+
+def test_combat_boundary_uses_decision_phase_not_observation_kind() -> None:
+    env = RunEnv.combat_fixture()
+    combat = env.decision()
+    assert combat.phase == "combat"
+    in_combat, index, entered = data_module._update_combat_boundary(
+        in_combat=False, combat_index=0, decision=combat
+    )
+    assert (in_combat, index, entered) == (True, 1, True)
+    run_kind = _run_kind_combat_decision(combat.actions)
+    stayed = data_module._update_combat_boundary(in_combat=True, combat_index=1, decision=run_kind)
+    assert stayed == (True, 1, False)
+    left = Decision(
+        revision=combat.revision,
+        phase="map",
+        kind="map",
+        observation=run_kind.observation,
+        actions=combat.actions,
+    )
+    assert data_module._update_combat_boundary(in_combat=True, combat_index=1, decision=left) == (
+        False,
+        1,
+        False,
+    )
+
+
+def test_earlier_non_capturable_combat_with_actions_is_not_aborted() -> None:
+    env = RunEnv.combat_fixture()
+    combat = env.decision()
+    run_kind = _run_kind_combat_decision(combat.actions)
+    assert data_module._combat_entry_exclusion(run_kind, combat_index=1, combat_depth=2) is None
+    assert (
+        data_module._combat_entry_exclusion(run_kind, combat_index=2, combat_depth=2)
+        == "terminal_combat"
+    )
+    empty = _run_kind_combat_decision(())
+    assert (
+        data_module._combat_entry_exclusion(empty, combat_index=1, combat_depth=2)
+        == "terminal_combat"
+    )
+    assert data_module._is_capturable_combat_decision(combat)
+    assert data_module._combat_entry_exclusion(combat, combat_index=1, combat_depth=1) is None
