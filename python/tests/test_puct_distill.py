@@ -537,8 +537,30 @@ def test_four_policy_keeps_overflow_errors_in_the_denominator(
     )
     assert policies["puct"]["status"] == "error"
     assert policies["puct"]["error"] == "injected overflow"
+    assert type(policies["puct"]["terminal_hp"]) is int
     aggregates = cast(dict[str, dict[str, object]], report["aggregates"])
     assert aggregates["puct"]["errors"] == 1
+    assert aggregates["puct"]["win_denominator"] == 1
+    counted = (
+        cast(int, aggregates["puct"]["errors"])
+        + cast(int, aggregates["puct"]["truncations"])
+        + cast(int, aggregates["puct"]["win_numerator"])
+        + cast(int, aggregates["puct"]["lost"])
+        + cast(int, aggregates["puct"]["escaped"])
+    )
+    assert counted == 1
+    assert cast(dict[str, object], aggregates["puct"]["terminal_hp"])["count"] == 0
+    paired = cast(dict[str, dict[str, object]], report["paired"])
+    for name in ("puct_network", "puct_beam"):
+        pair = paired[name]
+        per_root = cast(list[dict[str, object]], pair["per_root"])
+        assert len(per_root) == 1
+        assert per_root[0]["errored"] is True
+        assert per_root[0]["right_status"] == "error"
+        assert per_root[0]["hp_delta"] is None
+        assert per_root[0]["accepted_decision_delta"] is None
+        assert cast(dict[str, object], pair["hp_delta"])["count"] == 0
+        assert pair["roots"] == 1
 
 
 def test_cli_puct_label_subprocess_writes_v6_manifest(tmp_path: Path) -> None:

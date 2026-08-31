@@ -371,7 +371,11 @@ def aggregate_policy_metrics(episodes: Sequence[PolicyEpisode]) -> dict[str, obj
     wins = sum(episode.status == "won" for episode in episodes)
     errors = sum(episode.status == "error" for episode in episodes)
     truncations = sum(episode.status == "truncated" for episode in episodes)
-    hp_values = [episode.terminal_hp for episode in episodes if type(episode.terminal_hp) is int]
+    hp_values = [
+        episode.terminal_hp
+        for episode in episodes
+        if episode.status != "error" and type(episode.terminal_hp) is int
+    ]
     decision_values = [episode.accepted_decisions for episode in episodes]
     return {
         "win_numerator": wins,
@@ -386,18 +390,19 @@ def aggregate_policy_metrics(episodes: Sequence[PolicyEpisode]) -> dict[str, obj
 
 
 def _paired_difference(left: PolicyEpisode, right: PolicyEpisode) -> dict[str, object]:
+    errored = left.status == "error" or right.status == "error"
     hp_delta = (
         None
-        if left.terminal_hp is None or right.terminal_hp is None
+        if errored or left.terminal_hp is None or right.terminal_hp is None
         else right.terminal_hp - left.terminal_hp
     )
-    errored = left.status == "error" or right.status == "error"
     return {
         "left_status": left.status,
         "right_status": right.status,
         "status_equal": left.status == right.status,
         "left_won": left.status == "won",
         "right_won": right.status == "won",
+        "errored": errored,
         "hp_delta": hp_delta,
         "accepted_decision_delta": None
         if errored

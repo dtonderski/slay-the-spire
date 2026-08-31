@@ -229,17 +229,39 @@ def test_injected_error_and_truncation_keep_denominator_and_partial_metrics(
     assert metrics["errors"] == 1
     assert metrics["truncations"] == 1
     assert cast(dict[str, object], metrics["accepted_decisions"])["count"] == 3
-    assert cast(dict[str, object], metrics["terminal_hp"])["count"] == 3
+    terminal_hp = cast(dict[str, object], metrics["terminal_hp"])
+    assert terminal_hp["count"] == 2
+    assert terminal_hp["sum"] == 17
+
+    crashed = PolicyEpisode("error", 0, 1, 999, error="injected overflow")
+    crashed_metrics = aggregate_policy_metrics((won, crashed))
+    assert crashed_metrics["win_denominator"] == 2
+    assert crashed_metrics["errors"] == 1
+    assert cast(dict[str, object], crashed_metrics["terminal_hp"])["count"] == 1
+    assert cast(dict[str, object], crashed_metrics["terminal_hp"])["sum"] == 10
 
     paired = aggregate_paired_differences(
         (won, failed),
         (PolicyEpisode("lost", 5, 3, 1), PolicyEpisode("won", 1, 1, 9)),
     )
     per_root = cast(list[dict[str, object]], paired["per_root"])
+    assert per_root[0]["errored"] is False
     assert per_root[0]["accepted_decision_delta"] == 3
+    assert per_root[0]["hp_delta"] == -9
+    assert per_root[1]["errored"] is True
+    assert per_root[1]["left_status"] == "error"
+    assert per_root[1]["right_status"] == "won"
     assert per_root[1]["accepted_decision_delta"] is None
+    assert per_root[1]["hp_delta"] is None
     assert cast(dict[str, object], paired["accepted_decision_delta"])["count"] == 1
-    assert cast(dict[str, object], paired["hp_delta"])["count"] == 2
+    assert cast(dict[str, object], paired["hp_delta"])["count"] == 1
+
+    inflated = aggregate_paired_differences((won,), (crashed,))
+    inflated_root = cast(list[dict[str, object]], inflated["per_root"])[0]
+    assert inflated_root["errored"] is True
+    assert inflated_root["hp_delta"] is None
+    assert inflated_root["accepted_decision_delta"] is None
+    assert cast(dict[str, object], inflated["hp_delta"])["count"] == 0
 
 
 def test_unsorted_and_duplicate_matched_roots_are_rejected() -> None:
