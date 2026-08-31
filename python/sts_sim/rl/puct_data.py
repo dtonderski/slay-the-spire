@@ -17,7 +17,7 @@ from .data import (
     _DATASET_ROOT_MANIFEST_PATH,
     _NATIVE_EPISODE_ERROR,
     _SOURCE_KIND,
-    DATASET_MANIFEST_V6,
+    DATASET_MANIFEST_V7,
     DatasetExclusion,
     DatasetManifest,
     DatasetRootMembership,
@@ -33,9 +33,10 @@ from .model import CombatModelConfig, FairCombatPolicyValueNet
 from .provenance import capture_repository_version
 from .puct import network_leaf_evaluator, puct_clone_episode_payload
 from .records import (
+    COMBAT_PROXY_VALUE_TARGET_NAME,
+    PUCT_SEARCH_ROOT_MEAN_NAME,
     PUCT_TEACHER_NAME,
     PUCT_TEACHER_VERSION,
-    PUCT_VALUE_TARGET_NAME,
     CombatOutcome,
     JsonValue,
     SymbolicTrainingRecord,
@@ -44,7 +45,7 @@ from .records import (
     fair_observation_from_payload,
     fair_observation_payload,
     first_argmax_visits,
-    validate_v3_search_config,
+    validate_v4_search_config,
 )
 from .rewards import COMBAT_PROXY_V1, CombatRewardConfig
 from .tensor import Vocabularies, encoder_contract_digest
@@ -88,7 +89,8 @@ def _puct_search_config(
         "replan": "every_public_decision",
         "privileged": True,
         "leaf_schema": "fair_leaf_batch_v1",
-        "value_target_name": PUCT_VALUE_TARGET_NAME,
+        "value_target_name": COMBAT_PROXY_VALUE_TARGET_NAME,
+        "search_root_mean_name": PUCT_SEARCH_ROOT_MEAN_NAME,
         "checkpoint_file_digest": _sha256_bytes(checkpoint_path.read_bytes()),
         "checkpoint_model_state_digest": _model_state_digest(payload["model_state"]),
         "checkpoint_config_digest": payload["config_digest"],
@@ -97,7 +99,7 @@ def _puct_search_config(
         "vocabulary_fingerprint": payload["vocabulary_fingerprint"],
         "encoder_contract_digest": payload["encoder_contract_digest"],
     }
-    validate_v3_search_config(search_config)
+    validate_v4_search_config(search_config)
     return search_config
 
 
@@ -247,10 +249,12 @@ def generate_puct_dataset(
                 else:
                     raise TypeError("PUCT root value must be numeric")
                 try:
-                    target = float(numeric_target)
+                    root_mean = float(numeric_target)
                 except OverflowError as error:
                     raise ValueError("PUCT root value is not representable as float") from error
-                # Truncated teacher episodes still keep this root-mean unmasked.
+                if not math.isfinite(root_mean) or not -1.0 <= root_mean <= 1.0:
+                    raise ValueError("PUCT root value must be finite and in [-1, 1]")
+                terminal_target = reward_config.value(outcome)
                 root_records.append(
                     SymbolicTrainingRecord(
                         observation,
@@ -258,8 +262,8 @@ def generate_puct_dataset(
                         selected,
                         actions[selected],
                         counts,
-                        target,
-                        PUCT_VALUE_TARGET_NAME,
+                        terminal_target,
+                        COMBAT_PROXY_VALUE_TARGET_NAME,
                         outcome,
                         native_teacher[0],
                         native_teacher[1],
@@ -269,13 +273,15 @@ def generate_puct_dataset(
                         None,
                         repository,
                         fair_observation_digest(observation),
-                        3,
+                        4,
                         root_manifest.manifest_digest,
                         reward_config.digest,
                         _SOURCE_KIND,
                         episode_id,
                         decision_index,
-                        True,  # truncated rollouts keep the root-mean unmasked
+                        terminal_target is not None,
+                        None,
+                        root_mean,
                     )
                 )
         except AuthoritativeRootMutationError:
@@ -321,7 +327,7 @@ def generate_puct_dataset(
         teacher[0], teacher[1], search_config
     )
     unsigned: dict[str, object] = {
-        "manifest_version": DATASET_MANIFEST_V6,
+        "manifest_version": DATASET_MANIFEST_V7,
         "root_manifest_path": _DATASET_ROOT_MANIFEST_PATH,
         "root_manifest_file_digest": root_manifest_file_digest,
         "root_manifest_digest": root_manifest.manifest_digest,
@@ -344,7 +350,7 @@ def generate_puct_dataset(
         "record_ids": [record.record_id for record in records],
     }
     manifest = DatasetManifest(
-        DATASET_MANIFEST_V6,
+        DATASET_MANIFEST_V7,
         _DATASET_ROOT_MANIFEST_PATH,
         root_manifest_file_digest,
         root_manifest.manifest_digest,

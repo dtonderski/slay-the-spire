@@ -14,6 +14,7 @@ from ..fair import FairCombatObservation
 from ..run import Action, Decision, RunEnv
 from .provenance import RepositoryVersion, capture_repository_version
 from .records import (
+    COMBAT_PROXY_VALUE_TARGET_NAME,
     PUCT_TEACHER_NAME,
     PUCT_TEACHER_VERSION,
     PUCT_VALUE_TARGET_NAME,
@@ -28,6 +29,7 @@ from .records import (
     read_jsonl,
     validate_v2_search_config,
     validate_v3_search_config,
+    validate_v4_search_config,
 )
 from .rewards import COMBAT_PROXY_V1, CombatRewardConfig
 
@@ -35,7 +37,12 @@ ROOT_MANIFEST_V4 = 4
 ROOT_MANIFEST_VERSION = 5
 DATASET_MANIFEST_VERSION = 5
 DATASET_MANIFEST_V6 = 6
-_ACCEPTED_DATASET_MANIFEST_VERSIONS = {DATASET_MANIFEST_VERSION, DATASET_MANIFEST_V6}
+DATASET_MANIFEST_V7 = 7
+_ACCEPTED_DATASET_MANIFEST_VERSIONS = {
+    DATASET_MANIFEST_VERSION,
+    DATASET_MANIFEST_V6,
+    DATASET_MANIFEST_V7,
+}
 _SPLIT_SALT = "combat-agent-phase2-v1"
 _GENERATOR_NAME = "legal_run_policy"
 _GENERATOR_VERSION_V4 = "sha256_action_policy_v3"
@@ -907,6 +914,13 @@ def load_dataset_manifest(
             or manifest.teacher_version != PUCT_TEACHER_VERSION
         ):
             raise ValueError("V6 datasets require the privileged PUCT teacher")
+    elif manifest.manifest_version == DATASET_MANIFEST_V7:
+        validate_v4_search_config(manifest.search_config)
+        if (
+            manifest.teacher_name != PUCT_TEACHER_NAME
+            or manifest.teacher_version != PUCT_TEACHER_VERSION
+        ):
+            raise ValueError("V7 datasets require the privileged PUCT teacher")
     else:
         raise ValueError("unsupported or malformed dataset manifest")
     if manifest.teacher_search_contract_digest != _teacher_search_contract_digest(
@@ -961,7 +975,11 @@ def load_dataset_manifest(
     record_versions = {record.record_version for record in records}
     if len(record_versions) != 1:
         raise ValueError("dataset mixes record schema epochs")
-    expected_record_version = 2 if manifest.manifest_version == DATASET_MANIFEST_VERSION else 3
+    expected_record_version = {
+        DATASET_MANIFEST_VERSION: 2,
+        DATASET_MANIFEST_V6: 3,
+        DATASET_MANIFEST_V7: 4,
+    }[manifest.manifest_version]
     for record in records:
         if record.record_version != expected_record_version:
             raise ValueError("dataset record schema does not match the manifest epoch")
@@ -978,7 +996,7 @@ def load_dataset_manifest(
                 expected_value is not None
             ):
                 raise ValueError("dataset record value target does not match serialized outcome")
-        else:
+        elif expected_record_version == 3:
             if record.value_target_name != PUCT_VALUE_TARGET_NAME:
                 raise ValueError("PUCT records must use privileged_puct_root_mean_v1")
             if sum(record.teacher_visit_counts) <= 0:
@@ -987,6 +1005,20 @@ def load_dataset_manifest(
                 raise ValueError("PUCT chosen action is not the first visit-count argmax")
             if record.target_value is None or not record.value_target_mask:
                 raise ValueError("PUCT root-mean value targets must be present and unmasked")
+        else:
+            if record.value_target_name != COMBAT_PROXY_VALUE_TARGET_NAME:
+                raise ValueError("V4 PUCT records must use combat_proxy_v1 training targets")
+            if sum(record.teacher_visit_counts) <= 0:
+                raise ValueError("PUCT teacher labels must have positive visit mass")
+            if record.chosen_action_index != first_argmax_visits(record.teacher_visit_counts):
+                raise ValueError("PUCT chosen action is not the first visit-count argmax")
+            expected_value = reward.value(record.outcome)
+            if record.target_value != expected_value or record.value_target_mask != (
+                expected_value is not None
+            ):
+                raise ValueError("dataset record value target does not match serialized outcome")
+            if record.search_root_mean_value is None:
+                raise ValueError("V4 PUCT search root-mean diagnostic must be present")
         membership = memberships.get(record.root_id)
         if membership is None or record.split_group_id != membership.split_group_id:
             raise ValueError("dataset record root/group membership mismatch")

@@ -92,17 +92,19 @@ The existing beam planner is the initial expert:
 
 The implemented trainer remains supervised imitation. Beam cloning writes
 Record V2 / manifest V5 one-hot labels and terminal `combat_proxy_v1` values.
-Privileged PUCT distillation writes Record V3 / manifest V6 labels: raw root
-visit counts as the policy target and the backed-up root-mean as
-`privileged_puct_root_mean_v1`, still bound to the terminal reward contract used
-inside search. Unlike V2, truncated PUCT rollouts keep those root-mean targets
-present and unmasked; only V2 terminal `combat_proxy_v1` values are masked on
-truncation. W&B PUCT metadata follows manifest V6, not an unchecked teacher
-literal. Optional offline W&B tracking records scalar `step`/`loss` plus
-symbolic config and provenance digests; it is opt-in, never uploads, and does
-not change checkpoint bytes. Each offline `--resume` is a separate W&B run
-segment. Source or lockfile changes intentionally invalidate source-bound
-checkpoints. `target/wandb` is removed by `cargo clean`.
+Privileged PUCT distillation now writes Record V4 / manifest V7 labels by
+default: raw root visit counts remain the policy target, but the trained value
+is the episode-terminal `combat_proxy_v1` outcome, masked on truncation exactly
+as V2. The search root-mean stays a required finite `search_root_mean_value`
+diagnostic and is not tensorized. Record V3 / manifest V6 root-mean training
+targets remain accepted. Search still backs up `privileged_puct_root_mean_v1`;
+the native teacher identity stays `synchronous_batch1_v3`. W&B PUCT metadata
+follows manifests V6 and V7, not an unchecked teacher literal. Optional offline
+W&B tracking records scalar `step`/`loss` plus symbolic config and provenance
+digests; it is opt-in, never uploads, and does not change checkpoint bytes.
+Each offline `--resume` is a separate W&B run segment. Source or lockfile
+changes intentionally invalidate source-bound checkpoints. `target/wandb` is
+removed by `cargo clean`.
 
 A naive privileged PUCT now exists: it expands public `PlayerChoice` rows over
 authoritative `RunState` clones, evaluates one fair leaf at a time, and selects

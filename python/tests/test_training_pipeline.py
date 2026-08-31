@@ -569,7 +569,9 @@ def test_training_resume_and_development_report_are_deterministic(tmp_path: Path
         tmp_path / "development/dataset-manifest.json", resumed, split="development"
     )
     assert first == second
-    assert first["report_version"] == 3
+    assert first["report_version"] == 4
+    assert first["exact_denominator"] == first["any_max_denominator"]
+    assert first["training_target_mean"] is not None or first["target_value_count"] == 0
     exact_numerator = cast(int, first["exact_numerator"])
     exact_denominator = cast(int, first["exact_denominator"])
     truncated_numerator = cast(int, first["truncated_numerator"])
@@ -751,7 +753,7 @@ def test_explicit_audited_evaluation_requires_matching_cohort_and_teacher_search
         split="sealed_test",
         allow_audited_split=True,
     )
-    assert report["report_version"] == 3
+    assert report["report_version"] == 4
     assert all(
         "error" not in cast(dict[str, object], row)
         for row in cast(list[object], report["per_record"])

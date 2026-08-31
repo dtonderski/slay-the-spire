@@ -59,6 +59,7 @@ _RECORD_KEYS = _LEGACY_RECORD_KEYS | {
     "value_target_mask",
     "record_id",
 }
+_RECORD_KEYS_V4 = _RECORD_KEYS | {"search_root_mean_value"}
 _ACTION_FIELDS = set(ActionDescriptor.__dataclass_fields__)
 _V2_SEARCH_CONFIG_KEYS = {
     "depth",
@@ -89,7 +90,10 @@ _V3_SEARCH_CONFIG_KEYS = {
     "vocabulary_fingerprint",
     "encoder_contract_digest",
 }
+_V4_SEARCH_CONFIG_KEYS = _V3_SEARCH_CONFIG_KEYS | {"search_root_mean_name"}
 PUCT_VALUE_TARGET_NAME = "privileged_puct_root_mean_v1"
+PUCT_SEARCH_ROOT_MEAN_NAME = PUCT_VALUE_TARGET_NAME
+COMBAT_PROXY_VALUE_TARGET_NAME = "combat_proxy_v1"
 PUCT_TEACHER_NAME = "privileged_puct"
 PUCT_TEACHER_VERSION = "synchronous_batch1_v3"
 FAIR_LEAF_BATCH_SCHEMA = "fair_leaf_batch_v1"
@@ -420,6 +424,51 @@ def validate_v3_search_config(payload: Mapping[str, object]) -> None:
             raise ValueError(f"search config {key} must be a lowercase SHA-256 digest")
 
 
+def validate_v4_search_config(payload: Mapping[str, object]) -> None:
+    if set(payload) != _V4_SEARCH_CONFIG_KEYS:
+        raise ValueError("V4 search config has missing or unknown fields")
+    c_puct = payload["c_puct"]
+    if type(c_puct) is int:
+        exploration = float(c_puct)
+    elif type(c_puct) is float:
+        exploration = c_puct
+    else:
+        raise ValueError("search config c_puct must be finite and positive")
+    if not math.isfinite(exploration) or exploration <= 0.0:
+        raise ValueError("search config c_puct must be finite and positive")
+    for key in ("simulation_budget", "transition_budget", "max_decisions", "max_player_turns"):
+        if type(payload[key]) is not int or cast(int, payload[key]) <= 0:
+            raise TypeError(f"search config {key} must be a positive integer")
+    if payload["deadline"] is not None:
+        raise ValueError("offline teacher deadline must be null")
+    if payload["replan"] != "every_public_decision":
+        raise ValueError("unknown teacher replanning policy")
+    if payload["privileged"] is not True:
+        raise ValueError("PUCT teacher search must be explicitly privileged")
+    if payload["leaf_schema"] != FAIR_LEAF_BATCH_SCHEMA:
+        raise ValueError("PUCT leaf schema must be fair_leaf_batch_v1")
+    if payload["value_target_name"] != COMBAT_PROXY_VALUE_TARGET_NAME:
+        raise ValueError("V4 PUCT training value target must be combat_proxy_v1")
+    if payload["search_root_mean_name"] != PUCT_SEARCH_ROOT_MEAN_NAME:
+        raise ValueError("V4 PUCT search backup name must be privileged_puct_root_mean_v1")
+    for key in (
+        "checkpoint_file_digest",
+        "checkpoint_model_state_digest",
+        "checkpoint_config_digest",
+        "source_digest",
+        "runtime_identity_digest",
+        "vocabulary_fingerprint",
+        "encoder_contract_digest",
+    ):
+        value = payload[key]
+        if (
+            type(value) is not str
+            or len(value) != 64
+            or any(character not in "0123456789abcdef" for character in value)
+        ):
+            raise ValueError(f"search config {key} must be a lowercase SHA-256 digest")
+
+
 def _optional_integer(payload: Mapping[str, object], key: str) -> int | None:
     return None if key not in payload else _integer(payload[key], key)
 
@@ -606,6 +655,7 @@ class SymbolicTrainingRecord:
     decision_index: int = 0
     value_target_mask: bool = True
     record_id: str | None = None
+    search_root_mean_value: float | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -648,11 +698,27 @@ class SymbolicTrainingRecord:
                 raise ValueError("target value must be finite and in [-1, 1]")
             if not self.value_target_mask:
                 raise ValueError("present target value must not be masked")
-        if self.record_version == 3:
+        if self.record_version == 4:
+            if self.search_root_mean_value is None:
+                raise ValueError("V4 PUCT search root-mean diagnostic must be present")
+            if type(self.search_root_mean_value) not in {int, float}:
+                raise TypeError("search root-mean value must be numeric")
+            root_mean = float(self.search_root_mean_value)
+            if not math.isfinite(root_mean) or not -1.0 <= root_mean <= 1.0:
+                raise ValueError("search root-mean value must be finite and in [-1, 1]")
+            if self.value_target_name != COMBAT_PROXY_VALUE_TARGET_NAME:
+                raise ValueError("V4 records must use combat_proxy_v1 training targets")
+            if self.outcome.truncated != (not self.value_target_mask):
+                raise ValueError("outcome truncation and value target mask disagree")
+            if self.chosen_action_index != first_argmax_visits(self.teacher_visit_counts):
+                raise ValueError("V4 chosen action is not the first visit-count argmax")
+        elif self.search_root_mean_value is not None:
+            raise ValueError("pre-V4 records must not include search_root_mean_value")
+        elif self.record_version == 3:
             if self.value_target_name != PUCT_VALUE_TARGET_NAME:
                 raise ValueError("V3 records must use privileged_puct_root_mean_v1")
             # Truncated PUCT rollouts still keep the backed-up root-mean present
-            # and unmasked. Only V2 terminal combat_proxy_v1 values are masked
+            # and unmasked. Only V2/V4 terminal combat_proxy_v1 values are masked
             # when the episode is truncated.
             if self.target_value is None or not self.value_target_mask:
                 raise ValueError("V3 PUCT root-mean targets must be present and unmasked")
@@ -660,7 +726,7 @@ class SymbolicTrainingRecord:
                 raise ValueError("V3 chosen action is not the first visit-count argmax")
         elif self.outcome.truncated != (not self.value_target_mask):
             raise ValueError("outcome truncation and value target mask disagree")
-        if self.record_version not in {1, 2, 3}:
+        if self.record_version not in {1, 2, 3, 4}:
             raise ValueError("unsupported training record version")
         if type(self.decision_index) is not int or self.decision_index < 0:
             raise ValueError("decision index must be nonnegative")
@@ -671,11 +737,13 @@ class SymbolicTrainingRecord:
             validate_v2_search_config(cast(Mapping[str, object], self.search_config))
         elif self.record_version == 3:
             validate_v3_search_config(cast(Mapping[str, object], self.search_config))
+        elif self.record_version == 4:
+            validate_v4_search_config(cast(Mapping[str, object], self.search_config))
         frozen = _freeze_json(dict(self.search_config), "search config")
         if not isinstance(frozen, Mapping):
             raise TypeError("search config must be an object")
         object.__setattr__(self, "search_config", frozen)
-        if self.record_version in {2, 3}:
+        if self.record_version in {2, 3, 4}:
             for name in ("root_id", "root_manifest_digest", "reward_config_digest"):
                 value = getattr(self, name)
                 if (
@@ -718,7 +786,7 @@ class SymbolicTrainingRecord:
             "repository": self.repository.to_dict(),
             "observation_digest": self.observation_digest,
         }
-        if self.record_version in {2, 3}:
+        if self.record_version in {2, 3, 4}:
             payload.update(
                 {
                     "record_version": self.record_version,
@@ -731,17 +799,30 @@ class SymbolicTrainingRecord:
                     "record_id": self.record_id,
                 }
             )
+        if self.record_version == 4:
+            payload["search_root_mean_value"] = self.search_root_mean_value
         return payload
 
     @classmethod
     def from_dict(cls, payload: object) -> SymbolicTrainingRecord:
         raw = _dict(payload, "training record")
+        search_root_mean_value: float | None = None
         if set(raw) == _LEGACY_RECORD_KEYS:
             source = raw
             record_version = 1
         elif set(raw) == _RECORD_KEYS:
             source = raw
             record_version = _integer(source["record_version"], "record version")
+            if record_version not in {2, 3}:
+                raise ValueError("training record has missing or unknown fields")
+        elif set(raw) == _RECORD_KEYS_V4:
+            source = raw
+            record_version = _integer(source["record_version"], "record version")
+            if record_version != 4:
+                raise ValueError("training record has missing or unknown fields")
+            search_root_mean_value = _number(
+                source["search_root_mean_value"], "search root-mean value"
+            )
         else:
             raise ValueError("training record has missing or unknown fields")
         actions = tuple(
@@ -800,6 +881,7 @@ class SymbolicTrainingRecord:
             decision_index=cast(int, source.get("decision_index", 0)),
             value_target_mask=cast(bool, source.get("value_target_mask", True)),
             record_id=cast(str | None, source.get("record_id")),
+            search_root_mean_value=search_root_mean_value,
         )
 
 

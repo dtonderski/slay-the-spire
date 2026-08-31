@@ -8,10 +8,12 @@ import math
 import os
 import platform
 import random
+import statistics
 import sys
 import tempfile
 import warnings
-from collections.abc import Mapping
+from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -20,7 +22,7 @@ import numpy as np
 import torch
 
 from .. import _native
-from .data import DATASET_MANIFEST_V6, DatasetManifest, load_dataset_manifest
+from .data import DATASET_MANIFEST_V6, DATASET_MANIFEST_V7, DatasetManifest, load_dataset_manifest
 from .model import CombatModelConfig, FairCombatPolicyValueNet, policy_value_loss
 from .provenance import capture_repository_version
 from .records import (
@@ -32,8 +34,9 @@ from .records import (
 from .tensor import Vocabularies, VocabularyBuilder, encoder_contract_digest
 from .tracking import OfflineWandbConfig, OfflineWandbSession, start_offline_wandb
 
-TRAINING_CHECKPOINT_FORMAT = 3
-_CHECKPOINT_KEYS = {
+TRAINING_CHECKPOINT_FORMAT_V3 = 3
+TRAINING_CHECKPOINT_FORMAT = 4
+_CHECKPOINT_KEYS_V3 = {
     "checkpoint_format",
     "config",
     "config_digest",
@@ -59,6 +62,15 @@ _CHECKPOINT_KEYS = {
     "python_rng_state",
     "numpy_rng_state",
     "torch_rng_state",
+}
+_CHECKPOINT_KEYS_V4 = _CHECKPOINT_KEYS_V3 | {"training_target_statistics"}
+_TRAINING_TARGET_STATISTICS_KEYS = {
+    "count",
+    "mean",
+    "min",
+    "max",
+    "population_stddev",
+    "digest",
 }
 
 
@@ -143,14 +155,114 @@ def _model_state_digest(state: object) -> str:
     return digest.hexdigest()
 
 
+def _training_target_values(
+    records: Sequence[SymbolicTrainingRecord],
+) -> tuple[float, ...]:
+    values: list[float] = []
+    for record in records:
+        if not record.value_target_mask:
+            continue
+        if record.target_value is None:
+            raise ValueError("unmasked training target is missing")
+        value = float(record.target_value)
+        if not math.isfinite(value):
+            raise ValueError("unmasked training target is not finite")
+        values.append(value)
+    return tuple(values)
+
+
+def _compute_training_target_statistics(
+    records: Sequence[SymbolicTrainingRecord],
+) -> dict[str, object]:
+    values = _training_target_values(records)
+    if not values:
+        unsigned: dict[str, object] = {
+            "count": 0,
+            "mean": None,
+            "min": None,
+            "max": None,
+            "population_stddev": None,
+        }
+    else:
+        unsigned = {
+            "count": len(values),
+            "mean": statistics.fmean(values),
+            "min": min(values),
+            "max": max(values),
+            "population_stddev": statistics.pstdev(values),
+        }
+    payload = dict(unsigned)
+    payload["digest"] = _digest(unsigned)
+    return payload
+
+
+def _validate_training_target_statistics(payload: object) -> dict[str, object]:
+    if type(payload) is not dict:
+        raise TypeError("training target statistics must be an object")
+    source = cast(dict[str, object], payload)
+    if set(source) != _TRAINING_TARGET_STATISTICS_KEYS:
+        raise ValueError("training target statistics have missing or unknown fields")
+    count = source["count"]
+    if type(count) is not int or count < 0:
+        raise ValueError("training target statistics count must be a nonnegative integer")
+    unsigned = {
+        "count": count,
+        "mean": source["mean"],
+        "min": source["min"],
+        "max": source["max"],
+        "population_stddev": source["population_stddev"],
+    }
+    if count == 0:
+        if any(unsigned[key] is not None for key in ("mean", "min", "max", "population_stddev")):
+            raise ValueError("empty training target statistics must be null")
+    else:
+        for key in ("mean", "min", "max", "population_stddev"):
+            value = unsigned[key]
+            if type(value) not in {int, float}:
+                raise TypeError(f"training target statistics {key} must be numeric")
+            number = float(cast(int | float, value))
+            if not math.isfinite(number):
+                raise ValueError(f"training target statistics {key} must be finite")
+            unsigned[key] = number
+        mean = float(cast(int | float, unsigned["mean"]))
+        minimum = float(cast(int | float, unsigned["min"]))
+        maximum = float(cast(int | float, unsigned["max"]))
+        stddev = float(cast(int | float, unsigned["population_stddev"]))
+        if not minimum <= mean <= maximum:
+            raise ValueError("training target statistics range is inconsistent")
+        if stddev < 0.0:
+            raise ValueError("training target statistics stddev must be nonnegative")
+    digest = source["digest"]
+    if (
+        type(digest) is not str
+        or len(digest) != 64
+        or any(character not in "0123456789abcdef" for character in digest)
+    ):
+        raise ValueError("training target statistics digest is not a SHA-256 digest")
+    if digest != _digest(unsigned):
+        raise ValueError("training target statistics digest mismatch")
+    validated = dict(unsigned)
+    validated["digest"] = digest
+    return validated
+
+
 def _validate_checkpoint_envelope(payload: object) -> tuple[dict[str, Any], TrainingConfig]:
     if type(payload) is not dict:
         raise TypeError("training checkpoint must be an object")
     checkpoint = cast(dict[str, Any], payload)
-    if (
-        set(checkpoint) != _CHECKPOINT_KEYS
-        or checkpoint["checkpoint_format"] != TRAINING_CHECKPOINT_FORMAT
-    ):
+    checkpoint_format = checkpoint.get("checkpoint_format")
+    if type(checkpoint_format) is not int:
+        raise ValueError("unsupported or malformed training checkpoint")
+    if checkpoint_format == TRAINING_CHECKPOINT_FORMAT_V3:
+        if set(checkpoint) != _CHECKPOINT_KEYS_V3:
+            raise ValueError("unsupported or malformed training checkpoint")
+    elif checkpoint_format == TRAINING_CHECKPOINT_FORMAT:
+        if set(checkpoint) != _CHECKPOINT_KEYS_V4:
+            raise ValueError("unsupported or malformed training checkpoint")
+        checkpoint["training_target_statistics"] = _validate_training_target_statistics(
+            checkpoint["training_target_statistics"]
+        )
+    else:
         raise ValueError("unsupported or malformed training checkpoint")
     if type(checkpoint["config"]) is not dict or type(checkpoint["model_config"]) is not dict:
         raise TypeError("training checkpoint configurations must be objects")
@@ -296,8 +408,8 @@ def _load_records(
     if not records:
         raise ValueError("training dataset is empty")
     versions = {record.record_version for record in records}
-    if versions != {2} and versions != {3}:
-        raise ValueError("training requires a single record schema epoch (V2 or V3)")
+    if versions not in ({2}, {3}, {4}):
+        raise ValueError("training requires a single record schema epoch (V2, V3, or V4)")
     root_count = len(manifest.roots)
     lineage_count = len({lineage for root in manifest.roots for lineage in root.lineages})
     if root_count < minimum_roots or lineage_count < minimum_lineages:
@@ -396,6 +508,12 @@ def train_beam_clone(
                     raise ValueError(f"training checkpoint {name} mismatch")
             if stored_config != config:
                 raise ValueError("training checkpoint config mismatch")
+            expected_stats = _compute_training_target_statistics(records)
+            if (
+                payload["checkpoint_format"] == TRAINING_CHECKPOINT_FORMAT
+                and payload["training_target_statistics"] != expected_stats
+            ):
+                raise ValueError("training checkpoint target statistics mismatch")
             vocabularies = Vocabularies.from_dict(payload["vocabularies"])
             model = FairCombatPolicyValueNet(vocabularies, config.model_config())
             model.load_state_dict(payload["model_state"], strict=True)
@@ -436,7 +554,10 @@ def train_beam_clone(
                 )
             target_step = stop_after_steps
         if wandb_offline is not None:
-            puct_targets = manifest.manifest_version == DATASET_MANIFEST_V6
+            puct_targets = manifest.manifest_version in {
+                DATASET_MANIFEST_V6,
+                DATASET_MANIFEST_V7,
+            }
             session = start_offline_wandb(
                 wandb_offline,
                 {
@@ -507,6 +628,7 @@ def train_beam_clone(
                 "model_state": model.state_dict(),
                 "optimizer_state": optimizer.state_dict(),
                 "scheduler_state": scheduler.state_dict(),
+                "training_target_statistics": _compute_training_target_statistics(records),
                 "global_step": global_step,
                 "cursor": cursor,
                 "order": list(order),
@@ -594,6 +716,9 @@ def evaluate_beam_clone(
     records = tuple(read_jsonl(dataset_manifest_path.parent / manifest.shard_path))
     dataset = SymbolicCombatDataset(records, vocabularies)
     exact_numerator = 0
+    any_max_numerator = 0
+    always_first_index_numerator = 0
+    tied_visit_argmax_records = 0
     truncated_numerator = 0
     truncated_denominator = 0
     truncated_roots: set[str] = set()
@@ -602,6 +727,8 @@ def evaluate_beam_clone(
     value_absolute_error = 0.0
     value_mae_rows = 0
     errors = 0
+    predicted_targets: list[float] = []
+    observed_targets: list[float] = []
     per_record: list[dict[str, object]] = []
     with torch.inference_mode():
         for index in range(len(dataset)):
@@ -612,6 +739,15 @@ def evaluate_beam_clone(
                 truncated_roots.add(record.root_id)
             else:
                 nontruncated_denominator += 1
+            max_visits = max(record.teacher_visit_counts)
+            argmax_set = {
+                action_index
+                for action_index, visits in enumerate(record.teacher_visit_counts)
+                if visits == max_visits
+            }
+            tied = len(argmax_set) > 1
+            tied_visit_argmax_records += int(tied)
+            always_first_index_numerator += int(record.chosen_action_index == 0)
             row: dict[str, object] = {
                 "record_id": record.record_id,
                 "root_id": record.root_id,
@@ -620,6 +756,7 @@ def evaluate_beam_clone(
                 "value_target_mask": record.value_target_mask,
                 "target_value": record.target_value,
                 "teacher_action_index": record.chosen_action_index,
+                "tied_visit_argmax": tied,
             }
             try:
                 example = dataset[index]
@@ -629,6 +766,7 @@ def evaluate_beam_clone(
                 selected = int(torch.argmax(logits).item())
                 expected = record.chosen_action_index
                 correct = selected == expected
+                any_max = selected in argmax_set
                 predicted_value = float(output.value[0])
                 if not math.isfinite(predicted_value):
                     raise ValueError("predicted value is not finite")
@@ -638,7 +776,10 @@ def evaluate_beam_clone(
                     if not math.isfinite(target_value):
                         raise ValueError("value target is not finite")
                     value_error = abs(predicted_value - target_value)
+                    predicted_targets.append(predicted_value)
+                    observed_targets.append(target_value)
                 exact_numerator += int(correct)
+                any_max_numerator += int(any_max)
                 if truncated:
                     truncated_numerator += int(correct)
                 else:
@@ -650,6 +791,7 @@ def evaluate_beam_clone(
                     {
                         "selected_action_index": selected,
                         "correct": correct,
+                        "any_max_correct": any_max,
                         "predicted_value": predicted_value,
                     }
                 )
@@ -658,8 +800,53 @@ def evaluate_beam_clone(
                 row["error"] = str(error)
             per_record.append(row)
     exact_denominator = len(records)
+    target_count = len(observed_targets)
+    if target_count == 0:
+        target_min: float | None = None
+        target_max: float | None = None
+        target_mean: float | None = None
+        target_stddev: float | None = None
+        student_mae: float | None = None
+        prediction_mean: float | None = None
+        prediction_mean_mae: float | None = None
+        pearson: float | None = None
+        pearson_reason: str | None = "no_unmasked_finite_pairs"
+    else:
+        target_min = min(observed_targets)
+        target_max = max(observed_targets)
+        target_mean = statistics.fmean(observed_targets)
+        target_stddev = statistics.pstdev(observed_targets)
+        student_mae = value_absolute_error / value_mae_rows
+        prediction_mean = statistics.fmean(predicted_targets)
+        prediction_mean_mae = statistics.fmean(
+            [abs(predicted - prediction_mean) for predicted in observed_targets]
+        )
+        if target_count < 8:
+            pearson = None
+            pearson_reason = "n_lt_8"
+        elif statistics.pstdev(predicted_targets) == 0.0 or target_stddev == 0.0:
+            pearson = None
+            pearson_reason = "zero_variance"
+        else:
+            pearson = float(statistics.correlation(predicted_targets, observed_targets))
+            pearson_reason = None
+    training_stats = payload.get("training_target_statistics")
+    training_mean: float | None = None
+    training_mean_mae: float | None = None
+    if payload["checkpoint_format"] == TRAINING_CHECKPOINT_FORMAT:
+        validated_stats = _validate_training_target_statistics(training_stats)
+        stored_mean = validated_stats["mean"]
+        if stored_mean is not None:
+            training_mean = float(cast(int | float, stored_mean))
+            if observed_targets:
+                training_mean_mae = statistics.fmean(
+                    [abs(target - training_mean) for target in observed_targets]
+                )
+    root_counts = Counter(record.root_id for record in records)
+    root_sizes = tuple(root_counts.values())
+    kish = (sum(root_sizes) ** 2) / sum(size * size for size in root_sizes)
     report: dict[str, object] = {
-        "report_version": 3,
+        "report_version": 4,
         "split": split,
         "checkpoint_step": payload["global_step"],
         "checkpoint_file_digest": hashlib.sha256(checkpoint_bytes).hexdigest(),
@@ -685,13 +872,34 @@ def evaluate_beam_clone(
         "accuracy": exact_numerator / exact_denominator,
         "exact_numerator": exact_numerator,
         "exact_denominator": exact_denominator,
+        "any_max_numerator": any_max_numerator,
+        "any_max_denominator": exact_denominator,
+        "any_max_accuracy": any_max_numerator / exact_denominator,
+        "tied_visit_argmax_records": tied_visit_argmax_records,
+        "tied_visit_argmax_fraction": tied_visit_argmax_records / exact_denominator,
+        "always_first_index_numerator": always_first_index_numerator,
+        "always_first_index_denominator": exact_denominator,
+        "always_first_index_accuracy": always_first_index_numerator / exact_denominator,
         "truncated_numerator": truncated_numerator,
         "truncated_denominator": truncated_denominator,
         "truncated_root_count": len(truncated_roots),
         "nontruncated_numerator": nontruncated_numerator,
         "nontruncated_denominator": nontruncated_denominator,
-        "value_mae": None if value_mae_rows == 0 else value_absolute_error / value_mae_rows,
+        "value_mae": student_mae,
         "value_mae_rows": value_mae_rows,
+        "target_value_count": target_count,
+        "target_value_min": target_min,
+        "target_value_max": target_max,
+        "target_value_mean": target_mean,
+        "target_value_population_stddev": target_stddev,
+        "training_target_mean": training_mean,
+        "training_target_mean_mae": training_mean_mae,
+        "prediction_mean": prediction_mean,
+        "prediction_mean_mae": prediction_mean_mae,
+        "pearson_correlation": pearson,
+        "pearson_undefined_reason": pearson_reason,
+        "root_count": len(root_counts),
+        "kish_cluster_ess": kish,
         "per_record": per_record,
     }
     report["report_digest"] = _digest(report)

@@ -18,10 +18,14 @@ the existing deterministic combat search as an adequate executor, and develop a
 fair run-level policy. Run-level decisions are presently considered the main
 bottleneck to generating varied, internally consistent simulator runs and later
 combat roots. First-combat-only simulator roots also collapsed early PUCT value
-learning: A0 openers were almost all wins. The generator therefore grew an
-opt-in combat-depth sampler so later A0 fights can be collected with the same
-public hash policy, rather than pretending unvalidated ascension mechanics are a
-difficulty lever. This ordering is a working hypothesis, not an experimental result.
+learning: A0 openers were almost all wins, so search root-mean targets had no
+contrast. The generator therefore grew an opt-in combat-depth sampler so later
+A0 fights can be collected with the same public hash policy, rather than
+pretending unvalidated ascension mechanics are a difficulty lever. Once depth-4
+A0 roots produced real losses, PUCT distillation switched the trained value to
+terminal `combat_proxy_v1` while keeping visit-count policy targets and the
+root-mean as a diagnostic. This ordering is a working hypothesis, not an
+experimental result.
 
 ## Origin and Simulator Choice
 
