@@ -184,11 +184,18 @@ def _compute_training_target_statistics(
             "population_stddev": None,
         }
     else:
+        minimum = min(values)
+        maximum = max(values)
+        mean = statistics.fmean(values)
+        if mean < minimum:
+            mean = minimum
+        elif mean > maximum:
+            mean = maximum
         unsigned = {
             "count": len(values),
-            "mean": statistics.fmean(values),
-            "min": min(values),
-            "max": max(values),
+            "mean": mean,
+            "min": minimum,
+            "max": maximum,
             "population_stddev": statistics.pstdev(values),
         }
     payload = dict(unsigned)
@@ -228,7 +235,10 @@ def _validate_training_target_statistics(payload: object) -> dict[str, object]:
         minimum = float(cast(int | float, unsigned["min"]))
         maximum = float(cast(int | float, unsigned["max"]))
         stddev = float(cast(int | float, unsigned["population_stddev"]))
-        if not minimum <= mean <= maximum:
+        if not (minimum <= mean <= maximum) and not (
+            math.isclose(mean, minimum, rel_tol=0.0, abs_tol=1e-12)
+            or math.isclose(mean, maximum, rel_tol=0.0, abs_tol=1e-12)
+        ):
             raise ValueError("training target statistics range is inconsistent")
         if stddev < 0.0:
             raise ValueError("training target statistics stddev must be nonnegative")
@@ -246,10 +256,43 @@ def _validate_training_target_statistics(payload: object) -> dict[str, object]:
     return validated
 
 
+def _canonical_unmasked_target(record: SymbolicTrainingRecord) -> float:
+    if not record.value_target_mask or record.target_value is None:
+        raise ValueError("unmasked evaluation target is missing")
+    value = float(record.target_value)
+    if not math.isfinite(value):
+        raise ValueError("unmasked evaluation target is not finite")
+    return value
+
+
+def _kish_ess(sizes: Sequence[int]) -> float | None:
+    if not sizes:
+        return None
+    total = sum(sizes)
+    return (total * total) / sum(size * size for size in sizes)
+
+
+def _pearson_correlation(
+    predicted: Sequence[float], targets: Sequence[float]
+) -> tuple[float | None, str | None]:
+    if len(predicted) != len(targets):
+        raise ValueError("pearson series length mismatch")
+    if len(targets) < 8:
+        return None, "n_lt_8"
+    if statistics.pstdev(predicted) == 0.0 or statistics.pstdev(targets) == 0.0:
+        return None, "zero_variance"
+    return float(statistics.correlation(predicted, targets)), None
+
+
+def _mean_absolute_deviation(values: Sequence[float], constant: float) -> float:
+    return statistics.fmean(abs(value - constant) for value in values)
+
+
 def _validate_checkpoint_envelope(payload: object) -> tuple[dict[str, Any], TrainingConfig]:
     if type(payload) is not dict:
         raise TypeError("training checkpoint must be an object")
-    checkpoint = cast(dict[str, Any], payload)
+    source = cast(dict[str, Any], payload)
+    checkpoint = dict(source)
     checkpoint_format = checkpoint.get("checkpoint_format")
     if type(checkpoint_format) is not int:
         raise ValueError("unsupported or malformed training checkpoint")
@@ -260,7 +303,7 @@ def _validate_checkpoint_envelope(payload: object) -> tuple[dict[str, Any], Trai
         if set(checkpoint) != _CHECKPOINT_KEYS_V4:
             raise ValueError("unsupported or malformed training checkpoint")
         checkpoint["training_target_statistics"] = _validate_training_target_statistics(
-            checkpoint["training_target_statistics"]
+            source["training_target_statistics"]
         )
     else:
         raise ValueError("unsupported or malformed training checkpoint")
@@ -543,6 +586,7 @@ def train_beam_clone(
             order = _training_order(len(records), config.seed)
 
         dataset = SymbolicCombatDataset(records, vocabularies)
+        training_target_statistics = _compute_training_target_statistics(records)
         target_step = config.total_steps
         if stop_after_steps is not None:
             if (
@@ -628,7 +672,7 @@ def train_beam_clone(
                 "model_state": model.state_dict(),
                 "optimizer_state": optimizer.state_dict(),
                 "scheduler_state": scheduler.state_dict(),
-                "training_target_statistics": _compute_training_target_statistics(records),
+                "training_target_statistics": training_target_statistics,
                 "global_step": global_step,
                 "cursor": cursor,
                 "order": list(order),
@@ -718,17 +762,15 @@ def evaluate_beam_clone(
     exact_numerator = 0
     any_max_numerator = 0
     always_first_index_numerator = 0
+    always_first_in_max_visit_numerator = 0
     tied_visit_argmax_records = 0
     truncated_numerator = 0
     truncated_denominator = 0
     truncated_roots: set[str] = set()
     nontruncated_numerator = 0
     nontruncated_denominator = 0
-    value_absolute_error = 0.0
-    value_mae_rows = 0
     errors = 0
-    predicted_targets: list[float] = []
-    observed_targets: list[float] = []
+    value_pairs: list[tuple[str, float, float]] = []
     per_record: list[dict[str, object]] = []
     with torch.inference_mode():
         for index in range(len(dataset)):
@@ -747,7 +789,10 @@ def evaluate_beam_clone(
             }
             tied = len(argmax_set) > 1
             tied_visit_argmax_records += int(tied)
+            # Symbolic teacher baselines do not require model inference and stay
+            # defined on every labeled record, including later inference failures.
             always_first_index_numerator += int(record.chosen_action_index == 0)
+            always_first_in_max_visit_numerator += int(0 in argmax_set)
             row: dict[str, object] = {
                 "record_id": record.record_id,
                 "root_id": record.root_id,
@@ -770,23 +815,15 @@ def evaluate_beam_clone(
                 predicted_value = float(output.value[0])
                 if not math.isfinite(predicted_value):
                     raise ValueError("predicted value is not finite")
-                value_error: float | None = None
                 if record.value_target_mask:
-                    target_value = float(batch.value_target[0])
-                    if not math.isfinite(target_value):
-                        raise ValueError("value target is not finite")
-                    value_error = abs(predicted_value - target_value)
-                    predicted_targets.append(predicted_value)
-                    observed_targets.append(target_value)
+                    target_value = _canonical_unmasked_target(record)
+                    value_pairs.append((record.root_id, predicted_value, target_value))
                 exact_numerator += int(correct)
                 any_max_numerator += int(any_max)
                 if truncated:
                     truncated_numerator += int(correct)
                 else:
                     nontruncated_numerator += int(correct)
-                if value_error is not None:
-                    value_absolute_error += value_error
-                    value_mae_rows += 1
                 row.update(
                     {
                         "selected_action_index": selected,
@@ -800,8 +837,10 @@ def evaluate_beam_clone(
                 row["error"] = str(error)
             per_record.append(row)
     exact_denominator = len(records)
-    target_count = len(observed_targets)
-    if target_count == 0:
+    predicted_values = [predicted for _root_id, predicted, _target in value_pairs]
+    observed_targets = [target for _root_id, _predicted, target in value_pairs]
+    value_mae_rows = len(value_pairs)
+    if not value_pairs:
         target_min: float | None = None
         target_max: float | None = None
         target_mean: float | None = None
@@ -809,6 +848,8 @@ def evaluate_beam_clone(
         student_mae: float | None = None
         prediction_mean: float | None = None
         prediction_mean_mae: float | None = None
+        target_mean_mae: float | None = None
+        target_median_mae: float | None = None
         pearson: float | None = None
         pearson_reason: str | None = "no_unmasked_finite_pairs"
     else:
@@ -816,35 +857,40 @@ def evaluate_beam_clone(
         target_max = max(observed_targets)
         target_mean = statistics.fmean(observed_targets)
         target_stddev = statistics.pstdev(observed_targets)
-        student_mae = value_absolute_error / value_mae_rows
-        prediction_mean = statistics.fmean(predicted_targets)
-        prediction_mean_mae = statistics.fmean(
-            [abs(predicted - prediction_mean) for predicted in observed_targets]
+        student_mae = statistics.fmean(
+            [
+                abs(predicted - target)
+                for predicted, target in zip(predicted_values, observed_targets, strict=True)
+            ]
         )
-        if target_count < 8:
-            pearson = None
-            pearson_reason = "n_lt_8"
-        elif statistics.pstdev(predicted_targets) == 0.0 or target_stddev == 0.0:
-            pearson = None
-            pearson_reason = "zero_variance"
-        else:
-            pearson = float(statistics.correlation(predicted_targets, observed_targets))
-            pearson_reason = None
-    training_stats = payload.get("training_target_statistics")
+        prediction_mean = statistics.fmean(predicted_values)
+        prediction_mean_mae = _mean_absolute_deviation(observed_targets, prediction_mean)
+        target_mean_mae = _mean_absolute_deviation(observed_targets, target_mean)
+        target_median_mae = _mean_absolute_deviation(
+            observed_targets, float(statistics.median(observed_targets))
+        )
+        pearson, pearson_reason = _pearson_correlation(predicted_values, observed_targets)
     training_mean: float | None = None
     training_mean_mae: float | None = None
     if payload["checkpoint_format"] == TRAINING_CHECKPOINT_FORMAT:
-        validated_stats = _validate_training_target_statistics(training_stats)
+        validated_stats = _validate_training_target_statistics(
+            payload["training_target_statistics"]
+        )
         stored_mean = validated_stats["mean"]
-        if stored_mean is not None:
+        if stored_mean is None:
+            training_mean_reason = "zero_unmasked_targets"
+        else:
             training_mean = float(cast(int | float, stored_mean))
+            training_mean_reason = None
             if observed_targets:
-                training_mean_mae = statistics.fmean(
-                    [abs(target - training_mean) for target in observed_targets]
-                )
+                training_mean_mae = _mean_absolute_deviation(observed_targets, training_mean)
+    else:
+        training_mean_reason = "checkpoint_v3_no_statistics"
     root_counts = Counter(record.root_id for record in records)
-    root_sizes = tuple(root_counts.values())
-    kish = (sum(root_sizes) ** 2) / sum(size * size for size in root_sizes)
+    value_pair_root_counts = Counter(root_id for root_id, _predicted, _target in value_pairs)
+    kish = _kish_ess(tuple(root_counts.values()))
+    if kish is None:
+        raise ValueError("evaluation dataset must contain records")
     report: dict[str, object] = {
         "report_version": 4,
         "split": split,
@@ -880,6 +926,16 @@ def evaluate_beam_clone(
         "always_first_index_numerator": always_first_index_numerator,
         "always_first_index_denominator": exact_denominator,
         "always_first_index_accuracy": always_first_index_numerator / exact_denominator,
+        "always_first_index_in_max_visit_set_numerator": always_first_in_max_visit_numerator,
+        "always_first_index_in_max_visit_set_denominator": exact_denominator,
+        "always_first_index_in_max_visit_set_accuracy": (
+            always_first_in_max_visit_numerator / exact_denominator
+        ),
+        "always_first_index_denominator_note": (
+            "always-first baselines are symbolic teacher statistics over every labeled "
+            "record and do not require model inference; model exact/any-max accuracies "
+            "keep inference errors in the denominator as misses"
+        ),
         "truncated_numerator": truncated_numerator,
         "truncated_denominator": truncated_denominator,
         "truncated_root_count": len(truncated_roots),
@@ -887,19 +943,24 @@ def evaluate_beam_clone(
         "nontruncated_denominator": nontruncated_denominator,
         "value_mae": student_mae,
         "value_mae_rows": value_mae_rows,
-        "target_value_count": target_count,
+        "target_value_count": value_mae_rows,
         "target_value_min": target_min,
         "target_value_max": target_max,
         "target_value_mean": target_mean,
         "target_value_population_stddev": target_stddev,
+        "target_mean_mae": target_mean_mae,
+        "target_median_mae": target_median_mae,
         "training_target_mean": training_mean,
         "training_target_mean_mae": training_mean_mae,
+        "training_target_mean_undefined_reason": training_mean_reason,
         "prediction_mean": prediction_mean,
         "prediction_mean_mae": prediction_mean_mae,
         "pearson_correlation": pearson,
         "pearson_undefined_reason": pearson_reason,
         "root_count": len(root_counts),
         "kish_cluster_ess": kish,
+        "value_pair_root_count": len(value_pair_root_counts),
+        "value_pair_kish_cluster_ess": _kish_ess(tuple(value_pair_root_counts.values())),
         "per_record": per_record,
     }
     report["report_digest"] = _digest(report)

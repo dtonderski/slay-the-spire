@@ -17,7 +17,6 @@ from sts_sim.rl import (
     SymbolicTrainingRecord,
     TrainingConfig,
     evaluate_beam_clone,
-    generate_legal_roots,
     generate_puct_dataset,
     load_dataset_manifest,
     read_jsonl,
@@ -25,21 +24,27 @@ from sts_sim.rl import (
     write_jsonl,
 )
 from sts_sim.rl.data import DATASET_MANIFEST_V6, DATASET_MANIFEST_V7
+from sts_sim.rl.model import FairCombatPolicyValueNet, PolicyValueOutput
 from sts_sim.rl.puct import PUCT_TEACHER_NAME
 from sts_sim.rl.records import (
     COMBAT_PROXY_VALUE_TARGET_NAME,
     PUCT_SEARCH_ROOT_MEAN_NAME,
     PUCT_VALUE_TARGET_NAME,
+    CombatOutcome,
     JsonValue,
     collate_training_examples,
 )
 from sts_sim.rl.rewards import COMBAT_PROXY_V1
-from sts_sim.rl.tensor import VocabularyBuilder
+from sts_sim.rl.tensor import BatchedCombatDecision, VocabularyBuilder
 from sts_sim.rl.tracking import OfflineWandbConfig
 from sts_sim.rl.training import (
     TRAINING_CHECKPOINT_FORMAT,
     TRAINING_CHECKPOINT_FORMAT_V3,
+    _canonical_unmasked_target,
     _compute_training_target_statistics,
+    _kish_ess,
+    _mean_absolute_deviation,
+    _pearson_correlation,
     _validate_checkpoint_envelope,
 )
 from tests.test_puct_distill import _beam_train_checkpoint, _smoke_training_config
@@ -63,8 +68,8 @@ def _tiny_puct_dataset(tmp_path: Path) -> tuple[Path, Path]:
         split="train",
         simulation_budget=4,
         transition_budget=4,
-        max_decisions=2,
-        max_player_turns=3,
+        max_decisions=32,
+        max_player_turns=20,
     )
     return tmp_path / "puct-train/dataset-manifest.json", checkpoint
 
@@ -76,6 +81,12 @@ def test_v4_record_round_trip_and_terminal_z_identity(tmp_path: Path) -> None:
     records = tuple(read_jsonl(manifest_path.parent / manifest.shard_path))
     assert records
     assert all(record.record_version == 4 for record in records)
+    terminal = [record for record in records if not record.outcome.truncated]
+    assert terminal
+    assert {record.outcome.status for record in terminal} <= {"won", "lost", "escaped"}
+    assert _canonical_unmasked_target(terminal[0]) == float(
+        cast(int | float, terminal[0].target_value)
+    )
     rebuilt = tuple(SymbolicTrainingRecord.from_dict(record.to_dict()) for record in records)
     assert [record.to_dict() for record in rebuilt] == [record.to_dict() for record in records]
     for record in records:
@@ -92,6 +103,10 @@ def test_v4_record_round_trip_and_terminal_z_identity(tmp_path: Path) -> None:
             assert expected is None
             assert record.target_value is None
             assert record.value_target_mask is False
+        else:
+            assert expected is not None
+            assert record.target_value == expected
+            assert record.value_target_mask is True
 
 
 def test_search_root_mean_is_not_tensorized(tmp_path: Path) -> None:
@@ -101,19 +116,27 @@ def test_search_root_mean_is_not_tensorized(tmp_path: Path) -> None:
     for record in records:
         builder.add(record.observation, record.actions)
     dataset = SymbolicCombatDataset(records, builder.freeze())
-    example = dataset[0]
+    distinct = next(
+        record
+        for record in records
+        if record.value_target_mask and record.target_value != record.search_root_mean_value
+    )
+    index = records.index(distinct)
+    example = dataset[index]
     assert not hasattr(example, "search_root_mean_value")
-    assert records[0].search_root_mean_value is not None
-    if records[0].value_target_mask:
-        assert float(example.value_target) == records[0].target_value
-        assert float(example.value_target) != records[0].search_root_mean_value or (
-            records[0].target_value == records[0].search_root_mean_value
-        )
-    else:
-        assert float(example.value_target) == 0.0
-        assert bool(example.value_target_mask) is False
+    assert distinct.search_root_mean_value is not None
+    assert distinct.target_value is not None
+    target = float(distinct.target_value)
+    root_mean = float(distinct.search_root_mean_value)
+    target32 = float(torch.tensor(target, dtype=torch.float32))
+    root_mean32 = float(torch.tensor(root_mean, dtype=torch.float32))
+    assert target != root_mean
+    assert target32 != root_mean32
+    assert float(example.value_target) == target32
+    assert bool(example.value_target_mask) is True
     batch = collate_training_examples((example,))
     assert not hasattr(batch, "search_root_mean_value")
+    assert float(batch.value_target[0]) == target32
 
 
 def test_v4_rejects_malformed_records_and_unknown_fields(tmp_path: Path) -> None:
@@ -201,8 +224,13 @@ def test_checkpoint_v4_stores_stats_and_accepts_authentic_v3(tmp_path: Path) -> 
     payload = torch.load(student, map_location="cpu", weights_only=False)
     assert payload["checkpoint_format"] == TRAINING_CHECKPOINT_FORMAT
     records = tuple(read_jsonl(manifest_path.parent / "train/train.jsonl"))
-    assert payload["training_target_statistics"] == _compute_training_target_statistics(records)
+    stats = _compute_training_target_statistics(records)
+    assert cast(int, stats["count"]) > 0
+    assert stats["mean"] is not None
+    assert payload["training_target_statistics"] == stats
+    original_stats = dict(payload["training_target_statistics"])
     _validate_checkpoint_envelope(payload)
+    assert payload["training_target_statistics"] == original_stats
     v3 = dict(payload)
     v3.pop("training_target_statistics")
     v3["checkpoint_format"] = TRAINING_CHECKPOINT_FORMAT_V3
@@ -219,7 +247,7 @@ def test_checkpoint_v4_stores_stats_and_accepts_authentic_v3(tmp_path: Path) -> 
         _validate_checkpoint_envelope(mixed)
     tampered = dict(payload)
     stats = dict(tampered["training_target_statistics"])
-    stats["mean"] = 0.123456
+    stats["population_stddev"] = float(cast(int | float, stats["population_stddev"])) + 0.01
     unsigned = {key: stats[key] for key in ("count", "mean", "min", "max", "population_stddev")}
     stats["digest"] = hashlib.sha256(
         json.dumps(unsigned, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
@@ -227,7 +255,7 @@ def test_checkpoint_v4_stores_stats_and_accepts_authentic_v3(tmp_path: Path) -> 
     tampered["training_target_statistics"] = stats
     bad = tmp_path / "tampered.pt"
     torch.save(tampered, bad)
-    with pytest.raises(ValueError, match="target statistics"):
+    with pytest.raises(ValueError, match="^training checkpoint target statistics mismatch$"):
         train_beam_clone(manifest_path, bad, _smoke_training_config(), resume=True)
 
 
@@ -259,42 +287,15 @@ def test_resume_preserves_v4_stats_and_rng(tmp_path: Path) -> None:
 
 
 def test_static_v4_metrics_match_formulas(tmp_path: Path) -> None:
-    generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0", "BEAMCLONE12"], max_run_steps=128)
-    from sts_sim.rl import generate_beam_dataset
-
-    generate_beam_dataset(
-        tmp_path / "roots/root-manifest.json",
-        tmp_path / "beam-train",
-        split="train",
-        depth=2,
-        width=4,
-        transition_budget=100,
-        max_decisions=8,
-        max_player_turns=3,
-    )
-    generate_beam_dataset(
-        tmp_path / "roots/root-manifest.json",
-        tmp_path / "beam-dev",
-        split="development",
-        depth=2,
-        width=4,
-        transition_budget=100,
-        max_decisions=8,
-        max_player_turns=3,
-    )
-    checkpoint = tmp_path / "beam.pt"
-    train_beam_clone(
-        tmp_path / "beam-train/dataset-manifest.json", checkpoint, _smoke_training_config()
-    )
-    report = evaluate_beam_clone(
-        tmp_path / "beam-dev/dataset-manifest.json", checkpoint, split="development"
-    )
-    records = tuple(read_jsonl(tmp_path / "beam-dev/development/development.jsonl"))
+    manifest_path, _teacher = _tiny_puct_dataset(tmp_path)
+    checkpoint = tmp_path / "student.pt"
+    train_beam_clone(manifest_path, checkpoint, _smoke_training_config())
+    report = evaluate_beam_clone(manifest_path, checkpoint, split="train")
+    records = tuple(read_jsonl(manifest_path.parent / "train/train.jsonl"))
     assert report["report_version"] == 4
     assert report["exact_denominator"] == len(records)
-    assert cast(int, report["errors"]) + cast(int, report["exact_numerator"]) <= cast(
-        int, report["exact_denominator"]
-    )
+    assert report["errors"] == 0
+    assert cast(int, report["exact_numerator"]) <= len(records)
     tied = sum(
         sum(value == max(record.teacher_visit_counts) for value in record.teacher_visit_counts) > 1
         for record in records
@@ -303,38 +304,54 @@ def test_static_v4_metrics_match_formulas(tmp_path: Path) -> None:
     assert report["always_first_index_numerator"] == sum(
         record.chosen_action_index == 0 for record in records
     )
+    assert report["always_first_index_in_max_visit_set_numerator"] == sum(
+        record.teacher_visit_counts[0] == max(record.teacher_visit_counts) for record in records
+    )
+    assert report["always_first_index_denominator"] == len(records)
     assert report["root_count"] == len({record.root_id for record in records})
     sizes = tuple(Counter(record.root_id for record in records).values())
-    assert report["kish_cluster_ess"] == (sum(sizes) ** 2) / sum(size * size for size in sizes)
+    assert report["kish_cluster_ess"] == _kish_ess(sizes)
     payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
     training_mean = payload["training_target_statistics"]["mean"]
     assert report["training_target_mean"] == training_mean
-    pairs = [
-        (row["predicted_value"], row["target_value"])
+    assert report["training_target_mean_undefined_reason"] is None
+    successful = [
+        row
         for row in cast(list[dict[str, object]], report["per_record"])
         if "error" not in row and row["value_target_mask"] is True
     ]
-    assert report["value_mae_rows"] == len(pairs)
-    if pairs:
-        targets = [float(cast(int | float, target)) for _predicted, target in pairs]
-        preds = [float(cast(int | float, predicted)) for predicted, _target in pairs]
-        assert report["value_mae"] == statistics.fmean(
-            [abs(predicted - target) for predicted, target in zip(preds, targets, strict=True)]
+    assert successful
+    shard_targets = [
+        _canonical_unmasked_target(record)
+        for record, row in zip(
+            records, cast(list[dict[str, object]], report["per_record"]), strict=True
         )
-        assert report["training_target_mean_mae"] == statistics.fmean(
-            [abs(target - float(training_mean)) for target in targets]
-        )
-        pred_mean = statistics.fmean(preds)
-        assert report["prediction_mean"] == pred_mean
-        assert report["prediction_mean_mae"] == statistics.fmean(
-            [abs(target - pred_mean) for target in targets]
-        )
-        if len(pairs) < 8 or statistics.pstdev(preds) == 0.0 or statistics.pstdev(targets) == 0.0:
-            assert report["pearson_correlation"] is None
-            assert report["pearson_undefined_reason"] in {"n_lt_8", "zero_variance"}
-        else:
-            assert report["pearson_correlation"] == statistics.correlation(preds, targets)
-            assert report["pearson_undefined_reason"] is None
+        if "error" not in row and record.value_target_mask
+    ]
+    preds = [float(cast(int | float, row["predicted_value"])) for row in successful]
+    assert report["value_mae_rows"] == len(shard_targets) == len(preds)
+    assert report["target_value_mean"] == statistics.fmean(shard_targets)
+    assert report["value_mae"] == statistics.fmean(
+        [abs(predicted - target) for predicted, target in zip(preds, shard_targets, strict=True)]
+    )
+    assert report["training_target_mean_mae"] == _mean_absolute_deviation(
+        shard_targets, float(training_mean)
+    )
+    pred_mean = statistics.fmean(preds)
+    assert report["prediction_mean"] == pred_mean
+    assert report["prediction_mean_mae"] == _mean_absolute_deviation(shard_targets, pred_mean)
+    assert report["target_mean_mae"] == _mean_absolute_deviation(
+        shard_targets, statistics.fmean(shard_targets)
+    )
+    assert report["target_median_mae"] == _mean_absolute_deviation(
+        shard_targets, float(statistics.median(shard_targets))
+    )
+    pair_sizes = tuple(Counter(cast(str, row["root_id"]) for row in successful).values())
+    assert report["value_pair_root_count"] == len(pair_sizes)
+    assert report["value_pair_kish_cluster_ess"] == _kish_ess(pair_sizes)
+    expected_pearson, expected_reason = _pearson_correlation(preds, shard_targets)
+    assert report["pearson_correlation"] == expected_pearson
+    assert report["pearson_undefined_reason"] == expected_reason
 
 
 def test_wandb_v7_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -351,3 +368,106 @@ def test_wandb_v7_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert fake.run.config["puct_targets_in_training"] is True
     assert fake.run.config["trainer"] == "privileged_puct_distill"
     assert fake.run.config["teacher_name"] == PUCT_TEACHER_NAME
+
+
+def test_value_metric_helpers_cover_defined_and_undefined_paths() -> None:
+    assert _kish_ess(()) is None
+    assert _kish_ess((2, 2)) == 2.0
+    short_pred = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+    short_targ = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
+    assert _pearson_correlation(short_pred, short_targ) == (None, "n_lt_8")
+    constant = [0.5] * 8
+    varied = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+    assert _pearson_correlation(varied, constant) == (None, "zero_variance")
+    defined_targ = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+    correlation, reason = _pearson_correlation(varied, defined_targ)
+    assert reason is None
+    assert correlation == statistics.correlation(varied, defined_targ)
+    values = [0.2, 0.4, 0.6]
+    assert _mean_absolute_deviation(values, 0.4) == statistics.fmean([0.2, 0.0, 0.2])
+    awkward = 0.9388888888888889
+    assert float(torch.tensor(awkward, dtype=torch.float32)) != awkward
+
+
+def test_v3_checkpoint_marks_training_mean_undefined(tmp_path: Path) -> None:
+    manifest_path, _teacher = _tiny_puct_dataset(tmp_path)
+    student = tmp_path / "student.pt"
+    train_beam_clone(manifest_path, student, _smoke_training_config())
+    payload = torch.load(student, map_location="cpu", weights_only=False)
+    v3 = dict(payload)
+    v3.pop("training_target_statistics")
+    v3["checkpoint_format"] = TRAINING_CHECKPOINT_FORMAT_V3
+    v3_path = tmp_path / "student-v3.pt"
+    torch.save(v3, v3_path)
+    report = evaluate_beam_clone(manifest_path, v3_path, split="train")
+    assert report["training_target_mean"] is None
+    assert report["training_target_mean_mae"] is None
+    assert report["training_target_mean_undefined_reason"] == "checkpoint_v3_no_statistics"
+    assert cast(int, report["value_mae_rows"]) > 0
+
+
+def test_inference_error_stays_in_model_denominator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest_path, _teacher = _tiny_puct_dataset(tmp_path)
+    student = tmp_path / "student.pt"
+    train_beam_clone(manifest_path, student, _smoke_training_config())
+    records = tuple(read_jsonl(manifest_path.parent / "train/train.jsonl"))
+    calls = {"n": 0}
+    original = FairCombatPolicyValueNet.forward
+
+    def boom(self: FairCombatPolicyValueNet, batch: BatchedCombatDecision) -> PolicyValueOutput:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("injected inference failure")
+        return original(self, batch)
+
+    monkeypatch.setattr(FairCombatPolicyValueNet, "forward", boom)
+    report = evaluate_beam_clone(manifest_path, student, split="train")
+    assert report["errors"] == 1
+    assert report["exact_denominator"] == len(records)
+    assert report["always_first_index_denominator"] == len(records)
+    assert report["always_first_index_in_max_visit_set_denominator"] == len(records)
+    assert report["always_first_index_numerator"] == sum(
+        record.chosen_action_index == 0 for record in records
+    )
+    assert report["always_first_index_in_max_visit_set_numerator"] == sum(
+        record.teacher_visit_counts[0] == max(record.teacher_visit_counts) for record in records
+    )
+    assert cast(int, report["exact_numerator"]) <= len(records) - 1
+    assert cast(float, report["accuracy"]) == cast(int, report["exact_numerator"]) / len(records)
+    error_rows = [
+        row for row in cast(list[dict[str, object]], report["per_record"]) if "error" in row
+    ]
+    assert len(error_rows) == 1
+    assert "selected_action_index" not in error_rows[0]
+    assert "injected inference failure" in str(error_rows[0]["error"])
+    assert cast(int, report["value_pair_root_count"]) <= cast(int, report["root_count"])
+
+
+def test_v4_dataset_rejects_mixed_episode_terminal_z(tmp_path: Path) -> None:
+    manifest_path, _teacher = _tiny_puct_dataset(tmp_path)
+    records = list(read_jsonl(manifest_path.parent / "train/train.jsonl"))
+    counts = Counter(record.episode_id for record in records)
+    episode_id = next(episode for episode, count in counts.items() if count >= 2)
+    index = next(
+        position for position, record in enumerate(records) if record.episode_id == episode_id
+    )
+    payload = records[index].to_dict()
+    outcome = dict(cast(dict[str, object], payload["outcome"]))
+    terminal_hp = cast(int, outcome["terminal_hp"])
+    outcome["terminal_hp"] = 1 if terminal_hp != 1 else 2
+    mutated_outcome = CombatOutcome.from_dict(outcome)
+    payload["outcome"] = mutated_outcome.to_dict()
+    payload["target_value"] = COMBAT_PROXY_V1.value(mutated_outcome)
+    payload["record_id"] = None
+    records[index] = SymbolicTrainingRecord.from_dict(payload)
+    shard = manifest_path.parent / "train/train.jsonl"
+    write_jsonl(shard, records)
+    manifest_payload = json.loads(manifest_path.read_text())
+    manifest_payload["shard_digest"] = hashlib.sha256(shard.read_bytes()).hexdigest()
+    manifest_payload["record_ids"] = [cast(str, record.record_id) for record in records]
+    _resign_dataset_manifest(manifest_payload)
+    manifest_path.write_text(json.dumps(manifest_payload, sort_keys=True, separators=(",", ":")))
+    with pytest.raises(ValueError, match="not identical across decisions"):
+        load_dataset_manifest(manifest_path, requested_split="train")

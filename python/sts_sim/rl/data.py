@@ -1044,6 +1044,22 @@ def load_dataset_manifest(
             action_descriptor_from_payload(
                 {key: value for key, value in asdict(action).items() if value is not None}
             )
+    if expected_record_version == 4:
+        first_by_episode: dict[str, SymbolicTrainingRecord] = {}
+        for record in records:
+            previous = first_by_episode.get(record.episode_id)
+            if previous is None:
+                first_by_episode[record.episode_id] = record
+                continue
+            if previous.outcome != record.outcome:
+                raise ValueError("V4 PUCT episode outcome is not identical across decisions")
+            if (
+                previous.target_value != record.target_value
+                or previous.value_target_mask != record.value_target_mask
+            ):
+                raise ValueError(
+                    "V4 PUCT episode terminal z/mask is not identical across decisions"
+                )
     if seen_memberships != set(memberships):
         raise ValueError("dataset root membership contains no records")
     return manifest
