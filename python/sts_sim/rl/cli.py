@@ -25,6 +25,12 @@ def _data_parser() -> argparse.ArgumentParser:
     roots.add_argument("--ascension", type=int, default=0)
     roots.add_argument("--max-run-steps", type=int, default=256)
     roots.add_argument(
+        "--combat-depth",
+        type=int,
+        default=1,
+        help="1-based combat index to capture; 1 is the first combat",
+    )
+    roots.add_argument(
         "--materialize-audited-splits",
         action="store_true",
         help="explicitly write split-isolated sealed/audit root snapshots",
@@ -69,6 +75,7 @@ def data_main(argv: Sequence[str] | None = None) -> int:
             seeds,
             ascension=args.ascension,
             max_run_steps=args.max_run_steps,
+            combat_depth=args.combat_depth,
             materialize_audited_splits=args.materialize_audited_splits,
         )
     elif args.command == "puct-label":

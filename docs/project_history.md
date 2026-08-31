@@ -17,7 +17,11 @@ strategy is to establish credible simulator fidelity with real-game traces, use
 the existing deterministic combat search as an adequate executor, and develop a
 fair run-level policy. Run-level decisions are presently considered the main
 bottleneck to generating varied, internally consistent simulator runs and later
-combat roots. This ordering is a working hypothesis, not an experimental result.
+combat roots. First-combat-only simulator roots also collapsed early PUCT value
+learning: A0 openers were almost all wins. The generator therefore grew an
+opt-in combat-depth sampler so later A0 fights can be collected with the same
+public hash policy, rather than pretending unvalidated ascension mechanics are a
+difficulty lever. This ordering is a working hypothesis, not an experimental result.
 
 ## Origin and Simulator Choice
 

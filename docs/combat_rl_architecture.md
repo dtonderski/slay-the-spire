@@ -1,7 +1,7 @@
 # Combat RL Architecture
 
 Status: design contract; the initial fair tensorizer, tiny policy/value model, and naive synchronous privileged PUCT are implemented.
-Last updated: 2026-08-30.
+Last updated: 2026-08-31.
 
 The first learned combat agent uses AlphaZero-style Expert Iteration over
 collected combat roots. Its policy/value network receives only fair public
@@ -38,7 +38,14 @@ Combat roots are starting states, not the entire training set. Legally generated
 seeded simulator runs are the scalable training source; immutable real-trace
 roots remain fixed distribution anchors for development, sealed evaluation, and
 audit. Root generation must advance only through accepted legal transitions and
-must never randomize raw state fields independently.
+must never randomize raw state fields independently. The default sampler still
+captures the first actionable combat of a seeded run. An opt-in 1-based
+`combat_depth` continues the same deterministic public hash policy through earlier
+combats and intervening run decisions, then captures the first
+`waiting_for_player` decision of the requested combat. Depth sampling stays at
+ascension 0; it is not a substitute for unvalidated higher-ascension mechanics.
+Runs that die, terminate, or hit the step cap before that depth are typed
+exclusions, not silent drops.
 
 ```text
 sample training combat root

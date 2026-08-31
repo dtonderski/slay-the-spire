@@ -212,6 +212,7 @@ def _resign_root_manifest(payload: dict[str, object]) -> None:
         split_salt=cast(str, payload["split_salt"]),
         ascension=cast(int, payload["ascension"]),
         max_run_steps=cast(int, payload["max_run_steps"]),
+        combat_depth=(cast(int, payload["combat_depth"]) if "combat_depth" in payload else None),
     )
     _resign_dataset_manifest(payload)
 

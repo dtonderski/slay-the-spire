@@ -31,13 +31,33 @@ from .records import (
 )
 from .rewards import COMBAT_PROXY_V1, CombatRewardConfig
 
-ROOT_MANIFEST_VERSION = 4
+ROOT_MANIFEST_V4 = 4
+ROOT_MANIFEST_VERSION = 5
 DATASET_MANIFEST_VERSION = 5
 DATASET_MANIFEST_V6 = 6
 _ACCEPTED_DATASET_MANIFEST_VERSIONS = {DATASET_MANIFEST_VERSION, DATASET_MANIFEST_V6}
 _SPLIT_SALT = "combat-agent-phase2-v1"
 _GENERATOR_NAME = "legal_run_policy"
-_GENERATOR_VERSION = "sha256_action_policy_v3"
+_GENERATOR_VERSION = "sha256_action_policy_v4"
+_ROOT_MANIFEST_V4_KEYS = frozenset(
+    {
+        "manifest_version",
+        "generator_name",
+        "generator_version",
+        "generator_source_digest",
+        "repository",
+        "ascension",
+        "max_run_steps",
+        "split_salt",
+        "requested_seeds",
+        "cohort_digest",
+        "audited_splits_materialized",
+        "roots",
+        "exclusions",
+        "manifest_digest",
+    }
+)
+_ROOT_MANIFEST_V5_KEYS = _ROOT_MANIFEST_V4_KEYS | {"combat_depth"}
 _ALLOWED_SPLITS = {"train", "development", "sealed_test", "real_trace_audit"}
 _AUDITED_SPLITS = {"sealed_test", "real_trace_audit"}
 _SOURCE_KIND = "simulator_legal_v1"
@@ -100,8 +120,9 @@ def _cohort_contract(
     split_salt: str,
     ascension: int,
     max_run_steps: int,
+    combat_depth: int | None = None,
 ) -> dict[str, object]:
-    return {
+    contract: dict[str, object] = {
         "requested_seeds": list(requested_seeds),
         "generator_name": generator_name,
         "generator_version": generator_version,
@@ -110,6 +131,9 @@ def _cohort_contract(
         "ascension": ascension,
         "max_run_steps": max_run_steps,
     }
+    if combat_depth is not None:
+        contract["combat_depth"] = combat_depth
+    return contract
 
 
 def _cohort_digest(
@@ -121,6 +145,7 @@ def _cohort_digest(
     split_salt: str,
     ascension: int,
     max_run_steps: int,
+    combat_depth: int | None = None,
 ) -> str:
     return _sha256_bytes(
         _canonical_bytes(
@@ -132,6 +157,7 @@ def _cohort_digest(
                 split_salt=split_salt,
                 ascension=ascension,
                 max_run_steps=max_run_steps,
+                combat_depth=combat_depth,
             )
         )
     )
@@ -191,6 +217,7 @@ class RootManifest:
     repository: RepositoryVersion
     ascension: int
     max_run_steps: int
+    combat_depth: int
     split_salt: str
     requested_seeds: tuple[str, ...]
     cohort_digest: str
@@ -200,7 +227,7 @@ class RootManifest:
     manifest_digest: str
 
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "manifest_version": self.manifest_version,
             "generator_name": self.generator_name,
             "generator_version": self.generator_version,
@@ -223,16 +250,28 @@ class RootManifest:
             "exclusions": [asdict(exclusion) for exclusion in self.exclusions],
             "manifest_digest": self.manifest_digest,
         }
+        if self.manifest_version == ROOT_MANIFEST_VERSION:
+            payload["combat_depth"] = self.combat_depth
+        return payload
 
     @classmethod
     def from_dict(cls, payload: object) -> RootManifest:
         if type(payload) is not dict:
             raise TypeError("root manifest must be an object")
         source = cast(dict[str, object], payload)
-        if (
-            set(source) != set(cls.__dataclass_fields__)
-            or source["manifest_version"] != ROOT_MANIFEST_VERSION
-        ):
+        version = source.get("manifest_version")
+        if version == ROOT_MANIFEST_V4:
+            if set(source) != _ROOT_MANIFEST_V4_KEYS:
+                raise ValueError("unsupported or malformed root manifest")
+            combat_depth = 1
+        elif version == ROOT_MANIFEST_VERSION:
+            if set(source) != _ROOT_MANIFEST_V5_KEYS:
+                raise ValueError("unsupported or malformed root manifest")
+            raw_depth = source["combat_depth"]
+            if type(raw_depth) is not int or raw_depth <= 0:
+                raise ValueError("root manifest combat depth is invalid")
+            combat_depth = raw_depth
+        else:
             raise ValueError("unsupported or malformed root manifest")
         if (
             type(source["roots"]) is not list
@@ -282,6 +321,7 @@ class RootManifest:
             RepositoryVersion.from_dict(source["repository"]),
             cast(int, source["ascension"]),
             cast(int, source["max_run_steps"]),
+            combat_depth,
             cast(str, source["split_salt"]),
             requested_seeds,
             _require_digest(source["cohort_digest"], "root cohort digest"),
@@ -294,6 +334,8 @@ class RootManifest:
             raise ValueError("root manifest ascension is invalid")
         if type(manifest.max_run_steps) is not int or manifest.max_run_steps <= 0:
             raise ValueError("root manifest step limit is invalid")
+        if type(manifest.combat_depth) is not int or manifest.combat_depth <= 0:
+            raise ValueError("root manifest combat depth is invalid")
         if type(manifest.split_salt) is not str or manifest.split_salt != _SPLIT_SALT:
             raise ValueError("root manifest split salt is invalid")
         if not manifest.requested_seeds or any(
@@ -316,6 +358,11 @@ class RootManifest:
             split_salt=manifest.split_salt,
             ascension=manifest.ascension,
             max_run_steps=manifest.max_run_steps,
+            combat_depth=(
+                manifest.combat_depth
+                if manifest.manifest_version == ROOT_MANIFEST_VERSION
+                else None
+            ),
         ):
             raise ValueError("root cohort digest is invalid")
         if manifest.manifest_digest != _digest_payload(manifest.to_dict(), "manifest_digest"):
@@ -410,12 +457,44 @@ def _require_empty_output_dir(output_dir: Path) -> None:
             raise ValueError("output directory must be empty")
 
 
+def _capture_combat_root(
+    env: RunEnv,
+    seed: str,
+    *,
+    combat_depth: int,
+    max_run_steps: int,
+) -> tuple[dict[str, object] | None, RootExclusion | None]:
+    combat_index = 0
+    in_combat = False
+    for step in range(max_run_steps + 1):
+        decision = env.decision()
+        observation = decision.observation
+        if isinstance(observation, FairCombatObservation) and not in_combat:
+            combat_index += 1
+            in_combat = True
+            if observation.phase != "waiting_for_player" or not decision.actions:
+                return None, RootExclusion(
+                    seed, "terminal_combat", "combat is not an ongoing policy root"
+                )
+            if combat_index == combat_depth:
+                return json.loads(env.snapshot().json), None
+        elif not isinstance(observation, FairCombatObservation):
+            in_combat = False
+        if step == max_run_steps:
+            return None, RootExclusion(seed, "step_limit", "requested combat depth not reached")
+        if not decision.actions:
+            return None, RootExclusion(seed, "terminal_run", "requested combat depth not reached")
+        env.step(decision.actions[_policy_index(seed, step, decision.actions)])
+    raise RuntimeError("combat root capture did not terminate")
+
+
 def generate_legal_roots(
     output_dir: Path,
     seeds: list[str],
     *,
     ascension: int = 0,
     max_run_steps: int = 256,
+    combat_depth: int = 1,
     materialize_audited_splits: bool = False,
     repository_root: Path | None = None,
 ) -> RootManifest:
@@ -424,6 +503,8 @@ def generate_legal_roots(
     requested_seeds = _canonical_requested_seeds(seeds)
     if not 0 <= ascension <= 20 or max_run_steps <= 0:
         raise ValueError("invalid root generation bounds")
+    if type(combat_depth) is not int or combat_depth <= 0:
+        raise ValueError("combat depth must be a positive integer")
     if type(materialize_audited_splits) is not bool:
         raise TypeError("audited materialization flag must be boolean")
     _require_empty_output_dir(output_dir)
@@ -436,37 +517,23 @@ def generate_legal_roots(
     for seed in requested_seeds:
         env = RunEnv.new_ironclad(seed, ascension)
         try:
-            for step in range(max_run_steps + 1):
-                decision = env.decision()
-                if isinstance(decision.observation, FairCombatObservation):
-                    if decision.observation.phase != "waiting_for_player" or not decision.actions:
-                        exclusions.append(
-                            RootExclusion(
-                                seed, "terminal_combat", "combat is not an ongoing policy root"
-                            )
-                        )
-                        break
-                    snapshot = json.loads(env.snapshot().json)
-                    canonical = _canonical_bytes(snapshot)
-                    root_id = _sha256_bytes(canonical)
-                    lineage = f"sim-seed:{seed}"
-                    existing = root_payloads.get(root_id)
-                    if existing is None:
-                        root_payloads[root_id] = (snapshot, [lineage], [seed])
-                    else:
-                        existing[1].append(lineage)
-                        existing[2].append(seed)
-                        exclusions.append(
-                            RootExclusion(seed, "duplicate_root", f"duplicate of {root_id}")
-                        )
-                    break
-                if step == max_run_steps:
-                    exclusions.append(RootExclusion(seed, "step_limit", "no combat reached"))
-                    break
-                if not decision.actions:
-                    exclusions.append(RootExclusion(seed, "terminal_run", "no combat reached"))
-                    break
-                env.step(decision.actions[_policy_index(seed, step, decision.actions)])
+            snapshot, exclusion = _capture_combat_root(
+                env, seed, combat_depth=combat_depth, max_run_steps=max_run_steps
+            )
+            if exclusion is not None:
+                exclusions.append(exclusion)
+                continue
+            assert snapshot is not None
+            canonical = _canonical_bytes(snapshot)
+            root_id = _sha256_bytes(canonical)
+            lineage = f"sim-seed:{seed}"
+            existing = root_payloads.get(root_id)
+            if existing is None:
+                root_payloads[root_id] = (snapshot, [lineage], [seed])
+            else:
+                existing[1].append(lineage)
+                existing[2].append(seed)
+                exclusions.append(RootExclusion(seed, "duplicate_root", f"duplicate of {root_id}"))
         except (RuntimeError, TypeError, ValueError) as error:
             exclusions.append(RootExclusion(seed, "generation_error", str(error)))
 
@@ -507,6 +574,7 @@ def generate_legal_roots(
         split_salt=_SPLIT_SALT,
         ascension=ascension,
         max_run_steps=max_run_steps,
+        combat_depth=combat_depth,
     )
     unsigned: dict[str, object] = {
         "manifest_version": ROOT_MANIFEST_VERSION,
@@ -516,6 +584,7 @@ def generate_legal_roots(
         "repository": repository.to_dict(),
         "ascension": ascension,
         "max_run_steps": max_run_steps,
+        "combat_depth": combat_depth,
         "split_salt": _SPLIT_SALT,
         "requested_seeds": list(requested_seeds),
         "cohort_digest": cohort_digest,
@@ -538,6 +607,7 @@ def generate_legal_roots(
         repository,
         ascension,
         max_run_steps,
+        combat_depth,
         _SPLIT_SALT,
         requested_seeds,
         cohort_digest,
