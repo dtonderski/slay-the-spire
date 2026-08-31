@@ -85,7 +85,10 @@ Record V2 / manifest V5 one-hot labels and terminal `combat_proxy_v1` values.
 Privileged PUCT distillation writes Record V3 / manifest V6 labels: raw root
 visit counts as the policy target and the backed-up root-mean as
 `privileged_puct_root_mean_v1`, still bound to the terminal reward contract used
-inside search. Optional offline W&B tracking records scalar `step`/`loss` plus
+inside search. Unlike V2, truncated PUCT rollouts keep those root-mean targets
+present and unmasked; only V2 terminal `combat_proxy_v1` values are masked on
+truncation. W&B PUCT metadata follows manifest V6, not an unchecked teacher
+literal. Optional offline W&B tracking records scalar `step`/`loss` plus
 symbolic config and provenance digests; it is opt-in, never uploads, and does
 not change checkpoint bytes. Each offline `--resume` is a separate W&B run
 segment. Source or lockfile changes intentionally invalidate source-bound

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -15,6 +18,7 @@ from sts_sim.rl import (
     TrainingConfig,
     Vocabularies,
     VocabularyBuilder,
+    evaluate_matched_puct_gameplay,
     evaluate_matched_puct_roots,
     generate_beam_dataset,
     generate_legal_roots,
@@ -27,7 +31,9 @@ from sts_sim.rl import (
 from sts_sim.rl.cli import data_main
 from sts_sim.rl.data import DATASET_MANIFEST_V6, DATASET_MANIFEST_VERSION
 from sts_sim.rl.puct import FAIR_LEAF_BATCH_SCHEMA, PUCT_TEACHER_NAME, network_leaf_evaluator
+from sts_sim.rl.puct_data import AuthoritativeRootMutationError
 from sts_sim.rl.records import PUCT_VALUE_TARGET_NAME
+from sts_sim.rl.rewards import CombatRewardConfig
 from sts_sim.rl.tracking import OfflineWandbConfig
 from sts_sim.rl.training import TRAINING_CHECKPOINT_FORMAT
 
@@ -243,6 +249,12 @@ def test_v5_beam_datasets_still_load_and_v6_tampering_fails_closed(tmp_path: Pat
         max_player_turns=3,
     )
     assert puct.manifest_version == DATASET_MANIFEST_V6
+    records = tuple(read_jsonl(tmp_path / "puct/train/train.jsonl"))
+    truncated = [record for record in records if record.outcome.truncated]
+    assert truncated
+    assert all(
+        record.value_target_mask is True and record.target_value is not None for record in truncated
+    )
     manifest_path = tmp_path / "puct/dataset-manifest.json"
     payload = json.loads(manifest_path.read_text())
     payload["manifest_version"] = DATASET_MANIFEST_VERSION
@@ -356,6 +368,7 @@ def test_puct_training_logs_puct_targets_in_wandb(
     assert fake.run.config["puct_targets_in_training"] is True
     assert fake.run.config["trainer"] == "privileged_puct_distill"
     assert fake.run.config["teacher_name"] == PUCT_TEACHER_NAME
+    assert fake.run.config["dataset_manifest_version"] == DATASET_MANIFEST_V6
     student = torch.load(tmp_path / "student.pt", map_location="cpu", weights_only=False)
     assert student["checkpoint_format"] == TRAINING_CHECKPOINT_FORMAT
 
@@ -431,3 +444,139 @@ def test_cli_puct_label_wires_generate(monkeypatch: pytest.MonkeyPatch, tmp_path
     kwargs = cast(dict[str, object], captured["kwargs"])
     assert kwargs["simulation_budget"] == 8
     assert kwargs["transition_budget"] == 8
+
+
+def test_puct_labeling_root_mutation_hard_aborts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    roots, checkpoint = _beam_train_checkpoint(tmp_path)
+    original = puct_clone_episode_payload
+
+    def mutate(
+        env: RunEnv,
+        evaluator: Callable[[str], str],
+        *,
+        c_puct: float = 1.5,
+        simulation_budget: int = 64,
+        transition_budget: int = 64,
+        max_decisions: int = 512,
+        max_player_turns: int = 100,
+        reward_config: CombatRewardConfig | None = None,
+    ) -> dict[str, object]:
+        decision = env.decision()
+        env.step(decision.actions[0])
+        return original(
+            env,
+            evaluator,
+            c_puct=c_puct,
+            simulation_budget=simulation_budget,
+            transition_budget=transition_budget,
+            max_decisions=max_decisions,
+            max_player_turns=max_player_turns,
+            reward_config=reward_config,
+        )
+
+    monkeypatch.setattr("sts_sim.rl.puct_data.puct_clone_episode_payload", mutate)
+    output = tmp_path / "puct"
+    with pytest.raises(AuthoritativeRootMutationError, match="mutated restored root"):
+        generate_puct_dataset(
+            roots,
+            output,
+            checkpoint,
+            split="train",
+            simulation_budget=4,
+            transition_budget=4,
+            max_decisions=1,
+            max_player_turns=3,
+        )
+    assert not output.exists() or not any(output.iterdir())
+
+
+def test_four_policy_rejects_invalid_beam_config() -> None:
+    missing = Path("missing-roots.json")
+    checkpoint = Path("missing-checkpoint.pt")
+    with pytest.raises(ValueError, match="beam_depth must be a positive integer"):
+        evaluate_matched_puct_gameplay(missing, checkpoint, beam_depth=0)
+    with pytest.raises(ValueError, match="beam_width must be a positive integer"):
+        evaluate_matched_puct_gameplay(missing, checkpoint, beam_width=0)
+    with pytest.raises(TypeError, match="deduplicate_search_states must be boolean"):
+        evaluate_matched_puct_gameplay(
+            missing, checkpoint, deduplicate_search_states=cast(bool, "yes")
+        )
+
+
+def test_four_policy_keeps_overflow_errors_in_the_denominator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env, model, vocabularies = _tiny_policy_net()
+    snapshot = env.snapshot()
+    snapshot_bytes = snapshot.json.encode()
+    root_id = hashlib.sha256(snapshot_bytes).hexdigest()
+
+    def boom(*_args: object, **_kwargs: object) -> None:
+        raise OverflowError("injected overflow")
+
+    monkeypatch.setattr("sts_sim.rl.puct.rollout_puct_policy", boom)
+    report = evaluate_matched_puct_roots(
+        split_roots=((root_id, snapshot_bytes),),
+        evaluation_seed=0,
+        model=model,
+        vocabularies=vocabularies,
+        transition_budget=8,
+        simulation_budget=8,
+        c_puct=1.5,
+        beam_depth=2,
+        beam_width=4,
+        max_decisions=1,
+        max_player_turns=100,
+        deduplicate_search_states=True,
+    )
+    policies = cast(
+        dict[str, dict[str, object]],
+        cast(list[dict[str, object]], report["per_root"])[0]["policies"],
+    )
+    assert policies["puct"]["status"] == "error"
+    assert policies["puct"]["error"] == "injected overflow"
+    aggregates = cast(dict[str, dict[str, object]], report["aggregates"])
+    assert aggregates["puct"]["errors"] == 1
+
+
+def test_cli_puct_label_subprocess_writes_v6_manifest(tmp_path: Path) -> None:
+    roots, checkpoint = _beam_train_checkpoint(tmp_path)
+    output = tmp_path / "puct-cli"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from sts_sim.rl.cli import data_main; "
+                "raise SystemExit(data_main(__import__('sys').argv[1:]))"
+            ),
+            "puct-label",
+            "--roots",
+            str(roots),
+            "--output",
+            str(output),
+            "--checkpoint",
+            str(checkpoint),
+            "--split",
+            "train",
+            "--simulation-budget",
+            "4",
+            "--transition-budget",
+            "4",
+            "--max-decisions",
+            "1",
+            "--max-player-turns",
+            "3",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    manifest = load_dataset_manifest(output / "dataset-manifest.json", requested_split="train")
+    assert manifest.manifest_version == DATASET_MANIFEST_V6
+    payload = json.loads(completed.stdout)
+    assert payload["manifest_version"] == DATASET_MANIFEST_V6
+    assert payload["teacher_name"] == PUCT_TEACHER_NAME

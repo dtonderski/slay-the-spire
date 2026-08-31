@@ -87,7 +87,8 @@ uv run sts-combat-puct-rollout \
 
 The trainer is supervised imitation. Beam `label` writes V2 one-hot targets;
 `puct-label` writes privileged PUCT V3 visit counts and root-mean values from a
-source-bound format-3 checkpoint. Optional offline W&B tracking records scalar loss and symbolic
+source-bound format-3 checkpoint. Truncated V3 rollouts keep those root-mean
+targets unmasked; W&B PUCT metadata follows manifest V6. Optional offline W&B tracking records scalar loss and symbolic
 provenance only; it never uploads, syncs, or logs tensors. Each `--resume` with
 `--wandb-offline` starts a separate offline run segment rather than continuing a
 previous W&B run id. `target/wandb` lives under Cargo's `target/` directory and

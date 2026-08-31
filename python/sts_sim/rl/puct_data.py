@@ -49,12 +49,17 @@ from .records import (
 from .rewards import COMBAT_PROXY_V1, CombatRewardConfig
 from .tensor import Vocabularies, encoder_contract_digest
 from .training import (
+    _configure_cpu,
     _digest,
     _model_state_digest,
     _runtime_identity,
     _source_digest,
     _validate_checkpoint_envelope,
 )
+
+
+class AuthoritativeRootMutationError(RuntimeError):
+    """Hard abort if PUCT labeling mutates a restored authoritative root."""
 
 
 def _require_int(value: object, label: str) -> int:
@@ -102,6 +107,7 @@ def _load_teacher_checkpoint(
     payload, stored_config = _validate_checkpoint_envelope(
         torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     )
+    _configure_cpu(stored_config.torch_threads)
     source_digest = _source_digest()
     runtime_identity_digest = _digest(_runtime_identity())
     if payload["source_digest"] != source_digest:
@@ -116,7 +122,6 @@ def _load_teacher_checkpoint(
     model = FairCombatPolicyValueNet(vocabularies, CombatModelConfig(**payload["model_config"]))
     model.load_state_dict(payload["model_state"], strict=True)
     model.eval()
-    del stored_config
     return model, vocabularies, payload
 
 
@@ -191,7 +196,9 @@ def generate_puct_dataset(
                 reward_config=reward_config,
             )
             if env.snapshot().hash != before_hash:
-                raise ValueError("PUCT labeling mutated the restored root")
+                raise AuthoritativeRootMutationError(
+                    f"PUCT labeling mutated restored root {root.root_id}"
+                )
             native_teacher = (
                 cast(str, payload["teacher_name"]),
                 cast(str, payload["teacher_version"]),
@@ -234,11 +241,16 @@ def generate_puct_dataset(
                     raise ValueError("PUCT selected index is not the first visit-count argmax")
                 raw_target = step["value"]
                 if type(raw_target) is int:
-                    target = float(raw_target)
+                    numeric_target: int | float = raw_target
                 elif type(raw_target) is float:
-                    target = raw_target
+                    numeric_target = raw_target
                 else:
                     raise TypeError("PUCT root value must be numeric")
+                try:
+                    target = float(numeric_target)
+                except OverflowError as error:
+                    raise ValueError("PUCT root value is not representable as float") from error
+                # Truncated teacher episodes still keep this root-mean unmasked.
                 root_records.append(
                     SymbolicTrainingRecord(
                         observation,
@@ -263,9 +275,11 @@ def generate_puct_dataset(
                         _SOURCE_KIND,
                         episode_id,
                         decision_index,
-                        True,
+                        True,  # truncated rollouts keep the root-mean unmasked
                     )
                 )
+        except AuthoritativeRootMutationError:
+            raise
         except (
             AttributeError,
             IndexError,

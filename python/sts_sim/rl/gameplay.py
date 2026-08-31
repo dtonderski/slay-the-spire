@@ -37,6 +37,7 @@ from .training import (
 )
 
 EpisodeStatus = Literal["won", "lost", "escaped", "truncated", "error"]
+_POLICY_FAILURES = (OverflowError, RuntimeError, TypeError, ValueError)
 RANDOM_CONTRACT: dict[str, object] = {
     "name": "sha256_public_descriptor_choice",
     "version": "evaluation_seed_root_id_decision_index_v1",
@@ -51,6 +52,12 @@ RANDOM_CONTRACT: dict[str, object] = {
 
 def _canonical_bytes(payload: object) -> bytes:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+
+
+def _require_positive_int(value: object, label: str) -> int:
+    if type(value) is not int or value <= 0:
+        raise ValueError(f"{label} must be a positive integer")
+    return value
 
 
 def canonical_public_action_descriptors(
@@ -232,7 +239,7 @@ def _capped_public_episode(
                     truncation_trigger="player_turns",
                 )
             decision = step.decision
-    except (RuntimeError, TypeError, ValueError) as error:
+    except _POLICY_FAILURES as error:
         return _policy_error(
             error,
             accepted_decisions=accepted_decisions,
@@ -329,7 +336,7 @@ def rollout_beam_policy(
             hp,
             truncation_trigger=trigger,
         )
-    except (RuntimeError, TypeError, ValueError) as error:
+    except _POLICY_FAILURES as error:
         return _policy_error(error, terminal_hp=_try_detached_player_hp(env))
 
 
@@ -440,9 +447,9 @@ def _run_restored_policy(
 ) -> PolicyEpisode:
     try:
         env = _restore_independently(snapshot_bytes, root_id)
-    except (RuntimeError, TypeError, ValueError) as error:
+        return run(env)
+    except _POLICY_FAILURES as error:
         return _policy_error(error, terminal_hp=fallback_hp)
-    return run(env)
 
 
 def evaluate_matched_roots(
@@ -822,12 +829,27 @@ def evaluate_matched_puct_gameplay(
         raise PermissionError("sealed and audit splits require explicit audited access")
     if type(evaluation_seed) is not int:
         raise TypeError("evaluation seed must be an integer")
-    if max_decisions <= 0 or max_player_turns <= 0:
-        raise ValueError("accepted-decision and player-turn caps must be positive")
+    if type(deduplicate_search_states) is not bool:
+        raise TypeError("deduplicate_search_states must be boolean")
     if type(c_puct) not in {int, float} or not math.isfinite(float(c_puct)) or float(c_puct) <= 0:
         raise ValueError("c_puct must be finite and positive")
-    if simulation_budget <= 0 or transition_budget <= 0:
-        raise ValueError("PUCT and beam budgets must be positive")
+    simulation_budget = _require_positive_int(simulation_budget, "simulation_budget")
+    transition_budget = _require_positive_int(transition_budget, "transition_budget")
+    beam_depth = _require_positive_int(beam_depth, "beam_depth")
+    beam_width = _require_positive_int(beam_width, "beam_width")
+    max_decisions = _require_positive_int(max_decisions, "max_decisions")
+    max_player_turns = _require_positive_int(max_player_turns, "max_player_turns")
+    beam_search_config: dict[str, object] = {
+        "depth": beam_depth,
+        "width": beam_width,
+        "transition_budget": transition_budget,
+        "max_decisions": max_decisions,
+        "max_player_turns": max_player_turns,
+        "deadline": None,
+        "replan": "every_public_decision",
+        "deduplicate_search_states": deduplicate_search_states,
+    }
+    validate_v2_search_config(beam_search_config)
     manifest = load_root_manifest(
         root_manifest_path,
         allow_audited_materialization=split in _AUDITED_SPLITS and allow_audited_split,
@@ -846,6 +868,7 @@ def evaluate_matched_puct_gameplay(
         raise ValueError("evaluation checkpoint runtime identity mismatch")
     if payload["source_digest"] != _source_digest():
         raise ValueError("evaluation checkpoint source digest mismatch")
+    checkpoint_teacher_search_contract_digest = cast(str, payload["teacher_search_contract_digest"])
     training_root_manifest_digest = cast(str, payload["root_manifest_digest"])
     training_cohort_digest = cast(str, payload["cohort_digest"])
     if training_root_manifest_digest != manifest.manifest_digest:
@@ -906,6 +929,7 @@ def evaluate_matched_puct_gameplay(
         "encoder_contract_digest": payload["encoder_contract_digest"],
         "checkpoint_training_root_manifest_digest": training_root_manifest_digest,
         "checkpoint_training_cohort_digest": training_cohort_digest,
+        "checkpoint_teacher_search_contract_digest": checkpoint_teacher_search_contract_digest,
         "root_manifest_digest": manifest.manifest_digest,
         "cohort_digest": manifest.cohort_digest,
         "c_puct": float(c_puct),
@@ -913,6 +937,8 @@ def evaluate_matched_puct_gameplay(
         "transition_budget": transition_budget,
         "beam_depth": beam_depth,
         "beam_width": beam_width,
+        "beam_search_config": beam_search_config,
+        "deduplicate_search_states": deduplicate_search_states,
         "random_contract": RANDOM_CONTRACT,
         "random_contract_digest": _digest(RANDOM_CONTRACT),
         "max_decisions": max_decisions,

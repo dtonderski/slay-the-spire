@@ -268,7 +268,6 @@ pub struct PuctCloneOutcome {
     pub hp_change: i32,
     pub max_hp_change: i32,
     pub gold_change: i32,
-    pub remaining_potions: usize,
     pub potion_slots: Vec<Option<&'static str>>,
     pub terminal: bool,
     pub truncated: bool,
@@ -744,7 +743,6 @@ pub fn puct_clone_episode<E: FairLeafEvaluator>(
             hp_change: terminal_hp - root_hp,
             max_hp_change: terminal_max_hp - root_max_hp,
             gold_change: state.gold - root_gold,
-            remaining_potions: remaining_potions(&state),
             potion_slots: (0..state.potion_capacity())
                 .map(|slot| state.potion_at_slot(slot).map(potion_key))
                 .collect(),
@@ -771,6 +769,9 @@ pub fn player_turn_advances(
         return 0;
     }
 
+    // This counter is authoritative when maintained, and preserves deltas
+    // greater than one. It is not the sole signal because some relic sets do
+    // not maintain it.
     let counter_delta = after_combat
         .relic_counters
         .player_turns_started
@@ -783,6 +784,8 @@ pub fn player_turn_advances(
         return 1;
     }
 
+    // Conclude's PressEndTurnButtonAction is a modeled forced turn source just
+    // like explicit END, but its accepted public action remains PlayCard.
     let forced_turn_card = match action {
         RunDecisionAction::Combat(CombatAction::PlayCard { card_id, .. }) => before_combat
             .piles
@@ -796,6 +799,9 @@ pub fn player_turn_advances(
         return 1;
     }
 
+    // Time Warp can execute end_player_turn from the twelfth card transition
+    // or from a later selection transition. Both are authoritative state
+    // evidence that the forced turn completed.
     let time_warp_wrapped = before_combat.monsters.iter().any(|before_monster| {
         before_monster.alive
             && before_monster.content_id == TIME_EATER_ID

@@ -13,7 +13,9 @@ roots, a public-decision replanning teacher that reuses the extracted `sts_searc
 beam core, symbolic Record V2 datasets, masked terminal values, exact CPU
 checkpoint/resume, optional offline W&B scalar/provenance tracking, and
 development evaluation. Training can clone beam V2 labels or privileged PUCT V3
-visit/root-mean labels; W&B metadata follows the dataset teacher. Offline W&B
+visit/root-mean labels; W&B metadata follows manifest V6 rather than an
+unchecked teacher-name literal. Truncated V3 PUCT rollouts keep root-mean
+value targets present and unmasked. Offline W&B
 resume starts a new run segment; `target/wandb` is
 removed by `cargo clean`; source/`uv.lock` changes reject old checkpoints.
 It intentionally does not claim batched PUCT, candidate promotion, or

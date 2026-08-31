@@ -20,7 +20,7 @@ import numpy as np
 import torch
 
 from .. import _native
-from .data import DatasetManifest, load_dataset_manifest
+from .data import DATASET_MANIFEST_V6, DatasetManifest, load_dataset_manifest
 from .model import CombatModelConfig, FairCombatPolicyValueNet, policy_value_loss
 from .provenance import capture_repository_version
 from .records import (
@@ -436,13 +436,14 @@ def train_beam_clone(
                 )
             target_step = stop_after_steps
         if wandb_offline is not None:
-            puct_targets = manifest.teacher_name == "privileged_puct"
+            puct_targets = manifest.manifest_version == DATASET_MANIFEST_V6
             session = start_offline_wandb(
                 wandb_offline,
                 {
                     "trainer": ("privileged_puct_distill" if puct_targets else "beam_clone"),
                     "teacher_name": manifest.teacher_name,
                     "teacher_version": manifest.teacher_version,
+                    "dataset_manifest_version": manifest.manifest_version,
                     "puct_targets_in_training": puct_targets,
                     "resume": resume,
                     "resume_starting_step": global_step,

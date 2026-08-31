@@ -172,7 +172,10 @@ def _boolean(value: object, label: str) -> bool:
 def _number(value: object, label: str) -> float:
     if type(value) not in {int, float}:
         raise TypeError(f"{label} must be a number")
-    converted = float(cast(int | float, value))
+    try:
+        converted = float(cast(int | float, value))
+    except OverflowError as error:
+        raise ValueError(f"{label} is not representable as float") from error
     if not math.isfinite(converted):
         raise ValueError(f"{label} must be finite")
     return converted
@@ -648,6 +651,9 @@ class SymbolicTrainingRecord:
         if self.record_version == 3:
             if self.value_target_name != PUCT_VALUE_TARGET_NAME:
                 raise ValueError("V3 records must use privileged_puct_root_mean_v1")
+            # Truncated PUCT rollouts still keep the backed-up root-mean present
+            # and unmasked. Only V2 terminal combat_proxy_v1 values are masked
+            # when the episode is truncated.
             if self.target_value is None or not self.value_target_mask:
                 raise ValueError("V3 PUCT root-mean targets must be present and unmasked")
             if self.chosen_action_index != first_argmax_visits(self.teacher_visit_counts):
