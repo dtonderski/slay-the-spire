@@ -8,9 +8,22 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .data import generate_beam_dataset, generate_legal_roots
+from .diagnostics import calibrate_combat_proxy_win_loss
+from .experiment import (
+    ArtifactIntegrityError,
+    ExperimentReproductionError,
+    reproduce_experiment,
+    sync_experiment_wandb,
+    verify_artifact_integrity,
+    write_scientific_artifact,
+)
 from .gameplay import evaluate_matched_gameplay, evaluate_matched_puct_gameplay
 from .puct_data import generate_puct_dataset
-from .tracking import OfflineWandbConfig, default_offline_wandb_directory
+from .tracking import (
+    DEFAULT_LOCAL_WANDB_BASE_URL,
+    OfflineWandbConfig,
+    default_offline_wandb_directory,
+)
 from .training import TrainingConfig, evaluate_beam_clone, train_beam_clone
 
 
@@ -295,4 +308,72 @@ def rollout_main(argv: Sequence[str] | None = None) -> int:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(content, encoding="utf-8")
     print(content)
+    return 0
+
+
+def experiment_main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="sts-combat-experiment")
+    subcommands = parser.add_subparsers(dest="command", required=True)
+    verify = subcommands.add_parser("verify")
+    verify.add_argument("--experiment-dir", type=Path, required=True)
+    verify.add_argument("--inventory", type=Path, default=None)
+    reproduce = subcommands.add_parser("reproduce")
+    reproduce.add_argument("--predeclaration", type=Path, required=True)
+    reproduce.add_argument("--repository", type=Path, required=True)
+    reproduce.add_argument("--experiment-dir", type=Path, default=None)
+    reproduce.add_argument("--allow-dirty", action="store_true")
+    calibrate = subcommands.add_parser("calibrate")
+    calibrate.add_argument("--static", type=Path, required=True)
+    calibrate.add_argument("--gameplay", type=Path, default=None)
+    calibrate.add_argument("--policy", default="network")
+    calibrate.add_argument("--output", type=Path, default=None)
+    sync = subcommands.add_parser("sync-wandb")
+    sync.add_argument("--directory", type=Path, required=True)
+    sync.add_argument("--base-url", default=DEFAULT_LOCAL_WANDB_BASE_URL)
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "verify":
+            report = verify_artifact_integrity(args.experiment_dir, inventory_path=args.inventory)
+            payload: dict[str, object] = report.to_dict()
+        elif args.command == "reproduce":
+            payload = reproduce_experiment(
+                args.predeclaration,
+                repository=args.repository,
+                experiment_dir=args.experiment_dir,
+                allow_dirty=args.allow_dirty,
+            )
+        elif args.command == "calibrate":
+            static_bytes = args.static.read_bytes()
+            static_report = json.loads(static_bytes)
+            gameplay_report = None
+            gameplay_bytes = None
+            if args.gameplay is not None:
+                gameplay_bytes = args.gameplay.read_bytes()
+                gameplay_report = json.loads(gameplay_bytes)
+            payload = calibrate_combat_proxy_win_loss(
+                static_report=static_report,
+                gameplay_report=gameplay_report,
+                policy=args.policy,
+                static_path=args.static,
+                gameplay_path=args.gameplay,
+                static_bytes=static_bytes,
+                gameplay_bytes=gameplay_bytes,
+            )
+            if args.output is not None:
+                content = json.dumps(
+                    payload, sort_keys=True, separators=(",", ":"), allow_nan=False
+                )
+                write_scientific_artifact(args.output, content.encode())
+        else:
+            payload = sync_experiment_wandb(args.directory, base_url=args.base_url)
+    except ArtifactIntegrityError as error:
+        print(json.dumps(error.report.to_dict(), sort_keys=True, allow_nan=False))
+        return 1
+    except ExperimentReproductionError as error:
+        print(json.dumps({"ok": False, "error": str(error)}, sort_keys=True, allow_nan=False))
+        return 1
+    except (ValueError, TypeError) as error:
+        print(json.dumps({"ok": False, "error": str(error)}, sort_keys=True, allow_nan=False))
+        return 1
+    print(json.dumps(payload, sort_keys=True, allow_nan=False))
     return 0
