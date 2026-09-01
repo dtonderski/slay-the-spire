@@ -10,7 +10,6 @@ import argparse
 import hashlib
 import json
 import statistics
-import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -22,6 +21,11 @@ ALL_STATUSES = frozenset({"won", "lost", "escaped", "truncated", "error"})
 VOID_NAME = "void-comparison-assessment.json"
 APPRENTICE_NAME = "apprentice-vs-expert-report.json"
 NEXT_EPOCH_NAME = "next-epoch-control-predeclaration.json"
+PUCT_ARM_NAMES = (
+    "uniform_prior_network_value_puct",
+    "uniform_prior_constant_value_puct",
+    "network_puct",
+)
 TRACKED_ARCHIVE_DECISION = (
     "Track the archival JSON and this verifier under docs/puct-teacher-control-v1/. "
     "The original lane was target-only and never-merge. These files are reviewable "
@@ -187,20 +191,6 @@ def paired_summary(
     }
 
 
-def _search_cutoff() -> dict[str, Any]:
-    return {
-        "rule": "first exhausted bound stops search",
-        "simulation_budget": 64,
-        "transition_budget": 64,
-        "both_budgets_must_be_positive": True,
-        "episode_not_wins": {
-            "max_decisions": 128,
-            "max_player_turns": 40,
-            "truncated_and_error_are_not_wins": True,
-        },
-    }
-
-
 def _terminal_value_semantics() -> dict[str, Any]:
     return {
         "contract": "combat_proxy_v1",
@@ -214,10 +204,39 @@ def _terminal_value_semantics() -> dict[str, Any]:
     }
 
 
+def puct_search_contract() -> dict[str, Any]:
+    return {
+        "teacher_name": "privileged_puct",
+        "teacher_version": "synchronous_batch1_v3",
+        "leaf_schema": "fair_leaf_batch_v1",
+        "c_puct": 1.5,
+        "c_puct_validation": "finite and positive",
+        "simulation_budget": 64,
+        "simulation_budget_validation": "positive integer",
+        "transition_budget": 64,
+        "transition_budget_validation": "positive integer",
+        "stop": "first exhausted of simulation_budget or transition_budget",
+        "tie_breaking": {
+            "in_tree_edge_selection": (
+                "PUCT score uses strict greater-than; lowest public-action index wins ties"
+            ),
+            "root_action_selection": (
+                "visit count uses strict greater-than; lowest public-action index wins ties"
+            ),
+            "unvisited_q": 0.0,
+        },
+        "terminal_values": _terminal_value_semantics(),
+        "episode_not_wins": {
+            "max_decisions": 128,
+            "max_player_turns": 40,
+            "truncated_and_error_are_not_wins": True,
+        },
+    }
+
+
 def puct_search_arms() -> dict[str, Any]:
-    cutoff = _search_cutoff()
-    terminals = _terminal_value_semantics()
     restore = "independent_from_identical_evaluation_roots"
+    shared = "shared"
     return {
         "random": {"restore": restore, "uses_checkpoint": False},
         "beam": {"restore": restore, "uses_checkpoint": False},
@@ -226,6 +245,7 @@ def puct_search_arms() -> dict[str, Any]:
             "restore": restore,
             "uses_checkpoint": True,
             "role": "policy-prior ablation, not an unguided baseline",
+            "puct_search_contract": shared,
             "prior": {
                 "kind": "uniform",
                 "over": "legal public actions",
@@ -235,14 +255,12 @@ def puct_search_arms() -> dict[str, Any]:
                 "range": [-1.0, 1.0],
                 "note": "uses the checkpoint value head; this is not unguided PUCT",
             },
-            "terminal_values": terminals,
-            "search_cutoff": cutoff,
-            "equal_transition_budget_with_other_puct_arms": True,
         },
         "uniform_prior_constant_value_puct": {
             "restore": restore,
             "uses_checkpoint": False,
             "role": "equal-budget unguided-search arm",
+            "puct_search_contract": shared,
             "prior": {
                 "kind": "uniform",
                 "over": "legal public actions",
@@ -250,15 +268,15 @@ def puct_search_arms() -> dict[str, Any]:
             "leaf_value": {
                 "kind": "constant_nonlearned",
                 "value": 0.0,
-                "note": "no network prior and no network value; only combat_proxy_v1 at true terminals",
+                "note": (
+                    "no network prior and no network value; only combat_proxy_v1 at true terminals"
+                ),
             },
-            "terminal_values": terminals,
-            "search_cutoff": cutoff,
-            "equal_transition_budget_with_other_puct_arms": True,
         },
         "network_puct": {
             "restore": restore,
             "uses_checkpoint": True,
+            "puct_search_contract": shared,
             "prior": {
                 "kind": "learned_policy_head",
                 "over": "legal public actions",
@@ -267,9 +285,6 @@ def puct_search_arms() -> dict[str, Any]:
                 "kind": "learned_value_head",
                 "range": [-1.0, 1.0],
             },
-            "terminal_values": terminals,
-            "search_cutoff": cutoff,
-            "equal_transition_budget_with_other_puct_arms": True,
         },
     }
 
@@ -292,6 +307,7 @@ def build_next_epoch_predeclaration(void: dict[str, Any]) -> dict[str, Any]:
         "scale_v2_cannot_satisfy_this_predeclaration": True,
         "artifact_tracking_decision": TRACKED_ARCHIVE_DECISION,
         "provenance_fields_are_distinct": True,
+        "puct_search_contract": puct_search_contract(),
         "experiments": {
             "controlled_label_treatment_ab": {
                 "causal_claim": True,
@@ -422,157 +438,6 @@ def build_next_epoch_predeclaration(void: dict[str, Any]) -> dict[str, Any]:
     }
     report["report_digest"] = digest(report)
     return report
-
-
-def upgrade_arm_accounting(arm: dict[str, Any]) -> dict[str, Any]:
-    counts = arm["status_counts"]
-    denominator = int(arm["win_denominator"])
-    errors = int(counts["error"])
-    truncated = int(counts["truncated"])
-    upgraded = dict(arm)
-    upgraded.pop("scored_subset_count", None)
-    upgraded.pop("scored_subset_is_official_win_denominator", None)
-    upgraded["non_error_hp_count"] = denominator - errors
-    upgraded["clean_terminal_hp_count"] = denominator - errors - truncated
-    upgraded["non_error_hp_includes_truncated"] = True
-    upgraded["clean_terminal_hp_excludes_truncated_and_error"] = True
-    upgraded["hp_subsets_are_not_official_win_denominator"] = True
-    return upgraded
-
-
-def upgrade_paired(pair: dict[str, Any]) -> dict[str, Any]:
-    per_root: list[dict[str, Any]] = []
-    non_error_deltas: list[int] = []
-    clean_deltas: list[int] = []
-    for row in pair["per_root"]:
-        left_status = row["left_status"]
-        right_status = row["right_status"]
-        old_delta = row.get("hp_delta_left_minus_right")
-        if old_delta is None:
-            old_delta = row.get("non_error_hp_delta_left_minus_right")
-        non_error = bool(
-            row.get("comparable_for_hp", row.get("non_error_hp_comparable", False))
-        )
-        clean = (
-            left_status in CLEAN_TERMINAL
-            and right_status in CLEAN_TERMINAL
-            and old_delta is not None
-        )
-        if non_error and old_delta is not None:
-            non_error_deltas.append(int(old_delta))
-        if clean:
-            clean_deltas.append(int(old_delta))
-        per_root.append(
-            {
-                "root_id": row["root_id"],
-                "left": row["left"],
-                "right": row["right"],
-                "left_status": left_status,
-                "right_status": right_status,
-                "left_won": row["left_won"],
-                "right_won": row["right_won"],
-                "win_delta_left_minus_right": row["win_delta_left_minus_right"],
-                "non_error_hp_comparable": non_error,
-                "clean_terminal_hp_comparable": clean,
-                "non_error_hp_delta_left_minus_right": int(old_delta)
-                if non_error
-                else None,
-                "clean_terminal_hp_delta_left_minus_right": int(old_delta)
-                if clean
-                else None,
-            }
-        )
-    upgraded = {
-        key: value
-        for key, value in pair.items()
-        if key
-        not in {
-            "per_root",
-            "comparable_hp_delta_left_minus_right",
-            "non_error_hp_delta_left_minus_right",
-            "clean_terminal_hp_delta_left_minus_right",
-        }
-    }
-    upgraded["non_error_hp_delta_left_minus_right"] = hp_summary(non_error_deltas)
-    upgraded["clean_terminal_hp_delta_left_minus_right"] = hp_summary(clean_deltas)
-    upgraded["per_root"] = per_root
-    return upgraded
-
-
-def upgrade_apprentice_report(report: dict[str, Any]) -> dict[str, Any]:
-    body = dict(report)
-    body.pop("report_digest", None)
-    body["report_version"] = 2
-    body["denominator_rule"] = (
-        "Official win denominator is all 565 development roots. status==won is a win; "
-        "lost, escaped, truncated, and error are not-wins. Non-error HP includes truncated "
-        "episodes and is not the official win denominator. Clean terminal HP is "
-        "won/lost/escaped only."
-    )
-    body["artifact_tracking_decision"] = TRACKED_ARCHIVE_DECISION
-    body["arms"] = {
-        name: upgrade_arm_accounting(arm) for name, arm in body["arms"].items()
-    }
-    body["paired"] = {
-        name: upgrade_paired(pair) for name, pair in body["paired"].items()
-    }
-    body["report_digest"] = digest(body)
-    return body
-
-
-def upgrade_void_assessment(report: dict[str, Any]) -> dict[str, Any]:
-    body = dict(report)
-    body.pop("report_digest", None)
-    body["report_version"] = 2
-    identities = body["identities"]
-    bootstrap = identities["bootstrap_checkpoint"]
-    student = identities["student_checkpoint"]
-    live = identities["live_worktree"]
-    body["identity_summary"] = {
-        "bootstrap_and_student_share_checkpoint_source_digest": bootstrap[
-            "source_digest"
-        ]
-        == student["source_digest"],
-        "bootstrap_and_student_share_checkpoint_runtime_identity_digest": bootstrap[
-            "runtime_identity_digest"
-        ]
-        == student["runtime_identity_digest"],
-        "both_checkpoints_differ_from_live_native_source_digest": student[
-            "source_digest"
-        ]
-        != live["source_digest"],
-        "both_checkpoints_differ_from_live_runtime_identity_digest": student[
-            "runtime_identity_digest"
-        ]
-        != live["runtime_identity_digest"],
-        "they_differ_from_each_other_in": [
-            "file_sha256",
-            "root_manifest_digest",
-            "cohort_digest",
-            "vocabulary_fingerprint",
-            "encoder_contract_digest",
-            "dataset_manifest_digest",
-            "teacher_search_contract_digest",
-        ],
-        "they_do_not_differ_from_each_other_in": [
-            "source_digest",
-            "runtime_identity_digest",
-        ],
-        "note": (
-            "The two frozen checkpoints share source and runtime identities. The live "
-            "rebuilt native runtime matches neither checkpoint. Cohort, vocabulary, and "
-            "encoder mismatch between checkpoints is independent of the missing native "
-            "binary."
-        ),
-    }
-    body["artifact_tracking_decision"] = TRACKED_ARCHIVE_DECISION
-    body["shared_but_insufficient"]["note"] = (
-        "The two checkpoints share source_digest and runtime_identity_digest with each "
-        "other. That shared checkpoint identity does not match the later rebuilt native "
-        "runtime, and it does not repair cohort, vocabulary, or encoder mismatch."
-    )
-    body["report_digest"] = digest(body)
-    return body
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -795,14 +660,38 @@ def verify_next_epoch(report: dict[str, Any]) -> None:
     require(
         unguided["uses_checkpoint"] is False, "unguided arm must not use a checkpoint"
     )
+    contract = report["puct_search_contract"]
+    require(contract["c_puct"] == 1.5, "shared c_puct must be 1.5")
     require(
-        unguided["terminal_values"]["truncated_has_no_combat_proxy_value"] is True,
+        contract["c_puct_validation"] == "finite and positive",
+        "c_puct must be predeclared as finite and positive",
+    )
+    require(contract["teacher_name"] == "privileged_puct", "teacher name mismatch")
+    require(
+        contract["teacher_version"] == "synchronous_batch1_v3",
+        "teacher/search contract version mismatch",
+    )
+    require(contract["leaf_schema"] == "fair_leaf_batch_v1", "leaf schema mismatch")
+    require(
+        "lowest public-action index wins ties"
+        in contract["tie_breaking"]["root_action_selection"],
+        "root visit tie-breaking is unspecified",
+    )
+    require(
+        "lowest public-action index wins ties"
+        in contract["tie_breaking"]["in_tree_edge_selection"],
+        "in-tree PUCT tie-breaking is unspecified",
+    )
+    require(
+        contract["terminal_values"]["truncated_has_no_combat_proxy_value"] is True,
         "truncated terminals must not receive combat_proxy_v1",
     )
-    require(
-        unguided["search_cutoff"]["rule"] == "first exhausted bound stops search",
-        "unguided cutoff is unspecified",
-    )
+    for name in PUCT_ARM_NAMES:
+        require(
+            arms[name]["puct_search_contract"] == "shared",
+            f"{name} must use the shared PUCT search contract",
+        )
+        require("c_puct" not in arms[name], f"{name} must not override c_puct")
     facts = report["scale_v2_identity_facts"]
     require(
         facts["bootstrap_and_student_share_checkpoint_source_digest"] is True,
@@ -821,25 +710,53 @@ def verify_archive(archive_dir: Path) -> None:
     verify_void(void)
     verify_apprentice(apprentice)
     verify_next_epoch(next_epoch)
+    check_emission(archive_dir)
     print("verify ok")
 
 
-def rewrite_archive(archive_dir: Path) -> dict[str, str]:
-    void = upgrade_void_assessment(load_json(archive_dir / VOID_NAME))
-    apprentice = upgrade_apprentice_report(load_json(archive_dir / APPRENTICE_NAME))
-    next_epoch = build_next_epoch_predeclaration(void)
-    outputs = {
-        VOID_NAME: void,
-        APPRENTICE_NAME: apprentice,
-        NEXT_EPOCH_NAME: next_epoch,
-    }
-    written: dict[str, str] = {}
-    for name, payload in outputs.items():
-        path = archive_dir / name
-        path.write_bytes(canonical_bytes(payload))
-        written[name] = hashlib.sha256(path.read_bytes()).hexdigest()
-    verify_archive(archive_dir)
-    return written
+def generated_next_epoch_bytes(archive_dir: Path) -> bytes:
+    return canonical_bytes(
+        build_next_epoch_predeclaration(load_json(archive_dir / VOID_NAME))
+    )
+
+
+def check_emission(archive_dir: Path) -> None:
+    committed = (archive_dir / NEXT_EPOCH_NAME).read_bytes()
+    generated = generated_next_epoch_bytes(archive_dir)
+    require(
+        generated == committed,
+        "generated next-epoch predeclaration does not match the committed archive",
+    )
+
+
+def refuse_committed_archive(output_dir: Path, archive_dir: Path) -> None:
+    output = output_dir.resolve()
+    archive = archive_dir.resolve()
+    if output == archive:
+        raise SystemExit("refusing to overwrite the committed archive")
+    committed = (archive / NEXT_EPOCH_NAME).resolve()
+    if (output / NEXT_EPOCH_NAME).resolve() == committed:
+        raise SystemExit("refusing to overwrite the committed archive")
+
+
+def require_new_empty_output_dir(output_dir: Path, archive_dir: Path) -> Path:
+    refuse_committed_archive(output_dir, archive_dir)
+    if output_dir.exists():
+        if not output_dir.is_dir():
+            raise SystemExit(f"{output_dir} exists and is not a directory")
+        if any(output_dir.iterdir()):
+            raise SystemExit(f"{output_dir} is not empty")
+    else:
+        output_dir.mkdir(parents=True)
+    return output_dir.resolve()
+
+
+def emit_generated_reports(archive_dir: Path, output_dir: Path) -> dict[str, str]:
+    output = require_new_empty_output_dir(output_dir, archive_dir)
+    path = output / NEXT_EPOCH_NAME
+    payload = generated_next_epoch_bytes(archive_dir)
+    path.write_bytes(payload)
+    return {NEXT_EPOCH_NAME: hashlib.sha256(payload).hexdigest()}
 
 
 def _toy_row(status: str, hp: int | None, error: str | None = None) -> dict[str, Any]:
@@ -879,6 +796,12 @@ def self_test() -> None:
     assert errored_accounting["clean_terminal_hp_count"] == 2
     payload = {"x": 1, "promotion_claim": False}
     assert digest(payload) == digest({"promotion_claim": False, "x": 1})
+    try:
+        emit_generated_reports(ARCHIVE_DIR, ARCHIVE_DIR)
+    except SystemExit as error:
+        assert "refusing to overwrite the committed archive" in str(error)
+    else:
+        raise AssertionError("emit must refuse the committed archive")
     print("self-test ok")
 
 
@@ -891,24 +814,27 @@ def main() -> int:
         help="read-only check of committed reports in --archive-dir",
     )
     parser.add_argument(
-        "--rewrite-archive",
+        "--emit",
         action="store_true",
-        help="upgrade committed reports in --archive-dir, then verify",
+        help="write generated next-epoch JSON to a new empty --output directory",
     )
     parser.add_argument("--archive-dir", type=Path, default=ARCHIVE_DIR)
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if args.self_test:
         self_test()
-        if not args.verify and not args.rewrite_archive:
+        if not args.verify and not args.emit:
             return 0
-    if args.rewrite_archive:
-        written = rewrite_archive(args.archive_dir)
+    if args.emit:
+        if args.output is None:
+            parser.error("--emit requires --output")
+        written = emit_generated_reports(args.archive_dir, args.output)
         print(json.dumps(written, indent=2, sort_keys=True))
         return 0
     if args.verify:
         verify_archive(args.archive_dir)
         return 0
-    parser.error("pass --self-test, --verify, and/or --rewrite-archive")
+    parser.error("pass --self-test, --verify, and/or --emit")
     return 2
 
 
