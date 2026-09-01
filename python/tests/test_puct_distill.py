@@ -308,6 +308,7 @@ def test_puct_dataset_excludes_failed_root_and_keeps_complete_accounting(
 
     def boom(env: RunEnv, evaluator: object, **kwargs: object) -> dict[str, object]:
         calls["count"] += 1
+        assert kwargs.get("leaf_cache") == "exact_state"
         del evaluator, kwargs
         if calls["count"] == 1:
             raise RuntimeError("injected PUCT labeling failure")
@@ -469,6 +470,7 @@ def test_puct_labeling_root_mutation_hard_aborts(
         max_decisions: int = 512,
         max_player_turns: int = 100,
         reward_config: CombatRewardConfig | None = None,
+        leaf_cache: str | None = None,
     ) -> dict[str, object]:
         decision = env.decision()
         env.step(decision.actions[0])
@@ -481,6 +483,7 @@ def test_puct_labeling_root_mutation_hard_aborts(
             max_decisions=max_decisions,
             max_player_turns=max_player_turns,
             reward_config=reward_config,
+            leaf_cache=leaf_cache,
         )
 
     monkeypatch.setattr("sts_sim.rl.puct_data.puct_clone_episode_payload", mutate)

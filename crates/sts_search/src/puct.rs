@@ -972,15 +972,19 @@ pub fn classify_combat_episode_transition(
     Some("won")
 }
 
+/// Detached privileged PUCT episode from `root`.
+///
+/// Uses [`PuctLeafCache::Off`]. Deterministic teacher/network callers must pass
+/// [`PuctLeafCache::ExactState`] through [`puct_clone_episode_with_leaf_cache`].
 pub fn puct_clone_episode<E: FairLeafEvaluator>(
     root: &RunState,
     config: &PuctCloneConfig,
     evaluator: &mut E,
 ) -> Result<PuctCloneEpisode, PuctError> {
-    puct_clone_episode_with_leaf_cache(root, config, evaluator, PuctLeafCache::ExactState)
+    puct_clone_episode_with_leaf_cache(root, config, evaluator, PuctLeafCache::Off)
 }
 
-/// Privileged teacher episode search with an explicit leaf-cache policy.
+/// Privileged episode search with an explicit leaf-cache policy.
 pub fn puct_clone_episode_with_leaf_cache<E: FairLeafEvaluator>(
     root: &RunState,
     config: &PuctCloneConfig,
@@ -2150,7 +2154,7 @@ mod tests {
     }
 
     #[test]
-    fn teacher_clone_opts_into_exact_state_without_changing_labels() {
+    fn generic_clone_defaults_off_and_exact_state_does_not_change_labels() {
         let root = RunState::combat_fixture();
         let before = serde_json::to_vec(&root).expect("root bytes");
         let clone_cfg = clone_config(&root, 1);
@@ -2162,10 +2166,23 @@ mod tests {
             PuctLeafCache::Off,
         )
         .expect("clone off");
+        let mut default_eval = ObservationSensitiveEvaluator { calls: 0 };
+        let default_clone =
+            puct_clone_episode(&root, &clone_cfg, &mut default_eval).expect("library clone");
         let mut on_eval = ObservationSensitiveEvaluator { calls: 0 };
-        let on = puct_clone_episode(&root, &clone_cfg, &mut on_eval).expect("teacher clone");
+        let on = puct_clone_episode_with_leaf_cache(
+            &root,
+            &clone_cfg,
+            &mut on_eval,
+            PuctLeafCache::ExactState,
+        )
+        .expect("exact-state clone");
         assert_root_bytes_unchanged(&root, &before);
+        assert_eq!(off.outcome, default_clone.outcome);
         assert_eq!(off.outcome, on.outcome);
+        assert_eq!(off.steps, default_clone.steps);
+        assert_eq!(off_eval.calls, default_eval.calls);
+        assert!(on_eval.calls <= off_eval.calls);
         assert_eq!(off.steps.len(), on.steps.len());
         for (left, right) in off.steps.iter().zip(&on.steps) {
             assert_eq!(left.selected_index, right.selected_index);

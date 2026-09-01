@@ -135,7 +135,7 @@ def test_teacher_exact_state_cache_matches_off_except_eval_count() -> None:
     assert before.hash == after.hash
     assert before.json == after.json
     assert _decision_core(off) == _decision_core(on) == _decision_core(default)
-    assert default["leaf_evaluations"] == on["leaf_evaluations"]
+    assert default["leaf_evaluations"] == off["leaf_evaluations"]
     assert on["leaf_evaluations"] <= off["leaf_evaluations"]
 
 
@@ -150,6 +150,24 @@ def test_clone_episode_keeps_independent_root_bytes_and_turn_caps() -> None:
         max_decisions=1,
         max_player_turns=1,
     )
+    off = puct_clone_episode_payload(
+        env,
+        _uniform_evaluator,
+        simulation_budget=4,
+        transition_budget=4,
+        max_decisions=1,
+        max_player_turns=1,
+        leaf_cache="off",
+    )
+    on = puct_clone_episode_payload(
+        env,
+        _uniform_evaluator,
+        simulation_budget=4,
+        transition_budget=4,
+        max_decisions=1,
+        max_player_turns=1,
+        leaf_cache="exact_state",
+    )
     after = env.snapshot()
     assert before.hash == after.hash
     assert before.json == after.json
@@ -157,6 +175,9 @@ def test_clone_episode_keeps_independent_root_bytes_and_turn_caps() -> None:
     assert outcome["status"] == "truncated"
     assert outcome["truncation_trigger"] == "accepted_decisions"
     assert payload["teacher_version"] == "synchronous_batch1_v3"
+    assert payload == off
+    assert payload["outcome"] == on["outcome"]
+    assert payload["steps"] == on["steps"]
 
 
 def _runtime_source_epoch() -> dict[str, object]:
@@ -214,6 +235,33 @@ def test_network_leaf_is_the_binding_hot_path_on_fixture() -> None:
     )
 
 
+def _preselect_development_combat_roots(
+    manifest: dict[str, object], manifest_path: Path, limit: int
+) -> list[dict[str, object]]:
+    selected: list[dict[str, object]] = []
+    for entry in cast(list[dict[str, object]], manifest["roots"]):
+        if entry["split"] != "development":
+            continue
+        snapshot_text = (manifest_path.parent / cast(str, entry["relative_path"])).read_text()
+        env = RunEnv.from_snapshot(snapshot_text)
+        if env.phase != "combat":
+            continue
+        observation = env.observation()
+        if not isinstance(observation, FairCombatObservation):
+            continue
+        # Match `classify_combat_state`: terminal combat includes hp <= 0 even
+        # when the fair observation phase is still waiting_for_player.
+        if observation.phase in ("won", "lost") or observation.player.hp <= 0:
+            continue
+        selected.append(entry)
+        if len(selected) == limit:
+            break
+    assert (
+        len(selected) == limit
+    ), f"expected {limit} development combat roots, got {len(selected)}"
+    return selected
+
+
 @pytest.mark.skipif(
     not _ROOTS,
     reason="set STS_PUCT_PERF_ROOTS to a root-manifest.json",
@@ -222,27 +270,22 @@ def test_twenty_development_roots_are_byte_and_decision_stable() -> None:
     manifest_path = Path(_ROOTS)
     assert manifest_path.is_file(), f"STS_PUCT_PERF_ROOTS is not a file: {manifest_path}"
     manifest = json.loads(manifest_path.read_text())
-    development = [root for root in manifest["roots"] if root["split"] == "development"]
+    development = _preselect_development_combat_roots(manifest, manifest_path, 20)
     rows: list[dict[str, object]] = []
     for entry in development:
-        if len(rows) == 20:
-            break
-        snapshot_text = (manifest_path.parent / entry["relative_path"]).read_text()
+        snapshot_text = (manifest_path.parent / cast(str, entry["relative_path"])).read_text()
         first = RunEnv.from_snapshot(snapshot_text)
         second = RunEnv.from_snapshot(snapshot_text)
         assert first.snapshot().hash == second.snapshot().hash
         assert first.snapshot().json == second.snapshot().json
         before = first.snapshot()
-        try:
-            off = puct_search_payload(
-                first,
-                _uniform_evaluator,
-                simulation_budget=64,
-                transition_budget=64,
-                leaf_cache="off",
-            )
-        except (ValueError, RuntimeError):
-            continue
+        off = puct_search_payload(
+            first,
+            _uniform_evaluator,
+            simulation_budget=64,
+            transition_budget=64,
+            leaf_cache="off",
+        )
         on = puct_search_payload(
             first,
             _uniform_evaluator,

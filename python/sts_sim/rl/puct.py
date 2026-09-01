@@ -187,9 +187,10 @@ def puct_search_payload(
     the time of this call. Do not apply it to a later, cloned, or restored
     decision. Search always stops at `simulation_budget` or `transition_budget`.
     The evaluator callback runs synchronously and holds the Python GIL.
-    The native teacher path opts into exact-state leaf memoization. That
-    requires a deterministic pure evaluator for an exact `RunState`. Pass
-    `leaf_cache="off"` only when comparing against the library default.
+    Generic search defaults to `leaf_cache="off"` so an arbitrary callback is
+    not memoized. Deterministic teacher/network call sites pass
+    `leaf_cache="exact_state"` after the evaluator is known to be pure for an
+    exact `RunState`.
     """
     _positive_exploration(c_puct, "c_puct")
     _positive_budget(simulation_budget, "simulation budget")
@@ -224,14 +225,22 @@ def puct_clone_episode_payload(
     max_decisions: int = 512,
     max_player_turns: int = 100,
     reward_config: CombatRewardConfig | None = None,
+    leaf_cache: str | None = None,
 ) -> dict[str, object]:
-    """Run a detached privileged PUCT teacher episode from the current root."""
+    """Run a detached privileged PUCT episode from the current root.
+
+    Generic clone defaults to cache-off. The teacher dataset path passes
+    `leaf_cache="exact_state"` because its network evaluator is deterministic
+    and pure for an exact `RunState`.
+    """
 
     _positive_exploration(c_puct, "c_puct")
     _positive_budget(simulation_budget, "simulation budget")
     _positive_budget(transition_budget, "transition budget")
     _positive_budget(max_decisions, "max decisions")
     _positive_budget(max_player_turns, "max player turns")
+    if leaf_cache is not None and leaf_cache not in {"off", "exact_state"}:
+        raise ValueError("leaf cache must be 'off' or 'exact_state'")
     config = COMBAT_PROXY_V1 if reward_config is None else reward_config
     payload = env.puct_clone_episode_payload(
         evaluator,
@@ -241,6 +250,7 @@ def puct_clone_episode_payload(
         max_decisions=max_decisions,
         max_player_turns=max_player_turns,
         reward_config_json=json.dumps(config.to_dict(), sort_keys=True, separators=(",", ":")),
+        leaf_cache=leaf_cache,
     )
     if payload.get("teacher_name") != PUCT_TEACHER_NAME:
         raise ValueError("PUCT episode teacher_name mismatch")
@@ -267,6 +277,8 @@ def select_puct_action(
     """Choose by PUCT visits and return the original public Action sidecar.
 
     The returned action is the current Decision row at `selected_index`.
+    The network leaf is deterministic and pure for an exact `RunState`, so this
+    selector opts into `leaf_cache="exact_state"`.
     """
 
     if decision.revision != env.revision:
@@ -286,6 +298,7 @@ def select_puct_action(
         reward_config=reward_config,
         episode_root_max_hp=max_hp,
         episode_root_gold=gold,
+        leaf_cache="exact_state",
     )
     _require_aligned_public_rows(decision, payload)
     index = payload.get("selected_index")

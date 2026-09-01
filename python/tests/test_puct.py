@@ -170,6 +170,7 @@ def test_select_puct_action_requires_descriptor_alignment(
         reward_config: CombatRewardConfig | None = None,
         episode_root_max_hp: int | None = None,
         episode_root_gold: int | None = None,
+        leaf_cache: str | None = None,
     ) -> dict[str, object]:
         payload = original(
             env,
@@ -180,6 +181,7 @@ def test_select_puct_action_requires_descriptor_alignment(
             reward_config=reward_config,
             episode_root_max_hp=episode_root_max_hp,
             episode_root_gold=episode_root_gold,
+            leaf_cache=leaf_cache,
         )
         choices = list(cast(list[object], payload["choices"]))
         choices.reverse()
@@ -192,6 +194,27 @@ def test_select_puct_action_requires_descriptor_alignment(
         select_puct_action(
             env, decision, model, vocabularies, simulation_budget=2, transition_budget=2
         )
+
+
+def test_select_puct_action_opts_into_exact_state_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env, model, vocabularies = _tiny_policy_net()
+    decision = env.decision()
+    import sts_sim.rl.puct as puct_module
+
+    captured: list[str | None] = []
+    original = puct_module.puct_search_payload
+
+    def capture(*args: object, **kwargs: object) -> dict[str, object]:
+        captured.append(cast(str | None, kwargs.get("leaf_cache")))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(puct_module, "puct_search_payload", capture)
+    select_puct_action(
+        env, decision, model, vocabularies, simulation_budget=2, transition_budget=2
+    )
+    assert captured == ["exact_state"]
 
 
 def test_rollout_carries_public_episode_root_baselines(
