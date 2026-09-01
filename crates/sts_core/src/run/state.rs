@@ -2931,6 +2931,10 @@ impl RunState {
         run
     }
 
+    pub(crate) fn fresh_combat_rollout_shell(ascension: u8) -> Self {
+        Self::ironclad_run_base(ascension)
+    }
+
     fn ironclad_run_base(ascension: u8) -> Self {
         Self {
             phase: RunPhase::Idle,

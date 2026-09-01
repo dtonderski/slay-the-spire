@@ -1151,7 +1151,7 @@ impl CombatState {
         )
     }
 
-    fn from_entry_parts(
+    pub(crate) fn from_entry_parts(
         player: PlayerState,
         monsters: Vec<MonsterState>,
         piles: CardPiles,
