@@ -9,7 +9,9 @@ from typing import Any
 
 
 def canonical_bytes(value: object) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    return json.dumps(
+        value, sort_keys=True, separators=(",", ":"), allow_nan=False
+    ).encode()
 
 
 def digest(value: object) -> str:
@@ -42,7 +44,9 @@ def compare_arms(
         status_equal += bootstrap["status"] == student["status"]
         exact_episode_rows += bootstrap == student
         if comparable(bootstrap) and comparable(student):
-            hp_deltas.append(int(student["terminal_hp"]) - int(bootstrap["terminal_hp"]))
+            hp_deltas.append(
+                int(student["terminal_hp"]) - int(bootstrap["terminal_hp"])
+            )
     return {
         "roots": len(bootstrap_rows),
         "bootstrap_win_numerator": sum(won(row) for row in bootstrap_rows),
