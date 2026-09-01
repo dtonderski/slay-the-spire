@@ -14,10 +14,10 @@ use sts_core::{
     ALL_RELICS, SNAPSHOT_SCHEMA_VERSION,
 };
 use sts_search::{
-    classify_combat_episode_transition, classify_combat_state, puct_clone_episode, puct_search,
-    CombatProxyConfig, FairLeafEvaluation, FairLeafEvaluator, PuctCloneConfig, PuctConfig,
-    PuctError, FAIR_LEAF_BATCH_SCHEMA, PRIVILEGED_PUCT_TEACHER_NAME,
-    PRIVILEGED_PUCT_TEACHER_VERSION,
+    classify_combat_episode_transition, classify_combat_state, puct_clone_episode_with_leaf_cache,
+    puct_search_with_leaf_cache, CombatProxyConfig, FairLeafEvaluation, FairLeafEvaluator,
+    PuctCloneConfig, PuctConfig, PuctError, PuctLeafCache, FAIR_LEAF_BATCH_SCHEMA,
+    PRIVILEGED_PUCT_TEACHER_NAME, PRIVILEGED_PUCT_TEACHER_VERSION,
 };
 
 create_exception!(_native, NoActiveCombatError, PyValueError);
@@ -784,7 +784,7 @@ impl PyOmniRunEnv {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (evaluator, c_puct=1.5, simulation_budget=64, transition_budget=64, reward_config_json=None, episode_root_max_hp=None, episode_root_gold=None))]
+    #[pyo3(signature = (evaluator, c_puct=1.5, simulation_budget=64, transition_budget=64, reward_config_json=None, episode_root_max_hp=None, episode_root_gold=None, leaf_cache=None))]
     pub fn puct_search_json(
         &self,
         evaluator: Bound<'_, PyAny>,
@@ -794,6 +794,7 @@ impl PyOmniRunEnv {
         reward_config_json: Option<&str>,
         episode_root_max_hp: Option<i32>,
         episode_root_gold: Option<i32>,
+        leaf_cache: Option<&str>,
     ) -> PyResult<String> {
         puct_search_json(
             &self.state,
@@ -804,11 +805,12 @@ impl PyOmniRunEnv {
             reward_config_json,
             episode_root_max_hp,
             episode_root_gold,
+            leaf_cache,
         )
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (evaluator, c_puct=1.5, simulation_budget=64, transition_budget=64, max_decisions=512, max_player_turns=100, reward_config_json=None))]
+    #[pyo3(signature = (evaluator, c_puct=1.5, simulation_budget=64, transition_budget=64, max_decisions=512, max_player_turns=100, reward_config_json=None, leaf_cache=None))]
     pub fn puct_clone_episode_json(
         &self,
         evaluator: Bound<'_, PyAny>,
@@ -818,6 +820,7 @@ impl PyOmniRunEnv {
         max_decisions: usize,
         max_player_turns: usize,
         reward_config_json: Option<&str>,
+        leaf_cache: Option<&str>,
     ) -> PyResult<String> {
         puct_clone_episode_json(
             &self.state,
@@ -828,6 +831,7 @@ impl PyOmniRunEnv {
             max_decisions,
             max_player_turns,
             reward_config_json,
+            leaf_cache,
         )
     }
 
@@ -1492,6 +1496,16 @@ fn parse_reward_config(reward_config_json: Option<&str>) -> Result<CombatProxyCo
     }
 }
 
+fn parse_leaf_cache(leaf_cache: Option<&str>) -> Result<PuctLeafCache, String> {
+    match leaf_cache {
+        None | Some("") | Some("off") => Ok(PuctLeafCache::Off),
+        Some("exact_state") => Ok(PuctLeafCache::ExactState),
+        Some(other) => Err(format!(
+            "leaf cache must be 'off' or 'exact_state', not {other}"
+        )),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn puct_search_json(
     root: &RunState,
@@ -1502,8 +1516,10 @@ fn puct_search_json(
     reward_config_json: Option<&str>,
     episode_root_max_hp: Option<i32>,
     episode_root_gold: Option<i32>,
+    leaf_cache: Option<&str>,
 ) -> PyResult<String> {
     let reward = parse_reward_config(reward_config_json).map_err(PyValueError::new_err)?;
+    let leaf_cache = parse_leaf_cache(leaf_cache).map_err(PyValueError::new_err)?;
     let (_, state_max_hp) = run_player_hp(root);
     let config = PuctConfig {
         c_puct,
@@ -1517,7 +1533,7 @@ fn puct_search_json(
         callback: evaluator,
         error: None,
     };
-    let result = match puct_search(root, &config, &mut evaluator) {
+    let result = match puct_search_with_leaf_cache(root, &config, &mut evaluator, leaf_cache) {
         Ok(result) => result,
         Err(error) => {
             if let Some(callback_error) = evaluator.error.take() {
@@ -1551,8 +1567,10 @@ fn puct_clone_episode_json(
     max_decisions: usize,
     max_player_turns: usize,
     reward_config_json: Option<&str>,
+    leaf_cache: Option<&str>,
 ) -> PyResult<String> {
     let reward = parse_reward_config(reward_config_json).map_err(PyValueError::new_err)?;
+    let leaf_cache = parse_leaf_cache(leaf_cache).map_err(PyValueError::new_err)?;
     let (_, state_max_hp) = run_player_hp(root);
     let config = PuctCloneConfig {
         search: PuctConfig {
@@ -1570,15 +1588,16 @@ fn puct_clone_episode_json(
         callback: evaluator,
         error: None,
     };
-    let episode = match puct_clone_episode(root, &config, &mut evaluator) {
-        Ok(episode) => episode,
-        Err(error) => {
-            if let Some(callback_error) = evaluator.error.take() {
-                return Err(callback_error);
+    let episode =
+        match puct_clone_episode_with_leaf_cache(root, &config, &mut evaluator, leaf_cache) {
+            Ok(episode) => episode,
+            Err(error) => {
+                if let Some(callback_error) = evaluator.error.take() {
+                    return Err(callback_error);
+                }
+                return Err(puct_error(error));
             }
-            return Err(puct_error(error));
-        }
-    };
+        };
     to_json(&PuctCloneEpisodeWire {
         schema_version: 1,
         teacher_name: PRIVILEGED_PUCT_TEACHER_NAME,

@@ -3,11 +3,12 @@
 mod puct;
 
 pub use puct::{
-    classify_combat_episode_transition, classify_combat_state, player_turn_advances,
-    puct_clone_episode, puct_search, CombatProxyConfig, FairLeafEvaluation, FairLeafEvaluator,
-    PuctCloneConfig, PuctCloneEpisode, PuctCloneOutcome, PuctCloneStep, PuctConfig, PuctError,
-    PuctSearchResult, PuctStopReason, FAIR_LEAF_BATCH_SCHEMA, PRIVILEGED_PUCT_TEACHER_NAME,
-    PRIVILEGED_PUCT_TEACHER_VERSION,
+    classify_combat_episode_transition, classify_combat_state, complete_run_state_identity,
+    player_turn_advances, puct_clone_episode, puct_clone_episode_with_leaf_cache, puct_search,
+    puct_search_profiled, puct_search_with_leaf_cache, CombatProxyConfig, FairLeafEvaluation,
+    FairLeafEvaluator, PuctCloneConfig, PuctCloneEpisode, PuctCloneOutcome, PuctCloneStep,
+    PuctConfig, PuctError, PuctLeafCache, PuctSearchProfile, PuctSearchResult, PuctStopReason,
+    FAIR_LEAF_BATCH_SCHEMA, PRIVILEGED_PUCT_TEACHER_NAME, PRIVILEGED_PUCT_TEACHER_VERSION,
 };
 
 use serde::Serialize;

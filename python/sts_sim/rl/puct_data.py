@@ -197,6 +197,7 @@ def generate_puct_dataset(
                 max_decisions=max_decisions,
                 max_player_turns=max_player_turns,
                 reward_config=reward_config,
+                leaf_cache="exact_state",
             )
             if env.snapshot().hash != before_hash:
                 raise AuthoritativeRootMutationError(

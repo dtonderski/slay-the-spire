@@ -347,6 +347,7 @@ class RunEnv:
         reward_config_json: str | None = None,
         episode_root_max_hp: int | None = None,
         episode_root_gold: int | None = None,
+        leaf_cache: str | None = None,
     ) -> dict[str, object]:
         """Run naive privileged PUCT from the current combat state.
 
@@ -356,6 +357,10 @@ class RunEnv:
         at `simulation_budget` or `transition_budget`. `selected_index` is valid
         only against the current Decision from this same environment; do not
         apply it to a later or cloned decision. The live environment is not mutated.
+        Privileged teacher and network call sites pass `leaf_cache="exact_state"`.
+        Generic search defaults to `leaf_cache="off"` because the evaluator may
+        be an arbitrary callback. Memoization requires a deterministic pure
+        evaluator for an exact `RunState`.
         """
 
         return _mapping(
@@ -368,6 +373,7 @@ class RunEnv:
                     reward_config_json,
                     episode_root_max_hp,
                     episode_root_gold,
+                    leaf_cache,
                 )
             )
         )
@@ -382,11 +388,13 @@ class RunEnv:
         max_decisions: int = 512,
         max_player_turns: int = 100,
         reward_config_json: str | None = None,
+        leaf_cache: str | None = None,
     ) -> dict[str, object]:
-        """Run a detached privileged PUCT teacher episode from this combat root.
+        """Run a detached privileged PUCT episode from this combat root.
 
         The live environment is not mutated. The evaluator callback receives only
-        a detached fair observation plus public choices.
+        a detached fair observation plus public choices. Generic clone defaults
+        to cache-off; the teacher dataset path passes `leaf_cache="exact_state"`.
         """
 
         return _mapping(
@@ -399,6 +407,7 @@ class RunEnv:
                     max_decisions,
                     max_player_turns,
                     reward_config_json,
+                    leaf_cache,
                 )
             )
         )
