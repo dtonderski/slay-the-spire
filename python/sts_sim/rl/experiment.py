@@ -77,6 +77,7 @@ _JSON_DIGEST_FIELDS = (
 _FILE_DIGEST_ROLES = {
     "checkpoint": "checkpoint_file_digest",
 }
+_LIVE_ENVIRONMENT_KEYS = frozenset({"source_digest", "runtime_identity_digest"})
 _ALLOWED_MUTABLE_SYMLINK_NAMES = frozenset({"latest-run"})
 
 
@@ -211,15 +212,18 @@ def _raise_if_symlink_ancestor(path: Path) -> None:
 
 
 def _require_contained_path(root: Path, path: Path, label: str) -> Path:
-    root_abs = _absolute_without_follow(root)
-    path_abs = _absolute_without_follow(path)
+    root_abs = _lexically_normalized(root)
+    path_abs = _lexically_normalized(path)
+    if ".." in root_abs.parts or ".." in path_abs.parts:
+        raise ValueError(f"{label} must not contain '..' segments")
     try:
         path_abs.relative_to(root_abs)
     except ValueError as error:
         raise ValueError(f"{label} must reside under the experiment directory") from error
     current = path_abs
     while True:
-        if current.is_symlink():
+        info = _lstat(current)
+        if info is not None and stat.S_ISLNK(info.st_mode):
             raise ValueError(f"{label} must not be a symlink: {current}")
         if current == root_abs:
             return path_abs
@@ -810,17 +814,22 @@ def json_content_identities(path: Path) -> dict[str, object]:
     return payload
 
 
+def _empty_environment_sets() -> dict[str, set[str]]:
+    return {key: set() for key in _ENVIRONMENT_KEYS}
+
+
 def _observed_environment_values(
     refs: tuple[ArtifactRef, ...],
     identities: list[dict[str, object]],
-) -> dict[str, set[str]]:
-    observed: dict[str, set[str]] = {key: set() for key in _ENVIRONMENT_KEYS}
+) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    file_hashes = _empty_environment_sets()
+    artifact_fields = _empty_environment_sets()
     if len(refs) != len(identities):
         raise ExperimentReproductionError("artifact refs and identities are misaligned")
     for ref, identity in zip(refs, identities, strict=True):
         file_key = _FILE_DIGEST_ROLES.get(ref.role)
         if file_key is not None:
-            observed[file_key].add(ref.sha256)
+            file_hashes[file_key].add(ref.sha256)
         declared = identity.get("declared_digests")
         if type(declared) is not dict:
             continue
@@ -828,40 +837,91 @@ def _observed_environment_values(
         for key, value in extracted.items():
             if type(value) is not str:
                 continue
-            if key in observed:
-                observed[key].add(value)
+            if key in artifact_fields:
+                artifact_fields[key].add(value)
             if key == "manifest_digest" and ref.role == "root_manifest":
-                observed["root_manifest_digest"].add(value)
+                artifact_fields["root_manifest_digest"].add(value)
             if key == "manifest_digest" and ref.role in {"dataset_manifest", "dataset"}:
-                observed["dataset_manifest_digest"].add(value)
+                artifact_fields["dataset_manifest_digest"].add(value)
+    return file_hashes, artifact_fields
+
+
+def _live_environment_observations() -> dict[str, str]:
+    from .training import _digest, _runtime_identity, _source_digest
+
+    observed: dict[str, str] = {}
+    try:
+        observed["source_digest"] = _source_digest()
+    except (OSError, TypeError, ValueError):
+        pass
+    try:
+        observed["runtime_identity_digest"] = _digest(_runtime_identity())
+    except (OSError, TypeError, ValueError):
+        pass
     return observed
 
 
 def _validate_environment(
     declared: Mapping[str, str | None],
-    observed: Mapping[str, set[str]],
+    file_hashes: Mapping[str, set[str]],
+    artifact_fields: Mapping[str, set[str]],
+    live_observed: Mapping[str, str],
 ) -> dict[str, object]:
     fields: dict[str, object] = {}
     failures: list[str] = []
     for key in sorted(_ENVIRONMENT_KEYS):
         value = declared.get(key)
-        found = tuple(sorted(observed.get(key, ())))
+        hashed = tuple(sorted(file_hashes.get(key, ())))
+        attested = tuple(sorted(artifact_fields.get(key, ())))
+        live = live_observed.get(key) if key in _LIVE_ENVIRONMENT_KEYS else None
         if value is None:
             status = "not_declared"
-        elif value in observed.get(key, ()):
-            status = "matched"
-        elif not found:
+        elif key in _LIVE_ENVIRONMENT_KEYS:
+            if live is None:
+                status = "unobserved_live"
+                failures.append(key)
+            elif value == live:
+                status = "matched_live"
+            else:
+                status = "mismatch"
+                failures.append(key)
+        elif value in file_hashes.get(key, ()):
+            status = "independently_hashed"
+        elif value in artifact_fields.get(key, ()):
+            status = "artifact_attested"
+        elif not hashed and not attested:
             status = "unobserved"
             failures.append(key)
         else:
             status = "mismatch"
             failures.append(key)
-        fields[key] = {"declared": value, "observed": list(found), "status": status}
+        fields[key] = {
+            "declared": value,
+            "observed_live": live,
+            "observed_file_hash": list(hashed),
+            "observed_artifact": list(attested),
+            "status": status,
+        }
     if failures:
         raise ExperimentReproductionError(
             "environment identity validation failed: " + ", ".join(failures)
         )
     return {"ok": True, "fields": fields}
+
+
+def _consumed_sealed_or_audit_evidence(
+    policy: Mapping[str, bool] | None,
+) -> bool | None:
+    if policy is None:
+        return None
+    known = [policy[key] for key in ("sealed_test", "real_trace_audit") if key in policy]
+    if not known:
+        return None
+    if any(known):
+        return True
+    if len(known) < 2:
+        return None
+    return False
 
 
 def reproduce_experiment(
@@ -903,19 +963,25 @@ def reproduce_experiment(
         json_content_identities(_resolve_declared_path(ref.path, experiment_dir))
         for ref in predeclaration.outputs
     ]
+    file_hashes, artifact_fields = _observed_environment_values(
+        (*predeclaration.inputs, *predeclaration.outputs),
+        input_identities + output_identities,
+    )
+    need_live = any(
+        predeclaration.environment.get(key) is not None for key in _LIVE_ENVIRONMENT_KEYS
+    )
     environment_validation = _validate_environment(
         predeclaration.environment,
-        _observed_environment_values(
-            (*predeclaration.inputs, *predeclaration.outputs),
-            input_identities + output_identities,
-        ),
+        file_hashes,
+        artifact_fields,
+        _live_environment_observations() if need_live else {},
     )
     integrity: dict[str, object] | None = None
     if experiment_dir is not None and (experiment_dir / ARTIFACT_INVENTORY_NAME).is_file():
         integrity = verify_artifact_integrity(experiment_dir).to_dict()
     report = {
         "kind": "experiment_reproduction_report",
-        "report_version": 1,
+        "report_version": 2,
         "ok": True,
         "predeclaration_path": str(predeclaration_path),
         "predeclaration_sha256": file_digest(predeclaration_path),
@@ -924,7 +990,7 @@ def reproduce_experiment(
         "source_commit": version.git_sha,
         "repository": version.to_dict(),
         "promotion_claim": False,
-        "consumed_sealed_or_audit_evidence": False,
+        "consumed_sealed_or_audit_evidence": _consumed_sealed_or_audit_evidence(policy),
         "inputs": [ref.to_dict() for ref in predeclaration.inputs],
         "outputs": [ref.to_dict() for ref in predeclaration.outputs],
         "input_identities": input_identities,

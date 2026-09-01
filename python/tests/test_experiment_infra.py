@@ -374,9 +374,9 @@ def test_reproduce_experiment_records_identities_and_rejects_commit_mismatch(
     environment = cast(dict[str, object], report["environment"])
     validation = cast(dict[str, object], environment["validation"])
     fields = cast(dict[str, dict[str, object]], validation["fields"])
-    assert fields["checkpoint_file_digest"]["status"] == "matched"
-    assert fields["root_manifest_digest"]["status"] == "matched"
-    assert fields["cohort_digest"]["status"] == "matched"
+    assert fields["checkpoint_file_digest"]["status"] == "independently_hashed"
+    assert fields["root_manifest_digest"]["status"] == "artifact_attested"
+    assert fields["cohort_digest"]["status"] == "artifact_attested"
     assert fields["source_digest"]["status"] == "not_declared"
     identities = cast(list[dict[str, object]], report["input_identities"])
     declared_digests = cast(dict[str, object], identities[1]["declared_digests"])
@@ -442,6 +442,56 @@ def test_reproduce_experiment_rejects_fabricated_environment_identities(tmp_path
         reproduce_experiment(predeclaration, repository=repo, experiment_dir=experiment)
 
 
+def test_reproduce_rejects_self_attested_source_digest(tmp_path: Path) -> None:
+    from sts_sim.rl.training import _source_digest
+
+    repo = tmp_path / "repo"
+    experiment = tmp_path / "exp"
+    _init_git_fixture(repo)
+    (repo / "tracked.txt").write_text("source", encoding="utf-8")
+    sha = _commit_fixture(repo)
+    fabricated = "f" * 64
+    artifact = experiment / "report.json"
+    _write_json(artifact, {"source_digest": fabricated, "runtime_identity_digest": fabricated})
+    declared = _v1_predeclaration(
+        sha,
+        inputs=[
+            {
+                "role": "evaluation_report",
+                "path": "report.json",
+                "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+            }
+        ],
+        environment={**_empty_environment(), "source_digest": fabricated},
+    )
+    predeclaration = experiment / "predeclaration.json"
+    _write_json(predeclaration, declared)
+    with pytest.raises(ExperimentReproductionError, match="environment identity"):
+        reproduce_experiment(predeclaration, repository=repo, experiment_dir=experiment)
+    declared["environment"] = {**_empty_environment(), "source_digest": _source_digest()}
+    _write_json(predeclaration, declared)
+    report = reproduce_experiment(predeclaration, repository=repo, experiment_dir=experiment)
+    environment = cast(dict[str, object], report["environment"])
+    validation = cast(dict[str, object], environment["validation"])
+    fields = cast(dict[str, dict[str, object]], validation["fields"])
+    assert fields["source_digest"]["status"] == "matched_live"
+    assert fields["source_digest"]["observed_artifact"] == [fabricated]
+
+
+def test_legacy_reproduction_evidence_policy_is_unknown(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    experiment = tmp_path / "exp"
+    _init_git_fixture(repo)
+    (repo / "tracked.txt").write_text("source", encoding="utf-8")
+    sha = _commit_fixture(repo)
+    predeclaration = experiment / "predeclaration.json"
+    _write_json(predeclaration, {"name": "legacy-run", "source_commit": sha})
+    report = reproduce_experiment(predeclaration, repository=repo, experiment_dir=experiment)
+    assert report["ok"] is True
+    assert report["predeclaration_kind"] == "legacy_predeclaration"
+    assert report["consumed_sealed_or_audit_evidence"] is None
+
+
 def test_affine_win_probability_and_exact_brier() -> None:
     assert affine_tanh_win_probability(-1.0) == 0.0
     assert affine_tanh_win_probability(1.0) == 1.0
@@ -477,7 +527,7 @@ def test_calibration_official_denominators_and_coverage_bounds() -> None:
     gameplay = _load_fixture("gameplay_win_loss.json")
     report = calibrate_combat_proxy_win_loss(static_report=static, gameplay_report=gameplay)
     assert report["kind"] == "combat_proxy_v1_binary_win_loss_calibration"
-    assert report["report_version"] == 3
+    assert report["report_version"] == 4
     inputs = cast(list[dict[str, object]], report["inputs"])
     assert [item["role"] for item in inputs] == ["static_report", "gameplay_report"]
     for item in inputs:
@@ -709,6 +759,16 @@ def test_verify_rejects_inventory_outside_experiment(tmp_path: Path) -> None:
         verify_artifact_integrity(experiment, inventory_path=outside)
 
 
+def test_verify_rejects_lexically_escaped_inventory(tmp_path: Path) -> None:
+    experiment = tmp_path / "exp"
+    _write_json(experiment / "kept.json", {"ok": True})
+    write_artifact_inventory(experiment)
+    outside = tmp_path / "outside"
+    outside.write_text((experiment / ARTIFACT_INVENTORY_NAME).read_text(encoding="utf-8"))
+    with pytest.raises(ValueError, match="under the experiment"):
+        verify_artifact_integrity(experiment, inventory_path=experiment / ".." / "outside")
+
+
 def test_malformed_v1_predeclaration_does_not_downgrade_to_legacy(tmp_path: Path) -> None:
     experiment = tmp_path / "exp"
     _write_json(experiment / "kept.json", {"ok": True})
@@ -801,3 +861,48 @@ def test_calibration_rejects_unknown_status_and_extra_roots() -> None:
     }
     with pytest.raises(ValueError, match="absent from root_ids"):
         calibrate_combat_proxy_win_loss(static_report=valid_static, gameplay_report=extra_root)
+
+
+def test_calibration_rejects_payload_path_byte_disagreement(tmp_path: Path) -> None:
+    analyzed = {
+        "per_record": [
+            {
+                "record_id": "r1",
+                "root_id": "root-a",
+                "status": "won",
+                "truncated": False,
+                "predicted_value": 0.9,
+            }
+        ]
+    }
+    on_disk = {
+        "per_record": [
+            {
+                "record_id": "r1",
+                "root_id": "root-a",
+                "status": "lost",
+                "truncated": False,
+                "predicted_value": -0.9,
+            }
+        ]
+    }
+    static_path = tmp_path / "static.json"
+    _write_json(static_path, on_disk)
+    raw = static_path.read_bytes()
+    with pytest.raises(ValueError, match="does not match the hashed bytes"):
+        calibrate_combat_proxy_win_loss(
+            static_report=analyzed,
+            static_path=static_path,
+            static_bytes=raw,
+        )
+    with pytest.raises(ValueError, match="parsed bytes"):
+        calibrate_combat_proxy_win_loss(static_report=on_disk, static_path=static_path)
+    parsed = json.loads(raw)
+    report = calibrate_combat_proxy_win_loss(
+        static_report=parsed,
+        static_path=static_path,
+        static_bytes=raw,
+    )
+    inputs = cast(list[dict[str, object]], report["inputs"])
+    assert inputs[0]["sha256"] == hashlib.sha256(raw).hexdigest()
+    assert inputs[0]["path"] == str(static_path)

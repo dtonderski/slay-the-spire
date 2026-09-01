@@ -627,15 +627,33 @@ def combat_proxy_observations_from_gameplay_report(
     return tuple(scores), accounting
 
 
+def _json_object_from_bytes(raw: bytes, label: str) -> dict[str, object]:
+    try:
+        loaded = json.loads(raw)
+    except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"{label} is not valid JSON") from error
+    return _require_mapping(loaded, label)
+
+
+def _require_payload_matches_bytes(payload: Mapping[str, object], raw: bytes, label: str) -> None:
+    parsed = _json_object_from_bytes(raw, label)
+    if parsed != dict(payload):
+        raise ValueError(f"{label} payload does not match the hashed bytes")
+
+
 def _input_report_identity(
     payload: Mapping[str, object],
     *,
     role: str,
     path: Path | None,
+    raw_bytes: bytes | None,
 ) -> dict[str, object]:
-    if path is not None:
-        sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
-        path_text: str | None = str(path)
+    if path is not None and raw_bytes is None:
+        raise ValueError(f"{role} path requires the exact parsed bytes")
+    if raw_bytes is not None:
+        _require_payload_matches_bytes(payload, raw_bytes, role)
+        sha256 = hashlib.sha256(raw_bytes).hexdigest()
+        path_text: str | None = str(path) if path is not None else None
     else:
         sha256 = hashlib.sha256(_canonical_bytes(dict(payload))).hexdigest()
         path_text = None
@@ -656,12 +674,23 @@ def calibrate_combat_proxy_win_loss(
     bin_count: int = 10,
     static_path: Path | None = None,
     gameplay_path: Path | None = None,
+    static_bytes: bytes | None = None,
+    gameplay_bytes: bytes | None = None,
 ) -> dict[str, object]:
     """Read-only binary win/loss calibration over static and/or gameplay reports."""
 
     if static_report is None:
         raise ValueError("combat_proxy_v1 calibration requires a static evaluation report")
+    if gameplay_path is not None and gameplay_report is None:
+        raise ValueError("gameplay_path requires gameplay_report")
+    if gameplay_bytes is not None and gameplay_report is None:
+        raise ValueError("gameplay_bytes require gameplay_report")
     static_payload = _require_mapping(dict(static_report), "static_report")
+    if static_path is not None and static_bytes is None:
+        raise ValueError("static_report path requires the exact parsed bytes")
+    if static_bytes is not None:
+        _require_payload_matches_bytes(static_payload, static_bytes, "static_report")
+        static_payload = _json_object_from_bytes(static_bytes, "static_report")
     labeled, labeled_accounting = combat_proxy_observations_from_static_report(static_payload)
     labeled_metrics = binary_win_loss_calibration(
         labeled, unit="labeled_decision", bin_count=bin_count
@@ -674,6 +703,11 @@ def calibrate_combat_proxy_win_loss(
     gameplay_bundle: dict[str, object] | None = None
     if gameplay_report is not None:
         gameplay_payload = _require_mapping(dict(gameplay_report), "gameplay_report")
+        if gameplay_path is not None and gameplay_bytes is None:
+            raise ValueError("gameplay_report path requires the exact parsed bytes")
+        if gameplay_bytes is not None:
+            _require_payload_matches_bytes(gameplay_payload, gameplay_bytes, "gameplay_report")
+            gameplay_payload = _json_object_from_bytes(gameplay_bytes, "gameplay_report")
         gameplay_scores, gameplay_accounting = combat_proxy_observations_from_gameplay_report(
             gameplay_payload,
             static_payload,
@@ -691,15 +725,25 @@ def calibrate_combat_proxy_win_loss(
         gameplay_payload = None
     primary = gameplay_bundle if gameplay_bundle is not None else labeled_bundle
     inputs = [
-        _input_report_identity(static_payload, role="static_report", path=static_path),
+        _input_report_identity(
+            static_payload,
+            role="static_report",
+            path=static_path,
+            raw_bytes=static_bytes,
+        ),
     ]
     if gameplay_payload is not None:
         inputs.append(
-            _input_report_identity(gameplay_payload, role="gameplay_report", path=gameplay_path)
+            _input_report_identity(
+                gameplay_payload,
+                role="gameplay_report",
+                path=gameplay_path,
+                raw_bytes=gameplay_bytes,
+            )
         )
     report: dict[str, object] = {
         "kind": "combat_proxy_v1_binary_win_loss_calibration",
-        "report_version": 3,
+        "report_version": 4,
         "value_target_name": COMBAT_PROXY_V1.name,
         "probability_map": AFFINE_TANH_WIN_PROBABILITY_MAP,
         "interpretation": COMBAT_PROXY_WIN_LOSS_INTERPRETATION,

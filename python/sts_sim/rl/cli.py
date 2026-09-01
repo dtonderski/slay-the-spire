@@ -343,16 +343,21 @@ def experiment_main(argv: Sequence[str] | None = None) -> int:
                 allow_dirty=args.allow_dirty,
             )
         elif args.command == "calibrate":
-            static_report = json.loads(args.static.read_text(encoding="utf-8"))
+            static_bytes = args.static.read_bytes()
+            static_report = json.loads(static_bytes)
             gameplay_report = None
+            gameplay_bytes = None
             if args.gameplay is not None:
-                gameplay_report = json.loads(args.gameplay.read_text(encoding="utf-8"))
+                gameplay_bytes = args.gameplay.read_bytes()
+                gameplay_report = json.loads(gameplay_bytes)
             payload = calibrate_combat_proxy_win_loss(
                 static_report=static_report,
                 gameplay_report=gameplay_report,
                 policy=args.policy,
                 static_path=args.static,
                 gameplay_path=args.gameplay,
+                static_bytes=static_bytes,
+                gameplay_bytes=gameplay_bytes,
             )
             if args.output is not None:
                 content = json.dumps(
