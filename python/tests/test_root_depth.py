@@ -68,6 +68,8 @@ def test_depth_two_generation_is_byte_identical_and_actionable(tmp_path: Path) -
         "step_limit",
         "terminal_run",
         "terminal_combat",
+        "hp_zero_player_turn",
+        "unmodeled_public_content",
         "duplicate_root",
         "cross_split_provenance",
         "withheld_audited_split",
@@ -180,6 +182,8 @@ def test_step_limit_before_requested_depth_is_typed_and_complete(tmp_path: Path)
         "step_limit",
         "terminal_run",
         "terminal_combat",
+        "hp_zero_player_turn",
+        "unmodeled_public_content",
         "generation_error",
     }
     assert any(exclusion.reason == "step_limit" for exclusion in manifest.exclusions)
@@ -349,3 +353,57 @@ def test_earlier_non_capturable_combat_with_actions_is_not_aborted() -> None:
     )
     assert data_module._is_capturable_combat_decision(combat)
     assert data_module._combat_entry_exclusion(combat, combat_index=1, combat_depth=1) is None
+
+
+def test_zero_hp_waiting_for_player_is_not_a_capturable_root() -> None:
+    state = RunEnv.combat_fixture().full_state()
+    combat = cast(dict[str, object], state["combat"])
+    player = cast(dict[str, object], combat["player"])
+    player["hp"] = 0
+    state["player_hp"] = 0
+    env = RunEnv.from_state_json_for_debugging(json.dumps(state))
+    decision = env.decision()
+    assert isinstance(decision.observation, FairCombatObservation)
+    assert decision.observation.phase == "waiting_for_player"
+    assert decision.observation.player.hp == 0
+    assert decision.actions
+    assert not data_module._is_capturable_combat_decision(decision)
+    assert (
+        data_module._combat_entry_exclusion(decision, combat_index=1, combat_depth=1)
+        == "hp_zero_player_turn"
+    )
+    assert (
+        data_module._combat_entry_exclusion(decision, combat_index=1, combat_depth=2)
+        == "hp_zero_player_turn"
+    )
+
+
+def test_load_root_manifest_accepts_historical_zero_hp_root(tmp_path: Path) -> None:
+    generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
+    manifest_path = tmp_path / "roots/root-manifest.json"
+    payload = json.loads(manifest_path.read_text())
+    root = payload["roots"][0]
+    old_path = tmp_path / "roots" / root["relative_path"]
+    snapshot = json.loads(old_path.read_text())
+    state = cast(dict[str, object], snapshot["state"])
+    combat = cast(dict[str, object], state["combat"])
+    player = cast(dict[str, object], combat["player"])
+    player["hp"] = 0
+    state["player_hp"] = 0
+    encoded = data_module._canonical_bytes(snapshot)
+    new_id = data_module._sha256_bytes(encoded)
+    relative_path = f"{root['split']}/roots/{new_id}.json"
+    new_path = tmp_path / "roots" / relative_path
+    new_path.write_bytes(encoded)
+    if new_path != old_path:
+        old_path.unlink()
+    root["root_id"] = new_id
+    root["relative_path"] = relative_path
+    _resign_root_manifest(payload)
+    manifest_path.write_bytes(data_module._canonical_bytes(payload))
+    loaded = load_root_manifest(manifest_path)
+    assert loaded.roots[0].root_id == new_id
+    restored = RunEnv.from_snapshot(new_path.read_text())
+    decision = restored.decision()
+    assert isinstance(decision.observation, FairCombatObservation)
+    assert decision.observation.player.hp == 0

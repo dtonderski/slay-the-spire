@@ -23,6 +23,7 @@ use sts_search::{
 create_exception!(_native, NoActiveCombatError, PyValueError);
 create_exception!(_native, InvalidAuthoritativeStateError, PyValueError);
 create_exception!(_native, UnknownPublicContentError, PyValueError);
+create_exception!(_native, UnmodeledPublicContentError, PyValueError);
 create_exception!(_native, NotInCombatError, PyValueError);
 create_exception!(_native, DecisionUnavailableError, PyValueError);
 create_exception!(_native, StaleDecisionError, PyValueError);
@@ -655,10 +656,7 @@ impl PyOmniRunEnv {
     }
 
     pub fn observation_json(&self) -> PyResult<String> {
-        to_json(
-            &fair_run_observation(&self.state)
-                .map_err(|error| DecisionUnavailableError::new_err(error.to_string()))?,
-        )
+        to_json(&fair_run_observation(&self.state).map_err(fair_observation_error)?)
     }
 
     /// Debug-only state mutation seam for Python experimentation.
@@ -863,6 +861,11 @@ fn fair_observation_error(error: FairObservationError) -> PyErr {
         FairObservationError::UnknownPublicContent => {
             UnknownPublicContentError::new_err("public combat content is unknown")
         }
+        FairObservationError::UnmodeledPublicContent(public_key) => {
+            UnmodeledPublicContentError::new_err(format!(
+                "public combat content is unmodeled: {public_key}"
+            ))
+        }
     }
 }
 
@@ -904,6 +907,10 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add(
         "UnknownPublicContentError",
         module.py().get_type::<UnknownPublicContentError>(),
+    )?;
+    module.add(
+        "UnmodeledPublicContentError",
+        module.py().get_type::<UnmodeledPublicContentError>(),
     )?;
     module.add(
         "NotInCombatError",

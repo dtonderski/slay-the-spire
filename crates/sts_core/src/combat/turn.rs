@@ -440,6 +440,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         next.player.hp = 0;
         next.player.block = 0;
         next.phase = CombatPhase::Lost;
+        next.clear_decisions_on_combat_end();
         return Ok(next);
     }
     clear_living_monster_block(&mut next);
@@ -505,6 +506,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
         next.player.hp = 0;
         next.player.block = 0;
         next.phase = CombatPhase::Lost;
+        next.clear_decisions_on_combat_end();
         return Ok(next);
     }
     if finish_combat_if_over(&mut next, started_with_living_monster)? {
@@ -771,6 +773,7 @@ fn start_player_turn_in_place(
         state.player.powers.end_turn_death = 0;
         state.player.powers.divinity = 0;
         state.phase = CombatPhase::Lost;
+        state.clear_decisions_on_combat_end();
         return Ok(());
     }
     state.time_warp_end_powers_applied = false;
@@ -834,7 +837,7 @@ fn start_player_turn_in_place(
         for block in deferred_start_relic_juggernaut {
             crate::combat::transition::apply_juggernaut_after_direct_block_gain(state, block)?;
         }
-        state.phase = CombatPhase::WaitingForPlayer;
+        finish_player_turn_start(state)?;
         return Ok(());
     }
     apply_start_of_turn_magnetism(state)?;
@@ -931,6 +934,21 @@ fn start_player_turn_in_place(
     crate::combat::transition::flush_deferred_mayhem_play_top_draw_inserts(state)?;
     state.defer_time_warp_end_turn = false;
     crate::combat::transition::settle_time_warp_end_turn_if_ready(state)?;
+    finish_player_turn_start(state)?;
+    Ok(())
+}
+
+fn finish_player_turn_start(state: &mut CombatState) -> SimResult<()> {
+    if state.player.hp <= 0 {
+        revive_player_if_available(state)?;
+        if state.player.hp <= 0 {
+            state.player.hp = 0;
+            state.player.block = 0;
+            state.phase = CombatPhase::Lost;
+            state.clear_decisions_on_combat_end();
+            return Ok(());
+        }
+    }
     if state
         .monsters
         .iter()
@@ -1728,7 +1746,7 @@ fn execute_generic_monster_intent(
             apply_transient_fading_after_turn(&mut state.monsters, actor_id);
         }
     }
-    revive_with_lizard_tail_if_available(state)?;
+    revive_player_if_available(state)?;
     if state.player.hp <= 0 {
         Ok(ActorTurnDisposition::StopPlayerDead)
     } else {
@@ -2281,8 +2299,9 @@ fn revive_with_fairy_if_available(state: &mut CombatState) -> SimResult<()> {
 }
 
 pub(crate) fn revive_player_if_available(state: &mut CombatState) -> SimResult<()> {
-    revive_with_lizard_tail_if_available(state)?;
-    revive_with_fairy_if_available(state)
+    // Desktop AbstractPlayer.damage: Mark of the Bloom, Fairy, Lizard Tail, death.
+    revive_with_fairy_if_available(state)?;
+    revive_with_lizard_tail_if_available(state)
 }
 
 fn apply_nemesis_intangible_if_absent(state: &mut CombatState) {
@@ -4639,6 +4658,85 @@ mod tests {
             revival_hp_with_relics(118, 30, &[Relic::MagicFlower]),
             Ok(53)
         );
+    }
+
+    #[test]
+    fn fairy_revives_before_lizard_tail_when_both_are_available() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 0;
+        state.player.max_hp = 80;
+        state.relics.push(Relic::LizardTail);
+        state.relic_counters.lizard_tail_available = true;
+        state.relic_counters.fairy_heal_percent = 30;
+        let expected_hp = revival_hp_with_relics(state.player.max_hp, 30, &state.relics)
+            .expect("fairy revival HP");
+
+        revive_player_if_available(&mut state).expect("fairy revival");
+
+        assert_eq!(state.player.hp, expected_hp);
+        assert!(state.relic_counters.fairy_consumed);
+        assert_eq!(state.relic_counters.fairy_heal_percent, 0);
+        assert!(state.relic_counters.lizard_tail_available);
+    }
+
+    #[test]
+    fn start_of_turn_lethal_self_damage_does_not_open_a_dead_player_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 1;
+        state.player.powers.mayhem = 1;
+        state.piles.hand.clear();
+        state.piles.discard_pile.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(20), BLOODLETTING_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+            CardInstance::new(CardId::new(22), STRIKE_R_ID),
+            CardInstance::new(CardId::new(23), STRIKE_R_ID),
+            CardInstance::new(CardId::new(24), STRIKE_R_ID),
+            CardInstance::new(CardId::new(25), STRIKE_R_ID),
+        ];
+        state.monsters = vec![monster_state_for_ascension(
+            &LOOTER_A0,
+            MonsterId::new(1),
+            0,
+        )];
+
+        start_player_turn(&mut state).expect("start turn");
+
+        assert_eq!(state.phase, CombatPhase::Lost);
+        assert_eq!(state.player.hp, 0);
+        assert!(state.decision.is_none());
+        assert!(state.queued_decisions.is_empty());
+    }
+
+    #[test]
+    fn start_of_turn_lethal_self_damage_revives_with_fairy_instead_of_dead_player_turn() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 1;
+        state.player.max_hp = 80;
+        state.player.powers.mayhem = 1;
+        state.relic_counters.fairy_heal_percent = 30;
+        state.piles.hand.clear();
+        state.piles.discard_pile.clear();
+        state.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(20), BLOODLETTING_ID),
+            CardInstance::new(CardId::new(21), STRIKE_R_ID),
+            CardInstance::new(CardId::new(22), STRIKE_R_ID),
+            CardInstance::new(CardId::new(23), STRIKE_R_ID),
+            CardInstance::new(CardId::new(24), STRIKE_R_ID),
+            CardInstance::new(CardId::new(25), STRIKE_R_ID),
+        ];
+        state.monsters = vec![monster_state_for_ascension(
+            &LOOTER_A0,
+            MonsterId::new(1),
+            0,
+        )];
+
+        start_player_turn(&mut state).expect("start turn");
+
+        assert!(state.player.hp > 0);
+        assert_eq!(state.phase, CombatPhase::WaitingForPlayer);
+        assert!(state.relic_counters.fairy_consumed);
+        assert_eq!(state.relic_counters.fairy_heal_percent, 0);
     }
 
     #[test]

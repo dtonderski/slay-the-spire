@@ -2322,6 +2322,29 @@ fn apply_fairy_if_lethal(
         return Ok(false);
     }
 
+    // Desktop AbstractPlayer.damage: Fairy in a Bottle before Lizard Tail.
+    if let Some((slot, _)) = run
+        .occupied_potion_slots()
+        .into_iter()
+        .find(|(_, potion)| *potion == Potion::Fairy)
+    {
+        let multiplier = if run.relics.contains(&Relic::SacredBark) {
+            2
+        } else {
+            1
+        };
+        let hp = revival_hp_with_relics(
+            combat.player.max_hp,
+            FAIRY_HEAL_PERCENT * multiplier,
+            &run.relics,
+        )?;
+        run.take_potion_slot(slot)
+            .expect("fairy potion slot was found before consuming");
+        combat.player.hp = hp;
+        combat.phase = CombatPhase::WaitingForPlayer;
+        return Ok(true);
+    }
+
     if run.relics.contains(&Relic::LizardTail) && !run.lizard_tail_used {
         let hp = revival_hp_with_relics(
             combat.player.max_hp,
@@ -2334,28 +2357,7 @@ fn apply_fairy_if_lethal(
         return Ok(true);
     }
 
-    let Some((slot, _)) = run
-        .occupied_potion_slots()
-        .into_iter()
-        .find(|(_, potion)| *potion == Potion::Fairy)
-    else {
-        return Ok(false);
-    };
-    let multiplier = if run.relics.contains(&Relic::SacredBark) {
-        2
-    } else {
-        1
-    };
-    let hp = revival_hp_with_relics(
-        combat.player.max_hp,
-        FAIRY_HEAL_PERCENT * multiplier,
-        &run.relics,
-    )?;
-    run.take_potion_slot(slot)
-        .expect("fairy potion slot was found before consuming");
-    combat.player.hp = hp;
-    combat.phase = CombatPhase::WaitingForPlayer;
-    Ok(true)
+    Ok(false)
 }
 
 fn apply_combat_loss_proceed(run: &RunState) -> SimResult<RunState> {
@@ -2375,6 +2377,15 @@ fn apply_combat_loss_proceed(run: &RunState) -> SimResult<RunState> {
     next.reward = None;
     next.event = None;
     next.card_grid = None;
+    // Event-combat gold/relic promises are claimed only on victory
+    // (`enter_combat_reward`). Smoke Bomb already discards them on escape;
+    // death GAME_OVER proceed must do the same so Complete validates.
+    next.pending_event_combat_gold_offer = 0;
+    next.pending_event_combat_gold_bonus = 0;
+    next.pending_event_combat_elite_gold = false;
+    next.pending_event_combat_relic_offer = None;
+    next.pending_event_combat_rng = None;
+    next.pending_combat_obtain_cards.clear();
     Ok(next)
 }
 
@@ -3037,6 +3048,33 @@ mod tests {
             any_color_reward_card_key_from_identity("Gash"),
             Some("CLAW")
         );
+    }
+
+    #[test]
+    fn combat_loss_proceed_discards_unclaimed_event_combat_rewards() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat");
+        combat.phase = CombatPhase::Lost;
+        combat.player.hp = 0;
+        run.player_hp = 0;
+        run.pending_event_combat_gold_offer = 27;
+        run.pending_event_combat_relic_offer = Some(Relic::OddMushroom);
+
+        let next = crate::apply_run_decision_action(
+            &run,
+            crate::RunDecisionAction::Run(crate::RunAction::Proceed),
+        )
+        .expect("GAME_OVER proceed completes an event-combat loss");
+
+        assert_eq!(next.phase, crate::RunPhase::Complete);
+        assert!(next.combat.is_none());
+        assert_eq!(next.pending_event_combat_gold_offer, 0);
+        assert_eq!(next.pending_event_combat_gold_bonus, 0);
+        assert!(!next.pending_event_combat_elite_gold);
+        assert_eq!(next.pending_event_combat_relic_offer, None);
+        assert!(next.pending_event_combat_rng.is_none());
+        assert!(next.pending_combat_obtain_cards.is_empty());
+        next.validate().expect("completed loss is valid");
     }
 
     #[test]
@@ -4374,6 +4412,45 @@ mod tests {
             .count();
         assert_eq!(dazed_count, 2);
         assert!(after.lizard_tail_used);
+    }
+
+    #[test]
+    fn fairy_revives_mid_monster_turn_before_lizard_tail_when_both_are_available() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Combat;
+        run.current_room_override = Some(RoomKind::Elite);
+        run.relics.push(Relic::LizardTail);
+        run.gain_potion(Potion::Fairy)
+            .expect("fairy potion occupies a slot");
+
+        let mut combat = CombatState::sentry_fixture();
+        combat.player.hp = 1;
+        combat.player.max_hp = 85;
+        combat.monsters[0].intent = crate::MonsterIntent::Attack { damage: 9 };
+        combat.monsters[1].intent = crate::MonsterIntent::AddDazedToDiscard { count: 2 };
+        combat.monsters[2].intent = crate::MonsterIntent::Attack { damage: 9 };
+        run.combat = Some(combat);
+
+        let after = apply_combat_action_on_run(&run, CombatAction::EndTurn)
+            .expect("enemy turn resolves through fairy revival");
+        let combat = after.combat.as_ref().expect("combat continues");
+        let expected_hp = revival_hp_with_relics(85, FAIRY_HEAL_PERCENT, &run.relics)
+            .expect("fairy revival HP")
+            - 9;
+
+        assert_eq!(combat.player.hp, expected_hp);
+        assert!(!after.lizard_tail_used);
+        assert!(after.occupied_potion_slots().is_empty());
+        let dazed_count = combat
+            .piles
+            .hand
+            .iter()
+            .chain(&combat.piles.draw_pile)
+            .chain(&combat.piles.discard_pile)
+            .chain(&combat.piles.exhaust_pile)
+            .filter(|card| card.content_id == crate::content::cards::DAZED_ID)
+            .count();
+        assert_eq!(dazed_count, 2);
     }
 
     #[test]

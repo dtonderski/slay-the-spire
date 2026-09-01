@@ -1426,6 +1426,9 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 .map(|combat| combat.phase == CombatPhase::Won)
                 .unwrap_or(false);
             if won {
+                if let Some(combat) = next.combat.as_mut() {
+                    combat.clear_decisions_on_combat_end();
+                }
                 if !victory_healing_applied {
                     if let Some(combat) = next.combat.as_mut() {
                         apply_burning_blood(combat)?;
@@ -1459,6 +1462,7 @@ mod tests {
     use super::*;
     use crate::{
         apply_combat_action_on_run, apply_run_action,
+        combat::DiscardSelectState,
         content::cards::{
             BASH_ID, BURNING_PACT_ID, BURN_ID, CLASH_ID, CLEAVE_ID, DARK_EMBRACE_ID, DAZED_ID,
             DEFEND_R_ID, PARASITE_ID, PURITY_ID, STRIKE_R_ID, WARCRY_ID,
@@ -1467,6 +1471,46 @@ mod tests {
         content::shop_pool::ironclad_combat_discovery_pool,
         CombatAction, MonsterIntent,
     };
+
+    #[test]
+    fn lethal_fire_potion_clears_open_discard_select_instead_of_stale_won_decision() {
+        let mut run = RunState::combat_fixture();
+        run.potions = vec![Potion::Fire];
+        run.empty_potion_slots = vec![1, 2];
+        let monster_id;
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.monsters.truncate(1);
+            combat.monsters[0].hp = 5;
+            combat.monsters[0].alive = true;
+            monster_id = combat.monsters[0].id;
+            combat.piles.discard_pile = vec![CardInstance::new(CardId::new(20), STRIKE_R_ID)];
+            combat.decision = Some(CombatDecisionState::DiscardSelect {
+                state: DiscardSelectState {
+                    purpose: DiscardSelectPurpose::HeadbuttPutOnDraw,
+                    source_card_id: Some(CardId::new(1)),
+                    source_card: None,
+                    source_card_force_exhaust: false,
+                    selected_discard_indices: Vec::new(),
+                    max_choices: 1,
+                    selected_discard_index: None,
+                    pending_actions: Default::default(),
+                },
+            });
+        }
+
+        let next = apply_run_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: Some(monster_id),
+            },
+        )
+        .expect("lethal fire potion applies during an open Headbutt select");
+        next.validate()
+            .expect("potion victory does not keep a stale combat select");
+        assert_ne!(next.phase, crate::RunPhase::Combat);
+    }
 
     #[test]
     fn burning_pact_confirm_enters_reward_when_feel_no_pain_juggernaut_kills_last() {
