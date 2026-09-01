@@ -371,6 +371,13 @@ def test_reproduce_experiment_records_identities_and_rejects_commit_mismatch(
     assert report["ok"] is True
     assert report["source_commit"] == sha
     assert report["consumed_sealed_or_audit_evidence"] is False
+    environment = cast(dict[str, object], report["environment"])
+    validation = cast(dict[str, object], environment["validation"])
+    fields = cast(dict[str, dict[str, object]], validation["fields"])
+    assert fields["checkpoint_file_digest"]["status"] == "matched"
+    assert fields["root_manifest_digest"]["status"] == "matched"
+    assert fields["cohort_digest"]["status"] == "matched"
+    assert fields["source_digest"]["status"] == "not_declared"
     identities = cast(list[dict[str, object]], report["input_identities"])
     declared_digests = cast(dict[str, object], identities[1]["declared_digests"])
     assert declared_digests["manifest_digest"] == "e" * 64
@@ -409,6 +416,32 @@ def test_reproduce_experiment_rejects_input_digest_mismatch(tmp_path: Path) -> N
         reproduce_experiment(predeclaration, repository=repo, experiment_dir=experiment)
 
 
+def test_reproduce_experiment_rejects_fabricated_environment_identities(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    experiment = tmp_path / "exp"
+    _init_git_fixture(repo)
+    (repo / "tracked.txt").write_text("source", encoding="utf-8")
+    sha = _commit_fixture(repo)
+    artifact = experiment / "kept.json"
+    _write_json(artifact, {"ok": True})
+    fabricated: dict[str, object] = {key: "f" * 64 for key in _empty_environment()}
+    declared = _v1_predeclaration(
+        sha,
+        inputs=[
+            {
+                "role": "checkpoint",
+                "path": "kept.json",
+                "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+            }
+        ],
+        environment=fabricated,
+    )
+    predeclaration = experiment / "predeclaration.json"
+    _write_json(predeclaration, declared)
+    with pytest.raises(ExperimentReproductionError, match="environment identity"):
+        reproduce_experiment(predeclaration, repository=repo, experiment_dir=experiment)
+
+
 def test_affine_win_probability_and_exact_brier() -> None:
     assert affine_tanh_win_probability(-1.0) == 0.0
     assert affine_tanh_win_probability(1.0) == 1.0
@@ -444,7 +477,13 @@ def test_calibration_official_denominators_and_coverage_bounds() -> None:
     gameplay = _load_fixture("gameplay_win_loss.json")
     report = calibrate_combat_proxy_win_loss(static_report=static, gameplay_report=gameplay)
     assert report["kind"] == "combat_proxy_v1_binary_win_loss_calibration"
-    assert report["report_version"] == 2
+    assert report["report_version"] == 3
+    inputs = cast(list[dict[str, object]], report["inputs"])
+    assert [item["role"] for item in inputs] == ["static_report", "gameplay_report"]
+    for item in inputs:
+        digest = item["sha256"]
+        assert type(digest) is str
+        assert len(digest) == 64
     assert report["within_outcome_resolution"] == "not_evaluated"
     assert "does not evaluate or claim calibration of within-outcome" in str(
         report["interpretation"]
@@ -542,13 +581,21 @@ def test_cli_verify_and_calibrate(tmp_path: Path, capsys: pytest.CaptureFixture[
     assert (
         experiment_main(["calibrate", "--static", str(static_path), "--output", str(output)]) == 0
     )
+    capsys.readouterr()
     written = json.loads(output.read_text(encoding="utf-8"))
     assert written["primary_unit"] == "labeled_decision"
     assert written["discrimination"] == "positive"
+    calibrate_inputs = cast(list[dict[str, object]], written["inputs"])
+    assert calibrate_inputs[0]["path"] == str(static_path)
+    assert calibrate_inputs[0]["sha256"] == hashlib.sha256(static_path.read_bytes()).hexdigest()
     static["per_record"][0]["predicted_value"] = 0.1
     _write_json(static_path, static)
-    with pytest.raises(ValueError, match="refusing to mutate"):
-        experiment_main(["calibrate", "--static", str(static_path), "--output", str(output)])
+    assert (
+        experiment_main(["calibrate", "--static", str(static_path), "--output", str(output)]) == 1
+    )
+    mutate_payload = json.loads(capsys.readouterr().out)
+    assert mutate_payload["ok"] is False
+    assert "refusing to mutate" in str(mutate_payload["error"])
 
 
 def test_local_wandb_sync_rejects_remote_and_leaves_scientific_bytes(
@@ -622,3 +669,135 @@ def test_sync_refuses_if_helper_rewrites_scientific_artifact(
     with pytest.raises(ArtifactIntegrityError, match="report.json"):
         sync_experiment_wandb(experiment)
     assert json.loads(scientific.read_text(encoding="utf-8")) == {"ok": False}
+
+
+def test_write_scientific_artifact_refuses_symlinked_parent(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    experiment = tmp_path / "exp"
+    experiment.mkdir()
+    linked = experiment / "linked"
+    linked.symlink_to(outside)
+    with pytest.raises(ValueError, match="symlink parent"):
+        write_scientific_artifact(linked / "artifact.json", b"secret")
+    assert not (outside / "artifact.json").exists()
+
+
+def test_wandb_parent_directory_symlink_is_a_violation(tmp_path: Path) -> None:
+    experiment = tmp_path / "exp"
+    _write_json(experiment / "kept.json", {"ok": True})
+    outside = tmp_path / "wandb-outside"
+    run = outside / "offline-run-1"
+    run.mkdir(parents=True)
+    (run / "run.wandb").write_bytes(b"x")
+    (experiment / "wandb").symlink_to(outside)
+    with pytest.raises(ValueError, match="symlink"):
+        write_artifact_inventory(experiment)
+    digest = hashlib.sha256((experiment / "kept.json").read_bytes()).hexdigest()
+    (experiment / ARTIFACT_INVENTORY_NAME).write_text(f"{digest}  ./kept.json\n", encoding="utf-8")
+    with pytest.raises(ArtifactIntegrityError, match="symlink"):
+        verify_artifact_integrity(experiment)
+
+
+def test_verify_rejects_inventory_outside_experiment(tmp_path: Path) -> None:
+    experiment = tmp_path / "exp"
+    _write_json(experiment / "kept.json", {"ok": True})
+    write_artifact_inventory(experiment)
+    outside = tmp_path / "outside.sha256"
+    outside.write_text((experiment / ARTIFACT_INVENTORY_NAME).read_text(encoding="utf-8"))
+    with pytest.raises(ValueError, match="under the experiment"):
+        verify_artifact_integrity(experiment, inventory_path=outside)
+
+
+def test_malformed_v1_predeclaration_does_not_downgrade_to_legacy(tmp_path: Path) -> None:
+    experiment = tmp_path / "exp"
+    _write_json(experiment / "kept.json", {"ok": True})
+    payload = _v1_predeclaration("a" * 40)
+    payload["extra"] = True
+    _write_json(experiment / "predeclaration.json", payload)
+    write_artifact_inventory(experiment)
+    _write_json(experiment / "extra.json", {"extra": True})
+    with pytest.raises(ValueError, match="missing or unknown fields"):
+        verify_artifact_integrity(experiment)
+
+
+def test_calibration_rejects_unknown_status_and_extra_roots() -> None:
+    static = {
+        "per_record": [
+            {
+                "record_id": "r1",
+                "root_id": "root-a",
+                "status": "weird",
+                "truncated": False,
+                "predicted_value": 0.1,
+            }
+        ]
+    }
+    with pytest.raises(ValueError, match="unknown terminal status"):
+        calibrate_combat_proxy_win_loss(static_report=static)
+    error_only = {
+        "per_record": [
+            {
+                "record_id": "r1",
+                "root_id": "root-a",
+                "status": "error",
+                "truncated": False,
+                "predicted_value": 0.1,
+            }
+        ]
+    }
+    report = calibrate_combat_proxy_win_loss(static_report=error_only)
+    labeled = cast(dict[str, object], report["labeled_decision"])
+    accounting = cast(dict[str, object], labeled["accounting"])
+    assert accounting["included_error"] == 1
+    assert labeled["official_win_numerator"] == 0
+    indexed = {
+        "per_record": [
+            {
+                "record_id": "later",
+                "root_id": "root-a",
+                "status": "won",
+                "truncated": False,
+                "predicted_value": 0.9,
+                "decision_index": 1,
+            }
+        ]
+    }
+    gameplay = {
+        "root_ids": ["root-a"],
+        "per_root": [
+            {
+                "root_id": "root-a",
+                "policies": {"network": {"status": "won", "error": None}},
+            }
+        ],
+    }
+    with pytest.raises(ValueError, match="decision_index 0"):
+        calibrate_combat_proxy_win_loss(static_report=indexed, gameplay_report=gameplay)
+    extra_root = {
+        "root_ids": ["root-a"],
+        "per_root": [
+            {
+                "root_id": "root-a",
+                "policies": {"network": {"status": "won", "error": None}},
+            },
+            {
+                "root_id": "root-extra",
+                "policies": {"network": {"status": "lost", "error": None}},
+            },
+        ],
+    }
+    valid_static = {
+        "per_record": [
+            {
+                "record_id": "first",
+                "root_id": "root-a",
+                "status": "won",
+                "truncated": False,
+                "predicted_value": 0.1,
+                "decision_index": 0,
+            }
+        ]
+    }
+    with pytest.raises(ValueError, match="absent from root_ids"):
+        calibrate_combat_proxy_win_loss(static_report=valid_static, gameplay_report=extra_root)

@@ -67,12 +67,17 @@ _JSON_DIGEST_FIELDS = (
     "report_digest",
     "source_digest",
     "checkpoint_file_digest",
+    "checkpoint_config_digest",
     "root_manifest_digest",
     "dataset_manifest_digest",
     "runtime_identity_digest",
     "encoder_contract_digest",
     "vocabulary_fingerprint",
 )
+_FILE_DIGEST_ROLES = {
+    "checkpoint": "checkpoint_file_digest",
+}
+_ALLOWED_MUTABLE_SYMLINK_NAMES = frozenset({"latest-run"})
 
 
 def _canonical_bytes(payload: object) -> bytes:
@@ -177,6 +182,53 @@ def normalize_inventory_relative_path(path_text: str) -> str:
     return "/".join(parts)
 
 
+def _lexically_normalized(path: Path) -> Path:
+    absolute = _absolute_without_follow(path)
+    parts: list[str] = []
+    for part in absolute.parts:
+        if part == "..":
+            if parts:
+                parts.pop()
+        elif part != ".":
+            parts.append(part)
+    if not parts:
+        return Path("/")
+    return Path(*parts)
+
+
+def _raise_if_symlink_ancestor(path: Path) -> None:
+    current = _absolute_without_follow(path).parent
+    while True:
+        info = _lstat(current)
+        if info is not None and stat.S_ISLNK(info.st_mode):
+            raise ValueError(
+                f"refusing to write scientific artifact through a symlink parent: {path}"
+            )
+        nxt = current.parent
+        if nxt == current:
+            return
+        current = nxt
+
+
+def _require_contained_path(root: Path, path: Path, label: str) -> Path:
+    root_abs = _absolute_without_follow(root)
+    path_abs = _absolute_without_follow(path)
+    try:
+        path_abs.relative_to(root_abs)
+    except ValueError as error:
+        raise ValueError(f"{label} must reside under the experiment directory") from error
+    current = path_abs
+    while True:
+        if current.is_symlink():
+            raise ValueError(f"{label} must not be a symlink: {current}")
+        if current == root_abs:
+            return path_abs
+        nxt = current.parent
+        if nxt == current:
+            raise ValueError(f"{label} escapes the experiment directory: {path}")
+        current = nxt
+
+
 def resolve_inventory_path(root: Path, relative: str) -> Path:
     """Resolve a declared inventory path under root without following symlinks."""
 
@@ -222,6 +274,7 @@ def write_scientific_artifact(path: Path, content: bytes) -> str:
     """Write immutable scientific bytes once. Identical content is idempotent."""
 
     digest = _sha256_bytes(content)
+    _raise_if_symlink_ancestor(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     _fsync_directory(path.parent)
     existing_info = _lstat(path)
@@ -411,6 +464,26 @@ def _iter_tree_entries(root: Path) -> Iterator[tuple[Path, str]]:
                 yield child, "file"
 
 
+def _symlink_target_within_root(root: Path, path: Path) -> bool:
+    raw = os.readlink(path)
+    target = Path(raw)
+    if not target.is_absolute():
+        target = path.parent / target
+    try:
+        _lexically_normalized(target).relative_to(_lexically_normalized(root))
+    except ValueError:
+        return False
+    return True
+
+
+def _symlink_is_allowed(root: Path, path: Path, relative: Path) -> bool:
+    if not is_mutable_synchronization_path(relative):
+        return False
+    if path.name not in _ALLOWED_MUTABLE_SYMLINK_NAMES:
+        return False
+    return _symlink_target_within_root(root, path)
+
+
 def _scientific_file_digests(root: Path) -> dict[str, str]:
     mapping: dict[str, str] = {}
     for path, kind in _iter_tree_entries(root):
@@ -431,10 +504,11 @@ def _symlink_violations(root: Path) -> tuple[str, ...]:
         return tuple(sorted(found))
     for path, kind in _iter_tree_entries(root):
         relative = _relative_to_root(root, path)
-        if is_mutable_synchronization_path(relative):
+        if kind == "symlink" or path.is_symlink():
+            if not _symlink_is_allowed(root, path, relative):
+                found.add(relative.as_posix())
             continue
-        if kind == "symlink":
-            found.add(relative.as_posix())
+        if is_mutable_synchronization_path(relative):
             continue
         violation = _symlink_violation_relative(root, path)
         if violation is not None:
@@ -444,13 +518,17 @@ def _symlink_violations(root: Path) -> tuple[str, ...]:
 
 def _undeclared_policy_for(root: Path) -> str:
     path = root / "predeclaration.json"
-    if path.is_symlink() or not path.is_file():
+    if path.is_symlink():
+        raise ValueError("predeclaration.json must not be a symlink")
+    if not path.is_file():
         return UNDECLARED_POLICY_REPORT_ONLY
     try:
-        predeclaration = load_experiment_predeclaration(path)
-    except (OSError, TypeError, ValueError, json.JSONDecodeError):
-        return UNDECLARED_POLICY_REPORT_ONLY
-    if predeclaration.kind == PREDECLARATION_KIND:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("predeclaration.json is not valid JSON") from error
+    source = _require_mapping(payload, "predeclaration")
+    if source.get("kind") == PREDECLARATION_KIND:
+        _load_v1_predeclaration(source)
         return UNDECLARED_POLICY_STRICT
     return UNDECLARED_POLICY_REPORT_ONLY
 
@@ -498,8 +576,14 @@ def verify_artifact_integrity(
     root = _absolute_without_follow(experiment_dir)
     if not root.is_dir():
         raise FileNotFoundError(f"experiment directory does not exist: {root}")
-    inventory = _absolute_without_follow(inventory_path or root / ARTIFACT_INVENTORY_NAME)
-    if not inventory.is_file() and not inventory.is_symlink():
+    if root.is_symlink():
+        raise ValueError(f"experiment directory must not be a symlink: {root}")
+    inventory = _require_contained_path(
+        root,
+        inventory_path or root / ARTIFACT_INVENTORY_NAME,
+        "artifact inventory",
+    )
+    if not inventory.is_file():
         raise FileNotFoundError(f"artifact inventory does not exist: {inventory}")
     skipped: list[str] = []
     missing: list[str] = []
@@ -507,40 +591,30 @@ def verify_artifact_integrity(
     checked = 0
     declared: set[str] = set()
     symlink_hits = set(_symlink_violations(root))
-    if inventory.is_symlink():
-        try:
-            symlink_hits.add(_relative_to_root(root, inventory).as_posix())
-        except ValueError:
-            symlink_hits.add(inventory.as_posix())
     undeclared_policy = _undeclared_policy_for(root)
-    if not inventory.is_symlink():
-        for relative, expected in _load_inventory_entries(inventory):
-            relative_path = Path(relative)
-            if is_mutable_synchronization_path(relative_path):
-                skipped.append(relative)
-                continue
-            declared.add(relative)
-            actual_path = resolve_inventory_path(root, relative)
-            chain = _symlink_violation_relative(root, actual_path)
-            if chain is not None:
-                symlink_hits.add(chain)
-                continue
-            if actual_path.is_symlink():
-                symlink_hits.add(relative)
-                continue
-            if not actual_path.is_file():
-                missing.append(relative)
-                mismatches.append(IntegrityMismatch(relative, expected, None))
-                continue
-            actual = _sha256_bytes(_read_regular_file_bytes(actual_path))
-            checked += 1
-            if actual != expected:
-                mismatches.append(IntegrityMismatch(relative, expected, actual))
-    inventory_relative: str | None
-    try:
-        inventory_relative = _relative_to_root(root, inventory).as_posix()
-    except ValueError:
-        inventory_relative = None
+    for relative, expected in _load_inventory_entries(inventory):
+        relative_path = Path(relative)
+        if is_mutable_synchronization_path(relative_path):
+            skipped.append(relative)
+            continue
+        declared.add(relative)
+        actual_path = resolve_inventory_path(root, relative)
+        chain = _symlink_violation_relative(root, actual_path)
+        if chain is not None:
+            symlink_hits.add(chain)
+            continue
+        if actual_path.is_symlink():
+            symlink_hits.add(relative)
+            continue
+        if not actual_path.is_file():
+            missing.append(relative)
+            mismatches.append(IntegrityMismatch(relative, expected, None))
+            continue
+        actual = _sha256_bytes(_read_regular_file_bytes(actual_path))
+        checked += 1
+        if actual != expected:
+            mismatches.append(IntegrityMismatch(relative, expected, actual))
+    inventory_relative = _relative_to_root(root, inventory).as_posix()
     undeclared = tuple(
         sorted(
             path
@@ -736,6 +810,60 @@ def json_content_identities(path: Path) -> dict[str, object]:
     return payload
 
 
+def _observed_environment_values(
+    refs: tuple[ArtifactRef, ...],
+    identities: list[dict[str, object]],
+) -> dict[str, set[str]]:
+    observed: dict[str, set[str]] = {key: set() for key in _ENVIRONMENT_KEYS}
+    if len(refs) != len(identities):
+        raise ExperimentReproductionError("artifact refs and identities are misaligned")
+    for ref, identity in zip(refs, identities, strict=True):
+        file_key = _FILE_DIGEST_ROLES.get(ref.role)
+        if file_key is not None:
+            observed[file_key].add(ref.sha256)
+        declared = identity.get("declared_digests")
+        if type(declared) is not dict:
+            continue
+        extracted = cast(dict[str, object], declared)
+        for key, value in extracted.items():
+            if type(value) is not str:
+                continue
+            if key in observed:
+                observed[key].add(value)
+            if key == "manifest_digest" and ref.role == "root_manifest":
+                observed["root_manifest_digest"].add(value)
+            if key == "manifest_digest" and ref.role in {"dataset_manifest", "dataset"}:
+                observed["dataset_manifest_digest"].add(value)
+    return observed
+
+
+def _validate_environment(
+    declared: Mapping[str, str | None],
+    observed: Mapping[str, set[str]],
+) -> dict[str, object]:
+    fields: dict[str, object] = {}
+    failures: list[str] = []
+    for key in sorted(_ENVIRONMENT_KEYS):
+        value = declared.get(key)
+        found = tuple(sorted(observed.get(key, ())))
+        if value is None:
+            status = "not_declared"
+        elif value in observed.get(key, ()):
+            status = "matched"
+        elif not found:
+            status = "unobserved"
+            failures.append(key)
+        else:
+            status = "mismatch"
+            failures.append(key)
+        fields[key] = {"declared": value, "observed": list(found), "status": status}
+    if failures:
+        raise ExperimentReproductionError(
+            "environment identity validation failed: " + ", ".join(failures)
+        )
+    return {"ok": True, "fields": fields}
+
+
 def reproduce_experiment(
     predeclaration_path: Path,
     *,
@@ -775,6 +903,13 @@ def reproduce_experiment(
         json_content_identities(_resolve_declared_path(ref.path, experiment_dir))
         for ref in predeclaration.outputs
     ]
+    environment_validation = _validate_environment(
+        predeclaration.environment,
+        _observed_environment_values(
+            (*predeclaration.inputs, *predeclaration.outputs),
+            input_identities + output_identities,
+        ),
+    )
     integrity: dict[str, object] | None = None
     if experiment_dir is not None and (experiment_dir / ARTIFACT_INVENTORY_NAME).is_file():
         integrity = verify_artifact_integrity(experiment_dir).to_dict()
@@ -794,7 +929,10 @@ def reproduce_experiment(
         "outputs": [ref.to_dict() for ref in predeclaration.outputs],
         "input_identities": input_identities,
         "output_identities": output_identities,
-        "environment": dict(predeclaration.environment),
+        "environment": {
+            "declared": dict(predeclaration.environment),
+            "validation": environment_validation,
+        },
         "artifact_integrity": integrity,
     }
     report["report_digest"] = _sha256_bytes(_canonical_bytes(report))

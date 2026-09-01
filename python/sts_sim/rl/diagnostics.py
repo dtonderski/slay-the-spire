@@ -8,6 +8,7 @@ import math
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import cast
 
 from .records import SymbolicTrainingRecord, _canonical_json, action_descriptor_payload
@@ -372,7 +373,7 @@ def _coverage_bounds(
         scored_log_total = 0.0 if log_loss is None else float(cast(float, log_loss)) * scored_n
         best_brier = scored_brier_total / official_n
         worst_brier = (scored_brier_total + float(missing)) / official_n
-        best_log_loss = scored_log_total / official_n
+        best_log_loss = (scored_log_total + missing * (-math.log(1.0 - epsilon))) / official_n
         worst_log_loss = (scored_log_total + missing * (-math.log(epsilon))) / official_n
         official_win_rate = official_wins / official_n
         scored_coverage = scored_n / official_n
@@ -419,11 +420,13 @@ def combat_proxy_observations_from_static_report(
             raise ValueError(f"duplicate static record_id {identity}")
         seen.add(identity)
         status = _require_string(row.get("status"), f"static per_record[{index}].status")
-        truncated = row.get("truncated") is True
-        error = "error" in row and row.get("error") is not None
+        truncated = row.get("truncated") is True or status == "truncated"
+        error = status == "error" or row.get("error") is not None
+        if status not in _TERMINAL_STATUSES and status not in {"truncated", "error"}:
+            raise ValueError(f"unknown terminal status: {status}")
         won, scoring_status = _official_outcome(status=status, truncated=truncated, error=error)
         if scoring_status == "unknown":
-            accounting["unknown_status"] = cast(int, accounting["unknown_status"]) + 1
+            raise ValueError(f"unknown terminal status: {status}")
         if won:
             accounting["official_win_numerator"] = (
                 cast(int, accounting["official_win_numerator"]) + 1
@@ -499,6 +502,10 @@ def _static_first_decision_joins(
             continue
         if cast(int, item["file_order"]) < cast(int, current["file_order"]):
             chosen[root_id] = item
+    if proven:
+        for root_id, item in chosen.items():
+            if item["decision_index"] != 0:
+                raise ValueError(f"root {root_id} first-decision identity is not decision_index 0")
     audit = {
         "rule": "min_decision_index" if proven else "unproven_v4_file_order",
         "limitation": None
@@ -555,13 +562,21 @@ def combat_proxy_observations_from_gameplay_report(
         requested_source = "root_ids"
         if len(requested) != len(set(requested)):
             raise ValueError("gameplay root_ids must be unique")
+        extra = sorted(set(per_root_by_id) - set(requested))
+        if extra:
+            raise ValueError(
+                "gameplay per_root contains roots absent from root_ids: " + ", ".join(extra)
+            )
+        missing_roots = [root_id for root_id in requested if root_id not in per_root_by_id]
+        if missing_roots:
+            raise ValueError("gameplay root_ids missing per_root rows: " + ", ".join(missing_roots))
     accounting = _empty_official_accounting(len(requested))
     accounting["requested_root_source"] = requested_source
     accounting["predicted_value_aggregation"] = join_audit["rule"]
     accounting["join"] = join_audit
     materialized = gameplay.get("materialized_split_root_count")
     if type(materialized) is int and materialized != len(requested):
-        accounting["materialized_split_root_count_mismatch"] = True
+        raise ValueError("materialized_split_root_count does not match requested roots")
     scores: list[WinLossScore] = []
     for root_id in requested:
         row = per_root_by_id.get(root_id)
@@ -580,9 +595,11 @@ def combat_proxy_observations_from_gameplay_report(
             status = _require_string(episode.get("status"), f"gameplay {policy} status")
             truncated = status == "truncated"
             error = status == "error" or episode.get("error") is not None
+            if status not in _TERMINAL_STATUSES and status not in {"truncated", "error"}:
+                raise ValueError(f"unknown terminal status: {status}")
             won, scoring_status = _official_outcome(status=status, truncated=truncated, error=error)
             if scoring_status == "unknown":
-                accounting["unknown_status"] = cast(int, accounting["unknown_status"]) + 1
+                raise ValueError(f"unknown terminal status: {status}")
         if won:
             accounting["official_win_numerator"] = (
                 cast(int, accounting["official_win_numerator"]) + 1
@@ -610,12 +627,35 @@ def combat_proxy_observations_from_gameplay_report(
     return tuple(scores), accounting
 
 
+def _input_report_identity(
+    payload: Mapping[str, object],
+    *,
+    role: str,
+    path: Path | None,
+) -> dict[str, object]:
+    if path is not None:
+        sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+        path_text: str | None = str(path)
+    else:
+        sha256 = hashlib.sha256(_canonical_bytes(dict(payload))).hexdigest()
+        path_text = None
+    report_digest = payload.get("report_digest")
+    return {
+        "role": role,
+        "path": path_text,
+        "sha256": sha256,
+        "report_digest": report_digest if type(report_digest) is str else None,
+    }
+
+
 def calibrate_combat_proxy_win_loss(
     *,
     static_report: Mapping[str, object] | None = None,
     gameplay_report: Mapping[str, object] | None = None,
     policy: str = "network",
     bin_count: int = 10,
+    static_path: Path | None = None,
+    gameplay_path: Path | None = None,
 ) -> dict[str, object]:
     """Read-only binary win/loss calibration over static and/or gameplay reports."""
 
@@ -647,10 +687,19 @@ def calibrate_combat_proxy_win_loss(
             **gameplay_metrics,
             **_coverage_bounds(gameplay_metrics, gameplay_accounting),
         }
+    else:
+        gameplay_payload = None
     primary = gameplay_bundle if gameplay_bundle is not None else labeled_bundle
+    inputs = [
+        _input_report_identity(static_payload, role="static_report", path=static_path),
+    ]
+    if gameplay_payload is not None:
+        inputs.append(
+            _input_report_identity(gameplay_payload, role="gameplay_report", path=gameplay_path)
+        )
     report: dict[str, object] = {
         "kind": "combat_proxy_v1_binary_win_loss_calibration",
-        "report_version": 2,
+        "report_version": 3,
         "value_target_name": COMBAT_PROXY_V1.name,
         "probability_map": AFFINE_TANH_WIN_PROBABILITY_MAP,
         "interpretation": COMBAT_PROXY_WIN_LOSS_INTERPRETATION,
@@ -661,6 +710,7 @@ def calibrate_combat_proxy_win_loss(
         "policy": policy if gameplay_report is not None else None,
         "primary_unit": primary["unit"],
         "discrimination": primary["discrimination"],
+        "inputs": inputs,
         "labeled_decision": labeled_bundle,
         "gameplay_root": gameplay_bundle,
     }

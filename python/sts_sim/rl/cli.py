@@ -351,6 +351,8 @@ def experiment_main(argv: Sequence[str] | None = None) -> int:
                 static_report=static_report,
                 gameplay_report=gameplay_report,
                 policy=args.policy,
+                static_path=args.static,
+                gameplay_path=args.gameplay,
             )
             if args.output is not None:
                 content = json.dumps(
@@ -363,6 +365,9 @@ def experiment_main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(error.report.to_dict(), sort_keys=True, allow_nan=False))
         return 1
     except ExperimentReproductionError as error:
+        print(json.dumps({"ok": False, "error": str(error)}, sort_keys=True, allow_nan=False))
+        return 1
+    except (ValueError, TypeError) as error:
         print(json.dumps({"ok": False, "error": str(error)}, sort_keys=True, allow_nan=False))
         return 1
     print(json.dumps(payload, sort_keys=True, allow_nan=False))

@@ -1,7 +1,7 @@
 # Source-epoch bundle proposal
 
-**Status:** proposal only. Do not implement without parent approval.  
-**Worktree:** `exp/experiment-infra-v1` (`/tmp/sts-experiment-infra-v1`)  
+**Status:** proposal only. Do not implement without parent approval.
+**Worktree:** `exp/experiment-infra-v1` (`/tmp/sts-experiment-infra-v1`)
 **Constraint:** exact native/runtime identity stays blocking provenance. This proposal
 archives the bytes that identity already requires. It does not add bypass flags,
 does not demote the native digest to observational metadata, and does not make an
