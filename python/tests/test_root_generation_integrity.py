@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sts_sim import UnknownPublicContentError
+import pytest
+
+from sts_sim import UnknownPublicContentError, UnmodeledPublicContentError
 from sts_sim.rl import data as data_module
 from sts_sim.rl import generate_legal_roots
 
@@ -74,24 +76,46 @@ def test_lethal_event_hp_is_terminal_run_not_dead_player_combat(tmp_path: Path) 
 def test_unmodeled_public_content_exclusion_uses_public_key_only() -> None:
     modeled = data_module._unmodeled_public_content_exclusion(
         "SEED",
-        UnknownPublicContentError("public combat content is unmodeled: FLYING_KNEE"),
+        UnmodeledPublicContentError("public combat content is unmodeled: FLYING_KNEE"),
     )
     assert modeled.reason == "unmodeled_public_content"
     assert modeled.detail == "FLYING_KNEE"
     assert not any(character.isdigit() for character in modeled.detail)
 
-    unknown = data_module._unmodeled_public_content_exclusion(
-        "SEED",
-        UnknownPublicContentError("public combat content is unknown"),
-    )
-    assert unknown.reason == "unmodeled_public_content"
-    assert unknown.detail == "unknown public identity"
-    assert "9999999" not in unknown.detail
-
     leaked = data_module._unmodeled_public_content_exclusion(
         "SEED",
-        UnknownPublicContentError("public combat content is unmodeled: 9999999"),
+        UnmodeledPublicContentError("public combat content is unmodeled: 9999999"),
     )
     assert leaked.reason == "unmodeled_public_content"
     assert leaked.detail == "unmodeled public content"
     assert "9999999" not in leaked.detail
+
+
+def test_unknown_public_content_is_generation_error_not_unmodeled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(*_args: object, **_kwargs: object) -> tuple[None, None]:
+        raise UnknownPublicContentError("public combat content is unknown")
+
+    monkeypatch.setattr(data_module, "_capture_combat_root", boom)
+    manifest = generate_legal_roots(tmp_path / "unknown", ["BEAMCLONE0"], max_run_steps=8)
+    assert manifest.roots == ()
+    assert len(manifest.exclusions) == 1
+    exclusion = manifest.exclusions[0]
+    assert exclusion.reason == "generation_error"
+    assert exclusion.detail == "public combat content is unknown"
+
+
+def test_unmodeled_public_content_error_is_typed_exclusion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(*_args: object, **_kwargs: object) -> tuple[None, None]:
+        raise UnmodeledPublicContentError("public combat content is unmodeled: FLYING_KNEE")
+
+    monkeypatch.setattr(data_module, "_capture_combat_root", boom)
+    manifest = generate_legal_roots(tmp_path / "unmodeled", ["BEAMCLONE0"], max_run_steps=8)
+    assert manifest.roots == ()
+    assert len(manifest.exclusions) == 1
+    exclusion = manifest.exclusions[0]
+    assert exclusion.reason == "unmodeled_public_content"
+    assert exclusion.detail == "FLYING_KNEE"

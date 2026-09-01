@@ -1746,7 +1746,7 @@ fn execute_generic_monster_intent(
             apply_transient_fading_after_turn(&mut state.monsters, actor_id);
         }
     }
-    revive_with_lizard_tail_if_available(state)?;
+    revive_player_if_available(state)?;
     if state.player.hp <= 0 {
         Ok(ActorTurnDisposition::StopPlayerDead)
     } else {
@@ -2299,8 +2299,9 @@ fn revive_with_fairy_if_available(state: &mut CombatState) -> SimResult<()> {
 }
 
 pub(crate) fn revive_player_if_available(state: &mut CombatState) -> SimResult<()> {
-    revive_with_lizard_tail_if_available(state)?;
-    revive_with_fairy_if_available(state)
+    // Desktop AbstractPlayer.damage: Mark of the Bloom, Fairy, Lizard Tail, death.
+    revive_with_fairy_if_available(state)?;
+    revive_with_lizard_tail_if_available(state)
 }
 
 fn apply_nemesis_intangible_if_absent(state: &mut CombatState) {
@@ -4657,6 +4658,25 @@ mod tests {
             revival_hp_with_relics(118, 30, &[Relic::MagicFlower]),
             Ok(53)
         );
+    }
+
+    #[test]
+    fn fairy_revives_before_lizard_tail_when_both_are_available() {
+        let mut state = CombatState::initial_fixture();
+        state.player.hp = 0;
+        state.player.max_hp = 80;
+        state.relics.push(Relic::LizardTail);
+        state.relic_counters.lizard_tail_available = true;
+        state.relic_counters.fairy_heal_percent = 30;
+        let expected_hp = revival_hp_with_relics(state.player.max_hp, 30, &state.relics)
+            .expect("fairy revival HP");
+
+        revive_player_if_available(&mut state).expect("fairy revival");
+
+        assert_eq!(state.player.hp, expected_hp);
+        assert!(state.relic_counters.fairy_consumed);
+        assert_eq!(state.relic_counters.fairy_heal_percent, 0);
+        assert!(state.relic_counters.lizard_tail_available);
     }
 
     #[test]

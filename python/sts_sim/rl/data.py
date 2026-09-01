@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from .._native import UnknownPublicContentError
+from .._native import UnknownPublicContentError, UnmodeledPublicContentError
 from ..fair import FairCombatObservation
 from ..run import Action, Decision, RunEnv
 from .provenance import RepositoryVersion, capture_repository_version
@@ -652,8 +652,10 @@ def generate_legal_roots(
                 existing[1].append(lineage)
                 existing[2].append(seed)
                 exclusions.append(RootExclusion(seed, "duplicate_root", f"duplicate of {root_id}"))
-        except UnknownPublicContentError as error:
+        except UnmodeledPublicContentError as error:
             exclusions.append(_unmodeled_public_content_exclusion(seed, error))
+        except UnknownPublicContentError as error:
+            exclusions.append(RootExclusion(seed, "generation_error", str(error)))
         except (RuntimeError, TypeError, ValueError) as error:
             exclusions.append(RootExclusion(seed, "generation_error", str(error)))
 

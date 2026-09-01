@@ -12,6 +12,7 @@ from ._native import (
     NotInCombatError,
     StaleDecisionError,
     UnknownPublicContentError,
+    UnmodeledPublicContentError,
     sts_seed_long_to_string,
 )
 from .content import (
@@ -97,5 +98,6 @@ __all__ = [
     "StaleDecisionError",
     "StepResult",
     "UnknownPublicContentError",
+    "UnmodeledPublicContentError",
     "sts_seed_long_to_string",
 ]

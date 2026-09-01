@@ -2100,7 +2100,7 @@ fn lose_event_hp(run: &mut RunState, amount: i32) {
 
 /// `AbstractPlayer.damage` settles lethal HP immediately. Event HP loss used to
 /// clamp to zero and keep walking the map, which later produced a dead-player
-/// `WaitingForPlayer` combat. Lizard Tail and Fairy in a Bottle revive first;
+/// `WaitingForPlayer` combat. Fairy in a Bottle and Lizard Tail revive first;
 /// Mark of the Bloom blocks both.
 fn settle_out_of_combat_lethal_hp(run: &mut RunState) -> SimResult<()> {
     if run.player_hp > 0 || run.phase == RunPhase::Complete || run.combat.is_some() {
@@ -2108,13 +2108,7 @@ fn settle_out_of_combat_lethal_hp(run: &mut RunState) -> SimResult<()> {
     }
 
     if !run.has_mark_of_bloom() {
-        if run.relics.contains(&Relic::LizardTail) && !run.lizard_tail_used {
-            run.player_hp =
-                revival_hp_with_relics(run.player_max_hp, LIZARD_TAIL_HEAL_PERCENT, &run.relics)?;
-            run.lizard_tail_used = true;
-            return Ok(());
-        }
-
+        // Desktop AbstractPlayer.damage: Fairy in a Bottle before Lizard Tail.
         if let Some((slot, _)) = run
             .occupied_potion_slots()
             .into_iter()
@@ -2132,6 +2126,13 @@ fn settle_out_of_combat_lethal_hp(run: &mut RunState) -> SimResult<()> {
             )?;
             run.take_potion_slot(slot)
                 .expect("fairy potion slot was found before consuming");
+            return Ok(());
+        }
+
+        if run.relics.contains(&Relic::LizardTail) && !run.lizard_tail_used {
+            run.player_hp =
+                revival_hp_with_relics(run.player_max_hp, LIZARD_TAIL_HEAL_PERCENT, &run.relics)?;
+            run.lizard_tail_used = true;
             return Ok(());
         }
     }
@@ -6011,6 +6012,27 @@ mod tests {
         assert_eq!(next.player_hp, expected_hp);
         assert!(next.occupied_potion_slots().is_empty());
         next.validate().expect("fairy-revived event remains valid");
+    }
+
+    #[test]
+    fn fairy_revives_lethal_event_hp_before_lizard_tail() {
+        let mut run = world_of_goop_gather_run(5);
+        run.relics.push(Relic::LizardTail);
+        run.gain_potion(Potion::Fairy)
+            .expect("fairy potion occupies a slot");
+        let expected_hp =
+            revival_hp_with_relics(run.player_max_hp, FAIRY_HEAL_PERCENT, &run.relics)
+                .expect("fairy revival HP");
+
+        let next = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("gather gold transition");
+
+        assert_eq!(next.phase, RunPhase::Event);
+        assert_eq!(next.player_hp, expected_hp);
+        assert!(!next.lizard_tail_used);
+        assert!(next.occupied_potion_slots().is_empty());
+        next.validate()
+            .expect("fairy-first event revival remains valid");
     }
 
     #[test]
