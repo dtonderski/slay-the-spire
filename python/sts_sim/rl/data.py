@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, cast
 
+from .._native import UnknownPublicContentError
 from ..fair import FairCombatObservation
 from ..run import Action, Decision, RunEnv
 from .provenance import RepositoryVersion, capture_repository_version
@@ -491,7 +492,9 @@ def _is_capturable_combat_decision(decision: Decision) -> bool:
         _is_combat_phase(decision)
         and isinstance(observation, FairCombatObservation)
         and observation.phase == "waiting_for_player"
+        and observation.player.hp > 0
         and bool(decision.actions)
+        and not all(action.kind == "proceed" for action in decision.actions)
     )
 
 
@@ -516,9 +519,40 @@ def _terminal_combat_detail(combat_index: int, combat_depth: int) -> str:
     return f"combat {combat_index} of requested depth {combat_depth} is not an ongoing policy root"
 
 
+def _hp_zero_player_turn_detail(combat_index: int, combat_depth: int) -> str:
+    return (
+        f"player HP is 0 at a waiting_for_player decision in combat "
+        f"{combat_index} of requested depth {combat_depth}"
+    )
+
+
+_UNMODELED_PUBLIC_CONTENT_PREFIX = "public combat content is unmodeled: "
+
+
+def _unmodeled_public_content_exclusion(seed: str, error: BaseException) -> RootExclusion:
+    message = str(error)
+    if message.startswith(_UNMODELED_PUBLIC_CONTENT_PREFIX):
+        public_key = message[len(_UNMODELED_PUBLIC_CONTENT_PREFIX) :].strip()
+        if public_key and not public_key.isdigit():
+            return RootExclusion(seed, "unmodeled_public_content", public_key)
+        return RootExclusion(seed, "unmodeled_public_content", "unmodeled public content")
+    return RootExclusion(seed, "unmodeled_public_content", "unknown public identity")
+
+
+def _dead_player_turn(decision: Decision) -> bool:
+    observation = decision.observation
+    return (
+        isinstance(observation, FairCombatObservation)
+        and observation.phase == "waiting_for_player"
+        and observation.player.hp <= 0
+    )
+
+
 def _combat_entry_exclusion(
     decision: Decision, *, combat_index: int, combat_depth: int
 ) -> str | None:
+    if _dead_player_turn(decision):
+        return "hp_zero_player_turn"
     if combat_index == combat_depth:
         if not _is_capturable_combat_decision(decision):
             return "terminal_combat"
@@ -551,6 +585,12 @@ def _capture_combat_root(
                     seed,
                     "terminal_combat",
                     _terminal_combat_detail(combat_index, combat_depth),
+                )
+            if exclusion_reason == "hp_zero_player_turn":
+                return None, RootExclusion(
+                    seed,
+                    "hp_zero_player_turn",
+                    _hp_zero_player_turn_detail(combat_index, combat_depth),
                 )
             if combat_index == combat_depth:
                 return json.loads(env.snapshot().json), None
@@ -612,6 +652,8 @@ def generate_legal_roots(
                 existing[1].append(lineage)
                 existing[2].append(seed)
                 exclusions.append(RootExclusion(seed, "duplicate_root", f"duplicate of {root_id}"))
+        except UnknownPublicContentError as error:
+            exclusions.append(_unmodeled_public_content_exclusion(seed, error))
         except (RuntimeError, TypeError, ValueError) as error:
             exclusions.append(RootExclusion(seed, "generation_error", str(error)))
 

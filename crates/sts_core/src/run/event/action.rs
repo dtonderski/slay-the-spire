@@ -120,6 +120,7 @@ pub fn apply_event_action(run: &RunState, action: EventAction) -> SimResult<RunS
         next.flush_pending_obtain_cards()?;
     }
 
+    settle_out_of_combat_lethal_hp(&mut next)?;
     Ok(next)
 }
 

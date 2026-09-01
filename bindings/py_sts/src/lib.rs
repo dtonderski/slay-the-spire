@@ -655,10 +655,7 @@ impl PyOmniRunEnv {
     }
 
     pub fn observation_json(&self) -> PyResult<String> {
-        to_json(
-            &fair_run_observation(&self.state)
-                .map_err(|error| DecisionUnavailableError::new_err(error.to_string()))?,
-        )
+        to_json(&fair_run_observation(&self.state).map_err(fair_observation_error)?)
     }
 
     /// Debug-only state mutation seam for Python experimentation.
@@ -862,6 +859,11 @@ fn fair_observation_error(error: FairObservationError) -> PyErr {
         }
         FairObservationError::UnknownPublicContent => {
             UnknownPublicContentError::new_err("public combat content is unknown")
+        }
+        FairObservationError::UnmodeledPublicContent(public_key) => {
+            UnknownPublicContentError::new_err(format!(
+                "public combat content is unmodeled: {public_key}"
+            ))
         }
     }
 }

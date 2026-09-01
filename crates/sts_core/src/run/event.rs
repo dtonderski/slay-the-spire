@@ -1,6 +1,9 @@
 use crate::{
     card::{CardRarity, CardType},
-    combat::{initialize_combat_piles_with_relics, CombatRngState, PlayerState},
+    combat::{
+        initialize_combat_piles_with_relics, turn::revival_hp_with_relics, CombatRngState,
+        PlayerState,
+    },
     content::cards::{
         card_instance_after_upgrades, card_instance_is_upgradeable, get_card_definition,
         is_basic_starter_card, is_curse_content_id, is_purgeable_card, is_purgeable_card_content,
@@ -24,7 +27,8 @@ use crate::{
         shop_pool::{colorless_match_and_keep_pool, return_colorless_card_from_pool},
     },
     ids::ContentId,
-    relic::{Relic, RelicKey, RelicTier, OMAMORI_CHARGES},
+    potion::{Potion, FAIRY_HEAL_PERCENT},
+    relic::{Relic, RelicKey, RelicTier, LIZARD_TAIL_HEAL_PERCENT, OMAMORI_CHARGES},
     rng::{seed_for_floor, JavaRng, StsRng},
     run::{
         grid::{
@@ -2092,6 +2096,62 @@ fn vampires_choices(has_blood_vial: bool) -> Vec<EventChoice> {
 fn lose_event_hp(run: &mut RunState, amount: i32) {
     let mitigated = crate::relic::mitigate_hp_loss(&run.relics, amount);
     run.player_hp = (run.player_hp - mitigated).max(0);
+}
+
+/// `AbstractPlayer.damage` settles lethal HP immediately. Event HP loss used to
+/// clamp to zero and keep walking the map, which later produced a dead-player
+/// `WaitingForPlayer` combat. Lizard Tail and Fairy in a Bottle revive first;
+/// Mark of the Bloom blocks both.
+fn settle_out_of_combat_lethal_hp(run: &mut RunState) -> SimResult<()> {
+    if run.player_hp > 0 || run.phase == RunPhase::Complete || run.combat.is_some() {
+        return Ok(());
+    }
+
+    if !run.has_mark_of_bloom() {
+        if run.relics.contains(&Relic::LizardTail) && !run.lizard_tail_used {
+            run.player_hp =
+                revival_hp_with_relics(run.player_max_hp, LIZARD_TAIL_HEAL_PERCENT, &run.relics)?;
+            run.lizard_tail_used = true;
+            return Ok(());
+        }
+
+        if let Some((slot, _)) = run
+            .occupied_potion_slots()
+            .into_iter()
+            .find(|(_, potion)| *potion == Potion::Fairy)
+        {
+            let multiplier = if run.relics.contains(&Relic::SacredBark) {
+                2
+            } else {
+                1
+            };
+            run.player_hp = revival_hp_with_relics(
+                run.player_max_hp,
+                FAIRY_HEAL_PERCENT * multiplier,
+                &run.relics,
+            )?;
+            run.take_potion_slot(slot)
+                .expect("fairy potion slot was found before consuming");
+            return Ok(());
+        }
+    }
+
+    run.phase = RunPhase::Complete;
+    run.event = None;
+    run.match_and_keep = None;
+    run.card_grid = None;
+    run.reward = None;
+    run.shop = None;
+    run.shop_merchant_open = false;
+    run.pending_event_transform = None;
+    run.flush_pending_obtain_cards()?;
+    run.pending_event_combat_gold_offer = 0;
+    run.pending_event_combat_gold_bonus = 0;
+    run.pending_event_combat_elite_gold = false;
+    run.pending_event_combat_relic_offer = None;
+    run.pending_event_combat_rng = None;
+    run.pending_combat_obtain_cards.clear();
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -5886,6 +5946,90 @@ mod tests {
         assert_eq!(next.player_hp, 90, "Tungsten Rod reduces 11 HP loss to 10");
         assert_eq!(next.gold, 95);
         assert_eq!(next.event.as_ref().expect("final event screen").stage, 1);
+    }
+
+    fn world_of_goop_gather_run(player_hp: i32) -> RunState {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.player_hp = player_hp;
+        run.gold = 20;
+        run.event = Some(EventScreen {
+            event: Event::WorldOfGoop,
+            choices: world_of_goop_choices(0, 20),
+            stage: 0,
+            event_data: 20,
+        });
+        run
+    }
+
+    #[test]
+    fn lethal_event_hp_completes_the_run_instead_of_walking_the_map() {
+        let next = apply_event_action(
+            &world_of_goop_gather_run(5),
+            EventAction::Choose { choice_index: 0 },
+        )
+        .expect("gather gold transition");
+
+        assert_eq!(next.phase, RunPhase::Complete);
+        assert_eq!(next.player_hp, 0);
+        assert!(next.event.is_none());
+        assert_eq!(next.gold, 95);
+        next.validate().expect("event death completes cleanly");
+    }
+
+    #[test]
+    fn lizard_tail_revives_lethal_event_hp_and_keeps_the_leave_screen() {
+        let mut run = world_of_goop_gather_run(5);
+        run.relics.push(Relic::LizardTail);
+        let expected_hp =
+            revival_hp_with_relics(run.player_max_hp, LIZARD_TAIL_HEAL_PERCENT, &run.relics)
+                .expect("lizard tail revival HP");
+
+        let next = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("gather gold transition");
+
+        assert_eq!(next.phase, RunPhase::Event);
+        assert_eq!(next.player_hp, expected_hp);
+        assert!(next.lizard_tail_used);
+        assert_eq!(next.event.as_ref().expect("leave screen").stage, 1);
+        next.validate().expect("revived event remains valid");
+    }
+
+    #[test]
+    fn fairy_revives_lethal_event_hp() {
+        let mut run = world_of_goop_gather_run(5);
+        run.gain_potion(Potion::Fairy)
+            .expect("fairy potion occupies a slot");
+        let expected_hp =
+            revival_hp_with_relics(run.player_max_hp, FAIRY_HEAL_PERCENT, &run.relics)
+                .expect("fairy revival HP");
+
+        let next = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("gather gold transition");
+
+        assert_eq!(next.phase, RunPhase::Event);
+        assert_eq!(next.player_hp, expected_hp);
+        assert!(next.occupied_potion_slots().is_empty());
+        next.validate().expect("fairy-revived event remains valid");
+    }
+
+    #[test]
+    fn mark_of_the_bloom_blocks_event_revival_and_completes_the_run() {
+        let mut run = world_of_goop_gather_run(5);
+        run.relics.push(Relic::LizardTail);
+        run.gain_potion(Potion::Fairy)
+            .expect("fairy potion occupies a slot");
+        run.gain_relic_key(RelicKey::MarkOfBloom)
+            .expect("Mark of the Bloom pickup succeeds");
+
+        let next = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("gather gold transition");
+
+        assert_eq!(next.phase, RunPhase::Complete);
+        assert_eq!(next.player_hp, 0);
+        assert!(!next.lizard_tail_used);
+        assert_eq!(next.occupied_potion_slots().len(), 1);
+        next.validate().expect("bloom death completes cleanly");
     }
 
     #[test]

@@ -30,16 +30,21 @@ pub enum FairObservationError {
     NoActiveCombat,
     InvalidAuthoritativeState,
     UnknownPublicContent,
+    /// Public pool identity for content that exists in the game but has no
+    /// modeled `CardDefinition`. Never carries an internal content id.
+    UnmodeledPublicContent(&'static str),
 }
 
 impl fmt::Display for FairObservationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let message = match self {
-            Self::NoActiveCombat => "no active combat",
-            Self::InvalidAuthoritativeState => "authoritative combat state is invalid",
-            Self::UnknownPublicContent => "public combat content is unknown",
-        };
-        f.write_str(message)
+        match self {
+            Self::NoActiveCombat => f.write_str("no active combat"),
+            Self::InvalidAuthoritativeState => f.write_str("authoritative combat state is invalid"),
+            Self::UnknownPublicContent => f.write_str("public combat content is unknown"),
+            Self::UnmodeledPublicContent(public_key) => {
+                write!(f, "public combat content is unmodeled: {public_key}")
+            }
+        }
     }
 }
 
@@ -415,8 +420,8 @@ pub(crate) fn project_card(
     card: &CardInstance,
     corruption_active: bool,
 ) -> Result<FairCard, FairObservationError> {
-    let definition =
-        get_card_definition(card.content_id).ok_or(FairObservationError::UnknownPublicContent)?;
+    let definition = get_card_definition(card.content_id)
+        .ok_or_else(|| unmodeled_or_unknown_public_content(card.content_id))?;
     let cost = effective_card_cost_with_corruption(card, corruption_active)
         .map_err(|_| FairObservationError::InvalidAuthoritativeState)?;
     Ok(FairCard {
@@ -435,6 +440,13 @@ pub(crate) fn project_card(
             combat_cost_under_turn_override: card.combat_cost_under_turn_override.map(i32::from),
         },
     })
+}
+
+fn unmodeled_or_unknown_public_content(content_id: crate::ContentId) -> FairObservationError {
+    match crate::run::reward::any_color_reward_card_key(content_id) {
+        Some(public_key) => FairObservationError::UnmodeledPublicContent(public_key),
+        None => FairObservationError::UnknownPublicContent,
+    }
 }
 
 fn project_orb(orb: CombatOrb) -> Result<FairOrb, FairObservationError> {
@@ -1081,8 +1093,8 @@ fn mapped_source_indices(
             {
                 break
             }
-            Err(crate::SimError::UnknownContent(_)) => {
-                return Err(FairObservationError::UnknownPublicContent);
+            Err(crate::SimError::UnknownContent(content_id)) => {
+                return Err(unmodeled_or_unknown_public_content(content_id));
             }
             Err(_) => return Err(FairObservationError::InvalidAuthoritativeState),
         }
@@ -1890,6 +1902,31 @@ mod tests {
         let error = fair_combat_observation(&unknown).expect_err("unknown content fails");
         assert_eq!(error, FairObservationError::UnknownPublicContent);
         assert!(!error.to_string().contains("9999999"));
+    }
+
+    #[test]
+    fn unmodeled_prismatic_pool_cards_fail_without_fabricating_cost() {
+        let synthetic = crate::content::shop_pool::shop_card_content_id("FLYING_KNEE");
+        assert!(crate::content::cards::get_card_definition(synthetic).is_none());
+        assert_eq!(
+            crate::run::reward::any_color_reward_card_key(synthetic),
+            Some("FLYING_KNEE")
+        );
+
+        let mut run = RunState::combat_fixture();
+        run.combat.as_mut().expect("combat").piles.hand[0] =
+            CardInstance::new(CardId::new(1), synthetic);
+
+        let error =
+            fair_combat_observation(&run).expect_err("unmodeled pool content is not projected");
+        assert_eq!(
+            error,
+            FairObservationError::UnmodeledPublicContent("FLYING_KNEE")
+        );
+        assert_eq!(
+            error.to_string(),
+            "public combat content is unmodeled: FLYING_KNEE"
+        );
     }
 
     #[test]

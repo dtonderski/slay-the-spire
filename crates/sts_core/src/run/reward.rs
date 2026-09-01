@@ -2375,6 +2375,15 @@ fn apply_combat_loss_proceed(run: &RunState) -> SimResult<RunState> {
     next.reward = None;
     next.event = None;
     next.card_grid = None;
+    // Event-combat gold/relic promises are claimed only on victory
+    // (`enter_combat_reward`). Smoke Bomb already discards them on escape;
+    // death GAME_OVER proceed must do the same so Complete validates.
+    next.pending_event_combat_gold_offer = 0;
+    next.pending_event_combat_gold_bonus = 0;
+    next.pending_event_combat_elite_gold = false;
+    next.pending_event_combat_relic_offer = None;
+    next.pending_event_combat_rng = None;
+    next.pending_combat_obtain_cards.clear();
     Ok(next)
 }
 
@@ -3037,6 +3046,33 @@ mod tests {
             any_color_reward_card_key_from_identity("Gash"),
             Some("CLAW")
         );
+    }
+
+    #[test]
+    fn combat_loss_proceed_discards_unclaimed_event_combat_rewards() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat");
+        combat.phase = CombatPhase::Lost;
+        combat.player.hp = 0;
+        run.player_hp = 0;
+        run.pending_event_combat_gold_offer = 27;
+        run.pending_event_combat_relic_offer = Some(Relic::OddMushroom);
+
+        let next = crate::apply_run_decision_action(
+            &run,
+            crate::RunDecisionAction::Run(crate::RunAction::Proceed),
+        )
+        .expect("GAME_OVER proceed completes an event-combat loss");
+
+        assert_eq!(next.phase, crate::RunPhase::Complete);
+        assert!(next.combat.is_none());
+        assert_eq!(next.pending_event_combat_gold_offer, 0);
+        assert_eq!(next.pending_event_combat_gold_bonus, 0);
+        assert!(!next.pending_event_combat_elite_gold);
+        assert_eq!(next.pending_event_combat_relic_offer, None);
+        assert!(next.pending_event_combat_rng.is_none());
+        assert!(next.pending_combat_obtain_cards.is_empty());
+        next.validate().expect("completed loss is valid");
     }
 
     #[test]
