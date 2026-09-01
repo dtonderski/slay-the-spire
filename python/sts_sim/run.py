@@ -347,6 +347,7 @@ class RunEnv:
         reward_config_json: str | None = None,
         episode_root_max_hp: int | None = None,
         episode_root_gold: int | None = None,
+        leaf_cache: str | None = None,
     ) -> dict[str, object]:
         """Run naive privileged PUCT from the current combat state.
 
@@ -356,6 +357,9 @@ class RunEnv:
         at `simulation_budget` or `transition_budget`. `selected_index` is valid
         only against the current Decision from this same environment; do not
         apply it to a later or cloned decision. The live environment is not mutated.
+        Privileged teacher search memoizes leaves by complete `RunState` bytes
+        (`leaf_cache="exact_state"`). Pass `leaf_cache="off"` only for proof or
+        profiling. Memoization requires a deterministic pure evaluator.
         """
 
         return _mapping(
@@ -368,6 +372,7 @@ class RunEnv:
                     reward_config_json,
                     episode_root_max_hp,
                     episode_root_gold,
+                    leaf_cache,
                 )
             )
         )

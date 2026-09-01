@@ -179,6 +179,7 @@ def puct_search_payload(
     reward_config: CombatRewardConfig | None = None,
     episode_root_max_hp: int | None = None,
     episode_root_gold: int | None = None,
+    leaf_cache: str | None = None,
 ) -> dict[str, object]:
     """Run naive privileged PUCT from the current combat state.
 
@@ -186,10 +187,15 @@ def puct_search_payload(
     the time of this call. Do not apply it to a later, cloned, or restored
     decision. Search always stops at `simulation_budget` or `transition_budget`.
     The evaluator callback runs synchronously and holds the Python GIL.
+    The native teacher path opts into exact-state leaf memoization. That
+    requires a deterministic pure evaluator for an exact `RunState`. Pass
+    `leaf_cache="off"` only when comparing against the library default.
     """
     _positive_exploration(c_puct, "c_puct")
     _positive_budget(simulation_budget, "simulation budget")
     _positive_budget(transition_budget, "transition budget")
+    if leaf_cache is not None and leaf_cache not in {"off", "exact_state"}:
+        raise ValueError("leaf cache must be 'off' or 'exact_state'")
     config = COMBAT_PROXY_V1 if reward_config is None else reward_config
     payload = env.puct_search_payload(
         evaluator,
@@ -199,6 +205,7 @@ def puct_search_payload(
         reward_config_json=json.dumps(config.to_dict(), sort_keys=True, separators=(",", ":")),
         episode_root_max_hp=episode_root_max_hp,
         episode_root_gold=episode_root_gold,
+        leaf_cache=leaf_cache,
     )
     if payload.get("teacher_name") != PUCT_TEACHER_NAME:
         raise ValueError("PUCT payload teacher_name mismatch")
