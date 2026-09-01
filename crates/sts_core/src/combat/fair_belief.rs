@@ -2,32 +2,36 @@
 //!
 //! This module deliberately has no initializer from [`RunState`], snapshots, seeds recovered
 //! from the real game, or internal action logs. A belief starts from public observations and
-//! public history. Its weighted hypotheses carry independently generated latent values. Only the
-//! materializer creates an authoritative state, and that state is a fresh combat-horizon rollout
-//! which must project back to the public observation exactly.
+//! public history. Its weighted hypotheses are private and independently generated. Only the
+//! materializer creates an authoritative state, and only from a belief-owned particle. That
+//! state is a fresh combat-horizon rollout which must project back to the public observation
+//! exactly. Combat RNG follows the floor-adjusted joint process used at combat entry.
 
 use crate::{
     card::CardInstance,
     combat::{
-        fair_combat_observation, CardPiles, CombatRngState, CombatState, FairCard,
+        fair_combat_observation, CardPiles, CombatPhase, CombatRngState, CombatState, FairCard,
         FairCombatObservation, FairCombatPhase, FairIntentCategory, FairMonsterIntent,
         MonsterIntent, PlayerState,
     },
     content::{
         cards::ALL_CARDS,
-        monsters::{monster_state, target_move_byte, CULTIST_A0, FIXED_SIMPLE_MONSTER},
+        monsters::{
+            monster_state, prepare_monster_intent_for_ascension, target_move_byte, CULTIST_A0,
+            FIXED_SIMPLE_MONSTER,
+        },
     },
     ids::{CardId, MonsterId},
     relic::{Relic, RelicCounters},
-    rng::{RngTraceStream, StsRng},
+    rng::{seed_for_floor, RngTraceStream, StsRng},
     run::{PlayerChoice, RunPhase, RunState},
-    SimError,
+    CombatAction, SimError,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, error::Error, fmt, num::NonZeroU64};
 
 pub const FAIR_BELIEF_SCHEMA_VERSION: u32 = 1;
-pub const FAIR_BELIEF_PRIOR_VERSION: &str = "a0_act1_simple_combat_v1";
+pub const FAIR_BELIEF_PRIOR_VERSION: &str = "a0_act1_simple_combat_v2";
 
 /// Public events retained because a current observation alone cannot recover them.
 ///
@@ -150,7 +154,7 @@ impl PublicCombatKnowledge {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FairBeliefPrior {
     pub schema_version: u32,
     pub prior_version: String,
@@ -166,65 +170,90 @@ impl FairBeliefPrior {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct GeneratedRngState {
-    pub seed0: u64,
-    pub seed1: u64,
-    pub counter: u32,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct GeneratedRngState {
+    seed0: u64,
+    seed1: u64,
+    counter: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GeneratedCombatRngStates {
-    pub shuffle: GeneratedRngState,
-    pub monster: GeneratedRngState,
-    pub monster_hp: GeneratedRngState,
-    pub card_random: GeneratedRngState,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GeneratedCombatRngStates {
+    shuffle: GeneratedRngState,
+    monster: GeneratedRngState,
+    monster_hp: GeneratedRngState,
+    card_random: GeneratedRngState,
 }
 
-/// Fresh run RNG seeds. They are not used while the declared combat-only rollout remains inside
-/// `CombatState`, but are generated rather than inherited so the shell cannot carry true RNG.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GeneratedRunRngSeeds {
-    pub event: u64,
-    pub reward: u64,
-    pub treasure: u64,
-    pub potion: u64,
-    pub relic: u64,
-    pub shuffle: u64,
-    pub merchant: u64,
-    pub misc: u64,
-    pub monster: u64,
+/// Fresh run RNG seeds. Combat streams are derived from these plus the public floor rather than
+/// sampled as independent raw states. Unused envelope seeds are generated so the shell cannot
+/// carry true RNG.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GeneratedRunRngSeeds {
+    event: u64,
+    reward: u64,
+    treasure: u64,
+    potion: u64,
+    relic: u64,
+    shuffle: u64,
+    merchant: u64,
+    misc: u64,
+    monster: u64,
 }
 
-/// One latent assignment. Pile vectors contain indices into the corresponding public canonical
-/// multiset, in authoritative storage order (bottom to top).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HiddenHypothesis {
-    pub schema_version: u32,
-    pub prior_version: String,
-    pub draw_storage_order: Vec<usize>,
-    pub discard_storage_order: Vec<usize>,
-    pub exhaust_storage_order: Vec<usize>,
-    pub combat_rng: GeneratedCombatRngStates,
-    pub run_rng: GeneratedRunRngSeeds,
+/// One latent assignment owned only by [`FairBelief`]. Pile vectors contain indices into the
+/// corresponding public canonical multiset, in authoritative storage order (bottom to top).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HiddenHypothesis {
+    schema_version: u32,
+    prior_version: String,
+    draw_storage_order: Vec<usize>,
+    discard_storage_order: Vec<usize>,
+    exhaust_storage_order: Vec<usize>,
+    combat_rng: GeneratedCombatRngStates,
+    run_rng: GeneratedRunRngSeeds,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WeightedHiddenHypothesis {
-    pub weight: NonZeroU64,
-    pub hypothesis: HiddenHypothesis,
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WeightedHiddenHypothesis {
+    weight: NonZeroU64,
+    hypothesis: HiddenHypothesis,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct BeliefNamedDraw {
+    name: String,
+    draw_count: u64,
 }
 
 /// Named deterministic sampler state. Keys are `stream|call_site`; values are counters.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BeliefRng {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BeliefRng {
     seed: u64,
     counters: BTreeMap<String, u64>,
 }
 
+impl Serialize for BeliefRng {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let named_draws = self
+            .counters
+            .iter()
+            .map(|(name, draw_count)| BeliefNamedDraw {
+                name: name.clone(),
+                draw_count: *draw_count,
+            })
+            .collect::<Vec<_>>();
+        let mut state = serializer.serialize_struct("BeliefRng", 2)?;
+        state.serialize_field("seed", &self.seed)?;
+        state.serialize_field("named_draws", &named_draws)?;
+        state.end()
+    }
+}
+
 impl BeliefRng {
     #[must_use]
-    pub fn new(seed: u64) -> Self {
+    fn new(seed: u64) -> Self {
         Self {
             seed,
             counters: BTreeMap::new(),
@@ -258,14 +287,16 @@ impl BeliefRng {
 }
 
 /// Public knowledge, declared prior, and weighted latent hypotheses. No authoritative state is
-/// retained in the belief.
+/// retained in the belief. Particles are private: callers materialize by index, never by supplying
+/// a hypothesis.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FairBelief {
     pub schema_version: u32,
     pub knowledge: PublicCombatKnowledge,
     pub prior: FairBeliefPrior,
-    pub belief_rng: BeliefRng,
-    pub particles: Vec<WeightedHiddenHypothesis>,
+    belief_rng: BeliefRng,
+    #[serde(skip)]
+    particles: Vec<WeightedHiddenHypothesis>,
 }
 
 impl FairBelief {
@@ -284,9 +315,9 @@ impl FairBelief {
         for particle_index in 0..particle_count {
             let hypothesis =
                 sample_hypothesis(&knowledge, &prior, particle_index, &mut belief_rng)?;
-            // Initialization is a checked constructor: every emitted hypothesis must be capable
+            // Initialization is a checked constructor: every owned hypothesis must be capable
             // of producing a valid fresh state with the exact public projection.
-            let _ = materialize_combat_rollout(&knowledge, &hypothesis)?;
+            let _ = materialize_owned_hypothesis(&knowledge, &hypothesis)?;
             particles.push(WeightedHiddenHypothesis {
                 weight: NonZeroU64::MIN,
                 hypothesis,
@@ -299,6 +330,18 @@ impl FairBelief {
             belief_rng,
             particles,
         })
+    }
+
+    #[must_use]
+    pub fn particle_count(&self) -> usize {
+        self.particles.len()
+    }
+
+    pub fn materialize(
+        &self,
+        particle_index: usize,
+    ) -> Result<GeneratedCombatRollout, FairBeliefError> {
+        materialize_combat_rollout(self, particle_index)
     }
 }
 
@@ -314,6 +357,38 @@ impl GeneratedCombatRollout {
     pub fn observation(&self) -> FairCombatObservation {
         fair_combat_observation(&self.run)
             .expect("materialized rollout was projection-checked at construction")
+    }
+
+    #[must_use]
+    pub fn is_active_combat(&self) -> bool {
+        self.run.phase == RunPhase::Combat
+            && self
+                .run
+                .combat
+                .as_ref()
+                .is_some_and(|combat| !matches!(combat.phase, CombatPhase::Won | CombatPhase::Lost))
+    }
+
+    /// Advance this generated combat-only rollout by one public combat action.
+    ///
+    /// Already-terminated combats are refused. An action that ends combat returns the terminal
+    /// combat state; a later step then fails. This authority does not continue into reward or
+    /// map screens, so it must not use the run-level combat wrapper that enters those screens.
+    pub fn apply_combat_action(&self, action: CombatAction) -> Result<Self, FairBeliefError> {
+        if !self.is_active_combat() {
+            return Err(FairBeliefError::CombatTerminated);
+        }
+        let combat = self.run.combat.as_ref().ok_or_else(|| {
+            FairBeliefError::GeneratedStateInvalid("combat state is missing".to_owned())
+        })?;
+        let next_combat = crate::apply_combat_action(combat, action)
+            .map_err(|error| FairBeliefError::GeneratedStateInvalid(error.to_string()))?;
+        let mut next = self.run.clone();
+        next.player_hp = next_combat.player.hp;
+        next.player_max_hp = next_combat.player.max_hp;
+        next.card_random_rng_counter = next_combat.rng.card_random_rng.counter();
+        next.combat = Some(next_combat);
+        Ok(Self { run: next })
     }
 
     #[cfg(test)]
@@ -335,6 +410,8 @@ pub enum FairBeliefError {
     InvalidHypothesis(&'static str),
     GeneratedStateInvalid(String),
     ProjectionMismatch,
+    CombatTerminated,
+    UnknownParticle,
 }
 
 impl fmt::Display for FairBeliefError {
@@ -354,6 +431,10 @@ impl fmt::Display for FairBeliefError {
             Self::ProjectionMismatch => {
                 f.write_str("generated state does not project to the public observation")
             }
+            Self::CombatTerminated => {
+                f.write_str("generated combat rollout has already terminated")
+            }
+            Self::UnknownParticle => f.write_str("particle index is not owned by this belief"),
         }
     }
 }
@@ -361,6 +442,18 @@ impl fmt::Display for FairBeliefError {
 impl Error for FairBeliefError {}
 
 pub fn materialize_combat_rollout(
+    belief: &FairBelief,
+    particle_index: usize,
+) -> Result<GeneratedCombatRollout, FairBeliefError> {
+    let hypothesis = &belief
+        .particles
+        .get(particle_index)
+        .ok_or(FairBeliefError::UnknownParticle)?
+        .hypothesis;
+    materialize_owned_hypothesis(&belief.knowledge, hypothesis)
+}
+
+fn materialize_owned_hypothesis(
     knowledge: &PublicCombatKnowledge,
     hypothesis: &HiddenHypothesis,
 ) -> Result<GeneratedCombatRollout, FairBeliefError> {
@@ -539,14 +632,11 @@ fn sample_hypothesis(
         misc: run_seed(rng, "belief.run_rng.misc"),
         monster: run_seed(rng, "belief.run_rng.monster"),
     };
-    let combat_rng = GeneratedCombatRngStates {
-        shuffle: sample_rng_state(rng, "belief.combat_rng.shuffle", particle_index),
-        monster: sample_rng_state(rng, "belief.combat_rng.monster", particle_index),
-        monster_hp: sample_rng_state(rng, "belief.combat_rng.monster_hp", particle_index),
-        // Run-wrapped combat transitions persist this counter and recreate the stream from the
-        // run reward seed plus floor. Both representations therefore share one sampled authority.
-        card_random: card_random_state_from_run_seed(run_rng.reward, observation.context.floor),
-    };
+    // Combat streams follow `enter_combat_with_monsters`: shuffle and monster-HP share
+    // floor-adjusted `event` seed, aiRng uses floor-adjusted `monster` seed, and card-random
+    // uses the run reward seed plus floor. Unrealized counters stay at zero (entry consumption
+    // is not reconstructed; seed recovery from public outcomes is out of protocol).
+    let combat_rng = combat_rng_from_run_seeds(&run_rng, observation.context.floor);
     Ok(HiddenHypothesis {
         schema_version: FAIR_BELIEF_SCHEMA_VERSION,
         prior_version: prior.prior_version.clone(),
@@ -707,15 +797,7 @@ fn materialize_monsters(
         .iter()
         .enumerate()
         .map(|(slot, public)| {
-            let definition = match public.content_key.as_str() {
-                "Cultist" => &CULTIST_A0,
-                "Fixed Simple Monster" => &FIXED_SIMPLE_MONSTER,
-                _ => {
-                    return Err(FairBeliefError::UnsupportedPrior(
-                        "monster has no implemented reconstruction rule",
-                    ));
-                }
-            };
+            let definition = monster_definition(&public.content_key)?;
             let mut monster = monster_state(definition, MonsterId::new(slot as u64 + 1));
             monster.hp = public.hp;
             monster.max_hp = public.max_hp;
@@ -740,12 +822,9 @@ fn materialize_monsters(
                     })
                     .collect::<Result<Vec<_>, _>>()?
             };
-            monster.intent = match public.content_key.as_str() {
-                "Cultist" if executed.is_empty() => MonsterIntent::Ritual { amount: 3 },
-                "Cultist" => MonsterIntent::Attack { damage: 6 },
-                "Fixed Simple Monster" => MonsterIntent::Attack { damage: 6 },
-                _ => unreachable!(),
-            };
+            monster.intent =
+                prepare_monster_intent_for_ascension(&monster, observation.context.ascension)
+                    .map_err(sim_error)?;
             Ok(monster)
         })
         .collect()
@@ -756,6 +835,7 @@ fn public_monster_moves(
     slot: usize,
     content_key: &str,
 ) -> Result<Vec<MonsterIntent>, FairBeliefError> {
+    let ascension = knowledge.latest_observation().context.ascension;
     let mut intents = Vec::new();
     for event in knowledge.history().iter().flat_map(|step| &step.events) {
         if let PublicCombatEvent::MonsterMoveExecuted {
@@ -767,10 +847,14 @@ fn public_monster_moves(
                 continue;
             }
             let intent = match (content_key, category, intents.is_empty()) {
-                ("Cultist", FairIntentCategory::Buff, true) => MonsterIntent::Ritual { amount: 3 },
-                ("Cultist", FairIntentCategory::Attack, false)
+                ("Cultist", FairIntentCategory::Buff, true)
+                | ("Cultist", FairIntentCategory::Attack, false)
                 | ("Fixed Simple Monster", FairIntentCategory::Attack, _) => {
-                    MonsterIntent::Attack { damage: 6 }
+                    let mut reconstructed =
+                        monster_state(monster_definition(content_key)?, MonsterId::new(1));
+                    reconstructed.moves_executed = intents.len() as u32;
+                    prepare_monster_intent_for_ascension(&reconstructed, ascension)
+                        .map_err(sim_error)?
                 }
                 _ => {
                     return Err(FairBeliefError::UnsupportedPrior(
@@ -782,6 +866,18 @@ fn public_monster_moves(
         }
     }
     Ok(intents)
+}
+
+fn monster_definition(
+    content_key: &str,
+) -> Result<&'static crate::content::monsters::MonsterDefinition, FairBeliefError> {
+    match content_key {
+        "Cultist" => Ok(&CULTIST_A0),
+        "Fixed Simple Monster" => Ok(&FIXED_SIMPLE_MONSTER),
+        _ => Err(FairBeliefError::UnsupportedPrior(
+            "monster has no implemented reconstruction rule",
+        )),
+    }
 }
 
 fn materialize_relics(observation: &FairCombatObservation) -> Result<Vec<Relic>, FairBeliefError> {
@@ -981,34 +1077,58 @@ fn apply_storage_order(cards: &[CardInstance], order: &[usize]) -> Vec<CardInsta
     order.iter().map(|index| cards[*index]).collect()
 }
 
-fn sample_rng_state(rng: &mut BeliefRng, stream: &str, particle_index: usize) -> GeneratedRngState {
-    let seed0 = rng.draw_u64(stream, &format!("particle.{particle_index}.seed0"));
-    let mut seed1 = rng.draw_u64(stream, &format!("particle.{particle_index}.seed1"));
-    if seed0 == 0 && seed1 == 0 {
-        seed1 = 1;
+fn combat_rng_from_run_seeds(
+    run_rng: &GeneratedRunRngSeeds,
+    floor: i32,
+) -> GeneratedCombatRngStates {
+    let shuffle = generated_from_sts(
+        StsRng::new(seed_for_floor(run_rng.event as i64, floor))
+            .for_stream(RngTraceStream::Shuffle),
+    );
+    let monster_hp = generated_from_sts(
+        StsRng::new(seed_for_floor(run_rng.event as i64, floor))
+            .for_stream(RngTraceStream::MonsterHp),
+    );
+    let monster = generated_from_sts(
+        StsRng::new(seed_for_floor(run_rng.monster as i64, floor))
+            .for_stream(RngTraceStream::Monster),
+    );
+    GeneratedCombatRngStates {
+        shuffle,
+        monster,
+        monster_hp,
+        card_random: card_random_state_from_run_seed(run_rng.reward, floor),
     }
+}
+
+fn generated_from_sts(rng: StsRng) -> GeneratedRngState {
+    let (seed0, seed1) = rng.state();
     GeneratedRngState {
         seed0,
         seed1,
-        counter: 0,
+        counter: rng.counter(),
     }
 }
 
 fn card_random_state_from_run_seed(reward_seed: u64, floor: i32) -> GeneratedRngState {
     let seed = reward_seed.wrapping_add(floor as u64) as i64;
-    let rng = StsRng::with_counter_for_stream(seed, 0, RngTraceStream::CardRandom);
-    let (seed0, seed1) = rng.state();
-    GeneratedRngState {
-        seed0,
-        seed1,
-        counter: 0,
-    }
+    generated_from_sts(StsRng::with_counter_for_stream(
+        seed,
+        0,
+        RngTraceStream::CardRandom,
+    ))
 }
 
 fn validate_generated_rng_hypothesis(
     hypothesis: &HiddenHypothesis,
     floor: i32,
 ) -> Result<(), FairBeliefError> {
+    let expected = combat_rng_from_run_seeds(&hypothesis.run_rng, floor);
+    if hypothesis.combat_rng != expected {
+        return Err(FairBeliefError::InvalidHypothesis(
+            "combat RNG is not the floor-adjusted joint process of the generated run seeds",
+        ));
+    }
     let states = [
         hypothesis.combat_rng.shuffle,
         hypothesis.combat_rng.monster,
@@ -1021,12 +1141,6 @@ fn validate_generated_rng_hypothesis(
     {
         return Err(FairBeliefError::InvalidHypothesis(
             "generated combat RNG must have a nonzero raw state at counter zero",
-        ));
-    }
-    let expected_card_random = card_random_state_from_run_seed(hypothesis.run_rng.reward, floor);
-    if hypothesis.combat_rng.card_random != expected_card_random {
-        return Err(FairBeliefError::InvalidHypothesis(
-            "combat and run card-random RNG do not share one generated authority",
         ));
     }
     Ok(())
@@ -1063,8 +1177,12 @@ fn splitmix64(mut value: u64) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{combat::FairSelection, run::RunState};
-    use std::collections::BTreeSet;
+    use crate::{
+        combat::FairSelection,
+        content::cards::{BASH_ID, DEFEND_R_ID, STRIKE_R_ID},
+        run::RunState,
+    };
+    use std::collections::{BTreeSet, HashSet};
 
     fn observation_with_relics(relics: Vec<Relic>) -> FairCombatObservation {
         let run = RunState::combat_fixture_with_relics(relics);
@@ -1077,6 +1195,81 @@ mod tests {
             PublicCombatStart::for_test(),
         )
         .expect("ordinary public root")
+    }
+
+    fn diverse_pile_run(relics: Vec<Relic>) -> RunState {
+        let mut run = RunState::combat_fixture_with_relics(relics);
+        let combat = run.combat.as_mut().expect("combat");
+        combat.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(5), STRIKE_R_ID),
+            CardInstance::new(CardId::new(6), STRIKE_R_ID),
+            CardInstance::new(CardId::new(7), DEFEND_R_ID),
+            CardInstance::new(CardId::new(8), DEFEND_R_ID),
+            CardInstance::new(CardId::new(9), BASH_ID),
+        ];
+        combat.piles.discard_pile = vec![
+            CardInstance::new(CardId::new(10), STRIKE_R_ID),
+            CardInstance::new(CardId::new(11), DEFEND_R_ID),
+        ];
+        combat.piles.exhaust_pile = vec![
+            CardInstance::new(CardId::new(12), STRIKE_R_ID),
+            CardInstance::new(CardId::new(13), DEFEND_R_ID),
+        ];
+        run.validate().expect("diverse pile fixture validates");
+        run
+    }
+
+    fn diverse_knowledge(relics: Vec<Relic>) -> PublicCombatKnowledge {
+        let observation =
+            fair_combat_observation(&diverse_pile_run(relics)).expect("diverse fixture projects");
+        assert!(observation.draw_pile.cards.len() >= 5);
+        PublicCombatKnowledge::at_first_player_decision(observation, PublicCombatStart::for_test())
+            .expect("diverse public root")
+    }
+
+    fn collect_object_keys(value: &serde_json::Value, keys: &mut HashSet<String>) {
+        match value {
+            serde_json::Value::Object(map) => {
+                for (key, child) in map {
+                    keys.insert(key.clone());
+                    collect_object_keys(child, keys);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for child in items {
+                    collect_object_keys(child, keys);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn id_content(run: &RunState) -> Vec<(u64, u64)> {
+        let combat = run.combat.as_ref().expect("combat");
+        let mut rows = combat
+            .piles
+            .hand
+            .iter()
+            .chain(&combat.piles.draw_pile)
+            .chain(&combat.piles.discard_pile)
+            .chain(&combat.piles.exhaust_pile)
+            .map(|card| (card.id.get(), card.content_id.get()))
+            .collect::<Vec<_>>();
+        rows.sort_unstable();
+        rows
+    }
+
+    fn content_keys(cards: impl IntoIterator<Item = CardInstance>) -> Vec<&'static str> {
+        cards
+            .into_iter()
+            .map(|card| {
+                ALL_CARDS
+                    .iter()
+                    .find(|definition| definition.id == card.content_id)
+                    .expect("generated card is in the registry")
+                    .key
+            })
+            .collect()
     }
 
     fn hidden_signature(run: &RunState) -> (Vec<u64>, [(u64, u64); 4]) {
@@ -1115,22 +1308,18 @@ mod tests {
         .expect("belief initializes deterministically");
         assert_eq!(first, second);
 
-        let serialized = first
-            .particles
-            .iter()
-            .map(|particle| {
-                let generated = materialize_combat_rollout(&knowledge, &particle.hypothesis)
-                    .expect("particle materializes");
+        let serialized = (0..first.particle_count())
+            .map(|index| {
+                let generated =
+                    materialize_combat_rollout(&first, index).expect("particle materializes");
                 assert_eq!(generated.observation(), *knowledge.latest_observation());
                 serde_json::to_string(generated.authoritative_state()).expect("run serializes")
             })
             .collect::<Vec<_>>();
-        let serialized_again = second
-            .particles
-            .iter()
-            .map(|particle| {
-                let generated = materialize_combat_rollout(&knowledge, &particle.hypothesis)
-                    .expect("particle materializes");
+        let serialized_again = (0..second.particle_count())
+            .map(|index| {
+                let generated =
+                    materialize_combat_rollout(&second, index).expect("particle materializes");
                 serde_json::to_string(generated.authoritative_state()).expect("run serializes")
             })
             .collect::<Vec<_>>();
@@ -1139,7 +1328,7 @@ mod tests {
 
     #[test]
     fn particles_vary_hidden_order_and_rng_but_not_public_state_or_ids() {
-        let knowledge = ordinary_knowledge();
+        let knowledge = diverse_knowledge(Vec::new());
         let belief = FairBelief::initialize(
             knowledge.clone(),
             FairBeliefPrior::a0_act1_simple_combat(),
@@ -1155,33 +1344,42 @@ mod tests {
         )
         .expect("second belief seed initializes");
         assert_ne!(belief.particles, other_seed.particles);
-        let generated = belief
-            .particles
-            .iter()
-            .map(|particle| {
-                materialize_combat_rollout(&knowledge, &particle.hypothesis)
-                    .expect("particle materializes")
-            })
+        let generated = (0..belief.particle_count())
+            .map(|index| belief.materialize(index).expect("particle materializes"))
             .collect::<Vec<_>>();
         let signatures = generated
             .iter()
             .map(|rollout| hidden_signature(rollout.authoritative_state()))
             .collect::<BTreeSet<_>>();
         assert!(signatures.len() > 1);
-        let id_content = |run: &RunState| {
-            let combat = run.combat.as_ref().expect("combat");
-            let mut rows = combat
-                .piles
-                .hand
-                .iter()
-                .chain(&combat.piles.draw_pile)
-                .chain(&combat.piles.discard_pile)
-                .chain(&combat.piles.exhaust_pile)
-                .map(|card| (card.id.get(), card.content_id.get()))
-                .collect::<Vec<_>>();
-            rows.sort_unstable();
-            rows
-        };
+        let draw_orders = belief
+            .particles
+            .iter()
+            .map(|particle| particle.hypothesis.draw_storage_order.clone())
+            .collect::<BTreeSet<_>>();
+        let discard_orders = belief
+            .particles
+            .iter()
+            .map(|particle| particle.hypothesis.discard_storage_order.clone())
+            .collect::<BTreeSet<_>>();
+        let exhaust_orders = belief
+            .particles
+            .iter()
+            .map(|particle| particle.hypothesis.exhaust_storage_order.clone())
+            .collect::<BTreeSet<_>>();
+        assert!(
+            draw_orders.len() > 8,
+            "five-card draw pile must produce permutation diversity, got {}",
+            draw_orders.len()
+        );
+        assert!(
+            discard_orders.len() > 1,
+            "two-card discard pile must vary storage order"
+        );
+        assert!(
+            exhaust_orders.len() > 1,
+            "two-card exhaust pile must vary storage order"
+        );
         let expected_ids = id_content(generated[0].authoritative_state());
         assert!(generated
             .iter()
@@ -1193,35 +1391,12 @@ mod tests {
 
     #[test]
     fn frozen_eye_fixes_draw_but_not_other_hidden_pile_orders() {
-        let mut run = RunState::combat_fixture_with_relics(vec![Relic::FrozenEye]);
-        let initial_observation = fair_combat_observation(&run).expect("opening fixture projects");
-        let combat = run.combat.as_mut().expect("combat");
-        combat
-            .piles
-            .discard_pile
-            .push(combat.piles.hand.pop().expect("hand card"));
-        combat
-            .piles
-            .discard_pile
-            .push(combat.piles.hand.pop().expect("hand card"));
-        combat
-            .piles
-            .exhaust_pile
-            .push(combat.piles.hand.pop().expect("hand card"));
-        combat
-            .piles
-            .exhaust_pile
-            .push(combat.piles.draw_pile.pop().expect("draw card"));
-        run.validate().expect("oracle fixture remains valid");
-        let observation = fair_combat_observation(&run).expect("fixture projects");
-        // This synthetic unit root exercises only pile-prior semantics. Runtime code cannot mint
-        // the start proof; the future facade must issue it only at a real first decision.
-        let _ = initial_observation;
-        let knowledge = PublicCombatKnowledge::at_first_player_decision(
-            observation,
-            PublicCombatStart::for_test(),
-        )
-        .expect("synthetic public root");
+        let knowledge = diverse_knowledge(vec![Relic::FrozenEye]);
+        assert!(knowledge.latest_observation().draw_pile.cards.len() >= 5);
+        assert_eq!(
+            knowledge.latest_observation().draw_pile.known_order.len(),
+            knowledge.latest_observation().draw_pile.cards.len()
+        );
         let belief = FairBelief::initialize(
             knowledge.clone(),
             FairBeliefPrior::a0_act1_simple_combat(),
@@ -1247,10 +1422,36 @@ mod tests {
         assert_eq!(draw_orders.len(), 1);
         assert!(discard_orders.len() > 1);
         assert!(exhaust_orders.len() > 1);
+        let generated = (0..belief.particle_count())
+            .map(|index| {
+                belief
+                    .materialize(index)
+                    .expect("Frozen Eye particle materializes")
+            })
+            .collect::<Vec<_>>();
+        let expected_ids = id_content(generated[0].authoritative_state());
+        let known = &knowledge.latest_observation().draw_pile.known_order;
+        for rollout in &generated {
+            assert_eq!(rollout.observation(), *knowledge.latest_observation());
+            assert_eq!(id_content(rollout.authoritative_state()), expected_ids);
+            let storage = &rollout
+                .authoritative_state()
+                .combat
+                .as_ref()
+                .expect("generated combat")
+                .piles
+                .draw_pile;
+            let top_to_bottom = content_keys(storage.iter().rev().copied());
+            let known_keys = known
+                .iter()
+                .map(|card| card.content_key.as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(top_to_bottom, known_keys);
+        }
     }
 
     #[test]
-    fn all_declared_rng_streams_are_fresh_and_independently_named() {
+    fn combat_rng_follows_floor_adjusted_run_seed_joint_process() {
         let knowledge = ordinary_knowledge();
         let belief = FairBelief::initialize(
             knowledge.clone(),
@@ -1260,14 +1461,19 @@ mod tests {
         )
         .expect("belief initializes");
         let hypothesis = &belief.particles[0].hypothesis;
-        let combat_states = [
+        let floor = knowledge.latest_observation().context.floor;
+        let expected = combat_rng_from_run_seeds(&hypothesis.run_rng, floor);
+        assert_eq!(hypothesis.combat_rng, expected);
+        assert_eq!(
             hypothesis.combat_rng.shuffle,
-            hypothesis.combat_rng.monster,
-            hypothesis.combat_rng.monster_hp,
+            hypothesis.combat_rng.monster_hp
+        );
+        assert_ne!(hypothesis.combat_rng.shuffle, hypothesis.combat_rng.monster);
+        assert_eq!(
             hypothesis.combat_rng.card_random,
-        ];
-        assert_eq!(combat_states.iter().collect::<BTreeSet<_>>().len(), 4);
-        assert!(combat_states.iter().all(|state| state.counter == 0));
+            card_random_state_from_run_seed(hypothesis.run_rng.reward, floor)
+        );
+        assert!(hypothesis.combat_rng.shuffle.counter == 0);
         let run_seeds = [
             hypothesis.run_rng.event,
             hypothesis.run_rng.reward,
@@ -1280,8 +1486,7 @@ mod tests {
             hypothesis.run_rng.monster,
         ];
         assert_eq!(run_seeds.into_iter().collect::<BTreeSet<_>>().len(), 9);
-        let generated =
-            materialize_combat_rollout(&knowledge, hypothesis).expect("particle materializes");
+        let generated = belief.materialize(0).expect("particle materializes");
         let state = generated.authoritative_state();
         assert_eq!(state.event_rng_seed, hypothesis.run_rng.event);
         assert_eq!(state.reward_rng_seed, hypothesis.run_rng.reward);
@@ -1364,39 +1569,40 @@ mod tests {
         )
         .expect("belief initializes");
         let original = &belief.particles[0].hypothesis;
+        let floor = knowledge.latest_observation().context.floor;
 
         let mut bad_order = original.clone();
         bad_order.draw_storage_order.clear();
         assert!(matches!(
-            materialize_combat_rollout(&knowledge, &bad_order),
+            materialize_owned_hypothesis(&knowledge, &bad_order),
             Err(FairBeliefError::InvalidHypothesis(_))
         ));
 
         let mut advanced_rng = original.clone();
         advanced_rng.combat_rng.shuffle.counter = 1;
         assert!(matches!(
-            materialize_combat_rollout(&knowledge, &advanced_rng),
-            Err(FairBeliefError::InvalidHypothesis(_))
-        ));
-
-        let mut zero_rng = original.clone();
-        zero_rng.combat_rng.monster.seed0 = 0;
-        zero_rng.combat_rng.monster.seed1 = 0;
-        assert!(matches!(
-            materialize_combat_rollout(&knowledge, &zero_rng),
+            materialize_owned_hypothesis(&knowledge, &advanced_rng),
             Err(FairBeliefError::InvalidHypothesis(_))
         ));
 
         let mut split_authority = original.clone();
         split_authority.run_rng.reward = split_authority.run_rng.reward.wrapping_add(1);
+        assert_ne!(
+            split_authority.combat_rng,
+            combat_rng_from_run_seeds(&split_authority.run_rng, floor)
+        );
         assert!(matches!(
-            materialize_combat_rollout(&knowledge, &split_authority),
+            materialize_owned_hypothesis(&knowledge, &split_authority),
             Err(FairBeliefError::InvalidHypothesis(_))
+        ));
+        assert!(matches!(
+            materialize_combat_rollout(&belief, 1),
+            Err(FairBeliefError::UnknownParticle)
         ));
     }
 
     #[test]
-    fn card_random_authority_is_continuous_across_run_wrapped_actions() {
+    fn card_random_authority_is_continuous_across_combat_horizon_steps() {
         let knowledge = ordinary_knowledge();
         let belief = FairBelief::initialize(
             knowledge.clone(),
@@ -1405,19 +1611,21 @@ mod tests {
             117,
         )
         .expect("belief initializes");
-        let generated = materialize_combat_rollout(&knowledge, &belief.particles[0].hypothesis)
-            .expect("particle materializes");
-        let before = generated.authoritative_state();
-        let before_rng = before
+        let generated = belief.materialize(0).expect("particle materializes");
+        let before_rng = generated
+            .authoritative_state()
             .combat
             .as_ref()
             .expect("generated combat")
             .rng
             .card_random_rng
             .clone();
-        let after = crate::apply_combat_action_on_run(before, crate::CombatAction::EndTurn)
+        let after = generated
+            .apply_combat_action(crate::CombatAction::EndTurn)
             .expect("generated rollout advances");
+        assert!(after.is_active_combat());
         let after_rng = &after
+            .authoritative_state()
             .combat
             .as_ref()
             .expect("combat remains active")
@@ -1428,14 +1636,33 @@ mod tests {
     }
 
     #[test]
-    fn particle_weights_cannot_deserialize_as_zero() {
+    fn particle_weights_are_nonzero_and_hypotheses_are_not_public_json() {
         let knowledge = ordinary_knowledge();
         let belief =
-            FairBelief::initialize(knowledge, FairBeliefPrior::a0_act1_simple_combat(), 1, 119)
+            FairBelief::initialize(knowledge, FairBeliefPrior::a0_act1_simple_combat(), 2, 119)
                 .expect("belief initializes");
-        let mut payload = serde_json::to_value(&belief.particles[0]).expect("particle serializes");
-        payload["weight"] = serde_json::json!(0);
-        assert!(serde_json::from_value::<WeightedHiddenHypothesis>(payload).is_err());
+        assert!(belief
+            .particles
+            .iter()
+            .all(|particle| particle.weight.get() > 0));
+        let json = serde_json::to_value(&belief).expect("belief serializes");
+        let mut keys = HashSet::new();
+        collect_object_keys(&json, &mut keys);
+        for hidden in [
+            "draw_storage_order",
+            "discard_storage_order",
+            "exhaust_storage_order",
+            "seed0",
+            "seed1",
+            "combat_rng",
+            "run_rng",
+            "particles",
+        ] {
+            assert!(
+                !keys.contains(hidden),
+                "serialized belief leaked object key {hidden}"
+            );
+        }
     }
 
     #[test]
@@ -1457,8 +1684,9 @@ mod tests {
             121,
         )
         .expect("opening Cultist prior is supported");
-        for particle in belief.particles {
-            let generated = materialize_combat_rollout(&knowledge, &particle.hypothesis)
+        for index in 0..belief.particle_count() {
+            let generated = belief
+                .materialize(index)
                 .expect("Cultist particle materializes");
             assert_eq!(generated.observation(), *knowledge.latest_observation());
         }
@@ -1477,24 +1705,150 @@ mod tests {
     }
 
     #[test]
-    fn generated_belief_serialization_has_no_authoritative_scaffold() {
-        let knowledge = ordinary_knowledge();
+    fn generated_belief_serialization_uses_an_explicit_key_allowlist() {
+        let knowledge = diverse_knowledge(vec![Relic::FrozenEye]);
         let belief =
             FairBelief::initialize(knowledge, FairBeliefPrior::a0_act1_simple_combat(), 1, 113)
                 .expect("belief initializes");
-        let json = serde_json::to_string(&belief).expect("belief serializes");
-        for forbidden in [
-            "snapshot_hash",
-            "card_id",
-            "monster_id",
-            "queued_decisions",
-            "run_state",
-            "combat_state",
-        ] {
-            assert!(
-                !json.contains(forbidden),
-                "forbidden belief key {forbidden}"
-            );
-        }
+        let value = serde_json::to_value(belief).expect("belief serializes");
+        let mut keys = HashSet::new();
+        collect_object_keys(&value, &mut keys);
+        const ALLOWED: &[&str] = &[
+            "act",
+            "action",
+            "alive",
+            "amount",
+            "ascension",
+            "belief_rng",
+            "block",
+            "bottled",
+            "card",
+            "cards",
+            "category",
+            "combat_cost_under_turn_override",
+            "content_key",
+            "context",
+            "cost",
+            "cost_is_modified",
+            "cost_resets_next_turn",
+            "count",
+            "damage",
+            "discard_pile",
+            "draw_count",
+            "draw_pile",
+            "dynamic",
+            "energy",
+            "escaped",
+            "events",
+            "evoke",
+            "exhaust_pile",
+            "floor",
+            "from",
+            "gold",
+            "hand",
+            "hand_slot",
+            "hits",
+            "history",
+            "hp",
+            "in_defensive_mode",
+            "initial_observation",
+            "intent",
+            "kind",
+            "key",
+            "knowledge",
+            "known_order",
+            "max_energy",
+            "max_hp",
+            "minion",
+            "monster_slot",
+            "monsters",
+            "name",
+            "named_draws",
+            "observation",
+            "option_slot",
+            "options",
+            "orb",
+            "orb_slots",
+            "phase",
+            "player",
+            "potion_slot",
+            "potion_slots",
+            "powers",
+            "prior",
+            "prior_version",
+            "public_counters",
+            "rampage_damage_bonus",
+            "relics",
+            "ritual_dagger_damage_bonus",
+            "schema_version",
+            "seed",
+            "selected_slots",
+            "selection",
+            "slime_size",
+            "slot",
+            "stasis_card",
+            "state",
+            "steam_barrier_block_reduction",
+            "stolen_gold",
+            "target_slot",
+            "targetable",
+            "temporary",
+            "to",
+            "turn",
+            "type",
+            "upgrade_level",
+            "value",
+            "visibility",
+            "windmill_retain_damage",
+        ];
+        let allowed = ALLOWED.iter().copied().collect::<HashSet<_>>();
+        let unexpected = keys
+            .iter()
+            .filter(|key| !allowed.contains(key.as_str()))
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        assert!(
+            unexpected.is_empty(),
+            "serialized belief has keys outside the fair allowlist: {unexpected:?}"
+        );
+    }
+
+    #[test]
+    fn rollout_stepping_refuses_a_terminated_combat() {
+        let mut observation = observation_with_relics(Vec::new());
+        observation.monsters[0].hp = 1;
+        let knowledge = PublicCombatKnowledge::at_first_player_decision(
+            observation,
+            PublicCombatStart::for_test(),
+        )
+        .expect("low-hp public root");
+        let belief =
+            FairBelief::initialize(knowledge, FairBeliefPrior::a0_act1_simple_combat(), 1, 131)
+                .expect("belief initializes");
+        let generated = belief.materialize(0).expect("particle materializes");
+        assert!(generated.is_active_combat());
+        let combat = generated
+            .authoritative_state()
+            .combat
+            .as_ref()
+            .expect("combat");
+        let strike = combat
+            .piles
+            .hand
+            .iter()
+            .find(|card| card.content_id == STRIKE_R_ID)
+            .expect("strike in hand");
+        let target = combat.monsters[0].id;
+        let after = generated
+            .apply_combat_action(CombatAction::PlayCard {
+                card_id: strike.id,
+                target: Some(target),
+            })
+            .expect("lethal strike applies");
+        assert!(!after.is_active_combat());
+        assert!(matches!(
+            after.apply_combat_action(CombatAction::EndTurn),
+            Err(FairBeliefError::CombatTerminated)
+        ));
     }
 }

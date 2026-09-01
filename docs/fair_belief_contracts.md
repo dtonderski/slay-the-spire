@@ -13,8 +13,8 @@ training, promotion, or sealed/audit evidence use.
 FairDecision + PublicEvents
         -> PublicCombatKnowledge
         -> FairBelief
-        -> WeightedHiddenHypothesis
-        -> materialize_combat_rollout(knowledge, hypothesis)
+        -> belief-owned particle index
+        -> materialize_combat_rollout(belief, particle_index)
         -> GeneratedCombatRollout
 ```
 
@@ -22,11 +22,14 @@ The layers are intentionally not interchangeable:
 
 - `PublicCombatKnowledge` contains fair observations plus the public action/event prefix.
 - `FairBelief` adds a versioned prior, named belief RNG, and weighted hypotheses. It contains no
-  simulator state.
-- `HiddenHypothesis` contains independently sampled pile permutations and raw generated RNG state.
-  It does not contain a `RunState`, snapshot, internal IDs, queues, or hashes.
+  simulator state. Particles are private.
+- A particle's hidden assignment contains independently sampled pile permutations plus combat RNG
+  derived from generated run seeds and the public floor. It is not a public type, does not
+  deserialize, and does not contain a `RunState`, snapshot, internal IDs, queues, or hashes.
 - `GeneratedCombatRollout` is fresh authoritative state created only after sampling. It is valid
   internal planner authority, but it is not the real state and is not a full-run posterior sample.
+  Stepping is refused once combat has terminated, and it never enters reward or map
+  screens.
 
 There is no initializer whose input is `RunState`, `Snapshot`, snapshot JSON, true seed, state hash,
 or true RNG. Any future API that adds one violates this contract.
@@ -72,34 +75,40 @@ slice. Mechanics needing history remain unsupported until those deterministic up
 
 ## 4. Priors and particles
 
-Implemented prior: `a0_act1_simple_combat_v1`.
+Implemented prior: `a0_act1_simple_combat_v2`.
 
-Each weighted particle has positive integer weight and one `HiddenHypothesis` containing:
+Each weighted particle has positive integer weight and one private
+`HiddenHypothesis` containing:
 
 - authoritative storage-order index permutations for draw, discard, and exhaust public multisets;
-- generated combat RNG raw states (`shuffle`, `monster`, `monster_hp`, and `card_random`), all
-  nonzero and starting at counter zero; and
-- generated run RNG seeds for the canonical combat envelope. Combat `card_random` and the run
-  reward-seed-plus-floor representation share one generated authority because run-wrapped actions
-  synchronize them.
+- generated run RNG seeds for the canonical combat envelope; and
+- combat RNG constructed from those run seeds and the public floor by the same joint process as
+  combat entry (`event`+floor for shuffle and monster-HP, `monster`+floor for aiRng, reward+floor
+  for card-random). Counters start at zero: realized combat-entry consumption is not reconstructed,
+  and seed recovery from public outcomes remains out of protocol.
+
+The hypothesis type is not publicly constructible or deserializable. `FairBelief` keeps particles
+private. Materialization accepts only a belief-owned particle index.
 
 Without Frozen Eye, draw order is a Fisher-Yates uniform permutation sampled with rejection-bounded
 belief draws. With Frozen Eye, the complete public top-to-bottom order determines draw storage order.
 Frozen Eye never reveals discard or exhaust storage order; those are always sampled independently.
 
-The materializer rejects malformed permutations. It never normalizes or repairs them.
+The materializer rejects malformed permutations and RNG that does not match the joint process. It
+never normalizes or repairs them.
 
 ## 5. Fresh materialization
 
-`materialize_combat_rollout(knowledge, hypothesis)`:
+`materialize_combat_rollout(belief, particle_index)`:
 
-1. validates schema, prior, supported scope, and public provenance;
-2. allocates new card IDs from public hand/pile records and new monster IDs from public slots;
-3. reconstructs supported public card/player/relic/monster state;
-4. applies hypothesis pile permutations and generated RNG state;
-5. builds a fresh canonical combat-only `RunState` envelope;
-6. validates `CombatState` and `RunState`; and
-7. requires exact equality between the generated fair observation and the latest public
+1. loads the belief-owned hypothesis at that index;
+2. validates schema, prior, supported scope, and public provenance;
+3. allocates new card IDs from public hand/pile records and new monster IDs from public slots;
+4. reconstructs supported public card/player/relic/monster state;
+5. applies hypothesis pile permutations and the jointly derived RNG state;
+6. builds a fresh canonical combat-only `RunState` envelope;
+7. validates `CombatState` and `RunState`; and
+8. requires exact equality between the generated fair observation and the latest public
    observation.
 
 The canonical run envelope is not a belief about map, reward, event, shop, pool, or profile state.
@@ -172,12 +181,14 @@ The Rust tests require:
 - hidden pile/RNG diversity with identical public projection;
 - hypothesis-independent internal ID allocation;
 - Frozen Eye fixing draw order while discard/exhaust remain sampled;
-- independently named generated combat and run RNG inputs;
+- independently named generated run seeds, with combat RNG following the
+  floor-adjusted joint process;
 - exact generated projection and full state validation;
 - typed failure for missing history, hidden intent, selections, unsupported public cards, and
   malformed pile/RNG hypotheses;
 - positive weights enforced by a nonzero type;
-- card-random continuity across run-wrapped combat actions; and
-- serialized belief state containing no authoritative scaffold keys.
+- card-random continuity across combat-horizon stepping; and
+- serialized belief JSON matching an explicit recursive key allowlist, with no public
+  deserialization path for hidden hypotheses.
 
 Existing fair-observation non-interference tests remain the projection gate.

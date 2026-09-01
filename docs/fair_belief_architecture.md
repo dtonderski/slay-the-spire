@@ -6,7 +6,7 @@ The active boundary contracts include
 [`fair_combat_api_design.md`](fair_combat_api_design.md),
 [`fair_belief_contracts.md`](fair_belief_contracts.md), and
 [`combat_rl_architecture.md`](combat_rl_architecture.md).
-Last reconciled: 2026-07-23.
+Last reconciled: 2026-09-02.
 
 This document designs a fair agent architecture for Ironclad combat and run
 play that handles hidden information without cheating. It consolidates and
@@ -50,12 +50,13 @@ Hard constraints restated:
    teacher at a fraction of the compute.
 2. **What particle sampler should we build as baseline and teacher?** A
    fresh generative pipeline: hidden-free `PublicKnowledge` plus a versioned
-   prior defines `FairBelief`; each weighted particle contains only an
-   independently sampled `HiddenHypothesis`; and a deterministic Rust
-   materializer constructs a new authoritative combat rollout from those two
-   inputs. The materializer cannot accept or clone the true snapshot. Unknown
-   order may later be committed lazily, and POMCP over generated rollouts is
-   the eventual fair baseline and teacher.
+   prior defines `FairBelief`; each weighted particle is an opaque
+   `HiddenHypothesis` sampled independently of truth; and a deterministic Rust
+   materializer constructs a new authoritative combat rollout from a
+   belief-owned particle index. The materializer cannot accept a supplied
+   hypothesis or clone the true snapshot. Unknown order may later be committed
+   lazily, and POMCP over generated rollouts is the eventual fair baseline
+   and teacher.
 3. **What is the formal fair-observation boundary?** A pure projection
    function `fair_view(authoritative_state, public_history)` plus the
    observational non-interference invariant: states that differ only in
@@ -305,8 +306,8 @@ built solely from public knowledge and a declared prior:
 ```text
 FairDecision + PublicEvents
         -> PublicKnowledge
-        -> FairBelief(prior version, belief RNG, weighted particles)
-        -> HiddenHypothesis
+        -> FairBelief(prior version, belief RNG, private particles)
+        -> belief-owned particle index
         -> deterministic fresh materializer
         -> GeneratedCombatRollout
 ```
@@ -320,13 +321,14 @@ The types have distinct authority:
 - **`FairBelief`** owns `PublicKnowledge`, a versioned source-backed prior, a
   named deterministic belief RNG, and weighted particles. It is a distribution
   description, not a simulator state.
-- A **particle** is a weight plus a `HiddenHypothesis`: sampled pile
-  permutations, committed-hidden variables, and fresh generated RNG states. It
+- A **particle** is a weight plus a private `HiddenHypothesis`: sampled pile
+  permutations, committed-hidden variables, and combat RNG derived from
+  generated run seeds. It is not a public type, does not deserialize, and
   contains no copied simulator scaffold.
 - The **materializer** deterministically constructs a new authoritative rollout
-  from `PublicKnowledge + HiddenHypothesis`. Its API does not accept a true
-  state or snapshot. All internal IDs are allocated anew. The generated state
-  must validate and project byte-for-byte to the latest fair observation.
+  from a belief-owned particle. Its public API does not accept a hypothesis,
+  true state, or snapshot. All internal IDs are allocated anew. The generated
+  state must validate and project byte-for-byte to the latest fair observation.
 
 Cloning a generated rollout inside search is ordinary simulation. Cloning the
 real hidden root to initialize a belief is forbidden. The real root exists only
@@ -372,11 +374,14 @@ RNG counters. Public values may legitimately be reconstructed from
 Unknown pile order is sampled as a uniform permutation of the public multiset.
 Frozen Eye supplies the complete public draw order, but never makes discard or
 exhaust storage order public. Future Headbutt/Scry prefixes belong in
-`PublicKnowledge`. Each reachable game RNG authority is generated from named
-belief streams. Representations that the run wrapper synchronizes must share one
-sampled authority: combat `card_random_rng` is derived from the generated run
-reward seed plus public floor, rather than sampled independently. Seed
-reconstruction from observations remains out of protocol.
+`PublicKnowledge`. Combat RNG is the source-backed joint process from combat
+entry: shuffle and monster-HP share the floor-adjusted event seed, aiRng uses
+the floor-adjusted monster seed, and card-random uses the generated reward seed
+plus public floor. Run-envelope seeds themselves are sampled independently
+because master-seed reconstruction from public outcomes is out of protocol.
+Counters start at zero; realized entry consumption is not reconstructed.
+The hypothesis type is opaque, not publicly deserializable, and materialization
+accepts only belief-owned particles.
 
 The implementation may later replace eager pile permutations with lazy
 commitment, but that optimization must preserve the same distribution and fresh
@@ -404,7 +409,7 @@ its authority ends at combat termination. Map, reward, event, shop, and pool
 state in that envelope is canonical unreachable scaffolding, not a belief claim.
 A full-run materializer requires explicit priors for every such hidden field.
 
-Current Rust slice (`a0_act1_simple_combat_v1`) supports only A0 Act 1
+Current Rust slice (`a0_act1_simple_combat_v2`) supports only A0 Act 1
 `waiting_for_player` roots with no active selection, potions, player powers, or
 orbs; base Strike/Defend/Bash cards; stateless Burning Blood/Frozen Eye; and
 opening Cultist roots or the deterministic simple test monster. The opaque

@@ -1930,24 +1930,106 @@ mod tests {
     }
 
     #[test]
-    fn serialized_schema_contains_no_internal_identity_or_rng_fields() {
+    fn serialized_schema_contains_only_allowlisted_keys() {
         let run = RunState::combat_fixture();
-        let json = serde_json::to_string(&observation(&run)).expect("observation serializes");
-        for forbidden in [
-            "card_id",
-            "monster_id",
-            "content_id",
-            "source_card_id",
-            "rng",
-            "move_history",
-            "rolled_attack_damage",
-            "queued_decisions",
-            "pending_actions",
-        ] {
-            assert!(
-                !json.contains(forbidden),
-                "leaked field {forbidden}: {json}"
-            );
+        let value = serde_json::to_value(observation(&run)).expect("observation serializes");
+        let mut keys = std::collections::HashSet::new();
+        fn walk(value: &serde_json::Value, keys: &mut std::collections::HashSet<String>) {
+            match value {
+                serde_json::Value::Object(map) => {
+                    for (key, child) in map {
+                        keys.insert(key.clone());
+                        walk(child, keys);
+                    }
+                }
+                serde_json::Value::Array(items) => {
+                    for child in items {
+                        walk(child, keys);
+                    }
+                }
+                _ => {}
+            }
         }
+        walk(&value, &mut keys);
+        const ALLOWED: &[&str] = &[
+            "act",
+            "alive",
+            "amount",
+            "ascension",
+            "block",
+            "bottled",
+            "card",
+            "cards",
+            "category",
+            "combat_cost_under_turn_override",
+            "content_key",
+            "context",
+            "cost",
+            "cost_is_modified",
+            "cost_resets_next_turn",
+            "count",
+            "damage",
+            "discard_pile",
+            "draw_pile",
+            "dynamic",
+            "energy",
+            "escaped",
+            "evoke",
+            "exhaust_pile",
+            "floor",
+            "gold",
+            "hand",
+            "hits",
+            "hp",
+            "in_defensive_mode",
+            "intent",
+            "key",
+            "kind",
+            "known_order",
+            "max_energy",
+            "max_hp",
+            "minion",
+            "monsters",
+            "orb",
+            "orb_slots",
+            "options",
+            "phase",
+            "player",
+            "potion_slots",
+            "powers",
+            "public_counters",
+            "rampage_damage_bonus",
+            "relics",
+            "ritual_dagger_damage_bonus",
+            "schema_version",
+            "selected_slots",
+            "selection",
+            "slime_size",
+            "slot",
+            "stasis_card",
+            "state",
+            "steam_barrier_block_reduction",
+            "stolen_gold",
+            "targetable",
+            "temporary",
+            "type",
+            "upgrade_level",
+            "value",
+            "visibility",
+            "windmill_retain_damage",
+        ];
+        let allowed = ALLOWED
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
+        let unexpected = keys
+            .iter()
+            .filter(|key| !allowed.contains(key.as_str()))
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(
+            unexpected.is_empty(),
+            "serialized observation has keys outside the fair allowlist: {unexpected:?}"
+        );
     }
 }
