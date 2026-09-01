@@ -1,0 +1,16 @@
+{
+  "materialized_split_root_count": 1,
+  "root_ids": ["root-a"],
+  "per_root": [
+    {
+      "root_id": "root-a",
+      "policies": {
+        "network": {
+          "status": "won",
+          "error": null,
+          "accepted_decisions": 1
+        }
+      }
+    }
+  ]
+}

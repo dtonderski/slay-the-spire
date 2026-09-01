@@ -1,0 +1,50 @@
+{
+  "materialized_split_root_count": 4,
+  "root_ids": ["root-a", "root-b", "root-c", "root-missing"],
+  "per_root": [
+    {
+      "root_id": "root-a",
+      "policies": {
+        "network": {
+          "status": "won",
+          "error": null,
+          "terminal_hp": 10,
+          "accepted_decisions": 1
+        }
+      }
+    },
+    {
+      "root_id": "root-b",
+      "policies": {
+        "network": {
+          "status": "escaped",
+          "error": null,
+          "terminal_hp": 10,
+          "accepted_decisions": 1
+        }
+      }
+    },
+    {
+      "root_id": "root-c",
+      "policies": {
+        "network": {
+          "status": "truncated",
+          "error": null,
+          "terminal_hp": 10,
+          "accepted_decisions": 8
+        }
+      }
+    },
+    {
+      "root_id": "root-missing",
+      "policies": {
+        "network": {
+          "status": "lost",
+          "error": null,
+          "terminal_hp": 0,
+          "accepted_decisions": 2
+        }
+      }
+    }
+  ]
+}

@@ -4,17 +4,24 @@ from __future__ import annotations
 
 import os
 import random
+import subprocess
+import sys
 import warnings
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, cast
+from urllib.parse import urlparse
 
 import numpy as np
 import torch
 
 _WANDB_ENV_KEYS = ("WANDB_MODE", "WANDB_SILENT")
+_WANDB_SYNC_ENV_KEYS = ("WANDB_MODE", "WANDB_SILENT", "WANDB_BASE_URL")
+MUTABLE_SYNCHRONIZATION_DIRECTORY_NAME = "wandb"
+DEFAULT_LOCAL_WANDB_BASE_URL = "http://localhost:8080"
+_LOCAL_WANDB_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 class _WandbSettingsFactory(Protocol):
@@ -36,7 +43,78 @@ class _WandbModule(Protocol):
 
 
 def default_offline_wandb_directory() -> Path:
+    """Observational W&B directory. Never part of scientific artifact identity."""
+
     return Path(__file__).resolve().parents[3] / "target" / "wandb"
+
+
+def is_wandb_synchronization_path(relative: Path) -> bool:
+    """Return whether a path is mutable W&B metadata rather than a scientific artifact."""
+
+    if relative.is_absolute():
+        raise ValueError("W&B synchronization paths must be relative")
+    return MUTABLE_SYNCHRONIZATION_DIRECTORY_NAME in relative.parts or relative.name.endswith(
+        (".wandb", ".wandb.syncstate")
+    )
+
+
+def validate_local_wandb_base_url(base_url: str) -> str:
+    if type(base_url) is not str or not base_url:
+        raise ValueError("W&B base URL must be a nonempty string")
+    parsed = urlparse(base_url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("local W&B base URL must be http or https")
+    host = (parsed.hostname or "").lower()
+    if host not in _LOCAL_WANDB_HOSTS:
+        raise ValueError("W&B sync is restricted to a localhost instance")
+    if parsed.path not in {"", "/"}:
+        raise ValueError("local W&B base URL must not include a path")
+    return base_url
+
+
+def discover_offline_wandb_runs(directory: Path) -> tuple[Path, ...]:
+    """Find offline W&B run directories without walking scientific artifact roles."""
+
+    if not directory.is_dir():
+        raise FileNotFoundError(f"W&B directory does not exist: {directory}")
+    runs: list[Path] = []
+    for path in directory.rglob("offline-run-*"):
+        if not path.is_dir():
+            continue
+        if MUTABLE_SYNCHRONIZATION_DIRECTORY_NAME not in path.parts:
+            continue
+        if not any(
+            child.is_file() and (child.suffix == ".wandb" or child.name.endswith(".wandb"))
+            for child in path.iterdir()
+        ):
+            continue
+        runs.append(path)
+    return tuple(sorted(set(runs), key=lambda path: path.as_posix()))
+
+
+def sync_offline_wandb(
+    directory: Path,
+    *,
+    base_url: str = DEFAULT_LOCAL_WANDB_BASE_URL,
+) -> dict[str, object]:
+    """Sync offline W&B runs to a local instance. Never writes scientific artifacts."""
+
+    base_url = validate_local_wandb_base_url(base_url)
+    runs = discover_offline_wandb_runs(directory)
+    wandb = _import_wandb()
+    previous_env = _apply_sync_env(base_url)
+    try:
+        with _isolated_rng():
+            for run_dir in runs:
+                _invoke_wandb_sync(wandb, run_dir, base_url)
+    finally:
+        _restore_env(previous_env)
+    return {
+        "kind": "offline_wandb_sync",
+        "base_url": base_url,
+        "run_count": len(runs),
+        "runs": [str(path) for path in runs],
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +272,30 @@ def _apply_offline_env() -> dict[str, str | None]:
     os.environ["WANDB_MODE"] = "offline"
     os.environ["WANDB_SILENT"] = "true"
     return previous
+
+
+def _apply_sync_env(base_url: str) -> dict[str, str | None]:
+    previous = {key: os.environ.get(key) for key in _WANDB_SYNC_ENV_KEYS}
+    os.environ["WANDB_BASE_URL"] = base_url
+    os.environ["WANDB_SILENT"] = "true"
+    os.environ.pop("WANDB_MODE", None)
+    return previous
+
+
+def _invoke_wandb_sync(wandb_module: _WandbModule, run_dir: Path, base_url: str) -> None:
+    del base_url
+    sync = getattr(wandb_module, "sync", None)
+    if callable(sync):
+        sync(str(run_dir))
+        return
+    completed = subprocess.run(
+        [sys.executable, "-m", "wandb", "sync", str(run_dir)],
+        check=False,
+        capture_output=True,
+    )
+    if completed.returncode != 0:
+        stderr = completed.stderr.decode("utf-8", errors="replace")
+        raise RuntimeError(f"offline W&B sync failed for {run_dir}: {stderr}")
 
 
 def _restore_env(previous: Mapping[str, str | None]) -> None:

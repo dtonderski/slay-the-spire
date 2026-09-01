@@ -15,6 +15,7 @@ sts-combat-train = "sts_sim.rl.cli:train_main"
 sts-combat-evaluate = "sts_sim.rl.cli:evaluate_main"
 sts-combat-rollout = "sts_sim.rl.cli:rollout_main"
 sts-combat-puct-rollout = "sts_sim.rl.cli:puct_rollout_main"
+sts-combat-experiment = "sts_sim.rl.cli:experiment_main"
 
 [project.optional-dependencies]
 rl = [
