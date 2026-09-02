@@ -48,6 +48,53 @@ RANDOM_CONTRACT: dict[str, object] = {
         "canonical_public_action_descriptors",
     ],
 }
+_MATCHED_PUCT_RESTORE = "independent_from_identical_evaluation_roots"
+MATCHED_PUCT_REPORT_ARMS: tuple[str, ...] = (
+    "random",
+    "network",
+    "beam",
+    "network_puct",
+    "uniform_prior_network_value_puct",
+    "uniform_prior_constant_value_puct",
+)
+MATCHED_PUCT_SEARCH_ARMS: dict[str, dict[str, object]] = {
+    "random": {"restore": _MATCHED_PUCT_RESTORE, "uses_checkpoint": False},
+    "network": {"restore": _MATCHED_PUCT_RESTORE, "uses_checkpoint": True},
+    "beam": {"restore": _MATCHED_PUCT_RESTORE, "uses_checkpoint": False},
+    "network_puct": {
+        "restore": _MATCHED_PUCT_RESTORE,
+        "uses_checkpoint": True,
+        "puct_search_contract": "shared",
+        "prior": {"kind": "learned_policy_head", "over": "legal public actions"},
+        "leaf_value": {"kind": "learned_value_head", "range": [-1.0, 1.0]},
+    },
+    "uniform_prior_network_value_puct": {
+        "restore": _MATCHED_PUCT_RESTORE,
+        "uses_checkpoint": True,
+        "role": "policy-prior ablation, not an unguided baseline",
+        "puct_search_contract": "shared",
+        "prior": {"kind": "uniform", "over": "legal public actions"},
+        "leaf_value": {
+            "kind": "learned_value_head",
+            "note": "uses the checkpoint value head; this is not unguided PUCT",
+            "range": [-1.0, 1.0],
+        },
+    },
+    "uniform_prior_constant_value_puct": {
+        "restore": _MATCHED_PUCT_RESTORE,
+        "uses_checkpoint": False,
+        "role": "equal-budget unguided-search arm",
+        "puct_search_contract": "shared",
+        "prior": {"kind": "uniform", "over": "legal public actions"},
+        "leaf_value": {
+            "kind": "constant_nonlearned",
+            "note": (
+                "no network prior and no network value; only combat_proxy_v1 at true terminals"
+            ),
+            "value": 0.0,
+        },
+    },
+}
 
 
 def _canonical_bytes(payload: object) -> bytes:
@@ -699,7 +746,11 @@ def evaluate_matched_puct_roots(
     max_player_turns: int,
     deduplicate_search_states: bool,
 ) -> dict[str, object]:
-    from .puct import rollout_puct_policy
+    from .puct import (
+        rollout_puct_policy,
+        rollout_uniform_prior_constant_value_puct_policy,
+        rollout_uniform_prior_network_value_puct_policy,
+    )
 
     root_ids = [root_id for root_id, _ in split_roots]
     if root_ids != sorted(root_ids):
@@ -713,11 +764,13 @@ def evaluate_matched_puct_roots(
     random_episodes: list[PolicyEpisode] = []
     network_episodes: list[PolicyEpisode] = []
     beam_episodes: list[PolicyEpisode] = []
-    puct_episodes: list[PolicyEpisode] = []
+    network_puct_episodes: list[PolicyEpisode] = []
+    uniform_prior_network_value_episodes: list[PolicyEpisode] = []
+    uniform_prior_constant_value_episodes: list[PolicyEpisode] = []
     for root_id, snapshot_bytes in split_roots:
         hashes: list[str] = []
         root_hp: int | None = None
-        for _ in range(4):
+        for _ in MATCHED_PUCT_REPORT_ARMS:
             restored = _restore_independently(snapshot_bytes, root_id)
             hashes.append(restored.snapshot().hash)
             root_hp = _try_detached_player_hp(restored)
@@ -761,7 +814,7 @@ def evaluate_matched_puct_roots(
                 deduplicate_search_states=deduplicate_search_states,
             ),
         )
-        puct_episode = _run_restored_policy(
+        network_puct_episode = _run_restored_policy(
             snapshot_bytes,
             root_id,
             root_hp,
@@ -776,10 +829,40 @@ def evaluate_matched_puct_roots(
                 transition_budget=transition_budget,
             ),
         )
+        uniform_prior_network_value_episode = _run_restored_policy(
+            snapshot_bytes,
+            root_id,
+            root_hp,
+            lambda env: rollout_uniform_prior_network_value_puct_policy(
+                env,
+                model,
+                vocabularies,
+                max_decisions=max_decisions,
+                max_player_turns=max_player_turns,
+                c_puct=c_puct,
+                simulation_budget=simulation_budget,
+                transition_budget=transition_budget,
+            ),
+        )
+        uniform_prior_constant_value_episode = _run_restored_policy(
+            snapshot_bytes,
+            root_id,
+            root_hp,
+            lambda env: rollout_uniform_prior_constant_value_puct_policy(
+                env,
+                max_decisions=max_decisions,
+                max_player_turns=max_player_turns,
+                c_puct=c_puct,
+                simulation_budget=simulation_budget,
+                transition_budget=transition_budget,
+            ),
+        )
         random_episodes.append(random_episode)
         network_episodes.append(network_episode)
         beam_episodes.append(beam_episode)
-        puct_episodes.append(puct_episode)
+        network_puct_episodes.append(network_puct_episode)
+        uniform_prior_network_value_episodes.append(uniform_prior_network_value_episode)
+        uniform_prior_constant_value_episodes.append(uniform_prior_constant_value_episode)
         per_root.append(
             {
                 "root_id": root_id,
@@ -789,7 +872,13 @@ def evaluate_matched_puct_roots(
                     "random": _episode_row(random_episode),
                     "network": _episode_row(network_episode),
                     "beam": _episode_row(beam_episode),
-                    "puct": _episode_row(puct_episode),
+                    "network_puct": _episode_row(network_puct_episode),
+                    "uniform_prior_network_value_puct": _episode_row(
+                        uniform_prior_network_value_episode
+                    ),
+                    "uniform_prior_constant_value_puct": _episode_row(
+                        uniform_prior_constant_value_episode
+                    ),
                 },
             }
         )
@@ -797,17 +886,37 @@ def evaluate_matched_puct_roots(
         raise ValueError("matched root accounting is incomplete")
     return {
         "per_root": per_root,
+        "search_arms": MATCHED_PUCT_SEARCH_ARMS,
         "aggregates": {
             "random": aggregate_policy_metrics(random_episodes),
             "network": aggregate_policy_metrics(network_episodes),
             "beam": aggregate_policy_metrics(beam_episodes),
-            "puct": aggregate_policy_metrics(puct_episodes),
+            "network_puct": aggregate_policy_metrics(network_puct_episodes),
+            "uniform_prior_network_value_puct": aggregate_policy_metrics(
+                uniform_prior_network_value_episodes
+            ),
+            "uniform_prior_constant_value_puct": aggregate_policy_metrics(
+                uniform_prior_constant_value_episodes
+            ),
         },
         "paired": {
             "network_random": aggregate_paired_differences(random_episodes, network_episodes),
             "beam_network": aggregate_paired_differences(network_episodes, beam_episodes),
-            "puct_network": aggregate_paired_differences(network_episodes, puct_episodes),
-            "puct_beam": aggregate_paired_differences(beam_episodes, puct_episodes),
+            "network_puct_network": aggregate_paired_differences(
+                network_episodes, network_puct_episodes
+            ),
+            "network_puct_beam": aggregate_paired_differences(beam_episodes, network_puct_episodes),
+            "uniform_prior_network_value_puct_network_puct": aggregate_paired_differences(
+                network_puct_episodes, uniform_prior_network_value_episodes
+            ),
+            "uniform_prior_constant_value_puct_network_puct": aggregate_paired_differences(
+                network_puct_episodes, uniform_prior_constant_value_episodes
+            ),
+            "uniform_prior_constant_value_puct_uniform_prior_network_value_puct": (
+                aggregate_paired_differences(
+                    uniform_prior_network_value_episodes, uniform_prior_constant_value_episodes
+                )
+            ),
         },
     }
 
@@ -910,13 +1019,15 @@ def evaluate_matched_puct_gameplay(
         deduplicate_search_states=deduplicate_search_states,
     )
     report: dict[str, object] = {
-        "report_version": 1,
+        "report_version": 2,
         "kind": "matched_puct_gameplay_rollout",
         "promotion_claim": False,
         "privileged_puct": True,
+        "search_arms": MATCHED_PUCT_SEARCH_ARMS,
         "equal_transition_budget_note": (
-            "beam and privileged PUCT share the per-decision transition budget; "
-            "equal transitions do not imply equal compute"
+            "beam and privileged PUCT arms share the per-decision transition budget; "
+            "equal transitions do not imply equal compute. "
+            "uniform_prior_network_value_puct is a policy-prior ablation, not an unguided baseline"
         ),
         "split": split,
         "evaluation_seed": evaluation_seed,

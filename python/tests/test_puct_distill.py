@@ -381,7 +381,7 @@ def test_puct_training_logs_puct_targets_in_wandb(
     assert student["checkpoint_format"] == TRAINING_CHECKPOINT_FORMAT
 
 
-def test_four_policy_matched_roots_restore_independently_and_keep_errors() -> None:
+def test_six_policy_matched_roots_restore_independently_and_keep_errors() -> None:
     env, model, vocabularies = _tiny_policy_net()
     snapshot = env.snapshot()
     snapshot_bytes = snapshot.json.encode()
@@ -403,9 +403,23 @@ def test_four_policy_matched_roots_restore_independently_and_keep_errors() -> No
     policies = cast(
         dict[str, object], cast(list[dict[str, object]], report["per_root"])[0]["policies"]
     )
-    assert set(policies) == {"random", "network", "beam", "puct"}
+    assert set(policies) == {
+        "random",
+        "network",
+        "beam",
+        "network_puct",
+        "uniform_prior_network_value_puct",
+        "uniform_prior_constant_value_puct",
+    }
     aggregates = cast(dict[str, dict[str, object]], report["aggregates"])
-    for name in ("random", "network", "beam", "puct"):
+    for name in (
+        "random",
+        "network",
+        "beam",
+        "network_puct",
+        "uniform_prior_network_value_puct",
+        "uniform_prior_constant_value_puct",
+    ):
         row = aggregates[name]
         assert row["win_denominator"] == 1
         counted = (
@@ -502,20 +516,26 @@ def test_puct_labeling_root_mutation_hard_aborts(
     assert not output.exists() or not any(output.iterdir())
 
 
-def test_four_policy_rejects_invalid_beam_config() -> None:
+def test_six_policy_rejects_invalid_search_config() -> None:
     missing = Path("missing-roots.json")
     checkpoint = Path("missing-checkpoint.pt")
     with pytest.raises(ValueError, match="beam_depth must be a positive integer"):
         evaluate_matched_puct_gameplay(missing, checkpoint, beam_depth=0)
     with pytest.raises(ValueError, match="beam_width must be a positive integer"):
         evaluate_matched_puct_gameplay(missing, checkpoint, beam_width=0)
+    with pytest.raises(ValueError, match="simulation_budget must be a positive integer"):
+        evaluate_matched_puct_gameplay(missing, checkpoint, simulation_budget=0)
+    with pytest.raises(ValueError, match="transition_budget must be a positive integer"):
+        evaluate_matched_puct_gameplay(missing, checkpoint, transition_budget=0)
+    with pytest.raises(ValueError, match="c_puct must be finite and positive"):
+        evaluate_matched_puct_gameplay(missing, checkpoint, c_puct=0.0)
     with pytest.raises(TypeError, match="deduplicate_search_states must be boolean"):
         evaluate_matched_puct_gameplay(
             missing, checkpoint, deduplicate_search_states=cast(bool, "yes")
         )
 
 
-def test_four_policy_keeps_overflow_errors_in_the_denominator(
+def test_six_policy_keeps_overflow_errors_in_the_denominator(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     env, model, vocabularies = _tiny_policy_net()
@@ -545,23 +565,23 @@ def test_four_policy_keeps_overflow_errors_in_the_denominator(
         dict[str, dict[str, object]],
         cast(list[dict[str, object]], report["per_root"])[0]["policies"],
     )
-    assert policies["puct"]["status"] == "error"
-    assert policies["puct"]["error"] == "injected overflow"
-    assert type(policies["puct"]["terminal_hp"]) is int
+    assert policies["network_puct"]["status"] == "error"
+    assert policies["network_puct"]["error"] == "injected overflow"
+    assert type(policies["network_puct"]["terminal_hp"]) is int
     aggregates = cast(dict[str, dict[str, object]], report["aggregates"])
-    assert aggregates["puct"]["errors"] == 1
-    assert aggregates["puct"]["win_denominator"] == 1
+    assert aggregates["network_puct"]["errors"] == 1
+    assert aggregates["network_puct"]["win_denominator"] == 1
     counted = (
-        cast(int, aggregates["puct"]["errors"])
-        + cast(int, aggregates["puct"]["truncations"])
-        + cast(int, aggregates["puct"]["win_numerator"])
-        + cast(int, aggregates["puct"]["lost"])
-        + cast(int, aggregates["puct"]["escaped"])
+        cast(int, aggregates["network_puct"]["errors"])
+        + cast(int, aggregates["network_puct"]["truncations"])
+        + cast(int, aggregates["network_puct"]["win_numerator"])
+        + cast(int, aggregates["network_puct"]["lost"])
+        + cast(int, aggregates["network_puct"]["escaped"])
     )
     assert counted == 1
-    assert cast(dict[str, object], aggregates["puct"]["terminal_hp"])["count"] == 0
+    assert cast(dict[str, object], aggregates["network_puct"]["terminal_hp"])["count"] == 0
     paired = cast(dict[str, dict[str, object]], report["paired"])
-    for name in ("puct_network", "puct_beam"):
+    for name in ("network_puct_network", "network_puct_beam"):
         pair = paired[name]
         per_root = cast(list[dict[str, object]], pair["per_root"])
         assert len(per_root) == 1

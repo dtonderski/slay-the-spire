@@ -53,6 +53,8 @@ from .experiment import (
     write_scientific_artifact,
 )
 from .gameplay import (
+    MATCHED_PUCT_REPORT_ARMS,
+    MATCHED_PUCT_SEARCH_ARMS,
     RANDOM_CONTRACT,
     PolicyEpisode,
     aggregate_paired_differences,
@@ -76,11 +78,17 @@ from .model import (
 )
 from .provenance import RepositoryVersion, capture_repository_version, file_digest
 from .puct import (
+    constant_value_uniform_prior_leaf_evaluator,
     network_leaf_evaluator,
     puct_clone_episode_payload,
     puct_search_payload,
     rollout_puct_policy,
+    rollout_uniform_prior_constant_value_puct_policy,
+    rollout_uniform_prior_network_value_puct_policy,
     select_puct_action,
+    select_uniform_prior_constant_value_puct_action,
+    select_uniform_prior_network_value_puct_action,
+    uniform_prior_network_value_leaf_evaluator,
 )
 from .puct_data import generate_puct_dataset
 from .records import (
@@ -139,6 +147,8 @@ __all__ = [
     "COMBAT_PROXY_V1",
     "FIELD_COVERAGE",
     "MANDATORY_DISJOINTNESS_DIMENSIONS",
+    "MATCHED_PUCT_REPORT_ARMS",
+    "MATCHED_PUCT_SEARCH_ARMS",
     "RANDOM_CONTRACT",
     "SCALAR_INDEX",
     "SCALAR_NAMES",
@@ -192,6 +202,7 @@ __all__ = [
     "capture_repository_version",
     "collate_combat_tensors",
     "collate_training_examples",
+    "constant_value_uniform_prior_leaf_evaluator",
     "encoder_contract_digest",
     "evaluate_beam_clone",
     "evaluate_matched_gameplay",
@@ -223,14 +234,19 @@ __all__ = [
     "reproduce_experiment",
     "rollout_model_combat",
     "rollout_puct_policy",
+    "rollout_uniform_prior_constant_value_puct_policy",
+    "rollout_uniform_prior_network_value_puct_policy",
     "save_checkpoint",
     "select_greedy_action",
     "select_puct_action",
+    "select_uniform_prior_constant_value_puct_action",
+    "select_uniform_prior_network_value_puct_action",
     "summarize_rollouts",
     "sync_experiment_wandb",
     "teacher_conflict_report",
     "tensorize_combat",
     "train_beam_clone",
+    "uniform_prior_network_value_leaf_evaluator",
     "verify_artifact_integrity",
     "verify_train_to_evaluation_authorization",
     "write_artifact_inventory",
