@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
 import pytest
 
+import sts_sim.rl.data as data_module
+from sts_sim import RunEnv
 from sts_sim.rl import (
     SHARED_TRAINING_VOCABULARY_KIND,
     SHARED_TRAINING_VOCABULARY_VERSION,
@@ -17,14 +21,16 @@ from sts_sim.rl import (
     generate_legal_roots,
     generate_puct_dataset,
     load_dataset_manifest,
+    load_root_manifest,
     load_shared_training_vocabulary,
     publish_shared_training_vocabulary,
     read_jsonl,
     train_beam_clone,
+    write_jsonl,
 )
 from sts_sim.rl.data import DATASET_MANIFEST_V6, DATASET_MANIFEST_V7, DATASET_MANIFEST_VERSION
-from sts_sim.rl.puct import PUCT_TEACHER_NAME
-from sts_sim.rl.records import SymbolicTrainingRecord
+from sts_sim.rl.puct import PUCT_TEACHER_NAME, puct_clone_episode_payload
+from sts_sim.rl.records import PUCT_VALUE_TARGET_NAME, JsonValue, SymbolicTrainingRecord
 from sts_sim.rl.tensor import Vocabularies
 
 
@@ -59,6 +65,70 @@ def _canonical_bytes(payload: object) -> bytes:
 def _copy_dataset(manifest_path: Path, destination: Path) -> Path:
     shutil.copytree(manifest_path.parent, destination, symlinks=False)
     return destination / manifest_path.name
+
+
+def _resign_dataset_manifest(payload: dict[str, object]) -> None:
+    unsigned = dict(payload)
+    unsigned.pop("manifest_digest")
+    payload["manifest_digest"] = hashlib.sha256(
+        json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def _rewrite_puct_dataset_as_v6(manifest_path: Path) -> Path:
+    records = tuple(read_jsonl(manifest_path.parent / "train/train.jsonl"))
+    converted: list[SymbolicTrainingRecord] = []
+    for record in records:
+        search_config = cast(dict[str, object], record.to_dict()["search_config"])
+        search_config.pop("search_root_mean_name")
+        search_config["value_target_name"] = PUCT_VALUE_TARGET_NAME
+        converted.append(
+            SymbolicTrainingRecord(
+                observation=record.observation,
+                actions=record.actions,
+                chosen_action_index=record.chosen_action_index,
+                chosen_action=record.chosen_action,
+                teacher_visit_counts=record.teacher_visit_counts,
+                target_value=record.search_root_mean_value,
+                value_target_name=PUCT_VALUE_TARGET_NAME,
+                outcome=record.outcome,
+                planner_name=record.planner_name,
+                planner_version=record.planner_version,
+                search_config=cast(dict[str, JsonValue], search_config),
+                root_id=record.root_id,
+                split_group_id=record.split_group_id,
+                teacher_pair_id=record.teacher_pair_id,
+                repository=record.repository,
+                observation_digest=record.observation_digest,
+                record_version=3,
+                root_manifest_digest=record.root_manifest_digest,
+                reward_config_digest=record.reward_config_digest,
+                source_kind=record.source_kind,
+                episode_id=record.episode_id,
+                decision_index=record.decision_index,
+                value_target_mask=True,
+            )
+        )
+    shard = manifest_path.parent / "train/train.jsonl"
+    write_jsonl(shard, converted)
+    manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_payload["manifest_version"] = DATASET_MANIFEST_V6
+    manifest_payload["search_config"] = dict(converted[0].search_config)
+    manifest_payload["teacher_search_contract_digest"] = (
+        data_module._teacher_search_contract_digest(
+            cast(str, manifest_payload["teacher_name"]),
+            cast(str, manifest_payload["teacher_version"]),
+            cast(dict[str, object], manifest_payload["search_config"]),
+        )
+    )
+    manifest_payload["shard_digest"] = hashlib.sha256(shard.read_bytes()).hexdigest()
+    manifest_payload["record_ids"] = [cast(str, record.record_id) for record in converted]
+    _resign_dataset_manifest(manifest_payload)
+    manifest_path.write_text(
+        json.dumps(manifest_payload, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    return manifest_path
 
 
 @pytest.fixture(scope="module")
@@ -302,3 +372,107 @@ def test_shared_vocabulary_rejects_swapped_teacher_roles(
             paired_label_datasets["beam"],
             tmp_path / "swapped.json",
         )
+
+
+def test_shared_vocabulary_rejects_non_integer_version(
+    paired_label_datasets: dict[str, Path], tmp_path: Path
+) -> None:
+    publish_shared_training_vocabulary(
+        paired_label_datasets["beam"],
+        paired_label_datasets["puct"],
+        tmp_path / "shared-training-vocabulary.json",
+    )
+    payload = json.loads((tmp_path / "shared-training-vocabulary.json").read_text(encoding="utf-8"))
+    for label, version in (("bool", True), ("float", 1.0)):
+        tampered = dict(payload)
+        tampered["version"] = version
+        path = tmp_path / f"version-{label}.json"
+        path.write_bytes(_canonical_bytes(tampered))
+        with pytest.raises(ValueError, match="unsupported shared training vocabulary version"):
+            load_shared_training_vocabulary(
+                path,
+                beam_manifest_path=paired_label_datasets["beam"],
+                puct_manifest_path=paired_label_datasets["puct"],
+            )
+
+
+def test_shared_vocabulary_rejects_mismatched_root_membership(
+    paired_label_datasets: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0", "BEAMCLONE1"], max_run_steps=128)
+    roots = tmp_path / "roots/root-manifest.json"
+    train_ids = [root.root_id for root in load_root_manifest(roots).roots if root.split == "train"]
+    assert len(train_ids) == 2
+    generate_beam_dataset(
+        roots,
+        tmp_path / "beam",
+        split="train",
+        depth=2,
+        width=4,
+        transition_budget=100,
+        max_decisions=8,
+        max_player_turns=3,
+    )
+    original = puct_clone_episode_payload
+    calls = {"count": 0}
+
+    def boom(env: RunEnv, evaluator: Callable[[str], str], **kwargs: object) -> dict[str, object]:
+        calls["count"] += 1
+        del kwargs
+        if calls["count"] == 1:
+            raise RuntimeError("injected PUCT labeling failure")
+        return original(
+            env,
+            evaluator,
+            c_puct=1.5,
+            simulation_budget=4,
+            transition_budget=4,
+            max_decisions=2,
+            max_player_turns=3,
+            leaf_cache="exact_state",
+        )
+
+    monkeypatch.setattr("sts_sim.rl.puct_data.puct_clone_episode_payload", boom)
+    generate_puct_dataset(
+        roots,
+        tmp_path / "puct",
+        paired_label_datasets["checkpoint"],
+        split="train",
+        simulation_budget=4,
+        transition_budget=4,
+        max_decisions=2,
+        max_player_turns=3,
+    )
+    beam = load_dataset_manifest(tmp_path / "beam/dataset-manifest.json", requested_split="train")
+    puct = load_dataset_manifest(tmp_path / "puct/dataset-manifest.json", requested_split="train")
+    assert beam.cohort_digest == puct.cohort_digest
+    assert beam.root_manifest_digest == puct.root_manifest_digest
+    assert beam.roots != puct.roots
+    with pytest.raises(ValueError, match="realized training-root membership"):
+        publish_shared_training_vocabulary(
+            tmp_path / "beam/dataset-manifest.json",
+            tmp_path / "puct/dataset-manifest.json",
+            tmp_path / "mismatched-membership.json",
+        )
+
+
+def test_shared_vocabulary_publishes_from_v6_puct_datasets(
+    paired_label_datasets: dict[str, Path], tmp_path: Path
+) -> None:
+    v6 = _rewrite_puct_dataset_as_v6(
+        _copy_dataset(paired_label_datasets["puct"], tmp_path / "puct-v6")
+    )
+    loaded = load_dataset_manifest(v6, requested_split="train")
+    assert loaded.manifest_version == DATASET_MANIFEST_V6
+    assert all(record.record_version == 3 for record in read_jsonl(v6.parent / loaded.shard_path))
+    artifact = publish_shared_training_vocabulary(
+        paired_label_datasets["beam"], v6, tmp_path / "shared-v6.json"
+    )
+    assert (
+        load_shared_training_vocabulary(
+            tmp_path / "shared-v6.json",
+            beam_manifest_path=paired_label_datasets["beam"],
+            puct_manifest_path=v6,
+        )
+        == artifact
+    )

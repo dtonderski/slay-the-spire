@@ -14,6 +14,7 @@ from .data import (
     DATASET_MANIFEST_V7,
     DATASET_MANIFEST_VERSION,
     DatasetManifest,
+    _sha256_bytes,
     load_dataset_manifest,
 )
 from .experiment import (
@@ -21,7 +22,7 @@ from .experiment import (
     _read_regular_file_bytes,
     write_scientific_artifact,
 )
-from .records import PUCT_TEACHER_NAME, SymbolicTrainingRecord, read_jsonl
+from .records import PUCT_TEACHER_NAME, SymbolicTrainingRecord
 from .tensor import Vocabularies, VocabularyBuilder, encoder_contract_digest
 
 SHARED_TRAINING_VOCABULARY_KIND = "shared-training-vocabulary-v1"
@@ -124,6 +125,18 @@ def _serialized_vocabularies(value: object) -> dict[str, list[str]]:
     return serialized
 
 
+def _records_from_jsonl_bytes(content: bytes) -> tuple[SymbolicTrainingRecord, ...]:
+    records: list[SymbolicTrainingRecord] = []
+    for line_number, line in enumerate(content.decode("utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            records.append(SymbolicTrainingRecord.from_dict(json.loads(line)))
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"invalid symbolic record at line {line_number}") from error
+    return tuple(records)
+
+
 def _fit_union(
     beam_records: Sequence[SymbolicTrainingRecord],
     puct_records: Sequence[SymbolicTrainingRecord],
@@ -159,6 +172,8 @@ def _require_shared_training_pair(beam: DatasetManifest, puct: DatasetManifest) 
         raise ValueError("beam and PUCT datasets do not share a cohort digest")
     if beam.root_manifest_digest != puct.root_manifest_digest:
         raise ValueError("beam and PUCT datasets do not share a training root-manifest digest")
+    if beam.roots != puct.roots:
+        raise ValueError("beam and PUCT datasets do not share realized training-root membership")
 
 
 def _load_completed_dataset(
@@ -181,7 +196,10 @@ def _load_completed_dataset(
         _require_regular_file(dataset_root / relative, f"{role} dataset file {relative}")
     _reject_undeclared_dataset_inputs(dataset_root, declared)
     manifest = load_dataset_manifest(path, requested_split="train")
-    records = tuple(read_jsonl(dataset_root / manifest.shard_path))
+    shard_bytes = _read_regular_file_bytes(dataset_root / manifest.shard_path)
+    if _sha256_bytes(shard_bytes) != manifest.shard_digest:
+        raise ValueError("dataset shard digest is invalid")
+    records = _records_from_jsonl_bytes(shard_bytes)
     return manifest, records
 
 
@@ -267,7 +285,10 @@ def load_shared_training_vocabulary(
         raise ValueError("shared training vocabulary has missing or unknown fields")
     if payload["kind"] != SHARED_TRAINING_VOCABULARY_KIND:
         raise ValueError("unsupported shared training vocabulary kind")
-    if payload["version"] != SHARED_TRAINING_VOCABULARY_VERSION:
+    if (
+        type(payload["version"]) is not int
+        or payload["version"] != SHARED_TRAINING_VOCABULARY_VERSION
+    ):
         raise ValueError("unsupported shared training vocabulary version")
     for key in (
         "beam_dataset_manifest_digest",
@@ -323,8 +344,4 @@ def publish_shared_training_vocabulary(
     vocabularies = _fit_union(beam_records, puct_records)
     payload = _artifact_payload(beam, puct, vocabularies)
     write_scientific_artifact(output_path, _canonical_bytes(payload))
-    return load_shared_training_vocabulary(
-        output_path,
-        beam_manifest_path=beam_manifest_path,
-        puct_manifest_path=puct_manifest_path,
-    )
+    return _from_validated(payload, vocabularies)
