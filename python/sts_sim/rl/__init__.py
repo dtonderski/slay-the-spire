@@ -4,6 +4,19 @@ Import this subpackage explicitly; the base :mod:`sts_sim` package has no
 PyTorch import or runtime dependency.
 """
 
+from .authorization import (
+    AUTHORIZATION_KIND,
+    AUTHORIZATION_SCHEMA_VERSION,
+    AUTHORIZED_EVALUATOR_NAMES,
+    MANDATORY_DISJOINTNESS_DIMENSIONS,
+    HeldOutAuthorizationProof,
+    TrainToEvaluationAuthorization,
+    authorization_from_bindings,
+    load_authorization,
+    parse_authorization,
+    verify_train_to_evaluation_authorization,
+    write_authorization,
+)
 from .data import (
     DatasetExclusion,
     DatasetManifest,
@@ -119,9 +132,13 @@ from .treatment_control import (
 )
 
 __all__ = [
+    "AUTHORIZATION_KIND",
+    "AUTHORIZATION_SCHEMA_VERSION",
+    "AUTHORIZED_EVALUATOR_NAMES",
     "CATEGORY_NAMESPACES",
     "COMBAT_PROXY_V1",
     "FIELD_COVERAGE",
+    "MANDATORY_DISJOINTNESS_DIMENSIONS",
     "RANDOM_CONTRACT",
     "SCALAR_INDEX",
     "SCALAR_NAMES",
@@ -145,6 +162,7 @@ __all__ = [
     "ExperimentReproductionError",
     "FairCombatPolicyValueNet",
     "FrozenVocabulary",
+    "HeldOutAuthorizationProof",
     "LoadedCheckpoint",
     "PolicyEpisode",
     "PolicyValueOutput",
@@ -159,6 +177,7 @@ __all__ = [
     "TeacherConflictGroup",
     "TensorizedCombatDecision",
     "TensorizedTrainingExample",
+    "TrainToEvaluationAuthorization",
     "TrainingConfig",
     "TrainingResult",
     "Vocabularies",
@@ -167,6 +186,7 @@ __all__ = [
     "affine_tanh_win_probability",
     "aggregate_paired_differences",
     "aggregate_policy_metrics",
+    "authorization_from_bindings",
     "binary_win_loss_calibration",
     "calibrate_combat_proxy_win_loss",
     "capture_repository_version",
@@ -185,6 +205,7 @@ __all__ = [
     "generate_legal_roots",
     "generate_puct_dataset",
     "is_mutable_synchronization_path",
+    "load_authorization",
     "load_checkpoint",
     "load_dataset_manifest",
     "load_experiment_predeclaration",
@@ -192,6 +213,7 @@ __all__ = [
     "load_shared_training_vocabulary",
     "network_leaf_evaluator",
     "normalize_inventory_relative_path",
+    "parse_authorization",
     "policy_value_loss",
     "publish_shared_training_vocabulary",
     "puct_clone_episode_payload",
@@ -210,7 +232,9 @@ __all__ = [
     "tensorize_combat",
     "train_beam_clone",
     "verify_artifact_integrity",
+    "verify_train_to_evaluation_authorization",
     "write_artifact_inventory",
+    "write_authorization",
     "write_jsonl",
     "write_scientific_artifact",
 ]
