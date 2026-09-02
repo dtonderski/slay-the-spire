@@ -51,8 +51,8 @@ RANDOM_CONTRACT: dict[str, object] = {
     ],
 }
 _MATCHED_PUCT_RESTORE = "independent_from_identical_evaluation_roots"
-PREDECLARED_PUCT_MAX_DECISIONS = 128
-PREDECLARED_PUCT_MAX_PLAYER_TURNS = 40
+DEFAULT_MATCHED_PUCT_MAX_DECISIONS = 128
+DEFAULT_MATCHED_PUCT_MAX_PLAYER_TURNS = 40
 MATCHED_PUCT_REPORT_ARMS: tuple[str, ...] = (
     "random",
     "network",
@@ -1085,8 +1085,8 @@ def evaluate_matched_puct_gameplay(
     transition_budget: int = 64,
     beam_depth: int = 8,
     beam_width: int = 24,
-    max_decisions: int = PREDECLARED_PUCT_MAX_DECISIONS,
-    max_player_turns: int = PREDECLARED_PUCT_MAX_PLAYER_TURNS,
+    max_decisions: int = DEFAULT_MATCHED_PUCT_MAX_DECISIONS,
+    max_player_turns: int = DEFAULT_MATCHED_PUCT_MAX_PLAYER_TURNS,
     deduplicate_search_states: bool = True,
 ) -> dict[str, object]:
     if split not in _ALLOWED_SPLITS:
@@ -1216,45 +1216,3 @@ def evaluate_matched_puct_gameplay(
     report["search_arms"] = matched_puct_search_arms()
     report["report_digest"] = _digest(report)
     return report
-
-
-def evaluate_predeclared_matched_puct_gameplay(
-    root_manifest_path: Path,
-    checkpoint_path: Path,
-    *,
-    split: str = "development",
-    evaluation_seed: int = 0,
-    allow_audited_split: bool = False,
-    c_puct: float = 1.5,
-    simulation_budget: int = 64,
-    transition_budget: int = 64,
-    beam_depth: int = 8,
-    beam_width: int = 24,
-    max_decisions: int = PREDECLARED_PUCT_MAX_DECISIONS,
-    max_player_turns: int = PREDECLARED_PUCT_MAX_PLAYER_TURNS,
-    deduplicate_search_states: bool = True,
-) -> dict[str, object]:
-    if (
-        max_decisions != PREDECLARED_PUCT_MAX_DECISIONS
-        or max_player_turns != PREDECLARED_PUCT_MAX_PLAYER_TURNS
-    ):
-        raise ValueError(
-            "predeclared matched PUCT evaluation requires "
-            f"max_decisions={PREDECLARED_PUCT_MAX_DECISIONS} and "
-            f"max_player_turns={PREDECLARED_PUCT_MAX_PLAYER_TURNS}"
-        )
-    return evaluate_matched_puct_gameplay(
-        root_manifest_path,
-        checkpoint_path,
-        split=split,
-        evaluation_seed=evaluation_seed,
-        allow_audited_split=allow_audited_split,
-        c_puct=c_puct,
-        simulation_budget=simulation_budget,
-        transition_budget=transition_budget,
-        beam_depth=beam_depth,
-        beam_width=beam_width,
-        max_decisions=max_decisions,
-        max_player_turns=max_player_turns,
-        deduplicate_search_states=deduplicate_search_states,
-    )

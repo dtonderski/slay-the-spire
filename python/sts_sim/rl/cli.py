@@ -18,10 +18,10 @@ from .experiment import (
     write_scientific_artifact,
 )
 from .gameplay import (
-    PREDECLARED_PUCT_MAX_DECISIONS,
-    PREDECLARED_PUCT_MAX_PLAYER_TURNS,
+    DEFAULT_MATCHED_PUCT_MAX_DECISIONS,
+    DEFAULT_MATCHED_PUCT_MAX_PLAYER_TURNS,
     evaluate_matched_gameplay,
-    evaluate_predeclared_matched_puct_gameplay,
+    evaluate_matched_puct_gameplay,
 )
 from .puct_data import generate_puct_dataset
 from .tracking import (
@@ -248,14 +248,16 @@ def puct_rollout_main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--transition-budget", type=int, default=64)
     parser.add_argument("--beam-depth", type=int, default=8)
     parser.add_argument("--beam-width", type=int, default=24)
-    parser.add_argument("--max-decisions", type=int, default=PREDECLARED_PUCT_MAX_DECISIONS)
-    parser.add_argument("--max-player-turns", type=int, default=PREDECLARED_PUCT_MAX_PLAYER_TURNS)
+    parser.add_argument("--max-decisions", type=int, default=DEFAULT_MATCHED_PUCT_MAX_DECISIONS)
+    parser.add_argument(
+        "--max-player-turns", type=int, default=DEFAULT_MATCHED_PUCT_MAX_PLAYER_TURNS
+    )
     parser.add_argument(
         "--deduplicate-search-states", action=argparse.BooleanOptionalAction, default=True
     )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args(argv)
-    report = evaluate_predeclared_matched_puct_gameplay(
+    report = evaluate_matched_puct_gameplay(
         args.roots,
         args.checkpoint,
         split=args.split,

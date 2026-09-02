@@ -12,8 +12,6 @@ from sts_sim import FairCombatObservation, RunEnv
 from sts_sim.rl import (
     MATCHED_PUCT_REPORT_ARMS,
     MATCHED_PUCT_SEARCH_ARMS,
-    PREDECLARED_PUCT_MAX_DECISIONS,
-    PREDECLARED_PUCT_MAX_PLAYER_TURNS,
     CombatModelConfig,
     FairCombatPolicyValueNet,
     PolicyValueOutput,
@@ -22,7 +20,6 @@ from sts_sim.rl import (
     evaluate_matched_puct_gameplay,
     evaluate_matched_puct_roots,
     evaluate_matched_puct_roots_v2,
-    evaluate_predeclared_matched_puct_gameplay,
     gameplay,
     puct_search_payload,
     select_puct_action,
@@ -425,14 +422,11 @@ def test_search_arm_attestation_is_isolated_from_report_mutation() -> None:
     assert second_role["uniform_prior_network_value_puct"]["role"] == expected
 
 
-def test_predeclared_puct_gameplay_rejects_mismatched_episode_caps() -> None:
-    missing = Path("missing-roots.json")
-    checkpoint = Path("missing-checkpoint.pt")
+def test_matched_puct_gameplay_defaults_use_next_epoch_episode_caps() -> None:
     defaults = evaluate_matched_puct_gameplay.__kwdefaults__
     assert defaults is not None
-    assert defaults["max_decisions"] == PREDECLARED_PUCT_MAX_DECISIONS
-    assert defaults["max_player_turns"] == PREDECLARED_PUCT_MAX_PLAYER_TURNS
-    with pytest.raises(ValueError, match="predeclared matched PUCT evaluation requires"):
-        evaluate_predeclared_matched_puct_gameplay(missing, checkpoint, max_decisions=512)
-    with pytest.raises(ValueError, match="predeclared matched PUCT evaluation requires"):
-        evaluate_predeclared_matched_puct_gameplay(missing, checkpoint, max_player_turns=100)
+    assert defaults["max_decisions"] == gameplay.DEFAULT_MATCHED_PUCT_MAX_DECISIONS
+    assert defaults["max_player_turns"] == gameplay.DEFAULT_MATCHED_PUCT_MAX_PLAYER_TURNS
+    assert gameplay.DEFAULT_MATCHED_PUCT_MAX_DECISIONS == 128
+    assert gameplay.DEFAULT_MATCHED_PUCT_MAX_PLAYER_TURNS == 40
+    assert not hasattr(gameplay, "evaluate_predeclared_matched_puct_gameplay")
