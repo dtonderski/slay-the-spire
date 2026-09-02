@@ -37,6 +37,7 @@ from .rewards import COMBAT_PROXY_V1, CombatRewardConfig
 
 ROOT_MANIFEST_V4 = 4
 ROOT_MANIFEST_VERSION = 5
+ROOT_MANIFEST_V6 = 6
 DATASET_MANIFEST_VERSION = 5
 DATASET_MANIFEST_V6 = 6
 DATASET_MANIFEST_V7 = 7
@@ -68,6 +69,7 @@ _ROOT_MANIFEST_V4_KEYS = frozenset(
     }
 )
 _ROOT_MANIFEST_V5_KEYS = _ROOT_MANIFEST_V4_KEYS | {"combat_depth"}
+_ROOT_MANIFEST_V6_KEYS = _ROOT_MANIFEST_V5_KEYS | {"source_epoch_bundle_digest"}
 _ALLOWED_SPLITS = {"train", "development", "sealed_test", "real_trace_audit"}
 _AUDITED_SPLITS = {"sealed_test", "real_trace_audit"}
 _SOURCE_KIND = "simulator_legal_v1"
@@ -91,6 +93,17 @@ def _require_digest(value: object, label: str) -> str:
     ):
         raise ValueError(f"{label} must be a lowercase SHA-256 digest")
     return value
+
+
+def _require_nonempty_strings(value: object, label: str) -> tuple[str, ...]:
+    if type(value) is not list:
+        raise TypeError(f"{label} must be an array")
+    items: list[str] = []
+    for item in cast(list[object], value):
+        if type(item) is not str or not item:
+            raise TypeError(f"{label} entries must be nonempty strings")
+        items.append(item)
+    return tuple(items)
 
 
 def _atomic_write(path: Path, content: bytes) -> None:
@@ -235,6 +248,7 @@ class RootManifest:
     roots: tuple[RootEntry, ...]
     exclusions: tuple[RootExclusion, ...]
     manifest_digest: str
+    source_epoch_bundle_digest: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -260,8 +274,12 @@ class RootManifest:
             "exclusions": [asdict(exclusion) for exclusion in self.exclusions],
             "manifest_digest": self.manifest_digest,
         }
-        if self.manifest_version == ROOT_MANIFEST_VERSION:
+        if self.manifest_version != ROOT_MANIFEST_V4:
             payload["combat_depth"] = self.combat_depth
+        if self.manifest_version == ROOT_MANIFEST_V6:
+            if self.source_epoch_bundle_digest is None:
+                raise ValueError("source-epoch-bundle digest is required for root manifest v6")
+            payload["source_epoch_bundle_digest"] = self.source_epoch_bundle_digest
         return payload
 
     @classmethod
@@ -277,6 +295,7 @@ class RootManifest:
                 raise ValueError("unsupported or malformed root manifest")
             combat_depth = 1
             expected_generator_version = _GENERATOR_VERSION_V4
+            source_epoch_bundle_digest = None
         elif version == ROOT_MANIFEST_VERSION:
             if set(source) != _ROOT_MANIFEST_V5_KEYS:
                 raise ValueError("unsupported or malformed root manifest")
@@ -285,6 +304,18 @@ class RootManifest:
                 raise ValueError("root manifest combat depth is invalid")
             combat_depth = raw_depth
             expected_generator_version = _GENERATOR_VERSION
+            source_epoch_bundle_digest = None
+        elif version == ROOT_MANIFEST_V6:
+            if set(source) != _ROOT_MANIFEST_V6_KEYS:
+                raise ValueError("unsupported or malformed root manifest")
+            raw_depth = source["combat_depth"]
+            if type(raw_depth) is not int or raw_depth <= 0:
+                raise ValueError("root manifest combat depth is invalid")
+            combat_depth = raw_depth
+            expected_generator_version = _GENERATOR_VERSION
+            source_epoch_bundle_digest = _require_digest(
+                source["source_epoch_bundle_digest"], "source-epoch-bundle digest"
+            )
         else:
             raise ValueError("unsupported or malformed root manifest")
         generator_name = source["generator_name"]
@@ -312,16 +343,16 @@ class RootManifest:
             item = cast(dict[str, object], raw)
             if set(item) != set(RootEntry.__dataclass_fields__):
                 raise ValueError("root entry has missing or unknown fields")
-            if type(item["lineages"]) is not list or type(item["source_seeds"]) is not list:
-                raise TypeError("root provenance must be arrays")
+            lineages = _require_nonempty_strings(item["lineages"], "root lineages")
+            source_seeds = _require_nonempty_strings(item["source_seeds"], "root source seeds")
             roots.append(
                 RootEntry(
                     cast(str, item["root_id"]),
                     cast(str, item["split"]),
                     cast(str, item["split_group_id"]),
                     cast(str, item["relative_path"]),
-                    tuple(cast(list[str], item["lineages"])),
-                    tuple(cast(list[str], item["source_seeds"])),
+                    lineages,
+                    source_seeds,
                 )
             )
         exclusions: list[RootExclusion] = []
@@ -354,6 +385,7 @@ class RootManifest:
             tuple(roots),
             tuple(exclusions),
             _require_digest(source["manifest_digest"], "root manifest digest"),
+            source_epoch_bundle_digest,
         )
         if type(manifest.ascension) is not int or not 0 <= manifest.ascension <= 20:
             raise ValueError("root manifest ascension is invalid")
@@ -384,9 +416,7 @@ class RootManifest:
             ascension=manifest.ascension,
             max_run_steps=manifest.max_run_steps,
             combat_depth=(
-                manifest.combat_depth
-                if manifest.manifest_version == ROOT_MANIFEST_VERSION
-                else None
+                manifest.combat_depth if manifest.manifest_version != ROOT_MANIFEST_V4 else None
             ),
         ):
             raise ValueError("root cohort digest is invalid")
@@ -431,26 +461,45 @@ class RootManifest:
         return manifest
 
 
-def load_root_manifest(
-    path: Path, *, verify_roots: bool = True, allow_audited_materialization: bool = False
+def parse_root_manifest(
+    content: bytes, *, allow_audited_materialization: bool = False
 ) -> RootManifest:
-    content = path.read_bytes()
-    manifest = RootManifest.from_dict(json.loads(content))
+    """Parse canonical root-manifest bytes without reading the path again."""
+
+    try:
+        payload = json.loads(content)
+    except json.JSONDecodeError as error:
+        raise ValueError("root manifest is not JSON") from error
+    manifest = RootManifest.from_dict(payload)
     if content != _canonical_bytes(manifest.to_dict()):
         raise ValueError("root manifest is not canonical")
     if manifest.audited_splits_materialized and not allow_audited_materialization:
         raise PermissionError("audited root materialization requires explicit access")
+    return manifest
+
+
+def _require_canonical_root_snapshot(content: bytes, root_id: str) -> bytes:
+    try:
+        snapshot = json.loads(content)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"root {root_id} is not JSON") from error
+    canonical = _canonical_bytes(snapshot)
+    if content != canonical or _sha256_bytes(canonical) != root_id:
+        raise ValueError(f"root {root_id} is not canonical")
+    return canonical
+
+
+def load_root_manifest(
+    path: Path, *, verify_roots: bool = True, allow_audited_materialization: bool = False
+) -> RootManifest:
+    manifest = parse_root_manifest(
+        path.read_bytes(),
+        allow_audited_materialization=allow_audited_materialization,
+    )
     if verify_roots:
         for root in manifest.roots:
             root_path = path.parent / root.relative_path
-            content = root_path.read_bytes()
-            try:
-                snapshot = json.loads(content)
-            except json.JSONDecodeError as error:
-                raise ValueError(f"root {root.root_id} is not JSON") from error
-            canonical = _canonical_bytes(snapshot)
-            if content != canonical or _sha256_bytes(canonical) != root.root_id:
-                raise ValueError(f"root {root.root_id} is not canonical")
+            canonical = _require_canonical_root_snapshot(root_path.read_bytes(), root.root_id)
             restored = RunEnv.from_snapshot(canonical.decode())
             decision = restored.decision()
             if (

@@ -246,7 +246,10 @@ def test_depth_two_root_is_later_public_position_than_depth_one(tmp_path: Path) 
 
 
 def test_root_manifest_key_sets_match_dataclass() -> None:
-    assert data_module._ROOT_MANIFEST_V5_KEYS == set(RootManifest.__dataclass_fields__)
+    assert data_module._ROOT_MANIFEST_V6_KEYS == set(RootManifest.__dataclass_fields__)
+    assert data_module._ROOT_MANIFEST_V5_KEYS == data_module._ROOT_MANIFEST_V6_KEYS - {
+        "source_epoch_bundle_digest"
+    }
     assert data_module._ROOT_MANIFEST_V4_KEYS == data_module._ROOT_MANIFEST_V5_KEYS - {
         "combat_depth"
     }

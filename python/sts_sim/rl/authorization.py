@@ -3,7 +3,8 @@
 This module does not run evaluation and does not change sealed or audit access.
 Later review wires it into static and gameplay evaluation after the six-arm
 evaluator lands. Booleans stored on disk are never proof; every digest and
-disjointness check is recomputed from the loaded manifests.
+disjointness check is recomputed from the loaded manifests. Root manifests must
+be source-epoch-bundle bound (v6); unbound v4/v5 manifests fail closed.
 """
 
 from __future__ import annotations
@@ -16,7 +17,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from .data import RootManifest, load_root_manifest
+from .data import (
+    RootManifest,
+    _require_canonical_root_snapshot,
+    parse_root_manifest,
+)
 from .experiment import (
     _absolute_without_follow,
     _lstat,
@@ -181,7 +186,8 @@ def parse_authorization(payload: object) -> TrainToEvaluationAuthorization:
         raise ValueError("authorization has missing or unknown fields")
     if source["kind"] != AUTHORIZATION_KIND:
         raise ValueError("unsupported authorization kind")
-    if source["schema_version"] != AUTHORIZATION_SCHEMA_VERSION:
+    schema_version = _require_int(source["schema_version"], "authorization schema version")
+    if schema_version != AUTHORIZATION_SCHEMA_VERSION:
         raise ValueError("unsupported authorization schema version")
     names = _require_string_list(source["authorized_evaluator_names"], "authorized evaluator names")
     unknown = [name for name in names if name not in AUTHORIZED_EVALUATOR_NAMES]
@@ -273,9 +279,7 @@ def _load_cohort_manifest(path: Path, label: str) -> tuple[RootManifest, str]:
     _reject_symlink(path, f"{label} root manifest")
     content = _read_regular_file_bytes(path)
     file_digest = _sha256_bytes(content)
-    # verify_roots=False: this verifier must not execute evaluation restores.
-    # load_root_manifest keeps the existing sealed/audit permission boundary.
-    manifest = load_root_manifest(path, verify_roots=False)
+    manifest = parse_root_manifest(content)
     if not manifest.roots:
         raise ValueError(f"{label} cohort is empty")
     parent = _absolute_without_follow(path).parent
@@ -291,17 +295,22 @@ def _load_cohort_manifest(path: Path, label: str) -> tuple[RootManifest, str]:
                 raise ValueError(f"{label} cohort has a duplicate generation seed")
             seen_seeds.add(seed)
         for lineage in root.lineages:
+            if type(lineage) is not str or not lineage:
+                raise TypeError(f"{label} lineages must be nonempty strings")
             if lineage in seen_lineages:
                 raise ValueError(f"{label} cohort has a duplicate lineage")
             seen_lineages.add(lineage)
         relative = normalize_inventory_relative_path(root.relative_path)
         snapshot = resolve_inventory_path(parent, relative)
         info = _lstat(snapshot)
-        if info is not None and stat.S_ISLNK(info.st_mode):
+        if info is None:
+            raise ValueError(f"{label} root snapshot is missing: {snapshot}")
+        if stat.S_ISLNK(info.st_mode):
             raise ValueError(f"{label} root path must not be a symlink: {snapshot}")
-        if info is not None and not stat.S_ISREG(info.st_mode):
+        if not stat.S_ISREG(info.st_mode):
             raise ValueError(f"{label} root path must be a regular file: {snapshot}")
         _reject_symlink(snapshot.parent, f"{label} root path")
+        _require_canonical_root_snapshot(_read_regular_file_bytes(snapshot), root.root_id)
     return manifest, file_digest
 
 
@@ -368,6 +377,22 @@ def verify_train_to_evaluation_authorization(
         raise ValueError("evaluation root-manifest digest does not match authorization")
     if evaluation_manifest.cohort_digest != authorization.evaluation_cohort_digest:
         raise ValueError("evaluation cohort digest does not match authorization")
+    if (
+        training_manifest.source_epoch_bundle_digest is None
+        or evaluation_manifest.source_epoch_bundle_digest is None
+    ):
+        raise ValueError("root manifests are not source-epoch-bundle bound")
+    if (
+        training_manifest.source_epoch_bundle_digest
+        != evaluation_manifest.source_epoch_bundle_digest
+    ):
+        raise ValueError("training and evaluation source-epoch-bundle digests differ")
+    if training_manifest.source_epoch_bundle_digest != expected_bundle:
+        raise ValueError("training source-epoch-bundle digest does not match the caller digest")
+    if evaluation_manifest.source_epoch_bundle_digest != expected_bundle:
+        raise ValueError("evaluation source-epoch-bundle digest does not match the caller digest")
+    if authorization.source_epoch_bundle_digest != expected_bundle:
+        raise ValueError("source-epoch-bundle digest does not match the caller digest")
 
     training_identities = _cohort_identities(training_manifest)
     evaluation_identities = _cohort_identities(evaluation_manifest)
