@@ -318,17 +318,18 @@ The types have distinct authority:
   choices, player-visible events, later fair observations, and summaries
   derived from that history. It cannot contain `RunState`, snapshots, internal
   IDs, game RNG, or hashes.
-- **`FairBelief`** owns `PublicKnowledge`, a versioned source-backed prior, a
+- **`FairBelief`** owns `PublicKnowledge`, a versioned prior, a
   named deterministic belief RNG, and weighted particles. It is a distribution
   description, not a simulator state.
 - A **particle** is a weight plus a private `HiddenHypothesis`: sampled pile
-  permutations, committed-hidden variables, and combat RNG derived from
-  generated run seeds. It is not a public type, does not deserialize, and
+  permutations, independently sampled combat RNG, and independently sampled
+  run-envelope seeds. It is not a public type, does not deserialize, and
   contains no copied simulator scaffold.
 - The **materializer** deterministically constructs a new authoritative rollout
-  from a belief-owned particle. Its public API does not accept a hypothesis,
-  true state, or snapshot. All internal IDs are allocated anew. The generated
-  state must validate and project byte-for-byte to the latest fair observation.
+  from a belief-owned particle. Its crate-private API does not accept a
+  hypothesis, true state, or snapshot. All internal IDs are allocated anew. The
+  generated state must validate and project byte-for-byte to the latest fair
+  observation.
 
 Cloning a generated rollout inside search is ordinary simulation. Cloning the
 real hidden root to initialize a belief is forbidden. The real root exists only
@@ -342,8 +343,8 @@ placements, executed monster moves, shuffle events, retained-hand effects, and
 other visible transitions. Therefore:
 
 - the first player decision may initialize `PublicKnowledge` only with an opaque
-  start capability emitted by the fair runtime facade; pile shape and zero
-  counters are not proof of an opening root;
+  start token bound to that observation; pile shape and zero counters are not
+  proof of an opening root, and no production issuer exists yet;
 - a later root will be accepted only with a facade-validated complete public
   action/observation/event prefix or checkpoint. That capability is not yet
   integrated, so the current slice refuses all mid-combat initialization;
@@ -374,14 +375,17 @@ RNG counters. Public values may legitimately be reconstructed from
 Unknown pile order is sampled as a uniform permutation of the public multiset.
 Frozen Eye supplies the complete public draw order, but never makes discard or
 exhaust storage order public. Future Headbutt/Scry prefixes belong in
-`PublicKnowledge`. Combat RNG is the source-backed joint process from combat
-entry: shuffle and monster-HP share the floor-adjusted event seed, aiRng uses
-the floor-adjusted monster seed, and card-random uses the generated reward seed
-plus public floor. Run-envelope seeds themselves are sampled independently
-because master-seed reconstruction from public outcomes is out of protocol.
-Counters start at zero; realized entry consumption is not reconstructed.
+`PublicKnowledge`. Combat RNG and run-envelope seeds are independently sampled
+exchangeable-future values. They are not reconstructed from a master seed and
+are not the post-entry stream states after opening shuffle, HP, and AI rolls.
+A later prior may implement and condition the actual entry process; doing that
+from public outcomes without a declared source-backed likelihood is seed
+recovery and remains out of protocol. The current prior version
+`a0_act1_simple_combat_exchangeable_v1` names that approximation explicitly.
 The hypothesis type is opaque, not publicly deserializable, and materialization
-accepts only belief-owned particles.
+accepts only belief-owned particles. The construction, materialization, and
+rollout-stepping APIs stay crate-private until a fair facade issues bound
+knowledge and resolves public choices.
 
 The implementation may later replace eager pile permutations with lazy
 commitment, but that optimization must preserve the same distribution and fresh
@@ -409,12 +413,12 @@ its authority ends at combat termination. Map, reward, event, shop, and pool
 state in that envelope is canonical unreachable scaffolding, not a belief claim.
 A full-run materializer requires explicit priors for every such hidden field.
 
-Current Rust slice (`a0_act1_simple_combat_v2`) supports only A0 Act 1
+Current Rust slice (`a0_act1_simple_combat_exchangeable_v1`) supports only A0 Act 1
 `waiting_for_player` roots with no active selection, potions, player powers, or
 orbs; base Strike/Defend/Bash cards; stateless Burning Blood/Frozen Eye; and
-opening Cultist roots or the deterministic simple test monster. The opaque
-first-decision capability is currently constructible only inside core tests;
-runtime public-start/event emission is the next integration gate. Mid-combat
+opening Cultist roots or the deterministic simple test monster. First-decision
+tokens are observation-bound, not cloneable, and crate-private; no production
+issuer exists yet. Mid-combat
 public histories, hidden intent, other monsters/cards/relic state, queues, and
 run-level continuation fail closed. No belief update or fair search is
 implemented yet.

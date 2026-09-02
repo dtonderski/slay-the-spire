@@ -18,7 +18,7 @@ projection. Neural inference remains `FairCombatObservation` plus public
 |---|---|---|
 | **Public** | Real UI shows it now, or the current schema already projects it with a recorded UI/history justification. | Store in `PublicKnowledge`; reconstruct the public field of a fresh generated rollout. Legal neural input. |
 | **Public-history** | A careful player can derive it from earlier UI, but the current observation may omit it. | Compute only from the typed public event prefix. Missing snapshot-only history is refused. |
-| **Latent-generative** | Hidden now; a source-backed prior exists so a private `HiddenHypothesis` may sample it without truth. Combat RNG uses the combat-entry joint process from generated run seeds; pile order is sampled independently of those streams. | Sample without truth. Observations may condition/reweight; never patch hidden state. |
+| **Latent-generative** | Hidden now; a declared prior may sample it without truth. Pile order uses a uniform permutation of the public multiset. Combat RNG in this slice is an independently sampled exchangeable-future approximation, not post-entry reconstruction. | Sample without truth. Observations may condition/reweight; never patch hidden state. |
 | **Forbidden** | Hidden with no source-backed prior, or internal identity/queue scaffolding. | Refuse. Internal IDs may be newly allocated deterministically, but are never copied or inferred. |
 
 Exchangeable-randomness convention (architecture §1 seed-divination caveat):
@@ -123,7 +123,7 @@ constructs them from public history, samples them through a declared prior, or
 refuses the root. Canonical run-envelope fields are allowed only when they are
 provably unreachable before the combat-only horizon ends.
 
-### 2.1 Combat RNG — joint source-backed construction, never neural input
+### 2.1 Combat RNG — exchangeable future, never neural input
 
 `CombatRngState` flattened onto `CombatState`: `shuffle_rng`, `monster_rng`
 (aiRng), `monster_hp_rng`, `card_random_rng`. Each `StsRng` has `seed0`,
@@ -132,11 +132,16 @@ provably unreachable before the combat-only horizon ends.
 Combat entry derives these streams from floor-adjusted run seeds
 (`crates/sts_core/src/run/map.rs` `enter_combat_with_monsters`): shuffle and
 monster-HP share `event_rng_seed + floor`, aiRng uses `monster_rng_seed + floor`,
-and card-random uses the reward seed plus floor. The implemented prior
-`a0_act1_simple_combat_v2` samples run-envelope seeds independently (master-seed
-reconstruction is out of protocol) and then constructs combat RNG by that joint
-process at counter zero. It does not independently sample raw combat stream
-states, and it does not reconstruct realized entry consumption.
+and card-random uses the reward seed plus floor. After entry, those streams have
+already consumed opening shuffle, HP, and AI rolls.
+
+The implemented prior `a0_act1_simple_combat_exchangeable_v1` does **not** claim
+that generated combat RNG is that post-entry state. It independently samples
+run-envelope seeds and independently samples combat stream raw states at counter
+zero. That is an exchangeable-future approximation for unrealized draws.
+Master-seed reconstruction and conditioning the true entry process on public
+HP/intent are out of protocol for reported agents. Consumers must not treat the
+sampled streams as calibrated post-entry counters.
 
 Run-level twins (`shuffle_rng_seed` / `_counter`, `monster_rng_*`,
 `card_random_rng_*`, plus potion/relic/event/merchant/treasure/misc/card
@@ -145,7 +150,7 @@ refused.
 
 Belief RNG for particles is a **separate named sampler**. It must not be
 `shuffleRng` cryptanalysis from observed draws. Hypotheses are opaque and not
-publicly deserializable.
+publicly deserializable. Belief and rollout Debug output is redacted.
 
 ### 2.2 Pile order and identities
 

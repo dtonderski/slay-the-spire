@@ -2931,6 +2931,7 @@ impl RunState {
         run
     }
 
+    #[allow(dead_code)] // Used by crate-private fair-belief materialization.
     pub(crate) fn fresh_combat_rollout_shell(ascension: u8) -> Self {
         Self::ironclad_run_base(ascension)
     }
