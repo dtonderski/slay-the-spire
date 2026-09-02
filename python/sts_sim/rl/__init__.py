@@ -110,6 +110,13 @@ from .training import (
     evaluate_beam_clone,
     train_beam_clone,
 )
+from .treatment_control import (
+    SHARED_TRAINING_VOCABULARY_KIND,
+    SHARED_TRAINING_VOCABULARY_VERSION,
+    SharedTrainingVocabulary,
+    load_shared_training_vocabulary,
+    publish_shared_training_vocabulary,
+)
 
 __all__ = [
     "CATEGORY_NAMESPACES",
@@ -118,6 +125,8 @@ __all__ = [
     "RANDOM_CONTRACT",
     "SCALAR_INDEX",
     "SCALAR_NAMES",
+    "SHARED_TRAINING_VOCABULARY_KIND",
+    "SHARED_TRAINING_VOCABULARY_VERSION",
     "UNDECLARED_POLICY_REPORT_ONLY",
     "UNDECLARED_POLICY_STRICT",
     "ArtifactIntegrityError",
@@ -144,6 +153,7 @@ __all__ = [
     "RootEntry",
     "RootExclusion",
     "RootManifest",
+    "SharedTrainingVocabulary",
     "SymbolicCombatDataset",
     "SymbolicTrainingRecord",
     "TeacherConflictGroup",
@@ -179,9 +189,11 @@ __all__ = [
     "load_dataset_manifest",
     "load_experiment_predeclaration",
     "load_root_manifest",
+    "load_shared_training_vocabulary",
     "network_leaf_evaluator",
     "normalize_inventory_relative_path",
     "policy_value_loss",
+    "publish_shared_training_vocabulary",
     "puct_clone_episode_payload",
     "puct_search_payload",
     "random_policy_index",
