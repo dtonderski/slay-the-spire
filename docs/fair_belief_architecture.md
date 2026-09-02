@@ -1,10 +1,12 @@
 # Fair Belief Architecture
 
-Status: future-stage belief design. Belief/particle implementation is deferred;
-the active pre-belief contracts are
-[`fair_combat_api_design.md`](fair_combat_api_design.md) and
+Status: Rust public-knowledge/hypothesis/materializer foundation implemented;
+belief update, fair search, and learned belief implementation remain deferred.
+The active boundary contracts include
+[`fair_combat_api_design.md`](fair_combat_api_design.md),
+[`fair_belief_contracts.md`](fair_belief_contracts.md), and
 [`combat_rl_architecture.md`](combat_rl_architecture.md).
-Last reconciled: 2026-07-23.
+Last reconciled: 2026-09-02.
 
 This document designs a fair agent architecture for Ironclad combat and run
 play that handles hidden information without cheating. It consolidates and
@@ -47,14 +49,14 @@ Hard constraints restated:
    simulator/particle baseline, and is only adopted where it matches the
    teacher at a fraction of the compute.
 2. **What particle sampler should we build as baseline and teacher?** A
-   *constrained regeneration sampler*: particles are full authoritative
-   `CombatState` values whose public-known fields are reconstructed exactly
-   from public history via a knowledge tracker, whose draw-pile order is
-   lazily committed (sampled only when a draw is about to be observed), and
-   whose RNG streams are freshly re-seeded per particle. Filtering is needed
-   only for the small set of committed-but-hidden values (for example intents
-   under Runic Dome). POMCP-style search over these particles is the fair
-   baseline planner and the teacher for all learned models.
+   fresh generative pipeline: hidden-free `PublicKnowledge` plus a versioned
+   prior defines `FairBelief`; each weighted particle is an opaque
+   `HiddenHypothesis` sampled independently of truth; and a deterministic Rust
+   materializer constructs a new authoritative combat rollout from a
+   belief-owned particle index. The materializer cannot accept a supplied
+   hypothesis or clone the true snapshot. Unknown order may later be committed
+   lazily, and POMCP over generated rollouts is the eventual fair baseline
+   and teacher.
 3. **What is the formal fair-observation boundary?** A pure projection
    function `fair_view(authoritative_state, public_history)` plus the
    observational non-interference invariant: states that differ only in
@@ -188,9 +190,10 @@ Requirements:
 - There is one underlying game action. `PlayerChoice` uses visible slots (hand
   slot, monster slot, option slot), never internal IDs, and Rust resolves it to
   the existing authoritative action. There is no parallel fair legality engine.
-- The fair runtime surface offers no snapshot/restore, no state hashes, no
-  event logs. Reproducibility in fair mode is seed/config plus the visible
-  action log, replayed through the authoritative simulator.
+- The fair runtime surface offers no snapshot/restore, state hashes, or
+  internal event logs. It may emit an allowlisted `PublicEvents` stream backed
+  only by UI-visible transitions. Reproducibility is configuration plus that
+  public action/event log, replayed through the authoritative simulator.
 - Capability separation: fair APIs and omniscient/debug APIs live in visibly
   different types within one eventual compiled Python module. Today
   `py_sts::OmniCombatEnv` and `sts_search` planning are explicitly privileged
@@ -293,96 +296,145 @@ much less; the hard part is value estimation over long horizons. This is why
 the architecture is combat-first: combat is where belief quality changes
 per-action decisions.
 
-## 5. Hidden-State Particle Sampler (Baseline And Teacher)
+## 5. Fair Belief And Fresh State Generation
 
-### Key structural observation: lazy commitment
+### The four layers
 
-In Slay the Spire combat, almost all hidden state is *not yet committed*
-under the exchangeable-randomness convention:
+Fair belief is not an authoritative state with fields hidden. It is a new object
+built solely from public knowledge and a declared prior:
 
-- Draw pile order: after any shuffle, the order is a uniform permutation of a
-  multiset the agent knows exactly (card counting). The posterior over the
-  unseen suffix remains uniform over the remaining multiset after every
-  observed draw. Therefore the sampler never needs to commit an order in
-  advance: represent the draw pile as `known_top_prefix + unknown_multiset`,
-  and sample the identity of a drawn card only at the moment a draw resolves.
-  Particles can never be "wrong about" draw order, so there is no depletion
-  from draws — the dominant failure mode of naive particle filters in card
-  games disappears by construction.
-- Future RNG (monster rolls, Whirlwind-style card randomness, potion drops):
-  not committed until consumed; each particle consumes freshly seeded streams.
-- Monster intents: rolled at end of the previous turn and *displayed*, so
-  they are observed the moment they are committed. No inference needed except
-  under Runic Dome.
+```text
+FairDecision + PublicEvents
+        -> PublicKnowledge
+        -> FairBelief(prior version, belief RNG, private particles)
+        -> belief-owned particle index
+        -> deterministic fresh materializer
+        -> GeneratedCombatRollout
+```
 
-The truly persistent hidden state — values committed before observation — is
-small and enumerable:
+The types have distinct authority:
 
-| Committed hidden value | When committed | When revealed | Belief treatment |
-|---|---|---|---|
-| Intent under Runic Dome | end of prior turn | when the move executes | filter/weight particles by the source-backed move distribution given public move history; state space per monster is tiny (move table) |
-| `stasis_card`-style captures | on effect | on reveal | uniform over the known multiset of the source pile |
-| Unrevealed spawn rolls (for example Louse damage before first intent display) | combat entry | first display | sample from source-backed range, filter on reveal |
-| Frozen Eye absent, Headbutt-style placements by *monsters* (rare) | on effect | on draw | tracked as known-position unknown-identity slots |
+- **`PublicKnowledge`** owns the initial fair observation, accepted public
+  choices, player-visible events, later fair observations, and summaries
+  derived from that history. It cannot contain `RunState`, snapshots, internal
+  IDs, game RNG, or hashes.
+- **`FairBelief`** owns `PublicKnowledge`, a versioned prior, a
+  named deterministic belief RNG, and weighted particles. It is a distribution
+  description, not a simulator state.
+- A **particle** is a weight plus a private `HiddenHypothesis`: sampled pile
+  permutations, independently sampled combat RNG, and independently sampled
+  run-envelope seeds. It is not a public type, does not deserialize, and
+  contains no copied simulator scaffold.
+- The **materializer** deterministically constructs a new authoritative rollout
+  from a belief-owned particle. Its crate-private API does not accept a
+  hypothesis, true state, or snapshot. All internal IDs are allocated anew. The
+  generated state must validate and project byte-for-byte to the latest fair
+  observation.
 
-### Particle representation
+Cloning a generated rollout inside search is ordinary simulation. Cloning the
+real hidden root to initialize a belief is forbidden. The real root exists only
+in verifier, teacher, and evaluation capabilities.
 
-A particle is a full authoritative `CombatState` (plus the minimal `RunState`
-context needed by relic/potion interactions), constructed as:
+### Public history is required
 
-1. Copy all public-known fields directly from the knowledge tracker: player
-   stats, powers, monster HP/block/powers/move history, hand identities,
-   discard/exhaust multisets, relic counters, potion belt.
-2. Fill the draw pile with the known multiset in a *freshly sampled* uniform
-   order (or keep it symbolically unordered and let the facade's draw hook
-   commit lazily — the implementation may choose either; lazy commitment is
-   the preferred design because it also makes belief updates free).
-3. Sample each committed-hidden value from its filtered posterior (table
-   above).
-4. Re-seed every RNG stream from the sampler's own RNG. Counters start
-   fresh; no attempt is made to match the true streams.
+`FairCombatObservation` is a current projection, not a sufficient statistic for
+arbitrary mid-combat reconstruction. A careful player also knows earlier card
+placements, executed monster moves, shuffle events, retained-hand effects, and
+other visible transitions. Therefore:
 
-Because steps 1–3 sample from the *exact* conditional distribution given
-public history (uniform shuffle is source-backed: `Collections.shuffle` over
-a fresh `JavaRng` is uniform), the particle set is unbiased. This is a
-stronger property than generic POMCP particle filtering and should be
-protected by calibration tests (E2).
+- the first player decision may initialize `PublicKnowledge` only with an opaque
+  start token bound to that observation; pile shape and zero counters are not
+  proof of an opening root, and no production issuer exists yet;
+- a later root will be accepted only with a facade-validated complete public
+  action/observation/event prefix or checkpoint. That capability is not yet
+  integrated, so the current slice refuses all mid-combat initialization;
+- a snapshot plus a current fair observation is not public provenance and is
+  refused; and
+- a future history-posterior sampler may support incomplete captures only after
+  it has source-backed priors. It must not read missing history from truth.
 
-### Belief update at a real step
+### Sampling and materialization
 
-- Apply the real action to each particle; step the simulator.
-- Compare each particle's public projection to the real observation.
-- For lazily committed values there is nothing to filter (identity by
-  construction). For committed-hidden values, drop/reweight inconsistent
-  particles and regenerate replacements from the posterior (regeneration is
-  cheap because the constructor above is a direct sampler, not rejection).
-- Particle count: start with 256–1024; the E2 experiment measures what is
-  actually needed. Expected to be small precisely because most uncertainty is
-  analytic.
+Sampling and materialization are separate operations. Every belief draw has a
+named stream and call site. The materializer consumes no RNG: identical public
+knowledge and hypothesis produce byte-identical generated authority.
 
-### Planner: fair POMCP
+Every materialized field has exactly one provenance:
 
-- UCT tree over public histories from the current root belief; node keys are
-  fair observation/action digests, never hidden state.
-- Each simulation draws a particle from the root belief, then rolls the exact
-  simulator forward, consuming the particle's own RNG.
-- Statistics aggregate at fair action descriptors.
-- Leaf evaluation: first a handcrafted heuristic (lethal check, HP delta,
-  incoming-damage-vs-block), later a learned value network with fair inputs.
-- Anytime budgeted; per-decision time budget is part of the evaluation
-  protocol.
+1. copied from current public knowledge;
+2. derived from recorded public history and source rules;
+3. supplied by the independently sampled hidden hypothesis; or
+4. a deterministic newly allocated internal identity/scaffold value that is
+   unreachable within the declared rollout horizon.
 
-### Teacher roles
+Anything else is a typed unsupported/missing-prior error. In particular, the
+materializer never starts from `RunState`, snapshot JSON, a true seed, or game
+RNG counters. Public values may legitimately be reconstructed from
+`PublicKnowledge`; the anti-hydration rule concerns hidden authority.
 
-- Generates training targets: root visit distributions (policy targets),
-  root value estimates, and per-step belief summaries.
-- Defines the fair-performance baseline every learned system must beat or
-  match at lower cost.
-- Paired with the existing omniscient search (`automation.rs` greedy/beam,
-  later omniscient MCTS) to measure the *value of hidden information*: the
-  gap between omniscient and fair search on identical roots. That gap is the
-  ceiling on what any belief model can recover, and combats with a near-zero
-  gap do not need belief sophistication at all.
+Unknown pile order is sampled as a uniform permutation of the public multiset.
+Frozen Eye supplies the complete public draw order, but never makes discard or
+exhaust storage order public. Future Headbutt/Scry prefixes belong in
+`PublicKnowledge`. Combat RNG and run-envelope seeds are independently sampled
+exchangeable-future values. They are not reconstructed from a master seed and
+are not the post-entry stream states after opening shuffle, HP, and AI rolls.
+A later prior may implement and condition the actual entry process; doing that
+from public outcomes without a declared source-backed likelihood is seed
+recovery and remains out of protocol. The current prior version
+`a0_act1_simple_combat_exchangeable_v1` names that approximation explicitly.
+The hypothesis type is opaque, not publicly deserializable, and materialization
+accepts only belief-owned particles. The construction, materialization, and
+rollout-stepping APIs stay crate-private until a fair facade issues bound
+knowledge and resolves public choices.
+
+The implementation may later replace eager pile permutations with lazy
+commitment, but that optimization must preserve the same distribution and fresh
+materialization boundary.
+
+### Belief update
+
+After a real action, append only its public descriptor, public events, and next
+fair observation. Condition or reweight hypotheses under the source-backed
+model. Never patch a survivor's hidden fields. Two different empty-set cases
+must remain distinct:
+
+- **finite sample depletion:** the mathematical posterior still has support, so
+  direct posterior sampling may replenish particles;
+- **zero mathematical support:** public history contradicts the model, so fail
+  closed and fix the prior, event contract, or simulator.
+
+No update API should be exposed until these semantics are implemented.
+
+### Combat-only first horizon
+
+The first materializer is deliberately not a full-run posterior generator. It
+may produce the minimal `RunState` envelope required by combat mechanics, but
+its authority ends at combat termination. Map, reward, event, shop, and pool
+state in that envelope is canonical unreachable scaffolding, not a belief claim.
+A full-run materializer requires explicit priors for every such hidden field.
+
+Current Rust slice (`a0_act1_simple_combat_exchangeable_v1`) supports only A0 Act 1
+`waiting_for_player` roots with no active selection, potions, player powers, or
+orbs; base Strike/Defend/Bash cards; stateless Burning Blood/Frozen Eye; and
+opening Cultist roots or the deterministic simple test monster. First-decision
+tokens are observation-bound, not cloneable, and crate-private; no production
+issuer exists yet. Mid-combat
+public histories, hidden intent, other monsters/cards/relic state, queues, and
+run-level continuation fail closed. No belief update or fair search is
+implemented yet.
+
+### Planner contract (future)
+
+POMCP nodes are keyed by public action-observation-event history. A simulation
+draws a hypothesis, materializes or clones its generated rollout, and consumes
+only that generated RNG. Statistics aggregate at public action descriptors.
+All particles at one public node must expose the same public legal descriptors;
+disagreement is a projection/history bug, not a set to union or intersect. One
+root action is chosen across the belief, avoiding strategy fusion.
+
+Policy/value networks receive fair observations, public history, and optionally
+belief summaries computed from this declared public prior. They never receive
+raw particles or generated authoritative state.
 
 ## 6. Latent Belief / World-Model Architecture
 
@@ -615,8 +667,9 @@ implement suite layers 1–5.
 
 ### E2: Sampler calibration
 
-Implement the knowledge tracker and constrained regeneration sampler; verify
-against analytic distributions (D2) across many seeds and encounters.
+Implement the knowledge tracker, hidden-hypothesis sampler, and fresh Rust
+materializer; verify them against analytic distributions (D2) across many
+seeds and encounters.
 
 - Metrics: chi-squared / exact-test agreement of sampled next-draw and
   next-intent distributions with analytic ground truth; effective sample size
@@ -713,9 +766,9 @@ each vs the raw POMCP teacher at matched wall-clock on held-out roots.
 
 ### Do not do yet
 
-- Do not implement particle sampling, POMCP, or latent dynamics before the
-  symbolic fair facade and privileged-search learning baseline exist. The fair
-  facade is active prerequisite work and does not depend on a root corpus.
+- Do not implement belief update, POMCP, or latent dynamics before the runtime
+  public-start/event capability and sampler calibration exist. The symbolic
+  fair facade is active prerequisite work and does not depend on a root corpus.
 - Do not build the full-run fair facade beyond the schema sketch here until
   combat E1–E3 are done; run-level screens multiply surface area without
   advancing the core research question.

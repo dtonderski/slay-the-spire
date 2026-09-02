@@ -1930,24 +1930,91 @@ mod tests {
     }
 
     #[test]
-    fn serialized_schema_contains_no_internal_identity_or_rng_fields() {
+    fn serialized_schema_matches_the_path_sensitive_allowlist() {
         let run = RunState::combat_fixture();
-        let json = serde_json::to_string(&observation(&run)).expect("observation serializes");
-        for forbidden in [
-            "card_id",
-            "monster_id",
-            "content_id",
-            "source_card_id",
-            "rng",
-            "move_history",
-            "rolled_attack_damage",
-            "queued_decisions",
-            "pending_actions",
+        let ordinary = observation(&run);
+        let mut rich = ordinary.clone();
+        rich.orb_slots = vec![
+            FairOrbSlot {
+                slot: 0,
+                orb: Some(FairOrb::Dark { evoke: 6 }),
+            },
+            FairOrbSlot {
+                slot: 1,
+                orb: Some(FairOrb::Lightning),
+            },
+            FairOrbSlot { slot: 2, orb: None },
+        ];
+        rich.selection = Some(FairSelection {
+            kind: FairSelectionKind::ArmamentsUpgrade,
+            options: vec![FairSelectionOption {
+                slot: 0,
+                card: rich.hand[0].card.clone(),
+            }],
+            selected_slots: vec![0],
+        });
+        rich.monsters[0].intent = FairMonsterIntent::Hidden;
+        rich.monsters[0].stasis_card = Some(rich.hand[0].card.clone());
+        rich.monsters[0].slime_size = Some(crate::SlimeSize::Small);
+        rich.monsters[0].powers = vec![FairPower {
+            key: "Strength".to_owned(),
+            amount: 2,
+        }];
+        rich.hand[0].card.dynamic.rampage_damage_bonus = Some(3);
+        rich.hand[0].card.dynamic.ritual_dagger_damage_bonus = Some(1);
+        rich.hand[0].card.dynamic.windmill_retain_damage = Some(2);
+        rich.hand[0].card.dynamic.steam_barrier_block_reduction = Some(1);
+        rich.hand[0].card.dynamic.combat_cost_under_turn_override = Some(0);
+        rich.relics = vec![FairRelic {
+            slot: 0,
+            content_key: "Ink Bottle".to_owned(),
+            state: vec![FairCounter {
+                key: "counters".to_owned(),
+                value: 8,
+            }],
+        }];
+        rich.potion_slots = vec![FairPotionSlot {
+            slot: 0,
+            content_key: Some("Fire Potion".to_owned()),
+        }];
+        let mut known_order = rich.clone();
+        known_order.draw_pile.known_order = rich.draw_pile.cards.clone();
+        let mut visible_intent = ordinary.clone();
+        visible_intent.monsters[0].intent = FairMonsterIntent::Visible {
+            category: FairIntentCategory::Attack,
+            damage: Some(6),
+            hits: Some(1),
+        };
+        let mut none_intent = ordinary.clone();
+        none_intent.monsters[0].intent = FairMonsterIntent::None;
+
+        for (label, observation) in [
+            ("ordinary fixture", ordinary),
+            ("optional and tagged variants", rich),
+            ("known draw order", known_order),
+            ("visible intent", visible_intent),
+            ("none intent", none_intent),
         ] {
-            assert!(
-                !json.contains(forbidden),
-                "leaked field {forbidden}: {json}"
-            );
+            let value = serde_json::to_value(&observation).expect("observation serializes");
+            crate::combat::fair_json_allowlist::check_schema(
+                &value,
+                &crate::combat::fair_json_allowlist::FAIR_COMBAT_OBSERVATION_SCHEMA,
+                "$",
+            )
+            .unwrap_or_else(|error| panic!("{label}: {error}"));
         }
+
+        let mut leaked = serde_json::to_value(observation(&run)).expect("observation serializes");
+        leaked["player"]["seed"] = serde_json::json!(1);
+        let error = crate::combat::fair_json_allowlist::check_schema(
+            &leaked,
+            &crate::combat::fair_json_allowlist::FAIR_COMBAT_OBSERVATION_SCHEMA,
+            "$",
+        )
+        .expect_err("reused generic key must fail at this path");
+        assert!(
+            error.contains("player.seed"),
+            "path-sensitive allowlist should reject $.player.seed, got {error}"
+        );
     }
 }
