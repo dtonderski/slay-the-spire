@@ -19,7 +19,7 @@ from sts_sim.rl import (
     Vocabularies,
     VocabularyBuilder,
     evaluate_matched_puct_gameplay,
-    evaluate_matched_puct_roots,
+    evaluate_matched_puct_roots_v2,
     generate_beam_dataset,
     generate_legal_roots,
     generate_puct_dataset,
@@ -386,7 +386,7 @@ def test_six_policy_matched_roots_restore_independently_and_keep_errors() -> Non
     snapshot = env.snapshot()
     snapshot_bytes = snapshot.json.encode()
     root_id = hashlib.sha256(snapshot_bytes).hexdigest()
-    report = evaluate_matched_puct_roots(
+    report = evaluate_matched_puct_roots_v2(
         split_roots=((root_id, snapshot_bytes),),
         evaluation_seed=0,
         model=model,
@@ -547,7 +547,7 @@ def test_six_policy_keeps_overflow_errors_in_the_denominator(
         raise OverflowError("injected overflow")
 
     monkeypatch.setattr("sts_sim.rl.puct.rollout_puct_policy", boom)
-    report = evaluate_matched_puct_roots(
+    report = evaluate_matched_puct_roots_v2(
         split_roots=((root_id, snapshot_bytes),),
         evaluation_seed=0,
         model=model,

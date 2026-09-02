@@ -12,6 +12,8 @@ from sts_sim import FairCombatObservation, RunEnv
 from sts_sim.rl import (
     MATCHED_PUCT_REPORT_ARMS,
     MATCHED_PUCT_SEARCH_ARMS,
+    PREDECLARED_PUCT_MAX_DECISIONS,
+    PREDECLARED_PUCT_MAX_PLAYER_TURNS,
     CombatModelConfig,
     FairCombatPolicyValueNet,
     PolicyValueOutput,
@@ -19,6 +21,8 @@ from sts_sim.rl import (
     VocabularyBuilder,
     evaluate_matched_puct_gameplay,
     evaluate_matched_puct_roots,
+    evaluate_matched_puct_roots_v2,
+    evaluate_predeclared_matched_puct_gameplay,
     gameplay,
     puct_search_payload,
     select_puct_action,
@@ -115,7 +119,7 @@ def _evaluate_one_root(
     model: FairCombatPolicyValueNet,
     vocabularies: Vocabularies,
 ) -> dict[str, object]:
-    return evaluate_matched_puct_roots(
+    return evaluate_matched_puct_roots_v2(
         split_roots=((root_id, snapshot_bytes),),
         evaluation_seed=0,
         model=model,
@@ -375,3 +379,60 @@ def test_six_policy_gameplay_rejects_nonpositive_budgets() -> None:
         evaluate_matched_puct_gameplay(missing, checkpoint, c_puct=float("inf"))
     with pytest.raises(ValueError, match="simulation_budget must be a positive integer"):
         evaluate_matched_puct_gameplay(missing, checkpoint, simulation_budget=-1)
+
+
+def test_v1_matched_roots_keep_the_four_policy_schema() -> None:
+    env, model, vocabularies = _tiny_policy_net()
+    snapshot = env.snapshot()
+    snapshot_bytes = snapshot.json.encode()
+    root_id = hashlib.sha256(snapshot_bytes).hexdigest()
+    report = evaluate_matched_puct_roots(
+        split_roots=((root_id, snapshot_bytes),),
+        evaluation_seed=0,
+        model=model,
+        vocabularies=vocabularies,
+        transition_budget=8,
+        simulation_budget=8,
+        c_puct=1.5,
+        beam_depth=2,
+        beam_width=4,
+        max_decisions=1,
+        max_player_turns=100,
+        deduplicate_search_states=True,
+    )
+    policies = cast(
+        dict[str, object], cast(list[dict[str, object]], report["per_root"])[0]["policies"]
+    )
+    assert set(policies) == {"random", "network", "beam", "puct"}
+    assert "search_arms" not in report
+
+
+def test_search_arm_attestation_is_isolated_from_report_mutation() -> None:
+    env, model, vocabularies = _tiny_policy_net()
+    snapshot = env.snapshot()
+    snapshot_bytes = snapshot.json.encode()
+    root_id = hashlib.sha256(snapshot_bytes).hexdigest()
+    first = _evaluate_one_root(root_id, snapshot_bytes, model, vocabularies)
+    report_arms = cast(dict[str, dict[str, object]], first["search_arms"])
+    report_arms["uniform_prior_network_value_puct"]["role"] = "mutated"
+    nested = MATCHED_PUCT_SEARCH_ARMS["uniform_prior_network_value_puct"]
+    with pytest.raises(TypeError):
+        cast(dict[str, object], nested)["role"] = "mutated"
+    second = _evaluate_one_root(root_id, snapshot_bytes, model, vocabularies)
+    expected = "policy-prior ablation, not an unguided baseline"
+    assert MATCHED_PUCT_SEARCH_ARMS["uniform_prior_network_value_puct"]["role"] == expected
+    second_role = cast(dict[str, dict[str, object]], second["search_arms"])
+    assert second_role["uniform_prior_network_value_puct"]["role"] == expected
+
+
+def test_predeclared_puct_gameplay_rejects_mismatched_episode_caps() -> None:
+    missing = Path("missing-roots.json")
+    checkpoint = Path("missing-checkpoint.pt")
+    defaults = evaluate_matched_puct_gameplay.__kwdefaults__
+    assert defaults is not None
+    assert defaults["max_decisions"] == PREDECLARED_PUCT_MAX_DECISIONS
+    assert defaults["max_player_turns"] == PREDECLARED_PUCT_MAX_PLAYER_TURNS
+    with pytest.raises(ValueError, match="predeclared matched PUCT evaluation requires"):
+        evaluate_predeclared_matched_puct_gameplay(missing, checkpoint, max_decisions=512)
+    with pytest.raises(ValueError, match="predeclared matched PUCT evaluation requires"):
+        evaluate_predeclared_matched_puct_gameplay(missing, checkpoint, max_player_turns=100)

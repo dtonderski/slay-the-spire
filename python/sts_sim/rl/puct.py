@@ -337,12 +337,13 @@ def select_puct_action_with_evaluator(
     reward_config: CombatRewardConfig | None = None,
     episode_root_max_hp: int | None = None,
     episode_root_gold: int | None = None,
+    leaf_cache: str | None = None,
 ) -> Action:
     """Choose by PUCT visits and return the original public Action sidecar.
 
     The returned action is the current Decision row at `selected_index`.
-    Callers must pass a deterministic evaluator that is pure for an exact
-    `RunState`; this selector then opts into `leaf_cache="exact_state"`.
+    Generic/custom evaluators default to cache-off. Deterministic network and
+    constant wrappers pass `leaf_cache="exact_state"` explicitly.
     """
 
     if decision.revision != env.revision:
@@ -362,7 +363,7 @@ def select_puct_action_with_evaluator(
         reward_config=reward_config,
         episode_root_max_hp=max_hp,
         episode_root_gold=gold,
-        leaf_cache="exact_state",
+        leaf_cache=leaf_cache,
     )
     _require_aligned_public_rows(decision, payload)
     index = payload.get("selected_index")
@@ -396,6 +397,7 @@ def select_puct_action(
         reward_config=reward_config,
         episode_root_max_hp=episode_root_max_hp,
         episode_root_gold=episode_root_gold,
+        leaf_cache="exact_state",
     )
 
 
@@ -424,6 +426,7 @@ def select_uniform_prior_network_value_puct_action(
         reward_config=reward_config,
         episode_root_max_hp=episode_root_max_hp,
         episode_root_gold=episode_root_gold,
+        leaf_cache="exact_state",
     )
 
 
@@ -453,6 +456,7 @@ def select_uniform_prior_constant_value_puct_action(
         reward_config=reward_config,
         episode_root_max_hp=episode_root_max_hp,
         episode_root_gold=episode_root_gold,
+        leaf_cache="exact_state",
     )
 
 
@@ -510,6 +514,7 @@ def _rollout_puct_with_evaluator(
     simulation_budget: int,
     transition_budget: int,
     reward_config: CombatRewardConfig | None,
+    leaf_cache: str | None,
 ) -> PolicyEpisode:
     episode_root: tuple[int, int] | None = None
 
@@ -532,6 +537,7 @@ def _rollout_puct_with_evaluator(
             reward_config=reward_config,
             episode_root_max_hp=max_hp,
             episode_root_gold=gold,
+            leaf_cache=leaf_cache,
         )
 
     return _capped_public_episode(
@@ -565,6 +571,7 @@ def rollout_uniform_prior_network_value_puct_policy(
         simulation_budget=simulation_budget,
         transition_budget=transition_budget,
         reward_config=reward_config,
+        leaf_cache="exact_state",
     )
 
 
@@ -589,4 +596,5 @@ def rollout_uniform_prior_constant_value_puct_policy(
         simulation_budget=simulation_budget,
         transition_budget=transition_budget,
         reward_config=reward_config,
+        leaf_cache="exact_state",
     )

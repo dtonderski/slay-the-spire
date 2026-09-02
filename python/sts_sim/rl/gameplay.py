@@ -10,8 +10,10 @@ import hashlib
 import json
 import math
 from collections.abc import Callable, Mapping, Sequence
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Literal, cast
 
 import torch
@@ -49,6 +51,8 @@ RANDOM_CONTRACT: dict[str, object] = {
     ],
 }
 _MATCHED_PUCT_RESTORE = "independent_from_identical_evaluation_roots"
+PREDECLARED_PUCT_MAX_DECISIONS = 128
+PREDECLARED_PUCT_MAX_PLAYER_TURNS = 40
 MATCHED_PUCT_REPORT_ARMS: tuple[str, ...] = (
     "random",
     "network",
@@ -57,7 +61,7 @@ MATCHED_PUCT_REPORT_ARMS: tuple[str, ...] = (
     "uniform_prior_network_value_puct",
     "uniform_prior_constant_value_puct",
 )
-MATCHED_PUCT_SEARCH_ARMS: dict[str, dict[str, object]] = {
+_MATCHED_PUCT_SEARCH_ARMS: dict[str, dict[str, object]] = {
     "random": {"restore": _MATCHED_PUCT_RESTORE, "uses_checkpoint": False},
     "network": {"restore": _MATCHED_PUCT_RESTORE, "uses_checkpoint": True},
     "beam": {"restore": _MATCHED_PUCT_RESTORE, "uses_checkpoint": False},
@@ -95,6 +99,26 @@ MATCHED_PUCT_SEARCH_ARMS: dict[str, dict[str, object]] = {
         },
     },
 }
+
+
+def _freeze_mapping(value: object) -> object:
+    if type(value) is dict:
+        return MappingProxyType(
+            {key: _freeze_mapping(item) for key, item in cast(dict[str, object], value).items()}
+        )
+    if type(value) is list:
+        return tuple(_freeze_mapping(item) for item in cast(list[object], value))
+    return value
+
+
+MATCHED_PUCT_SEARCH_ARMS: Mapping[str, Mapping[str, object]] = cast(
+    Mapping[str, Mapping[str, object]],
+    _freeze_mapping(deepcopy(_MATCHED_PUCT_SEARCH_ARMS)),
+)
+
+
+def matched_puct_search_arms() -> dict[str, dict[str, object]]:
+    return deepcopy(_MATCHED_PUCT_SEARCH_ARMS)
 
 
 def _canonical_bytes(payload: object) -> bytes:
@@ -746,6 +770,134 @@ def evaluate_matched_puct_roots(
     max_player_turns: int,
     deduplicate_search_states: bool,
 ) -> dict[str, object]:
+    from .puct import rollout_puct_policy
+
+    root_ids = [root_id for root_id, _ in split_roots]
+    if root_ids != sorted(root_ids):
+        raise ValueError("matched roots must be canonically ordered")
+    seen: set[str] = set()
+    for root_id in root_ids:
+        if root_id in seen:
+            raise ValueError(f"duplicate matched root ID {root_id}")
+        seen.add(root_id)
+    per_root: list[dict[str, object]] = []
+    random_episodes: list[PolicyEpisode] = []
+    network_episodes: list[PolicyEpisode] = []
+    beam_episodes: list[PolicyEpisode] = []
+    puct_episodes: list[PolicyEpisode] = []
+    for root_id, snapshot_bytes in split_roots:
+        hashes: list[str] = []
+        root_hp: int | None = None
+        for _ in range(4):
+            restored = _restore_independently(snapshot_bytes, root_id)
+            hashes.append(restored.snapshot().hash)
+            root_hp = _try_detached_player_hp(restored)
+        if len(set(hashes)) != 1:
+            raise ValueError(f"independent restores of root {root_id} diverged")
+        random_episode = _run_restored_policy(
+            snapshot_bytes,
+            root_id,
+            root_hp,
+            lambda env, identity=root_id: rollout_random_policy(
+                env,
+                evaluation_seed=evaluation_seed,
+                root_id=identity,
+                max_decisions=max_decisions,
+                max_player_turns=max_player_turns,
+            ),
+        )
+        network_episode = _run_restored_policy(
+            snapshot_bytes,
+            root_id,
+            root_hp,
+            lambda env: rollout_greedy_policy(
+                env,
+                model,
+                vocabularies,
+                max_decisions=max_decisions,
+                max_player_turns=max_player_turns,
+            ),
+        )
+        beam_episode = _run_restored_policy(
+            snapshot_bytes,
+            root_id,
+            root_hp,
+            lambda env: rollout_beam_policy(
+                env,
+                depth=beam_depth,
+                width=beam_width,
+                transition_budget=transition_budget,
+                max_decisions=max_decisions,
+                max_player_turns=max_player_turns,
+                deduplicate_search_states=deduplicate_search_states,
+            ),
+        )
+        puct_episode = _run_restored_policy(
+            snapshot_bytes,
+            root_id,
+            root_hp,
+            lambda env: rollout_puct_policy(
+                env,
+                model,
+                vocabularies,
+                max_decisions=max_decisions,
+                max_player_turns=max_player_turns,
+                c_puct=c_puct,
+                simulation_budget=simulation_budget,
+                transition_budget=transition_budget,
+            ),
+        )
+        random_episodes.append(random_episode)
+        network_episodes.append(network_episode)
+        beam_episodes.append(beam_episode)
+        puct_episodes.append(puct_episode)
+        per_root.append(
+            {
+                "root_id": root_id,
+                "snapshot_sha256": hashlib.sha256(snapshot_bytes).hexdigest(),
+                "restore_hash": hashes[0],
+                "policies": {
+                    "random": _episode_row(random_episode),
+                    "network": _episode_row(network_episode),
+                    "beam": _episode_row(beam_episode),
+                    "puct": _episode_row(puct_episode),
+                },
+            }
+        )
+    if [cast(str, row["root_id"]) for row in per_root] != [root_id for root_id, _ in split_roots]:
+        raise ValueError("matched root accounting is incomplete")
+    return {
+        "per_root": per_root,
+        "aggregates": {
+            "random": aggregate_policy_metrics(random_episodes),
+            "network": aggregate_policy_metrics(network_episodes),
+            "beam": aggregate_policy_metrics(beam_episodes),
+            "puct": aggregate_policy_metrics(puct_episodes),
+        },
+        "paired": {
+            "network_random": aggregate_paired_differences(random_episodes, network_episodes),
+            "beam_network": aggregate_paired_differences(network_episodes, beam_episodes),
+            "puct_network": aggregate_paired_differences(network_episodes, puct_episodes),
+            "puct_beam": aggregate_paired_differences(beam_episodes, puct_episodes),
+        },
+    }
+
+
+def evaluate_matched_puct_roots_v2(
+    *,
+    split_roots: Sequence[tuple[str, bytes]],
+    evaluation_seed: int,
+    model: FairCombatPolicyValueNet,
+    vocabularies: Vocabularies,
+    transition_budget: int,
+    simulation_budget: int,
+    c_puct: float,
+    beam_depth: int,
+    beam_width: int,
+    max_decisions: int,
+    max_player_turns: int,
+    deduplicate_search_states: bool,
+) -> dict[str, object]:
     from .puct import (
         rollout_puct_policy,
         rollout_uniform_prior_constant_value_puct_policy,
@@ -886,7 +1038,7 @@ def evaluate_matched_puct_roots(
         raise ValueError("matched root accounting is incomplete")
     return {
         "per_root": per_root,
-        "search_arms": MATCHED_PUCT_SEARCH_ARMS,
+        "search_arms": matched_puct_search_arms(),
         "aggregates": {
             "random": aggregate_policy_metrics(random_episodes),
             "network": aggregate_policy_metrics(network_episodes),
@@ -933,8 +1085,8 @@ def evaluate_matched_puct_gameplay(
     transition_budget: int = 64,
     beam_depth: int = 8,
     beam_width: int = 24,
-    max_decisions: int = 512,
-    max_player_turns: int = 100,
+    max_decisions: int = PREDECLARED_PUCT_MAX_DECISIONS,
+    max_player_turns: int = PREDECLARED_PUCT_MAX_PLAYER_TURNS,
     deduplicate_search_states: bool = True,
 ) -> dict[str, object]:
     if split not in _ALLOWED_SPLITS:
@@ -1004,7 +1156,7 @@ def evaluate_matched_puct_gameplay(
     for root_id, snapshot_bytes in split_roots:
         if hashlib.sha256(snapshot_bytes).hexdigest() != root_id:
             raise ValueError(f"root {root_id} bytes do not match root ID")
-    matched = evaluate_matched_puct_roots(
+    matched = evaluate_matched_puct_roots_v2(
         split_roots=split_roots,
         evaluation_seed=evaluation_seed,
         model=model,
@@ -1023,7 +1175,7 @@ def evaluate_matched_puct_gameplay(
         "kind": "matched_puct_gameplay_rollout",
         "promotion_claim": False,
         "privileged_puct": True,
-        "search_arms": MATCHED_PUCT_SEARCH_ARMS,
+        "search_arms": matched_puct_search_arms(),
         "equal_transition_budget_note": (
             "beam and privileged PUCT arms share the per-decision transition budget; "
             "equal transitions do not imply equal compute. "
@@ -1061,5 +1213,48 @@ def evaluate_matched_puct_gameplay(
         "max_player_turns": max_player_turns,
         **matched,
     }
+    report["search_arms"] = matched_puct_search_arms()
     report["report_digest"] = _digest(report)
     return report
+
+
+def evaluate_predeclared_matched_puct_gameplay(
+    root_manifest_path: Path,
+    checkpoint_path: Path,
+    *,
+    split: str = "development",
+    evaluation_seed: int = 0,
+    allow_audited_split: bool = False,
+    c_puct: float = 1.5,
+    simulation_budget: int = 64,
+    transition_budget: int = 64,
+    beam_depth: int = 8,
+    beam_width: int = 24,
+    max_decisions: int = PREDECLARED_PUCT_MAX_DECISIONS,
+    max_player_turns: int = PREDECLARED_PUCT_MAX_PLAYER_TURNS,
+    deduplicate_search_states: bool = True,
+) -> dict[str, object]:
+    if (
+        max_decisions != PREDECLARED_PUCT_MAX_DECISIONS
+        or max_player_turns != PREDECLARED_PUCT_MAX_PLAYER_TURNS
+    ):
+        raise ValueError(
+            "predeclared matched PUCT evaluation requires "
+            f"max_decisions={PREDECLARED_PUCT_MAX_DECISIONS} and "
+            f"max_player_turns={PREDECLARED_PUCT_MAX_PLAYER_TURNS}"
+        )
+    return evaluate_matched_puct_gameplay(
+        root_manifest_path,
+        checkpoint_path,
+        split=split,
+        evaluation_seed=evaluation_seed,
+        allow_audited_split=allow_audited_split,
+        c_puct=c_puct,
+        simulation_budget=simulation_budget,
+        transition_budget=transition_budget,
+        beam_depth=beam_depth,
+        beam_width=beam_width,
+        max_decisions=max_decisions,
+        max_player_turns=max_player_turns,
+        deduplicate_search_states=deduplicate_search_states,
+    )
