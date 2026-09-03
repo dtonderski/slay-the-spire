@@ -311,6 +311,40 @@ def _require_disjoint(left: frozenset[str], right: frozenset[str], dimension: st
         raise ValueError(f"training and evaluation {dimension} are not disjoint")
 
 
+def require_pairwise_disjoint_cohorts(
+    cohorts: Sequence[tuple[str, RootManifest]],
+) -> None:
+    """Require pairwise disjoint published root IDs, requested seeds, and lineages.
+
+    All cohorts must share one source-epoch-bundle digest. Bootstrap, treatment,
+    and held-out manifests are compared as named peers; this is not train-to-eval
+    authorization.
+    """
+
+    if len(cohorts) < 2:
+        raise ValueError("pairwise disjointness requires at least two cohorts")
+    names = [name for name, _manifest in cohorts]
+    if any(type(name) is not str or not name for name in names):
+        raise TypeError("cohort names must be nonempty strings")
+    if len(names) != len(set(names)):
+        raise ValueError("cohort names must be unique")
+    bundle_digests = {manifest.source_epoch_bundle_digest for _name, manifest in cohorts}
+    if len(bundle_digests) != 1:
+        raise ValueError("cohort source-epoch-bundle digests differ")
+    identities = [(name, _cohort_identities(manifest)) for name, manifest in cohorts]
+    dimensions = (
+        ("root IDs", "root_ids"),
+        ("generation seeds", "seeds"),
+        ("lineages", "lineages"),
+    )
+    for index, (left_name, left) in enumerate(identities):
+        for right_name, right in identities[index + 1 :]:
+            for label, attribute in dimensions:
+                overlap = getattr(left, attribute) & getattr(right, attribute)
+                if overlap:
+                    raise ValueError(f"{left_name} and {right_name} {label} are not disjoint")
+
+
 def verify_train_to_evaluation_authorization(
     authorization_path: Path,
     *,
@@ -425,9 +459,7 @@ def require_held_out_evaluation(
         requested_evaluator_name=requested_evaluator_names[0],
     )
     if proof.authorization.evaluation_root_manifest_digest != evaluation_manifest.manifest_digest:
-        raise ValueError(
-            "authorized evaluation root does not match the authenticated dataset root"
-        )
+        raise ValueError("authorized evaluation root does not match the authenticated dataset root")
     if proof.authorization.evaluation_cohort_digest != evaluation_manifest.cohort_digest:
         raise ValueError(
             "authorized evaluation cohort does not match the authenticated dataset cohort"
