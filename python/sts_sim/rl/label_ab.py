@@ -18,7 +18,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Literal, cast
 
-from ..fair import FairCombatObservation
+from ..fair import FairCombatObservation, FairRunObservation
 from ..run import Action, ActionDescriptor, Decision, RunEnv
 from .authorization import (
     MANDATORY_DISJOINTNESS_DIMENSIONS,
@@ -1120,21 +1120,31 @@ def _status_from_walk(
 def _outcome_from_shared_walk(
     *,
     root_observation: FairCombatObservation,
-    terminal_observation: FairCombatObservation,
+    terminal_observation: FairCombatObservation | FairRunObservation,
     status: OutcomeStatus,
     accepted_decisions: int,
     player_turns: int,
     truncation_trigger: str | None,
 ) -> CombatOutcome:
+    if isinstance(terminal_observation, FairCombatObservation):
+        terminal_hp = terminal_observation.player.hp
+        terminal_max_hp = terminal_observation.player.max_hp
+        terminal_gold = terminal_observation.context.gold
+        potion_slots = terminal_observation.potion_slots
+    else:
+        terminal_hp = terminal_observation.context.player_hp
+        terminal_max_hp = terminal_observation.context.player_max_hp
+        terminal_gold = terminal_observation.context.gold
+        potion_slots = terminal_observation.context.potion_slots
     terminal = status in {"won", "lost", "escaped"}
     return CombatOutcome(
         status,
-        terminal_observation.player.hp,
-        terminal_observation.player.max_hp,
-        terminal_observation.player.hp - root_observation.player.hp,
-        terminal_observation.player.max_hp - root_observation.player.max_hp,
-        terminal_observation.context.gold - root_observation.context.gold,
-        tuple(slot.content_key for slot in terminal_observation.potion_slots),
+        terminal_hp,
+        terminal_max_hp,
+        terminal_hp - root_observation.player.hp,
+        terminal_max_hp - root_observation.player.max_hp,
+        terminal_gold - root_observation.context.gold,
+        tuple(slot.content_key for slot in potion_slots),
         (),
         terminal,
         not terminal,
@@ -1245,8 +1255,8 @@ def label_paired_root(
         if result.combat_outcome is not None:
             combat_outcome = result.combat_outcome
             terminal_observation = result.decision.observation
-            if not isinstance(terminal_observation, FairCombatObservation):
-                raise TypeError("shared walk terminal observation is not fair combat")
+            if not isinstance(terminal_observation, (FairCombatObservation, FairRunObservation)):
+                raise TypeError("shared walk terminal observation is not a fair observation")
             break
         if (
             accepted_decisions >= execution.max_decisions
