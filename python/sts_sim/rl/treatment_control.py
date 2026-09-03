@@ -14,6 +14,7 @@ from .data import (
     DatasetManifest,
     _sha256_bytes,
     load_dataset_manifest,
+    parse_root_manifest,
 )
 from .experiment import (
     _raise_if_symlink_ancestor,
@@ -199,7 +200,12 @@ def _load_completed_dataset(
         for child in bundle_dir.rglob("*"):
             if child.is_file():
                 bundle_files.add(child.relative_to(dataset_root).as_posix())
-    declared = declared | bundle_files
+    named_root = parse_root_manifest(_read_regular_file_bytes(dataset_root / root_manifest_rel))
+    snapshot_files = {
+        (Path(root_manifest_rel).parent / root.relative_path).as_posix()
+        for root in named_root.roots
+    }
+    declared = declared | bundle_files | snapshot_files
     for relative in declared:
         _require_regular_file(dataset_root / relative, f"{role} dataset file {relative}")
     _reject_undeclared_dataset_inputs(dataset_root, declared)
