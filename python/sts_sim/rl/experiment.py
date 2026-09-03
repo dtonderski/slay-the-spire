@@ -2,32 +2,30 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
+import secrets
 import stat
-import tempfile
 from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import cast
 
-from .provenance import capture_repository_version, file_digest
-from .tracking import (
-    DEFAULT_LOCAL_WANDB_BASE_URL,
-    MUTABLE_SYNCHRONIZATION_DIRECTORY_NAME,
-    discover_offline_wandb_runs,
-    is_wandb_synchronization_path,
-    sync_offline_wandb,
+from .provenance import (
+    canonical_bytes,
+    capture_repository_version,
+    digest_payload,
+    read_regular_file_bytes,
+    sha256_bytes,
 )
 
 PREDECLARATION_KIND = "experiment_predeclaration_v1"
 PREDECLARATION_SCHEMA_VERSION = 1
 ARTIFACT_INVENTORY_NAME = "artifact-inventory.sha256"
 UNDECLARED_POLICY_STRICT = "strict"
-UNDECLARED_POLICY_REPORT_ONLY = "report_only"
 _HEX = "0123456789abcdef"
 _V1_KEYS = frozenset(
     {
@@ -78,15 +76,11 @@ _FILE_DIGEST_ROLES = {
     "checkpoint": "checkpoint_file_digest",
 }
 _LIVE_ENVIRONMENT_KEYS = frozenset({"source_digest", "runtime_identity_digest"})
-_ALLOWED_MUTABLE_SYMLINK_NAMES = frozenset({"latest-run"})
-
-
-def _canonical_bytes(payload: object) -> bytes:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
-
-
-def _sha256_bytes(payload: bytes) -> str:
-    return hashlib.sha256(payload).hexdigest()
+_SELF_DIGEST_KEYS = frozenset({"report_digest", "manifest_digest"})
+_DIRECTORY_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY | os.O_CLOEXEC
+_FILE_READ_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+_FILE_CREATE_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC
+_PREDECLARATION_NAME = "predeclaration.json"
 
 
 def _require_mapping(value: object, label: str) -> dict[str, object]:
@@ -130,12 +124,181 @@ def _require_git_sha(value: object, label: str) -> str:
     return value
 
 
+def _fsync_directory_fd(descriptor: int) -> None:
+    os.fsync(descriptor)
+
+
 def _fsync_directory(directory: Path) -> None:
-    descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    descriptor = os.open(os.fspath(directory), _DIRECTORY_FLAGS)
     try:
-        os.fsync(descriptor)
+        _fsync_directory_fd(descriptor)
     finally:
         os.close(descriptor)
+
+
+def _open_path_root(path: Path) -> tuple[int, tuple[str, ...]]:
+    if path.is_absolute():
+        return os.open(b"/", _DIRECTORY_FLAGS), path.parts[1:]
+    return os.open(b".", _DIRECTORY_FLAGS), path.parts
+
+
+def _symlink_parent_error(path: Path, error: OSError) -> ValueError:
+    del error
+    return ValueError(
+        f"refusing to write scientific artifact through a symlink parent: {path}"
+    )
+
+
+def _ensure_directory_nofollow(path: Path) -> int:
+    """Create missing parents and return an O_NOFOLLOW directory fd for `path`."""
+
+    current, components = _open_path_root(_lexically_normalized(path))
+    if not components:
+        return current
+    try:
+        for component in components:
+            encoded = os.fsencode(component)
+            try:
+                nxt = os.open(encoded, _DIRECTORY_FLAGS, dir_fd=current)
+            except FileNotFoundError:
+                try:
+                    os.mkdir(encoded, dir_fd=current)
+                except FileExistsError:
+                    pass
+                try:
+                    nxt = os.open(encoded, _DIRECTORY_FLAGS, dir_fd=current)
+                except OSError as error:
+                    raise _symlink_parent_error(path, error) from error
+            except OSError as error:
+                raise _symlink_parent_error(path, error) from error
+            os.close(current)
+            current = nxt
+        return current
+    except BaseException:
+        os.close(current)
+        raise
+
+
+@contextmanager
+def held_parent_directory(path: Path) -> Iterator[int]:
+    """Hold the parent directory fd of `path` without following any component."""
+
+    descriptor = _ensure_directory_nofollow(path.parent)
+    try:
+        yield descriptor
+    finally:
+        os.close(descriptor)
+
+
+def _require_basename(path: Path) -> str:
+    name = path.name
+    if not name or name in {".", ".."} or "/" in name or "\\" in name or "\x00" in name:
+        raise ValueError(f"scientific artifact name is not a single basename: {path}")
+    return name
+
+
+def _open_existing_regular(parent_fd: int, name: str, path: Path) -> int | None:
+    try:
+        descriptor = os.open(os.fsencode(name), _FILE_READ_FLAGS, dir_fd=parent_fd)
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise ValueError(
+            f"refusing to write scientific artifact through a symlink: {path}"
+        ) from error
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError(f"refusing to write scientific artifact through a symlink: {path}")
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _read_fd_bytes(descriptor: int) -> bytes:
+    with os.fdopen(descriptor, "rb") as handle:
+        return handle.read()
+
+
+def _create_exclusive_temp(parent_fd: int, prefix: str) -> tuple[int, str]:
+    for _ in range(128):
+        name = f".{prefix}.{os.getpid()}.{secrets.token_hex(8)}"
+        try:
+            descriptor = os.open(
+                os.fsencode(name), _FILE_CREATE_FLAGS, 0o600, dir_fd=parent_fd
+            )
+        except FileExistsError:
+            continue
+        return descriptor, name
+    raise RuntimeError("could not allocate a temporary scientific artifact")
+
+
+def _unlink_temp(parent_fd: int, name: str) -> None:
+    try:
+        os.unlink(os.fsencode(name), dir_fd=parent_fd)
+    except FileNotFoundError:
+        return
+
+
+def write_bytes_via_parent_fd(
+    parent_fd: int,
+    name: str,
+    content: bytes,
+    *,
+    replace: bool,
+    path: Path,
+) -> None:
+    """Write `content` relative to a held parent directory fd."""
+
+    encoded_name = os.fsencode(name)
+    existing = _open_existing_regular(parent_fd, name, path)
+    if existing is not None:
+        if replace:
+            os.close(existing)
+        else:
+            existing_bytes = _read_fd_bytes(existing)
+            if existing_bytes == content:
+                return
+            raise ValueError(f"refusing to mutate scientific artifact: {path}")
+    tmp_fd, tmp_name = _create_exclusive_temp(parent_fd, name)
+    try:
+        with os.fdopen(tmp_fd, "wb") as output:
+            tmp_fd = -1
+            output.write(content)
+            output.flush()
+            os.fsync(output.fileno())
+        encoded_tmp = os.fsencode(tmp_name)
+        if replace:
+            os.replace(
+                encoded_tmp,
+                encoded_name,
+                src_dir_fd=parent_fd,
+                dst_dir_fd=parent_fd,
+            )
+        else:
+            try:
+                os.link(
+                    encoded_tmp,
+                    encoded_name,
+                    src_dir_fd=parent_fd,
+                    dst_dir_fd=parent_fd,
+                    follow_symlinks=False,
+                )
+            except FileExistsError:
+                current = _open_existing_regular(parent_fd, name, path)
+                if current is None:
+                    raise ValueError(f"refusing to mutate scientific artifact: {path}") from None
+                existing_bytes = _read_fd_bytes(current)
+                if existing_bytes == content:
+                    return
+                raise ValueError(f"refusing to mutate scientific artifact: {path}") from None
+        _fsync_directory_fd(parent_fd)
+    finally:
+        if tmp_fd >= 0:
+            os.close(tmp_fd)
+        _unlink_temp(parent_fd, tmp_name)
+        _fsync_directory_fd(parent_fd)
 
 
 def _absolute_without_follow(path: Path) -> Path:
@@ -145,14 +308,11 @@ def _absolute_without_follow(path: Path) -> Path:
 
 
 def is_mutable_synchronization_path(relative: Path) -> bool:
-    """Mutable observational metadata: W&B trees, timing files, and sync sidecars."""
+    """Mutable observational metadata: timing files written beside immutable artifacts."""
 
     if relative.is_absolute():
         raise ValueError("artifact paths must be relative to the experiment directory")
-    if is_wandb_synchronization_path(relative):
-        return True
-    name = relative.name
-    return name.endswith(".time.txt")
+    return relative.name.endswith(".time.txt")
 
 
 def normalize_inventory_relative_path(path_text: str) -> str:
@@ -254,64 +414,54 @@ def _lstat(path: Path) -> os.stat_result | None:
 
 
 def _read_regular_file_bytes(path: Path) -> bytes:
-    try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-    except OSError as error:
-        raise ValueError(
-            f"refusing to read scientific artifact through a non-regular file: {path}"
-        ) from error
-    try:
-        info = os.fstat(descriptor)
-        if not stat.S_ISREG(info.st_mode):
-            raise ValueError(
-                f"refusing to read scientific artifact through a non-regular file: {path}"
-            )
-        with os.fdopen(descriptor, "rb") as handle:
-            descriptor = -1
-            return handle.read()
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
+    return read_regular_file_bytes(path)
+
+
+def _read_contained_regular_file_bytes(container: Path, relative: str) -> bytes:
+    """Read a declared descendant without following symlinks."""
+
+    container_abs = _absolute_without_follow(container)
+    _raise_if_symlink_ancestor(container)
+    container_info = _lstat(container_abs)
+    if container_info is not None and stat.S_ISLNK(container_info.st_mode):
+        raise ValueError(f"scientific artifact container must not be a symlink: {container}")
+    path = resolve_inventory_path(container, relative)
+    current = path
+    while True:
+        info = _lstat(current)
+        if info is not None and stat.S_ISLNK(info.st_mode):
+            raise ValueError(f"scientific artifact must not be a symlink: {current}")
+        if current == container_abs:
+            break
+        nxt = current.parent
+        if nxt == current:
+            raise ValueError(f"scientific artifact escapes container: {relative}")
+        current = nxt
+    return _read_regular_file_bytes(path)
 
 
 def write_scientific_artifact(path: Path, content: bytes) -> str:
     """Write immutable scientific bytes once. Identical content is idempotent."""
 
-    digest = _sha256_bytes(content)
-    _raise_if_symlink_ancestor(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _fsync_directory(path.parent)
-    existing_info = _lstat(path)
-    if existing_info is not None:
-        if path.is_symlink() or not stat.S_ISREG(existing_info.st_mode):
-            raise ValueError(f"refusing to write scientific artifact through a symlink: {path}")
-        existing = _read_regular_file_bytes(path)
-        if existing == content:
-            return _sha256_bytes(existing)
-        raise ValueError(f"refusing to mutate scientific artifact: {path}")
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    try:
-        with os.fdopen(descriptor, "wb") as output:
-            output.write(content)
-            output.flush()
-            os.fsync(output.fileno())
-        try:
-            os.link(temporary, path)
-        except FileExistsError:
-            if path.is_symlink():
-                raise ValueError(
-                    f"refusing to write scientific artifact through a symlink: {path}"
-                ) from None
-            existing = _read_regular_file_bytes(path)
-            if existing == content:
-                return _sha256_bytes(existing)
-            raise ValueError(f"refusing to mutate scientific artifact: {path}") from None
-        _fsync_directory(path.parent)
-    finally:
-        if os.path.lexists(temporary):
-            os.unlink(temporary)
-            _fsync_directory(path.parent)
+    digest = sha256_bytes(content)
+    name = _require_basename(path)
+    with held_parent_directory(path) as parent_fd:
+        existing = _open_existing_regular(parent_fd, name, path)
+        if existing is not None:
+            existing_bytes = _read_fd_bytes(existing)
+            if existing_bytes == content:
+                return sha256_bytes(existing_bytes)
+            raise ValueError(f"refusing to mutate scientific artifact: {path}")
+        write_bytes_via_parent_fd(parent_fd, name, content, replace=False, path=path)
     return digest
+
+
+def replace_file_bytes(path: Path, content: bytes) -> None:
+    """Replace a regular file relative to a held parent directory fd."""
+
+    name = _require_basename(path)
+    with held_parent_directory(path) as parent_fd:
+        write_bytes_via_parent_fd(parent_fd, name, content, replace=True, path=path)
 
 
 @dataclass(frozen=True, slots=True)
@@ -327,19 +477,29 @@ class ArtifactRef:
 @dataclass(frozen=True, slots=True)
 class ExperimentPredeclaration:
     kind: str
-    schema_version: int | None
+    schema_version: int
     name: str
     source_commit: str
     source_worktree_must_be_clean: bool
     promotion_claim: bool
-    consumed_evidence_policy: Mapping[str, bool] | None
+    consumed_evidence_policy: Mapping[str, bool]
     inputs: tuple[ArtifactRef, ...]
     outputs: tuple[ArtifactRef, ...]
     environment: Mapping[str, str | None]
-    payload: Mapping[str, object]
 
     def to_dict(self) -> dict[str, object]:
-        return dict(self.payload)
+        return {
+            "kind": self.kind,
+            "schema_version": self.schema_version,
+            "name": self.name,
+            "source_commit": self.source_commit,
+            "source_worktree_must_be_clean": self.source_worktree_must_be_clean,
+            "promotion_claim": self.promotion_claim,
+            "consumed_evidence_policy": dict(self.consumed_evidence_policy),
+            "inputs": [ref.to_dict() for ref in self.inputs],
+            "outputs": [ref.to_dict() for ref in self.outputs],
+            "environment": dict(self.environment),
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -408,12 +568,24 @@ class ExperimentReproductionError(ValueError):
     """Raised when source, artifact, or evidence-policy identities drifted."""
 
 
-def parse_sha256sum_inventory(text: str) -> tuple[tuple[str, str], ...]:
+def parse_sha256sum_inventory(content: bytes) -> tuple[tuple[str, str], ...]:
+    if type(content) is not bytes:
+        raise TypeError("artifact inventory must be bytes")
+    if not content:
+        return ()
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("artifact inventory is not UTF-8") from error
+    if "\r" in text:
+        raise ValueError("artifact inventory must use canonical newline separators")
+    if not text.endswith("\n"):
+        raise ValueError("artifact inventory must end with a newline")
     entries: list[tuple[str, str]] = []
     seen: set[str] = set()
-    for line_number, raw in enumerate(text.splitlines(), start=1):
-        if not raw:
-            continue
+    for line_number, raw in enumerate(text[:-1].split("\n"), start=1):
+        if not raw or raw.strip() != raw:
+            raise ValueError(f"inventory line {line_number} is blank or noncanonical")
         matched = _INVENTORY_LINE.fullmatch(raw)
         if matched is None:
             raise ValueError(f"inventory line {line_number} is not sha256sum format")
@@ -423,7 +595,11 @@ def parse_sha256sum_inventory(text: str) -> tuple[tuple[str, str], ...]:
             raise ValueError(f"inventory lists {relative} more than once")
         seen.add(relative)
         entries.append((relative, digest))
-    return tuple(entries)
+    ordered = tuple(sorted(entries, key=lambda item: item[0]))
+    rebuilt = "".join(f"{digest}  ./{relative}\n" for relative, digest in ordered)
+    if rebuilt.encode("utf-8") != content:
+        raise ValueError("artifact inventory bytes are not canonical")
+    return ordered
 
 
 def _relative_to_root(root: Path, path: Path) -> Path:
@@ -468,24 +644,9 @@ def _iter_tree_entries(root: Path) -> Iterator[tuple[Path, str]]:
                 yield child, "file"
 
 
-def _symlink_target_within_root(root: Path, path: Path) -> bool:
-    raw = os.readlink(path)
-    target = Path(raw)
-    if not target.is_absolute():
-        target = path.parent / target
-    try:
-        _lexically_normalized(target).relative_to(_lexically_normalized(root))
-    except ValueError:
-        return False
-    return True
-
-
 def _symlink_is_allowed(root: Path, path: Path, relative: Path) -> bool:
-    if not is_mutable_synchronization_path(relative):
-        return False
-    if path.name not in _ALLOWED_MUTABLE_SYMLINK_NAMES:
-        return False
-    return _symlink_target_within_root(root, path)
+    del root, path, relative
+    return False
 
 
 def _scientific_file_digests(root: Path) -> dict[str, str]:
@@ -496,7 +657,7 @@ def _scientific_file_digests(root: Path) -> dict[str, str]:
         relative = _relative_to_root(root, path)
         if is_mutable_synchronization_path(relative):
             continue
-        mapping[relative.as_posix()] = _sha256_bytes(_read_regular_file_bytes(path))
+        mapping[relative.as_posix()] = sha256_bytes(_read_regular_file_bytes(path))
     return mapping
 
 
@@ -522,26 +683,16 @@ def _symlink_violations(root: Path) -> tuple[str, ...]:
 
 def _undeclared_policy_for(root: Path) -> str:
     path = root / "predeclaration.json"
-    if path.is_symlink():
+    info = _lstat(path)
+    if info is None:
+        raise ValueError("experiment directory is missing predeclaration.json")
+    if stat.S_ISLNK(info.st_mode):
         raise ValueError("predeclaration.json must not be a symlink")
-    if not path.is_file():
-        return UNDECLARED_POLICY_REPORT_ONLY
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError("predeclaration.json is not valid JSON") from error
-    source = _require_mapping(payload, "predeclaration")
-    if source.get("kind") == PREDECLARATION_KIND:
-        _load_v1_predeclaration(source)
-        return UNDECLARED_POLICY_STRICT
-    return UNDECLARED_POLICY_REPORT_ONLY
+    load_experiment_predeclaration(path)
+    return UNDECLARED_POLICY_STRICT
 
 
-def write_artifact_inventory(
-    experiment_dir: Path,
-    *,
-    inventory_name: str = ARTIFACT_INVENTORY_NAME,
-) -> Path:
+def write_artifact_inventory(experiment_dir: Path) -> Path:
     root = _absolute_without_follow(experiment_dir)
     if not root.is_dir() or root.is_symlink():
         if root.is_symlink():
@@ -555,27 +706,24 @@ def write_artifact_inventory(
         if kind != "file":
             continue
         relative = _relative_to_root(root, path)
-        if relative.as_posix() == inventory_name or is_mutable_synchronization_path(relative):
+        if relative.as_posix() == ARTIFACT_INVENTORY_NAME or is_mutable_synchronization_path(
+            relative
+        ):
             continue
-        digest = _sha256_bytes(_read_regular_file_bytes(path))
+        digest = sha256_bytes(_read_regular_file_bytes(path))
         lines.append(f"{digest}  ./{relative.as_posix()}\n")
-    destination = root / inventory_name
+    lines.sort(key=lambda line: line.split("  ./", 1)[1])
+    destination = root / ARTIFACT_INVENTORY_NAME
     write_scientific_artifact(destination, "".join(lines).encode())
     return destination
 
 
 def _load_inventory_entries(inventory_path: Path) -> tuple[tuple[str, str], ...]:
-    if inventory_path.is_symlink():
-        raise ValueError(f"artifact inventory must not be a symlink: {inventory_path}")
-    return parse_sha256sum_inventory(inventory_path.read_text(encoding="utf-8"))
+    return parse_sha256sum_inventory(_read_regular_file_bytes(inventory_path))
 
 
-def verify_artifact_integrity(
-    experiment_dir: Path,
-    *,
-    inventory_path: Path | None = None,
-) -> ArtifactIntegrityReport:
-    """Check declared scientific digests. W&B and timing files are observational."""
+def verify_artifact_integrity(experiment_dir: Path) -> ArtifactIntegrityReport:
+    """Check declared scientific digests. Timing files are observational."""
 
     root = _absolute_without_follow(experiment_dir)
     if not root.is_dir():
@@ -584,7 +732,7 @@ def verify_artifact_integrity(
         raise ValueError(f"experiment directory must not be a symlink: {root}")
     inventory = _require_contained_path(
         root,
-        inventory_path or root / ARTIFACT_INVENTORY_NAME,
+        root / ARTIFACT_INVENTORY_NAME,
         "artifact inventory",
     )
     if not inventory.is_file():
@@ -614,7 +762,7 @@ def verify_artifact_integrity(
             missing.append(relative)
             mismatches.append(IntegrityMismatch(relative, expected, None))
             continue
-        actual = _sha256_bytes(_read_regular_file_bytes(actual_path))
+        actual = sha256_bytes(_read_regular_file_bytes(actual_path))
         checked += 1
         if actual != expected:
             mismatches.append(IntegrityMismatch(relative, expected, actual))
@@ -685,14 +833,21 @@ def _load_v1_predeclaration(payload: Mapping[str, object]) -> ExperimentPredecla
         raise ValueError("experiment predeclaration v1 has missing or unknown fields")
     if payload["kind"] != PREDECLARATION_KIND:
         raise ValueError("experiment predeclaration kind mismatch")
-    if payload["schema_version"] != PREDECLARATION_SCHEMA_VERSION:
-        raise ValueError("unsupported experiment predeclaration schema version")
+    schema_version = payload["schema_version"]
+    if type(schema_version) is not int or schema_version != PREDECLARATION_SCHEMA_VERSION:
+        raise TypeError("unsupported experiment predeclaration schema version")
     promotion = _require_bool(payload["promotion_claim"], "promotion_claim")
     if promotion:
         raise ExperimentReproductionError("predeclaration v1 refuses promotion claims")
     policy = _evidence_policy(payload["consumed_evidence_policy"])
     if policy["sealed_test"] or policy["real_trace_audit"]:
         raise ExperimentReproductionError("predeclaration v1 refuses sealed/audit evidence")
+    if not policy["development_only_for_assessment"]:
+        raise ValueError("experiment predeclaration requires development_only_for_assessment")
+    if not _require_bool(
+        payload["source_worktree_must_be_clean"], "source_worktree_must_be_clean"
+    ):
+        raise ValueError("experiment predeclaration requires source_worktree_must_be_clean")
     inputs = tuple(
         _artifact_ref(item, f"inputs[{index}]")
         for index, item in enumerate(_require_list(payload["inputs"], "inputs"))
@@ -706,15 +861,12 @@ def _load_v1_predeclaration(payload: Mapping[str, object]) -> ExperimentPredecla
         schema_version=PREDECLARATION_SCHEMA_VERSION,
         name=_require_string(payload["name"], "name"),
         source_commit=_require_git_sha(payload["source_commit"], "source_commit"),
-        source_worktree_must_be_clean=_require_bool(
-            payload["source_worktree_must_be_clean"], "source_worktree_must_be_clean"
-        ),
+        source_worktree_must_be_clean=True,
         promotion_claim=False,
         consumed_evidence_policy=MappingProxyType(policy),
         inputs=inputs,
         outputs=outputs,
         environment=MappingProxyType(_environment(payload["environment"])),
-        payload=MappingProxyType(dict(payload)),
     )
 
 
@@ -724,94 +876,112 @@ def _require_list(value: object, label: str) -> list[object]:
     return cast(list[object], value)
 
 
-def _load_legacy_predeclaration(payload: Mapping[str, object]) -> ExperimentPredeclaration:
-    name_value = payload.get("name")
-    if type(name_value) is str:
-        name = _require_string(name_value, "name")
-    else:
-        name = "legacy_predeclaration"
-    clean_value = payload.get("source_worktree_must_be_clean")
-    if clean_value is None:
-        clean = True
-    else:
-        clean = _require_bool(clean_value, "source_worktree_must_be_clean")
-    promotion_value = payload.get("promotion_claim")
-    promotion = (
-        False if promotion_value is None else _require_bool(promotion_value, "promotion_claim")
-    )
-    policy_value = payload.get("consumed_evidence_policy")
-    policy: dict[str, bool] | None
-    if policy_value is None:
-        policy = None
-    else:
-        source = _require_mapping(policy_value, "consumed_evidence_policy")
-        policy = {}
-        for key in ("sealed_test", "real_trace_audit"):
-            if key in source:
-                policy[key] = _require_bool(source[key], f"consumed_evidence_policy.{key}")
-    return ExperimentPredeclaration(
-        kind="legacy_predeclaration",
-        schema_version=None,
-        name=name,
-        source_commit=_require_git_sha(payload.get("source_commit"), "source_commit"),
-        source_worktree_must_be_clean=clean,
-        promotion_claim=promotion,
-        consumed_evidence_policy=None if policy is None else MappingProxyType(policy),
-        inputs=(),
-        outputs=(),
-        environment=MappingProxyType({}),
-        payload=MappingProxyType(dict(payload)),
-    )
+def _parse_experiment_predeclaration(path: Path) -> tuple[ExperimentPredeclaration, bytes]:
+    content = _read_regular_file_bytes(path)
+    payload = json.loads(content)
+    source = _require_mapping(payload, "predeclaration")
+    if source.get("kind") != PREDECLARATION_KIND:
+        raise ValueError("unsupported experiment predeclaration")
+    validated = _load_v1_predeclaration(source)
+    if content != canonical_bytes(validated.to_dict()):
+        raise ValueError("experiment predeclaration bytes are not canonical")
+    return validated, content
 
 
 def load_experiment_predeclaration(path: Path) -> ExperimentPredeclaration:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    source = _require_mapping(payload, "predeclaration")
-    if source.get("kind") == PREDECLARATION_KIND:
-        return _load_v1_predeclaration(source)
-    return _load_legacy_predeclaration(source)
+    return _parse_experiment_predeclaration(path)[0]
 
 
-def _resolve_declared_path(path_text: str, experiment_dir: Path | None) -> Path:
-    path = Path(path_text)
+def _register_declared_path(seen: set[str], path_key: str) -> None:
+    if path_key in seen:
+        raise ExperimentReproductionError(f"duplicate artifact path: {path_key}")
+    seen.add(path_key)
+
+
+def _contained_inventory_relative(experiment_dir: Path, path: Path) -> str | None:
+    normalized_root = _lexically_normalized(experiment_dir)
+    normalized_path = _lexically_normalized(path)
+    try:
+        relative = normalized_path.relative_to(normalized_root)
+    except ValueError:
+        return None
+    return normalize_inventory_relative_path(relative.as_posix())
+
+
+def _artifact_identity(
+    ref: ArtifactRef,
+    *,
+    experiment_dir: Path,
+    inventory_paths: set[str],
+    seen_paths: set[str],
+    as_output: bool,
+) -> dict[str, object]:
+    path = Path(ref.path)
     if path.is_absolute():
-        return path
-    if experiment_dir is None:
-        raise ExperimentReproductionError(
-            f"relative artifact path {path_text} requires an experiment directory"
-        )
-    return experiment_dir / path
-
-
-def _verify_artifact_ref(ref: ArtifactRef, experiment_dir: Path | None) -> None:
-    path = _resolve_declared_path(ref.path, experiment_dir)
-    if not path.is_file():
-        raise ExperimentReproductionError(f"declared {ref.role} artifact is missing: {path}")
-    actual = file_digest(path)
+        if as_output:
+            raise ExperimentReproductionError(
+                "output artifact paths must be inventory-relative contained paths"
+            )
+        normalized = _lexically_normalized(path)
+        if path != normalized:
+            raise ExperimentReproductionError(f"declared {ref.role} path is not canonical")
+        _register_declared_path(seen_paths, str(normalized))
+        contained_relative = _contained_inventory_relative(experiment_dir, normalized)
+        if contained_relative is not None and contained_relative not in inventory_paths:
+            raise ExperimentReproductionError(
+                f"declared {ref.role} artifact is not in the inventory: {contained_relative}"
+            )
+        content = _read_regular_file_bytes(normalized)
+        resolved = normalized
+    else:
+        relative = normalize_inventory_relative_path(ref.path)
+        if relative != ref.path:
+            raise ExperimentReproductionError(f"declared {ref.role} path is not canonical")
+        resolved = resolve_inventory_path(experiment_dir, relative)
+        _register_declared_path(seen_paths, str(_lexically_normalized(resolved)))
+        if relative not in inventory_paths:
+            raise ExperimentReproductionError(
+                f"declared {ref.role} artifact is not in the inventory: {relative}"
+            )
+        content = _read_contained_regular_file_bytes(experiment_dir, relative)
+    actual = sha256_bytes(content)
     if actual != ref.sha256:
-        raise ExperimentReproductionError(f"declared {ref.role} artifact digest mismatch: {path}")
+        raise ExperimentReproductionError(
+            f"declared {ref.role} artifact digest mismatch: {resolved}"
+        )
+    return json_content_identities_from_bytes(content, resolved)
 
 
-def json_content_identities(path: Path) -> dict[str, object]:
+def json_content_identities_from_bytes(content: bytes, path: Path) -> dict[str, object]:
     payload: dict[str, object] = {
         "path": str(path),
-        "sha256": file_digest(path),
+        "sha256": sha256_bytes(content),
     }
     try:
-        loaded = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        loaded = json.loads(content)
+    except (UnicodeDecodeError, json.JSONDecodeError):
         return payload
     if type(loaded) is not dict:
         return payload
     source = cast(dict[str, object], loaded)
+    if content != canonical_bytes(source):
+        raise ValueError(f"JSON artifact bytes are not canonical: {path}")
     extracted: dict[str, object] = {}
     for key in _JSON_DIGEST_FIELDS:
-        value = source.get(key)
-        if type(value) is str:
-            extracted[key] = value
+        if key not in source:
+            continue
+        value = source[key]
+        digest = _require_digest(value, key)
+        if key in _SELF_DIGEST_KEYS and digest != digest_payload(source, key):
+            raise ValueError(f"{key} does not match the canonical payload digest")
+        extracted[key] = digest
     if extracted:
         payload["declared_digests"] = extracted
     return payload
+
+
+def json_content_identities(path: Path) -> dict[str, object]:
+    return json_content_identities_from_bytes(_read_regular_file_bytes(path), path)
 
 
 def _empty_environment_sets() -> dict[str, set[str]]:
@@ -925,26 +1095,33 @@ def _consumed_sealed_or_audit_evidence(
 
 
 def reproduce_experiment(
-    predeclaration_path: Path,
+    experiment_dir: Path,
     *,
     repository: Path,
-    experiment_dir: Path | None = None,
-    allow_dirty: bool = False,
 ) -> dict[str, object]:
     """Validate source and content identities. Does not retrain or repair artifacts."""
 
-    predeclaration = load_experiment_predeclaration(predeclaration_path)
+    experiment_root = _absolute_without_follow(experiment_dir)
+    if experiment_root.is_symlink() or not experiment_root.is_dir():
+        raise ExperimentReproductionError(
+            f"experiment directory must be a real directory: {experiment_dir}"
+        )
+    predeclaration_path = experiment_root / _PREDECLARATION_NAME
+    predeclaration, predeclaration_bytes = _parse_experiment_predeclaration(predeclaration_path)
     if predeclaration.promotion_claim:
         raise ExperimentReproductionError("reproduction refuses promotion claims")
     policy = predeclaration.consumed_evidence_policy
-    if policy is not None and (policy.get("sealed_test") or policy.get("real_trace_audit")):
+    if not predeclaration.source_worktree_must_be_clean:
+        raise ExperimentReproductionError("reproduction requires source_worktree_must_be_clean")
+    if not policy.get("development_only_for_assessment"):
+        raise ExperimentReproductionError("reproduction requires development_only_for_assessment")
+    if policy.get("sealed_test") or policy.get("real_trace_audit"):
         raise ExperimentReproductionError("reproduction refuses sealed/audit evidence")
-    allow_dirty_capture = allow_dirty and not predeclaration.source_worktree_must_be_clean
     try:
-        version = capture_repository_version(repository, allow_dirty=allow_dirty_capture)
+        version = capture_repository_version(repository)
     except ValueError as error:
         raise ExperimentReproductionError(str(error)) from error
-    if predeclaration.source_worktree_must_be_clean and not version.clean:
+    if not version.clean:
         raise ExperimentReproductionError(
             "worktree is dirty; reproduction requires a clean checkout"
         )
@@ -953,14 +1130,52 @@ def reproduce_experiment(
             "source commit mismatch: "
             f"worktree={version.git_sha} declared={predeclaration.source_commit}"
         )
+    inventory_path = experiment_root / ARTIFACT_INVENTORY_NAME
+    if _lstat(inventory_path) is None:
+        raise ExperimentReproductionError(
+            f"experiment directory is missing {ARTIFACT_INVENTORY_NAME}"
+        )
+    inventory_entries = _load_inventory_entries(inventory_path)
+    inventory_paths = {relative for relative, _digest in inventory_entries}
+    expected_inventory_paths = {_PREDECLARATION_NAME}
     for ref in (*predeclaration.inputs, *predeclaration.outputs):
-        _verify_artifact_ref(ref, experiment_dir)
+        path = Path(ref.path)
+        relative = (
+            _contained_inventory_relative(experiment_root, path)
+            if path.is_absolute()
+            else normalize_inventory_relative_path(ref.path)
+        )
+        if relative is not None:
+            if relative in {_PREDECLARATION_NAME, ARTIFACT_INVENTORY_NAME}:
+                raise ExperimentReproductionError(
+                    f"declared artifact path is reserved: {relative}"
+                )
+            expected_inventory_paths.add(relative)
+    if inventory_paths != expected_inventory_paths:
+        missing = sorted(expected_inventory_paths - inventory_paths)
+        extra = sorted(inventory_paths - expected_inventory_paths)
+        raise ExperimentReproductionError(
+            f"artifact inventory membership mismatch: missing={missing}, extra={extra}"
+        )
+    seen_paths: set[str] = set()
     input_identities = [
-        json_content_identities(_resolve_declared_path(ref.path, experiment_dir))
+        _artifact_identity(
+            ref,
+            experiment_dir=experiment_root,
+            inventory_paths=inventory_paths,
+            seen_paths=seen_paths,
+            as_output=False,
+        )
         for ref in predeclaration.inputs
     ]
     output_identities = [
-        json_content_identities(_resolve_declared_path(ref.path, experiment_dir))
+        _artifact_identity(
+            ref,
+            experiment_dir=experiment_root,
+            inventory_paths=inventory_paths,
+            seen_paths=seen_paths,
+            as_output=True,
+        )
         for ref in predeclaration.outputs
     ]
     file_hashes, artifact_fields = _observed_environment_values(
@@ -976,15 +1191,13 @@ def reproduce_experiment(
         artifact_fields,
         _live_environment_observations() if need_live else {},
     )
-    integrity: dict[str, object] | None = None
-    if experiment_dir is not None and (experiment_dir / ARTIFACT_INVENTORY_NAME).is_file():
-        integrity = verify_artifact_integrity(experiment_dir).to_dict()
+    integrity = verify_artifact_integrity(experiment_root).to_dict()
     report = {
         "kind": "experiment_reproduction_report",
         "report_version": 2,
         "ok": True,
         "predeclaration_path": str(predeclaration_path),
-        "predeclaration_sha256": file_digest(predeclaration_path),
+        "predeclaration_sha256": sha256_bytes(predeclaration_bytes),
         "predeclaration_kind": predeclaration.kind,
         "name": predeclaration.name,
         "source_commit": version.git_sha,
@@ -1001,50 +1214,5 @@ def reproduce_experiment(
         },
         "artifact_integrity": integrity,
     }
-    report["report_digest"] = _sha256_bytes(_canonical_bytes(report))
+    report["report_digest"] = sha256_bytes(canonical_bytes(report))
     return report
-
-
-def sync_experiment_wandb(
-    directory: Path,
-    *,
-    base_url: str = DEFAULT_LOCAL_WANDB_BASE_URL,
-) -> dict[str, object]:
-    """Sync W&B metadata only; refuse if scientific bytes change."""
-
-    root = _absolute_without_follow(directory)
-    before = _scientific_file_digests(root)
-    before_symlinks = _symlink_violations(root)
-    result = sync_offline_wandb(root, base_url=base_url)
-    after = _scientific_file_digests(root)
-    after_symlinks = _symlink_violations(root)
-    if before != after or before_symlinks != after_symlinks:
-        changed = sorted(set(before) | set(after))
-        drifted = [path for path in changed if before.get(path) != after.get(path)]
-        raise ArtifactIntegrityError(
-            ArtifactIntegrityReport(
-                ok=False,
-                experiment_dir=str(root),
-                inventory_path="",
-                checked=len(before),
-                skipped_mutable=tuple(
-                    _relative_to_root(root, path).as_posix()
-                    for path, kind in _iter_tree_entries(root)
-                    if kind == "file"
-                    and is_mutable_synchronization_path(_relative_to_root(root, path))
-                ),
-                missing=(),
-                mismatches=tuple(
-                    IntegrityMismatch(path, before.get(path, ""), after.get(path))
-                    for path in drifted
-                ),
-                undeclared_scientific=(),
-                undeclared_policy=UNDECLARED_POLICY_REPORT_ONLY,
-                symlink_violations=after_symlinks,
-            )
-        )
-    result = dict(result)
-    result["scientific_artifacts_modified"] = False
-    result["offline_run_count"] = len(discover_offline_wandb_runs(root))
-    result["mutable_directory_name"] = MUTABLE_SYNCHRONIZATION_DIRECTORY_NAME
-    return result

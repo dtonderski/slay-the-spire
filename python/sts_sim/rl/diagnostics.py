@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from .records import SymbolicTrainingRecord, _canonical_json, action_descriptor_payload
+from .provenance import canonical_bytes, digest_payload, require_digest, sha256_bytes
+from .records import SymbolicTrainingRecord, action_descriptor_payload
 from .rewards import COMBAT_PROXY_V1
 
 AFFINE_TANH_WIN_PROBABILITY_MAP = "affine_tanh_unit_interval_v1"
@@ -75,7 +76,7 @@ def teacher_conflict_report(
         if len(digests) != 1:
             raise ValueError("teacher pair observations do not share one fair digest")
         ordered_actions = [
-            tuple(_canonical_json(action_descriptor_payload(action)) for action in record.actions)
+            tuple(canonical_bytes(action_descriptor_payload(action)).decode() for action in record.actions)
             for record in group
         ]
         if any(actions != ordered_actions[0] for actions in ordered_actions[1:]):
@@ -102,10 +103,6 @@ def teacher_conflict_report(
             )
         )
     return tuple(result)
-
-
-def _canonical_bytes(payload: object) -> bytes:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
 
 
 def _require_mapping(value: object, label: str) -> dict[str, object]:
@@ -397,9 +394,9 @@ def _coverage_bounds(
     }
 
 
-def _decision_index(row: Mapping[str, object], label: str) -> int | None:
+def _decision_index(row: Mapping[str, object], label: str) -> int:
     if "decision_index" not in row:
-        return None
+        raise ValueError(f"{label} is missing decision_index")
     value = row["decision_index"]
     if type(value) is not int or value < 0:
         raise TypeError(f"{label}.decision_index must be a nonnegative integer")
@@ -460,15 +457,10 @@ def _static_first_decision_joins(
 ) -> tuple[dict[str, dict[str, object]], dict[str, object]]:
     static_rows = _require_list(static.get("per_record"), "static per_record")
     parsed: list[dict[str, object]] = []
-    index_present = 0
     for index, raw in enumerate(static_rows):
         row = _require_mapping(raw, f"static per_record[{index}]")
-        decision_index = _decision_index(row, f"static per_record[{index}]")
-        if decision_index is not None:
-            index_present += 1
         parsed.append(
             {
-                "file_order": index,
                 "record_id": _require_string(
                     row.get("record_id"), f"static per_record[{index}].record_id"
                 ),
@@ -476,12 +468,9 @@ def _static_first_decision_joins(
                     row.get("root_id"), f"static per_record[{index}].root_id"
                 ),
                 "predicted": _finite_predicted_value(row.get("predicted_value")),
-                "decision_index": decision_index,
+                "decision_index": _decision_index(row, f"static per_record[{index}]"),
             }
         )
-    if parsed and index_present not in {0, len(parsed)}:
-        raise ValueError("static per_record decision_index is incomplete")
-    proven = index_present == len(parsed) and bool(parsed)
     chosen: dict[str, dict[str, object]] = {}
     for item in parsed:
         root_id = cast(str, item["root_id"])
@@ -489,31 +478,21 @@ def _static_first_decision_joins(
         if current is None:
             chosen[root_id] = item
             continue
-        if proven:
-            current_index = cast(int, current["decision_index"])
-            candidate_index = cast(int, item["decision_index"])
-            if candidate_index < current_index:
-                chosen[root_id] = item
-            elif candidate_index == current_index:
-                raise ValueError(
-                    f"ambiguous first-decision identity for root {root_id}: "
-                    "multiple records share the minimum decision_index"
-                )
-            continue
-        if cast(int, item["file_order"]) < cast(int, current["file_order"]):
+        current_index = cast(int, current["decision_index"])
+        candidate_index = cast(int, item["decision_index"])
+        if candidate_index < current_index:
             chosen[root_id] = item
-    if proven:
-        for root_id, item in chosen.items():
-            if item["decision_index"] != 0:
-                raise ValueError(f"root {root_id} first-decision identity is not decision_index 0")
+        elif candidate_index == current_index:
+            raise ValueError(
+                f"ambiguous first-decision identity for root {root_id}: "
+                "multiple records share the minimum decision_index"
+            )
+    for root_id, item in chosen.items():
+        if item["decision_index"] != 0:
+            raise ValueError(f"root {root_id} first-decision identity is not decision_index 0")
     audit = {
-        "rule": "min_decision_index" if proven else "unproven_v4_file_order",
-        "limitation": None
-        if proven
-        else (
-            "static per_record rows do not include decision_index; join uses the first matching "
-            "root_id in file order and cannot prove first-decision identity"
-        ),
+        "rule": "min_decision_index",
+        "limitation": None,
         "chosen_joins": [
             {
                 "root_id": root_id,
@@ -545,31 +524,23 @@ def combat_proxy_observations_from_gameplay_report(
         per_root_by_id[root_id] = row
     root_ids_value = gameplay.get("root_ids")
     if root_ids_value is None:
-        requested = [
-            _require_string(
-                _require_mapping(raw, f"gameplay per_root[{index}]").get("root_id"),
-                f"gameplay per_root[{index}].root_id",
-            )
-            for index, raw in enumerate(per_root)
-        ]
-        requested_source = "per_root_file_order"
-    else:
-        requested_list = _require_list(root_ids_value, "gameplay root_ids")
-        requested = [
-            _require_string(item, f"gameplay root_ids[{index}]")
-            for index, item in enumerate(requested_list)
-        ]
-        requested_source = "root_ids"
-        if len(requested) != len(set(requested)):
-            raise ValueError("gameplay root_ids must be unique")
-        extra = sorted(set(per_root_by_id) - set(requested))
-        if extra:
-            raise ValueError(
-                "gameplay per_root contains roots absent from root_ids: " + ", ".join(extra)
-            )
-        missing_roots = [root_id for root_id in requested if root_id not in per_root_by_id]
-        if missing_roots:
-            raise ValueError("gameplay root_ids missing per_root rows: " + ", ".join(missing_roots))
+        raise ValueError("gameplay root_ids is required")
+    requested_list = _require_list(root_ids_value, "gameplay root_ids")
+    requested = [
+        _require_string(item, f"gameplay root_ids[{index}]")
+        for index, item in enumerate(requested_list)
+    ]
+    requested_source = "root_ids"
+    if len(requested) != len(set(requested)):
+        raise ValueError("gameplay root_ids must be unique")
+    extra = sorted(set(per_root_by_id) - set(requested))
+    if extra:
+        raise ValueError(
+            "gameplay per_root contains roots absent from root_ids: " + ", ".join(extra)
+        )
+    missing_roots = [root_id for root_id in requested if root_id not in per_root_by_id]
+    if missing_roots:
+        raise ValueError("gameplay root_ids missing per_root rows: " + ", ".join(missing_roots))
     accounting = _empty_official_accounting(len(requested))
     accounting["requested_root_source"] = requested_source
     accounting["predicted_value_aggregation"] = join_audit["rule"]
@@ -632,13 +603,26 @@ def _json_object_from_bytes(raw: bytes, label: str) -> dict[str, object]:
         loaded = json.loads(raw)
     except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError(f"{label} is not valid JSON") from error
-    return _require_mapping(loaded, label)
+    source = _require_mapping(loaded, label)
+    if raw != canonical_bytes(source):
+        raise ValueError(f"{label} bytes are not canonical")
+    return source
 
 
 def _require_payload_matches_bytes(payload: Mapping[str, object], raw: bytes, label: str) -> None:
     parsed = _json_object_from_bytes(raw, label)
-    if parsed != dict(payload):
+    if parsed != dict(payload) or raw != canonical_bytes(dict(payload)):
         raise ValueError(f"{label} payload does not match the hashed bytes")
+
+
+def _self_report_digest(payload: Mapping[str, object], label: str) -> str | None:
+    if "report_digest" not in payload:
+        return None
+    digest = require_digest(payload["report_digest"], f"{label} report_digest")
+    expected = digest_payload(dict(payload), "report_digest")
+    if digest != expected:
+        raise ValueError(f"{label} report_digest does not match the canonical payload")
+    return digest
 
 
 def _input_report_identity(
@@ -655,14 +639,13 @@ def _input_report_identity(
         sha256 = hashlib.sha256(raw_bytes).hexdigest()
         path_text: str | None = str(path) if path is not None else None
     else:
-        sha256 = hashlib.sha256(_canonical_bytes(dict(payload))).hexdigest()
+        sha256 = sha256_bytes(canonical_bytes(dict(payload)))
         path_text = None
-    report_digest = payload.get("report_digest")
     return {
         "role": role,
         "path": path_text,
         "sha256": sha256,
-        "report_digest": report_digest if type(report_digest) is str else None,
+        "report_digest": _self_report_digest(payload, role),
     }
 
 
@@ -758,5 +741,5 @@ def calibrate_combat_proxy_win_loss(
         "labeled_decision": labeled_bundle,
         "gameplay_root": gameplay_bundle,
     }
-    report["report_digest"] = hashlib.sha256(_canonical_bytes(report)).hexdigest()
+    report["report_digest"] = sha256_bytes(canonical_bytes(report))
     return report

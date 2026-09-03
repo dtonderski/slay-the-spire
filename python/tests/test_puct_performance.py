@@ -136,7 +136,10 @@ def test_teacher_exact_state_cache_matches_off_except_eval_count() -> None:
     assert before.json == after.json
     assert _decision_core(off) == _decision_core(on) == _decision_core(default)
     assert default["leaf_evaluations"] == off["leaf_evaluations"]
-    assert on["leaf_evaluations"] <= off["leaf_evaluations"]
+    off_evals = off["leaf_evaluations"]
+    on_evals = on["leaf_evaluations"]
+    assert type(off_evals) is int and type(on_evals) is int
+    assert on_evals <= off_evals
 
 
 def test_clone_episode_keeps_independent_root_bytes_and_turn_caps() -> None:
@@ -214,6 +217,10 @@ def test_network_leaf_is_the_binding_hot_path_on_fixture() -> None:
     assert _decision_core(off) == _decision_core(on)
     assert off["teacher_version"] == on["teacher_version"] == "synchronous_batch1_v3"
     assert off["completed_simulations"] == 64
+    off_evals = off["leaf_evaluations"]
+    on_evals = on["leaf_evaluations"]
+    assert type(off_evals) is int and type(on_evals) is int
+    assert _REPORT_DIR is not None
     report_dir = Path(_REPORT_DIR)
     report_dir.mkdir(parents=True, exist_ok=True)
     (report_dir / "python-fixture-timings.json").write_text(
@@ -224,9 +231,9 @@ def test_network_leaf_is_the_binding_hot_path_on_fixture() -> None:
                 "transition_budget": 64,
                 "network_leaf_off_s": off_s,
                 "network_leaf_exact_state_s": on_s,
-                "network_leaf_evaluations_off": off["leaf_evaluations"],
-                "network_leaf_evaluations_exact_state": on["leaf_evaluations"],
-                "exact_state_eval_savings": off["leaf_evaluations"] - on["leaf_evaluations"],
+                "network_leaf_evaluations_off": off_evals,
+                "network_leaf_evaluations_exact_state": on_evals,
+                "exact_state_eval_savings": off_evals - on_evals,
             },
             indent=2,
             sort_keys=True,
@@ -267,6 +274,7 @@ def _preselect_development_combat_roots(
     reason="set STS_PUCT_PERF_ROOTS to a root-manifest.json",
 )
 def test_twenty_development_roots_are_byte_and_decision_stable() -> None:
+    assert _ROOTS is not None
     manifest_path = Path(_ROOTS)
     assert manifest_path.is_file(), f"STS_PUCT_PERF_ROOTS is not a file: {manifest_path}"
     manifest = json.loads(manifest_path.read_text())

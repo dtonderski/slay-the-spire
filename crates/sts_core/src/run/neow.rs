@@ -10,7 +10,7 @@ use crate::{
     },
     ids::ContentId,
     potion::{Potion, IRONCLAD_POTION_POOL},
-    relic::{Relic, RelicKey, RelicTier},
+    relic::{Relic, RelicTier},
     rng::StsRng,
     run::state::{RewardScreen, RunPhase, RunRngStream, RunState},
     SimResult,
@@ -77,7 +77,7 @@ pub struct NeowPotionReward {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NeowBossSwapReward {
-    pub relic: RelicKey,
+    pub relic: Relic,
     pub relic_rng_counter: u32,
 }
 
@@ -89,7 +89,7 @@ pub struct NeowTransformReward {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct NeowRelicReward {
-    pub relic: RelicKey,
+    pub relic: Relic,
     pub relic_rng_counter: u32,
 }
 
@@ -241,7 +241,7 @@ fn apply_neow_boss_swap_inner(run: &mut RunState) -> SimResult<NeowBossSwapRewar
         .as_mut()
         .expect("relic pools initialized")
         .return_random_relic(RelicTier::Boss, &context);
-    if relic == RelicKey::TinyHouse && run.reward.is_none() {
+    if relic == Relic::TinyHouse && run.reward.is_none() {
         let continuation = if run
             .event
             .as_ref()

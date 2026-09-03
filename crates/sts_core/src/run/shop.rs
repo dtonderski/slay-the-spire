@@ -7,7 +7,7 @@ use crate::{
     },
     ids::CardId,
     potion::Potion,
-    relic::{Relic, RelicKey, RelicTier},
+    relic::{Relic, RelicTier},
     rng::{ExternalRngKind, StsRng},
     run::grid::open_shop_remove_grid,
     run::reward::{
@@ -43,7 +43,7 @@ pub struct ShopCardSlot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ShopRelicSlot {
-    pub relic_key: RelicKey,
+    pub relic_key: Relic,
     pub price: i32,
     pub sold: bool,
 }
@@ -144,7 +144,7 @@ pub fn shop_remove_cost_for_run(run: &RunState) -> SimResult<i32> {
 
 pub(crate) fn shop_remove_cost_for_count(run: &RunState, count: u32) -> SimResult<i32> {
     let mut cost = shop_base_remove_cost(count)?;
-    if owns_relic_key(run, RelicKey::SmilingMask) {
+    if owns_relic_key(run, Relic::SmilingMask) {
         return Ok(50);
     }
 
@@ -168,11 +168,11 @@ fn shop_base_remove_cost(count: u32) -> SimResult<i32> {
 }
 
 fn has_membership_card(run: &RunState) -> bool {
-    owns_relic_key(run, RelicKey::MembershipCard)
+    owns_relic_key(run, Relic::MembershipCard)
 }
 
 fn has_the_courier(run: &RunState) -> bool {
-    owns_relic_key(run, RelicKey::TheCourier)
+    owns_relic_key(run, Relic::TheCourier)
 }
 
 fn round_discount(price: i32, numerator: i32, denominator: i32) -> i32 {
@@ -240,8 +240,8 @@ fn set_restocked_card_price(offer: &mut ShopCardSlot, run: &RunState, merchant_r
     offer.price = price as i32;
 }
 
-fn owns_relic_key(run: &RunState, key: RelicKey) -> bool {
-    run.relics.iter().any(|relic| relic.key() == key)
+fn owns_relic_key(run: &RunState, key: Relic) -> bool {
+    run.relics.contains(&key)
 }
 
 fn can_open_shop_remove(run: &RunState, shop: &ShopScreen) -> bool {
@@ -291,7 +291,7 @@ pub fn affordable_shop_picks(run: &RunState) -> Vec<ShopPick> {
     picks
 }
 
-fn roll_shop_relic(run: &mut RunState, tier: RelicTier) -> RelicKey {
+fn roll_shop_relic(run: &mut RunState, tier: RelicTier) -> Relic {
     run.ensure_ironclad_relic_pools();
     let context = run.relic_spawn_context(run.current_floor, true);
     run.relic_pools
@@ -300,13 +300,13 @@ fn roll_shop_relic(run: &mut RunState, tier: RelicTier) -> RelicKey {
         .return_random_relic_end(tier, &context)
 }
 
-fn courier_restock_relic_key(run: &mut RunState, merchant_rng: &mut StsRng) -> (RelicKey, i32) {
+fn courier_restock_relic_key(run: &mut RunState, merchant_rng: &mut StsRng) -> (Relic, i32) {
     loop {
         let tier = shop_relic_tier_roll(merchant_rng);
         let key = roll_shop_relic(run, tier);
         if matches!(
             key,
-            RelicKey::OldCoin | RelicKey::SmilingMask | RelicKey::MawBank | RelicKey::TheCourier
+            Relic::OldCoin | Relic::SmilingMask | Relic::MawBank | Relic::TheCourier
         ) {
             continue;
         }
@@ -516,7 +516,7 @@ pub fn generate_shop_screen(run: &mut RunState) -> SimResult<ShopScreen> {
     if has_membership_card(run) {
         apply_membership_discount_to_shop(&mut shop);
     }
-    if owns_relic_key(run, RelicKey::SmilingMask) {
+    if owns_relic_key(run, Relic::SmilingMask) {
         shop.remove_cost = 50;
     }
     Ok(shop)
@@ -756,19 +756,19 @@ pub fn apply_shop_action(run: &RunState, action: RunAction) -> SimResult<RunStat
             offer.sold = true;
             next.gold -= price;
             next.break_maw_bank_on_shop_spend();
-            if key == RelicKey::Orrery {
+            if key == Relic::Orrery {
                 enter_orrery_reward_screen(&mut next);
             }
             next.gain_relic_key(key)?;
-            if key == RelicKey::Orrery {
+            if key == Relic::Orrery {
                 queue_orrery_card_reward_choices(&mut next)?;
             }
-            if key == RelicKey::MembershipCard {
+            if key == Relic::MembershipCard {
                 if let Some(shop) = next.shop.as_mut() {
                     apply_membership_discount_to_shop(shop);
                 }
             }
-            if key == RelicKey::TheCourier || has_the_courier(&next) {
+            if key == Relic::TheCourier || has_the_courier(&next) {
                 restock_courier_relic_slot(&mut next, slot);
             }
         }
@@ -1126,7 +1126,7 @@ mod tests {
         let shop = generate_shop_screen(&mut run).expect("shop fixture allocation is valid");
         run.shop = Some(shop);
         run.shop_merchant_open = true;
-        run.shop.as_mut().unwrap().relics[0].relic_key = RelicKey::Cauldron;
+        run.shop.as_mut().unwrap().relics[0].relic_key = Relic::Cauldron;
         run.shop.as_mut().unwrap().relics[0].price = 0;
         let potion_count_before = run.potions.len();
         assert_eq!(run.card_rng_counter, 12);
@@ -1185,7 +1185,7 @@ mod tests {
         let shop = generate_shop_screen(&mut run).expect("shop fixture allocation is valid");
         run.shop = Some(shop);
         run.shop_merchant_open = true;
-        run.shop.as_mut().unwrap().relics[0].relic_key = RelicKey::Orrery;
+        run.shop.as_mut().unwrap().relics[0].relic_key = Relic::Orrery;
 
         let mut next = apply_shop_action(&run, RunAction::BuyShopRelic { slot: 0 })
             .expect("Orrery purchase succeeds");

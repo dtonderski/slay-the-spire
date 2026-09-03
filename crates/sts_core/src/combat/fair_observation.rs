@@ -53,7 +53,7 @@ impl Error for FairObservationError {}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FairCombatObservation {
     pub schema_version: u32,
-    pub context: FairRunContext,
+    pub context: FairCombatContext,
     pub phase: FairCombatPhase,
     pub player: FairPlayer,
     /// Public left-to-right orb slots. Empty slots are represented explicitly.
@@ -70,7 +70,7 @@ pub struct FairCombatObservation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FairRunContext {
+pub struct FairCombatContext {
     pub ascension: u8,
     pub act: i32,
     pub floor: i32,
@@ -347,7 +347,7 @@ pub fn fair_combat_observation(
 
     Ok(FairCombatObservation {
         schema_version: FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION,
-        context: FairRunContext {
+        context: FairCombatContext {
             ascension: run.ascension,
             act: run.current_act,
             floor: run.current_floor,

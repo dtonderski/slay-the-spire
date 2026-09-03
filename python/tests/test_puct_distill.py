@@ -19,7 +19,7 @@ from sts_sim.rl import (
     Vocabularies,
     VocabularyBuilder,
     evaluate_matched_puct_gameplay,
-    evaluate_matched_puct_roots_v2,
+    evaluate_matched_puct_roots,
     generate_beam_dataset,
     generate_legal_roots,
     generate_puct_dataset,
@@ -29,22 +29,39 @@ from sts_sim.rl import (
     train_beam_clone,
 )
 from sts_sim.rl.cli import data_main
-from sts_sim.rl.data import DATASET_MANIFEST_V7, DATASET_MANIFEST_VERSION
+from sts_sim.rl.data import DATASET_MANIFEST_VERSION
+from sts_sim.rl.provenance import canonical_bytes, sha256_bytes
 from sts_sim.rl.puct import FAIR_LEAF_BATCH_SCHEMA, PUCT_TEACHER_NAME, network_leaf_evaluator
 from sts_sim.rl.puct_data import AuthoritativeRootMutationError
-from sts_sim.rl.records import COMBAT_PROXY_VALUE_TARGET_NAME
+from sts_sim.rl.records import (
+    COMBAT_PROXY_VALUE_TARGET_NAME,
+    action_descriptor_from_payload,
+    fair_observation_from_payload,
+)
 from sts_sim.rl.rewards import COMBAT_PROXY_V1, CombatRewardConfig
-from sts_sim.rl.tracking import OfflineWandbConfig
-from sts_sim.rl.training import TRAINING_CHECKPOINT_FORMAT
+from sts_sim.rl.training import TRAINING_CHECKPOINT_FORMAT, load_training_checkpoint
+
+
+def _from_mutated_combat_snapshot(mutate_state: Callable[[dict[str, object]], None]) -> RunEnv:
+    payload = json.loads(RunEnv.combat_fixture().snapshot().json)
+    mutate_state(cast(dict[str, object], payload["state"]))
+    return RunEnv.from_snapshot(json.dumps(payload))
+
+
+def _require_fair_leaf(item: dict[str, object]) -> None:
+    fair_observation_from_payload(item["observation"])
+    raw_choices = item["choices"]
+    assert isinstance(raw_choices, list) and raw_choices
+    for choice in raw_choices:
+        action_descriptor_from_payload(choice)
 
 
 def _uniform_evaluator(request_json: str) -> str:
     request = json.loads(request_json)
     assert request["schema"] == FAIR_LEAF_BATCH_SCHEMA
-    choices = request["batch"][0]["choices"]
-    encoded = json.dumps(request["batch"][0])
-    for field in ("card_id", "monster_id", "content_id", "rng"):
-        assert field not in encoded
+    item = request["batch"][0]
+    _require_fair_leaf(item)
+    choices = item["choices"]
     return json.dumps(
         {
             "schema": FAIR_LEAF_BATCH_SCHEMA,
@@ -128,13 +145,14 @@ def test_puct_clone_episode_is_deterministic_and_leaves_the_root_untouched() -> 
 
 
 def test_puct_clone_episode_classifies_initial_terminal_without_search() -> None:
-    state = RunEnv.combat_fixture().full_state()
-    combat = cast(dict[str, object], state["combat"])
-    player = cast(dict[str, object], combat["player"])
-    combat["phase"] = "Lost"
-    player["hp"] = 0
-    state["player_hp"] = 0
-    env = RunEnv.from_state_json_for_debugging(json.dumps(state))
+    def mutate(state: dict[str, object]) -> None:
+        combat = cast(dict[str, object], state["combat"])
+        player = cast(dict[str, object], combat["player"])
+        combat["phase"] = "Lost"
+        player["hp"] = 0
+        state["player_hp"] = 0
+
+    env = _from_mutated_combat_snapshot(mutate)
     payload = puct_clone_episode_payload(
         env,
         _uniform_evaluator,
@@ -160,9 +178,7 @@ def test_puct_clone_episode_network_leaf_stays_fair() -> None:
     )
     assert payload["steps"]
     step = cast(dict[str, object], cast(list[object], payload["steps"])[0])
-    encoded = json.dumps(step["observation"])
-    assert "card_id" not in encoded
-    assert "monster_id" not in encoded
+    fair_observation_from_payload(step["observation"])
 
 
 def _beam_train_checkpoint(tmp_path: Path) -> tuple[Path, Path]:
@@ -209,7 +225,7 @@ def test_puct_dataset_generation_is_deterministic_and_v7(
         max_player_turns=3,
     )
     assert first.manifest_digest == second.manifest_digest
-    assert first.manifest_version == DATASET_MANIFEST_V7
+    assert first.manifest_version == DATASET_MANIFEST_VERSION
     assert first.teacher_name == PUCT_TEACHER_NAME
     records = tuple(read_jsonl(tmp_path / "puct-left/train/train.jsonl"))
     assert records
@@ -221,13 +237,13 @@ def test_puct_dataset_generation_is_deterministic_and_v7(
         expected = COMBAT_PROXY_V1.value(record.outcome)
         assert record.target_value == expected
         assert record.value_target_mask is (expected is not None)
-    loaded = load_dataset_manifest(
+    loaded, _named_root, _records = load_dataset_manifest(
         tmp_path / "puct-left/dataset-manifest.json", requested_split="train"
     )
     assert loaded.manifest_digest == first.manifest_digest
 
 
-def test_v5_beam_datasets_still_load_and_v6_tampering_fails_closed(tmp_path: Path) -> None:
+def test_old_dataset_manifest_versions_fail_closed(tmp_path: Path) -> None:
     generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
     beam = generate_beam_dataset(
         tmp_path / "roots/root-manifest.json",
@@ -252,7 +268,7 @@ def test_v5_beam_datasets_still_load_and_v6_tampering_fails_closed(tmp_path: Pat
         max_decisions=1,
         max_player_turns=3,
     )
-    assert puct.manifest_version == DATASET_MANIFEST_V7
+    assert puct.manifest_version == DATASET_MANIFEST_VERSION
     records = tuple(read_jsonl(tmp_path / "puct/train/train.jsonl"))
     truncated = [record for record in records if record.outcome.truncated]
     assert truncated
@@ -264,7 +280,7 @@ def test_v5_beam_datasets_still_load_and_v6_tampering_fails_closed(tmp_path: Pat
     )
     manifest_path = tmp_path / "puct/dataset-manifest.json"
     payload = json.loads(manifest_path.read_text())
-    payload["manifest_version"] = DATASET_MANIFEST_VERSION
+    payload["manifest_version"] = 6
     _resign_dataset_manifest(payload)
     manifest_path.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")))
     with pytest.raises(ValueError):
@@ -273,7 +289,7 @@ def test_v5_beam_datasets_still_load_and_v6_tampering_fails_closed(tmp_path: Pat
 
 def test_puct_labeling_refuses_checkpoint_source_mismatch(tmp_path: Path) -> None:
     roots, checkpoint = _beam_train_checkpoint(tmp_path)
-    payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    payload, _config, _digest = load_training_checkpoint(checkpoint)
     payload["source_digest"] = "a" * 64
     bad = tmp_path / "bad.pt"
     torch.save(payload, bad)
@@ -349,12 +365,7 @@ def test_puct_dataset_excludes_failed_root_and_keeps_complete_accounting(
     assert any(exclusion.root_id == failed for exclusion in manifest.exclusions)
 
 
-def test_puct_training_logs_puct_targets_in_wandb(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from tests.test_wandb_offline import _install_fake_wandb
-
-    fake = _install_fake_wandb(monkeypatch)
+def test_puct_training_writes_current_checkpoint_format(tmp_path: Path) -> None:
     roots, checkpoint = _beam_train_checkpoint(tmp_path)
     generate_puct_dataset(
         roots,
@@ -366,27 +377,22 @@ def test_puct_training_logs_puct_targets_in_wandb(
         max_decisions=1,
         max_player_turns=3,
     )
+    student_path = tmp_path / "student.pt"
     train_beam_clone(
         tmp_path / "puct-train/dataset-manifest.json",
-        tmp_path / "student.pt",
+        student_path,
         _smoke_training_config(),
-        wandb_offline=OfflineWandbConfig(project="demo", directory=tmp_path / "wandb"),
     )
-    assert fake.run is not None
-    assert fake.run.config["puct_targets_in_training"] is True
-    assert fake.run.config["trainer"] == "privileged_puct_distill"
-    assert fake.run.config["teacher_name"] == PUCT_TEACHER_NAME
-    assert fake.run.config["dataset_manifest_version"] == DATASET_MANIFEST_V7
-    student = torch.load(tmp_path / "student.pt", map_location="cpu", weights_only=False)
+    student, _config, _digest = load_training_checkpoint(student_path)
     assert student["checkpoint_format"] == TRAINING_CHECKPOINT_FORMAT
+    assert student["source_epoch_bundle_digest"]
 
 
 def test_six_policy_matched_roots_restore_independently_and_keep_errors() -> None:
     env, model, vocabularies = _tiny_policy_net()
-    snapshot = env.snapshot()
-    snapshot_bytes = snapshot.json.encode()
-    root_id = hashlib.sha256(snapshot_bytes).hexdigest()
-    report = evaluate_matched_puct_roots_v2(
+    snapshot_bytes = canonical_bytes(json.loads(env.snapshot().json))
+    root_id = sha256_bytes(snapshot_bytes)
+    report = evaluate_matched_puct_roots(
         split_roots=((root_id, snapshot_bytes),),
         evaluation_seed=0,
         model=model,
@@ -539,15 +545,14 @@ def test_six_policy_keeps_overflow_errors_in_the_denominator(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     env, model, vocabularies = _tiny_policy_net()
-    snapshot = env.snapshot()
-    snapshot_bytes = snapshot.json.encode()
-    root_id = hashlib.sha256(snapshot_bytes).hexdigest()
+    snapshot_bytes = canonical_bytes(json.loads(env.snapshot().json))
+    root_id = sha256_bytes(snapshot_bytes)
 
     def boom(*_args: object, **_kwargs: object) -> None:
         raise OverflowError("injected overflow")
 
     monkeypatch.setattr("sts_sim.rl.puct.rollout_puct_policy", boom)
-    report = evaluate_matched_puct_roots_v2(
+    report = evaluate_matched_puct_roots(
         split_roots=((root_id, snapshot_bytes),),
         evaluation_seed=0,
         model=model,
@@ -627,8 +632,8 @@ def test_cli_puct_label_subprocess_writes_v7_manifest(tmp_path: Path) -> None:
         text=True,
     )
     assert completed.returncode == 0, completed.stderr
-    manifest = load_dataset_manifest(output / "dataset-manifest.json", requested_split="train")
-    assert manifest.manifest_version == DATASET_MANIFEST_V7
+    manifest, _named_root, _records = load_dataset_manifest(output / "dataset-manifest.json", requested_split="train")
+    assert manifest.manifest_version == DATASET_MANIFEST_VERSION
     payload = json.loads(completed.stdout)
-    assert payload["manifest_version"] == DATASET_MANIFEST_V7
+    assert payload["manifest_version"] == DATASET_MANIFEST_VERSION
     assert payload["teacher_name"] == PUCT_TEACHER_NAME

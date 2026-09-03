@@ -3,8 +3,6 @@ mod card_effects;
 pub(crate) mod cost;
 pub mod damage;
 pub mod draw;
-#[allow(dead_code)] // Crate-private until the fair facade issues bound knowledge.
-pub(crate) mod fair_belief;
 #[cfg(test)]
 pub(crate) mod fair_json_allowlist;
 pub mod fair_observation;
@@ -21,11 +19,11 @@ pub mod turn_powers;
 pub use burning_blood::apply_burning_blood;
 pub use damage::{DamageInfo, DamageSource};
 pub use fair_observation::{
-    fair_combat_observation, potion_key, FairCard, FairCardDynamicValues, FairCombatObservation,
-    FairCombatPhase, FairCounter, FairHandCard, FairIntentCategory, FairMonster, FairMonsterIntent,
-    FairObservationError, FairOrb, FairOrbSlot, FairPile, FairPlayer, FairPotionSlot, FairPower,
-    FairRelic, FairRunContext, FairSelection, FairSelectionKind, FairSelectionOption,
-    FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION,
+    fair_combat_observation, potion_key, FairCard, FairCardDynamicValues, FairCombatContext,
+    FairCombatObservation, FairCombatPhase, FairCounter, FairHandCard, FairIntentCategory,
+    FairMonster, FairMonsterIntent, FairObservationError, FairOrb, FairOrbSlot, FairPile,
+    FairPlayer, FairPotionSlot, FairPower, FairRelic, FairSelection, FairSelectionKind,
+    FairSelectionOption, FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION,
 };
 pub use legal::{legal_combat_actions, validate_combat_action};
 pub use setup::{

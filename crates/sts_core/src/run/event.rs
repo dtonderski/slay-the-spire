@@ -28,7 +28,7 @@ use crate::{
     },
     ids::ContentId,
     potion::{Potion, FAIRY_HEAL_PERCENT},
-    relic::{Relic, RelicKey, RelicTier, LIZARD_TAIL_HEAL_PERCENT, OMAMORI_CHARGES},
+    relic::{Relic, RelicTier, LIZARD_TAIL_HEAL_PERCENT, OMAMORI_CHARGES},
     rng::{seed_for_floor, JavaRng, StsRng},
     run::{
         grid::{
@@ -2029,8 +2029,8 @@ fn hypnotizing_colored_mushrooms_choices(stage: u32) -> Vec<EventChoice> {
     }
 }
 
-fn nloth_owned_relic_keys(run: &RunState) -> Vec<RelicKey> {
-    run.relics.iter().map(|relic| relic.key()).collect()
+fn nloth_owned_relic_keys(run: &RunState) -> Vec<Relic> {
+    run.relics.clone()
 }
 
 fn nloth_event_data(choice_one: usize, choice_two: usize) -> SimResult<u32> {
@@ -2256,11 +2256,11 @@ fn cleric_purify_cost(run: &RunState) -> i32 {
     }
 }
 
-fn has_relic_key(run: &RunState, key: RelicKey) -> bool {
-    run.relics.iter().any(|relic| relic.key() == key)
+fn has_relic_key(run: &RunState, key: Relic) -> bool {
+    run.relics.contains(&key)
 }
 
-fn remove_relic_key(run: &mut RunState, key: RelicKey) -> SimResult<bool> {
+fn remove_relic_key(run: &mut RunState, key: Relic) -> SimResult<bool> {
     run.lose_relic_key(key)
 }
 
@@ -2269,38 +2269,34 @@ fn give_forgotten_altar_idol(run: &mut RunState) -> SimResult<()> {
     let Some(index) = run
         .relics
         .iter()
-        .position(|relic| relic.key() == RelicKey::GoldenIdol)
+        .position(|relic| *relic == Relic::GoldenIdol)
     else {
         return Err(SimError::IllegalAction(
             "Forgotten Altar Give Idol requires Golden Idol",
         ));
     };
     run.relics.remove(index);
-    if has_relic_key(run, RelicKey::BloodyIdol) {
-        run.gain_relic_key(RelicKey::Circlet)?;
+    if has_relic_key(run, Relic::BloodyIdol) {
+        run.gain_relic_key(Relic::Circlet)?;
     } else {
         // Insert at the Golden Idol slot so acquisition order is preserved.
         run.relics.insert(index, Relic::BloodyIdol);
         if let Some(pools) = run.relic_pools.as_mut() {
-            pools.remove_relic(RelicKey::BloodyIdol);
+            pools.remove_relic(Relic::BloodyIdol);
         }
         // On-equip side effects for Bloody Idol are none; keep parity with gain_relic_key.
     }
     Ok(())
 }
 
-fn choose_cursed_tome_book(run: &mut RunState) -> RelicKey {
-    let mut possible_books = [
-        RelicKey::Necronomicon,
-        RelicKey::Enchiridion,
-        RelicKey::NilrysCodex,
-    ]
-    .into_iter()
-    .filter(|key| !has_relic_key(run, *key))
-    .collect::<Vec<_>>();
+fn choose_cursed_tome_book(run: &mut RunState) -> Relic {
+    let mut possible_books = [Relic::Necronomicon, Relic::Enchiridion, Relic::NilrysCodex]
+        .into_iter()
+        .filter(|key| !has_relic_key(run, *key))
+        .collect::<Vec<_>>();
 
     if possible_books.is_empty() {
-        possible_books.push(RelicKey::Circlet);
+        possible_books.push(Relic::Circlet);
     }
 
     let mut misc_rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
@@ -2309,7 +2305,7 @@ fn choose_cursed_tome_book(run: &mut RunState) -> RelicKey {
     possible_books[index]
 }
 
-fn open_cursed_tome_book_reward(run: &mut RunState, key: RelicKey) {
+fn open_cursed_tome_book_reward(run: &mut RunState, key: Relic) {
     run.phase = RunPhase::Reward;
     // The target returns from the book relic screen to Cursed Tome's final
     // Leave button. Keep that event continuation while the reward is open.
@@ -2809,7 +2805,7 @@ fn moai_choices(run: &RunState, stage: u32) -> Vec<EventChoice> {
             )
         ),
     }];
-    if has_relic_key(run, RelicKey::GoldenIdol) {
+    if has_relic_key(run, Relic::GoldenIdol) {
         choices.push(EventChoice {
             label: "Give Golden Idol (gain 333 gold)".to_owned(),
         });
@@ -3253,7 +3249,7 @@ fn tomb_of_lord_red_mask_choices(run: &RunState, stage: u32) -> Vec<EventChoice>
         return labeled_choices(&["Leave"]);
     }
 
-    if has_relic_key(run, RelicKey::RedMask) {
+    if has_relic_key(run, Relic::RedMask) {
         labeled_choices(&["Wear mask", "Leave"])
     } else {
         vec![
@@ -3449,9 +3445,9 @@ pub(crate) fn complete_bonfire_elementals_card(
     match class {
         BonfireCardClass::Curse => {
             if run.relics.contains(&Relic::SpiritPoop) {
-                run.gain_relic_key(RelicKey::Circlet)?;
+                run.gain_relic_key(Relic::Circlet)?;
             } else {
-                run.gain_relic_key(RelicKey::SpiritPoop)?;
+                run.gain_relic_key(Relic::SpiritPoop)?;
             }
         }
         BonfireCardClass::Basic => {}
@@ -3559,25 +3555,25 @@ fn roll_wing_statue_gold(run: &mut RunState) -> i32 {
     gold
 }
 
-fn roll_face_trader_relic(run: &mut RunState) -> RelicKey {
+fn roll_face_trader_relic(run: &mut RunState) -> Relic {
     let mut candidates = Vec::new();
     if !run.relics.contains(&Relic::CultistMask) {
-        candidates.push(RelicKey::CultistMask);
+        candidates.push(Relic::CultistMask);
     }
     if !run.relics.contains(&Relic::FaceOfCleric) {
-        candidates.push(RelicKey::FaceOfCleric);
+        candidates.push(Relic::FaceOfCleric);
     }
     if !run.relics.contains(&Relic::GremlinMask) {
-        candidates.push(RelicKey::GremlinMask);
+        candidates.push(Relic::GremlinMask);
     }
     if !run.relics.contains(&Relic::NlothsMask) {
-        candidates.push(RelicKey::NlothsMask);
+        candidates.push(Relic::NlothsMask);
     }
     if !run.relics.contains(&Relic::SsserpentHead) {
-        candidates.push(RelicKey::SsserpentHead);
+        candidates.push(Relic::SsserpentHead);
     }
     if candidates.is_empty() {
-        candidates.push(RelicKey::Circlet);
+        candidates.push(Relic::Circlet);
     }
 
     let mut rng = StsRng::with_counter(run.misc_rng_seed as i64, run.misc_rng_counter);
@@ -3742,7 +3738,7 @@ fn event_is_available(run: &RunState, event: Event) -> bool {
     match event {
         Event::DeadAdventurer | Event::HypnotizingColoredMushrooms => run.current_floor > 6,
         Event::MoaiHead => {
-            has_relic_key(run, RelicKey::GoldenIdol)
+            has_relic_key(run, Relic::GoldenIdol)
                 || (run.player_hp as f32 / run.player_max_hp as f32) <= 0.5
         }
         Event::TheCleric => run.gold >= 35,
@@ -5163,6 +5159,7 @@ mod tests {
 
         let mut stale = RunState::map_fixture();
         stale.pending_obtain_cards = vec![INJURY_ID];
+        stale.pending_obtain_cards_bypass_omamori = vec![true];
         assert_eq!(
             stale.validate(),
             Err(SimError::InvalidState(
@@ -6041,7 +6038,7 @@ mod tests {
         run.relics.push(Relic::LizardTail);
         run.gain_potion(Potion::Fairy)
             .expect("fairy potion occupies a slot");
-        run.gain_relic_key(RelicKey::MarkOfBloom)
+        run.gain_relic_key(Relic::MarkOfBloom)
             .expect("Mark of the Bloom pickup succeeds");
 
         let next = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
@@ -8318,7 +8315,7 @@ mod tests {
             event_data: 0,
         });
         run.queue_pending_obtain_card(REGRET_ID);
-        run.gain_relic_key(RelicKey::Omamori)
+        run.gain_relic_key(Relic::Omamori)
             .expect("new Omamori is obtained after the curse effect is queued");
 
         let settled = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
@@ -9048,7 +9045,7 @@ mod tests {
         ] {
             let mut run = RunState::seeded_ironclad(1, 0);
             run.gold = 200;
-            run.gain_relic_key(RelicKey::Anchor)
+            run.gain_relic_key(Relic::Anchor)
                 .expect("test relic gain succeeds");
             run.phase = RunPhase::Event;
             run.event = Some(match event {
@@ -9102,7 +9099,7 @@ mod tests {
         let after_rummage = apply_event_action(&run, EventAction::Choose { choice_index: 1 })
             .expect("Accursed Blacksmith rummage applies");
 
-        assert!(has_relic_key(&after_rummage, RelicKey::WarpedTongs));
+        assert!(has_relic_key(&after_rummage, Relic::WarpedTongs));
         assert!(!after_rummage
             .deck
             .iter()
@@ -9509,12 +9506,12 @@ mod tests {
     fn losing_velvet_choker_revokes_its_pickup_energy() {
         let mut run = RunState::seeded_ironclad(1, 0);
         let energy_before = run.energy_per_turn;
-        run.gain_relic_key(RelicKey::VelvetChoker)
+        run.gain_relic_key(Relic::VelvetChoker)
             .expect("Velvet Choker pickup succeeds");
         assert_eq!(run.energy_per_turn, energy_before + 1);
-        assert!(remove_relic_key(&mut run, RelicKey::VelvetChoker).expect("lose Choker"));
+        assert!(remove_relic_key(&mut run, Relic::VelvetChoker).expect("lose Choker"));
         assert_eq!(run.energy_per_turn, energy_before);
-        assert!(!has_relic_key(&run, RelicKey::VelvetChoker));
+        assert!(!has_relic_key(&run, Relic::VelvetChoker));
     }
 
     #[test]
@@ -9546,7 +9543,7 @@ mod tests {
         let after_trade = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
             .expect("N'loth offer applies");
         assert!(!after_trade.relics.contains(&Relic::BurningBlood));
-        assert!(has_relic_key(&after_trade, RelicKey::NlothsGift));
+        assert!(has_relic_key(&after_trade, Relic::NlothsGift));
         assert_eq!(after_trade.event.as_ref().expect("leave screen").stage, 1);
     }
 
@@ -9809,7 +9806,7 @@ mod tests {
 
         let after_take = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
             .expect("Golden Idol take choice applies");
-        assert!(has_relic_key(&after_take, RelicKey::GoldenIdol));
+        assert!(has_relic_key(&after_take, Relic::GoldenIdol));
 
         let after_outrun = apply_event_action(&after_take, EventAction::Choose { choice_index: 0 })
             .expect("Golden Idol outrun choice applies");
@@ -10482,7 +10479,7 @@ mod tests {
     #[test]
     fn mark_of_bloom_blocks_run_and_combat_healing() {
         let mut run = RunState::seeded_ironclad(1, 0);
-        run.gain_relic_key(RelicKey::MarkOfBloom)
+        run.gain_relic_key(Relic::MarkOfBloom)
             .expect("Mark of the Bloom pickup succeeds");
         run.player_hp = 20;
         run.heal_player(30)

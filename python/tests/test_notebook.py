@@ -1,14 +1,14 @@
 from dataclasses import replace
 
 from sts_sim import FairCombatObservation, FairOrb, FairOrbSlot, RunEnv
-from sts_sim.notebook import action_label, format_action, format_actions, render_decision
+from sts_sim.notebook import action_label, format_action, format_actions, format_decision
 
 
-def test_render_decision_covers_state_and_legal_actions() -> None:
+def test_format_decision_covers_state_and_legal_actions() -> None:
     decision = RunEnv.combat_fixture().decision()
     assert isinstance(decision.observation, FairCombatObservation)
 
-    rendered = render_decision(decision)
+    rendered = format_decision(decision)
 
     assert "Combat |" in rendered
     assert "Hand (" in rendered
@@ -41,7 +41,7 @@ def test_action_label_resolves_public_slots_not_tuple_positions() -> None:
     assert expected.replace("_", " ") in action_label(reordered, play)
 
 
-def test_render_decision_keeps_public_content_as_text() -> None:
+def test_format_decision_keeps_public_content_as_text() -> None:
     decision = RunEnv.combat_fixture().decision()
     assert isinstance(decision.observation, FairCombatObservation)
     first = decision.observation.hand[0]
@@ -54,7 +54,7 @@ def test_render_decision_keeps_public_content_as_text() -> None:
         ),
     )
 
-    rendered = render_decision(changed)
+    rendered = format_decision(changed)
 
     assert "Card < Demo" in rendered
 
@@ -83,7 +83,7 @@ def test_combat_formatter_includes_orbs_and_windmill_damage() -> None:
         ),
     )
 
-    rendered = render_decision(changed)
+    rendered = format_decision(changed)
 
     assert "Orbs: [0] Lightning, [1] Dark (evoke 24), [2] empty" in rendered
     assert "Windmill +8" in rendered
@@ -92,7 +92,7 @@ def test_combat_formatter_includes_orbs_and_windmill_damage() -> None:
 def test_noncombat_decision_still_renders_legal_actions() -> None:
     decision = RunEnv.new_ironclad("ABC123").decision()
 
-    rendered = render_decision(decision)
+    rendered = format_decision(decision)
 
     assert "Event: Neow" in rendered
     assert "Choices:" in rendered

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import types
@@ -16,7 +15,8 @@ import torch
 
 from ..fair import FairCombatObservation
 from ..run import ActionDescriptor
-from .provenance import RepositoryVersion
+from .experiment import write_scientific_artifact
+from .provenance import RepositoryVersion, canonical_bytes, read_regular_file_bytes, sha256_bytes
 from .tensor import (
     BatchedCombatDecision,
     TensorizedCombatDecision,
@@ -31,7 +31,8 @@ type JsonValue = (
     None | bool | int | float | str | tuple["JsonValue", ...] | Mapping[str, "JsonValue"]
 )
 
-_LEGACY_RECORD_KEYS = {
+RECORD_VERSION = 4
+_RECORD_KEYS = {
     "observation",
     "actions",
     "chosen_action_index",
@@ -48,8 +49,6 @@ _LEGACY_RECORD_KEYS = {
     "teacher_pair_id",
     "repository",
     "observation_digest",
-}
-_RECORD_KEYS = _LEGACY_RECORD_KEYS | {
     "record_version",
     "root_manifest_digest",
     "reward_config_digest",
@@ -58,10 +57,10 @@ _RECORD_KEYS = _LEGACY_RECORD_KEYS | {
     "decision_index",
     "value_target_mask",
     "record_id",
+    "search_root_mean_value",
 }
-_RECORD_KEYS_V4 = _RECORD_KEYS | {"search_root_mean_value"}
 _ACTION_FIELDS = set(ActionDescriptor.__dataclass_fields__)
-_V2_SEARCH_CONFIG_KEYS = {
+_BEAM_SEARCH_CONFIG_KEYS = {
     "depth",
     "width",
     "transition_budget",
@@ -71,7 +70,7 @@ _V2_SEARCH_CONFIG_KEYS = {
     "replan",
     "deduplicate_search_states",
 }
-_V3_SEARCH_CONFIG_KEYS = {
+_PUCT_SEARCH_CONFIG_KEYS = {
     "c_puct",
     "simulation_budget",
     "transition_budget",
@@ -82,6 +81,7 @@ _V3_SEARCH_CONFIG_KEYS = {
     "privileged",
     "leaf_schema",
     "value_target_name",
+    "search_root_mean_name",
     "checkpoint_file_digest",
     "checkpoint_model_state_digest",
     "checkpoint_config_digest",
@@ -90,10 +90,9 @@ _V3_SEARCH_CONFIG_KEYS = {
     "vocabulary_fingerprint",
     "encoder_contract_digest",
 }
-_V4_SEARCH_CONFIG_KEYS = _V3_SEARCH_CONFIG_KEYS | {"search_root_mean_name"}
-PUCT_VALUE_TARGET_NAME = "privileged_puct_root_mean_v1"
-PUCT_SEARCH_ROOT_MEAN_NAME = PUCT_VALUE_TARGET_NAME
+PUCT_SEARCH_ROOT_MEAN_NAME = "privileged_puct_root_mean_v1"
 COMBAT_PROXY_VALUE_TARGET_NAME = "combat_proxy_v1"
+BEAM_TEACHER_NAME = "public_decision_replanning_beam"
 PUCT_TEACHER_NAME = "privileged_puct"
 PUCT_TEACHER_VERSION = "synchronous_batch1_v3"
 FAIR_LEAF_BATCH_SCHEMA = "fair_leaf_batch_v1"
@@ -107,7 +106,7 @@ _COMBAT_ACTION_SLOTS: dict[str, tuple[set[str], set[str]]] = {
     "confirm_selection": (set(), set()),
     "skip_selection": (set(), set()),
 }
-_LEGACY_OUTCOME_KEYS = {
+_OUTCOME_KEYS = {
     "status",
     "terminal_hp",
     "terminal_max_hp",
@@ -118,22 +117,11 @@ _LEGACY_OUTCOME_KEYS = {
     "counter_changes",
     "terminal",
     "truncated",
-}
-_OUTCOME_KEYS = _LEGACY_OUTCOME_KEYS | {
     "accepted_decisions",
     "player_turns",
     "truncation_trigger",
 }
 _COUNTER_CHANGE_KEYS = {"owner_kind", "owner_key", "counter_key", "before", "after"}
-_V1_ADDITIVE_DYNAMIC_FIELDS = {
-    "windmill_retain_damage",
-    "steam_barrier_block_reduction",
-    "combat_cost_under_turn_override",
-}
-
-
-def _canonical_json(payload: object) -> str:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def _dict(value: object, label: str, expected_keys: set[str] | None = None) -> dict[str, object]:
@@ -228,26 +216,7 @@ def _type_sensitive_equal(left: object, right: object) -> bool:
 
 
 def fair_observation_payload(observation: FairCombatObservation) -> dict[str, object]:
-    payload = cast(dict[str, object], json.loads(json.dumps(asdict(observation))))
-    if observation.schema_version == 1:
-        _remove_v1_absent_additions(payload)
-    return payload
-
-
-def _remove_v1_absent_additions(value: object) -> None:
-    if type(value) is dict:
-        mapping = cast(dict[str, object], value)
-        mapping.pop("orb_slots", None)
-        dynamic = mapping.get("dynamic")
-        if type(dynamic) is dict:
-            dynamic_map = cast(dict[str, object], dynamic)
-            for key in _V1_ADDITIVE_DYNAMIC_FIELDS:
-                dynamic_map.pop(key, None)
-        for child in mapping.values():
-            _remove_v1_absent_additions(child)
-    elif type(value) is list:
-        for child in cast(list[object], value):
-            _remove_v1_absent_additions(child)
+    return cast(dict[str, object], json.loads(canonical_bytes(observation.to_wire_dict())))
 
 
 def _validate_runtime_type(value: object, annotation: object, path: str) -> None:
@@ -298,23 +267,23 @@ def _validate_runtime_type(value: object, annotation: object, path: str) -> None
 
 def fair_observation_from_payload(payload: object) -> FairCombatObservation:
     source = _dict(payload, "fair observation")
-    schema = _integer(source.get("schema_version"), "fair observation schema_version")
-    if schema not in {1, 2}:
+    if "schema_version" not in source:
+        raise ValueError("fair observation is missing schema_version")
+    schema = _integer(source["schema_version"], "fair observation schema_version")
+    if schema != 2:
         raise ValueError("unsupported fair observation schema")
+    if "orb_slots" not in source:
+        raise ValueError("fair observation is missing orb_slots")
     observation = FairCombatObservation._from_payload(source)
     _validate_runtime_type(observation, FairCombatObservation, "fair observation")
     canonical = fair_observation_payload(observation)
-    if schema == 1:
-        _remove_v1_absent_additions(canonical)
     if not _type_sensitive_equal(source, canonical):
         raise ValueError("fair observation payload is not canonical for its schema")
     return observation
 
 
 def fair_observation_digest(observation: FairCombatObservation) -> str:
-    return hashlib.sha256(
-        _canonical_json(fair_observation_payload(observation)).encode()
-    ).hexdigest()
+    return sha256_bytes(canonical_bytes(fair_observation_payload(observation)))
 
 
 def action_descriptor_payload(action: ActionDescriptor) -> dict[str, object]:
@@ -367,16 +336,14 @@ def first_argmax_visits(counts: Sequence[int]) -> int:
     return best_index
 
 
-def puct_episode_id(root_id: str, search_config: object, reward_config_digest: str) -> str:
+def canonical_episode_id(root_id: str, search_config: object, reward_config_digest: str) -> str:
     payload = _thaw_json(cast(JsonValue, search_config))
-    return hashlib.sha256(
-        _canonical_json([root_id, payload, reward_config_digest]).encode()
-    ).hexdigest()
+    return sha256_bytes(canonical_bytes([root_id, payload, reward_config_digest]))
 
 
-def validate_v2_search_config(payload: Mapping[str, object]) -> None:
-    if set(payload) != _V2_SEARCH_CONFIG_KEYS:
-        raise ValueError("V2 search config has missing or unknown fields")
+def validate_beam_search_config(payload: Mapping[str, object]) -> None:
+    if set(payload) != _BEAM_SEARCH_CONFIG_KEYS:
+        raise ValueError("beam search config has missing or unknown fields")
     for key in ("depth", "width", "transition_budget", "max_decisions", "max_player_turns"):
         if type(payload[key]) is not int or cast(int, payload[key]) <= 0:
             raise TypeError(f"search config {key} must be a positive integer")
@@ -388,52 +355,9 @@ def validate_v2_search_config(payload: Mapping[str, object]) -> None:
         raise TypeError("deduplicate_search_states must be boolean")
 
 
-def validate_v3_search_config(payload: Mapping[str, object]) -> None:
-    if set(payload) != _V3_SEARCH_CONFIG_KEYS:
-        raise ValueError("V3 search config has missing or unknown fields")
-    c_puct = payload["c_puct"]
-    if type(c_puct) is int:
-        exploration = float(c_puct)
-    elif type(c_puct) is float:
-        exploration = c_puct
-    else:
-        raise ValueError("search config c_puct must be finite and positive")
-    if not math.isfinite(exploration) or exploration <= 0.0:
-        raise ValueError("search config c_puct must be finite and positive")
-    for key in ("simulation_budget", "transition_budget", "max_decisions", "max_player_turns"):
-        if type(payload[key]) is not int or cast(int, payload[key]) <= 0:
-            raise TypeError(f"search config {key} must be a positive integer")
-    if payload["deadline"] is not None:
-        raise ValueError("offline teacher deadline must be null")
-    if payload["replan"] != "every_public_decision":
-        raise ValueError("unknown teacher replanning policy")
-    if payload["privileged"] is not True:
-        raise ValueError("PUCT teacher search must be explicitly privileged")
-    if payload["leaf_schema"] != FAIR_LEAF_BATCH_SCHEMA:
-        raise ValueError("PUCT leaf schema must be fair_leaf_batch_v1")
-    if payload["value_target_name"] != PUCT_VALUE_TARGET_NAME:
-        raise ValueError("PUCT value target name mismatch")
-    for key in (
-        "checkpoint_file_digest",
-        "checkpoint_model_state_digest",
-        "checkpoint_config_digest",
-        "source_digest",
-        "runtime_identity_digest",
-        "vocabulary_fingerprint",
-        "encoder_contract_digest",
-    ):
-        value = payload[key]
-        if (
-            type(value) is not str
-            or len(value) != 64
-            or any(character not in "0123456789abcdef" for character in value)
-        ):
-            raise ValueError(f"search config {key} must be a lowercase SHA-256 digest")
-
-
-def validate_v4_search_config(payload: Mapping[str, object]) -> None:
-    if set(payload) != _V4_SEARCH_CONFIG_KEYS:
-        raise ValueError("V4 search config has missing or unknown fields")
+def validate_puct_search_config(payload: Mapping[str, object]) -> None:
+    if set(payload) != _PUCT_SEARCH_CONFIG_KEYS:
+        raise ValueError("PUCT search config has missing or unknown fields")
     c_puct = payload["c_puct"]
     if type(c_puct) is int:
         exploration = float(c_puct)
@@ -455,9 +379,9 @@ def validate_v4_search_config(payload: Mapping[str, object]) -> None:
     if payload["leaf_schema"] != FAIR_LEAF_BATCH_SCHEMA:
         raise ValueError("PUCT leaf schema must be fair_leaf_batch_v1")
     if payload["value_target_name"] != COMBAT_PROXY_VALUE_TARGET_NAME:
-        raise ValueError("V4 PUCT training value target must be combat_proxy_v1")
+        raise ValueError("PUCT training value target must be combat_proxy_v1")
     if payload["search_root_mean_name"] != PUCT_SEARCH_ROOT_MEAN_NAME:
-        raise ValueError("V4 PUCT search backup name must be privileged_puct_root_mean_v1")
+        raise ValueError("PUCT search backup name must be privileged_puct_root_mean_v1")
     for key in (
         "checkpoint_file_digest",
         "checkpoint_model_state_digest",
@@ -474,6 +398,16 @@ def validate_v4_search_config(payload: Mapping[str, object]) -> None:
             or any(character not in "0123456789abcdef" for character in value)
         ):
             raise ValueError(f"search config {key} must be a lowercase SHA-256 digest")
+
+
+def validate_search_config(teacher_name: str, payload: Mapping[str, object]) -> None:
+    if teacher_name == BEAM_TEACHER_NAME:
+        validate_beam_search_config(payload)
+        return
+    if teacher_name == PUCT_TEACHER_NAME:
+        validate_puct_search_config(payload)
+        return
+    raise ValueError("dataset teacher identity is unsupported")
 
 
 def _optional_integer(payload: Mapping[str, object], key: str) -> int | None:
@@ -594,21 +528,7 @@ class CombatOutcome:
 
     @classmethod
     def from_dict(cls, payload: object) -> CombatOutcome:
-        raw = _dict(payload, "combat outcome")
-        if set(raw) == _LEGACY_OUTCOME_KEYS:
-            source = raw
-            accepted_decisions = 0
-            player_turns = 1
-            truncation_trigger = "accepted_decisions" if source.get("truncated") is True else None
-        elif set(raw) == _OUTCOME_KEYS:
-            source = raw
-            accepted_decisions = _integer(source["accepted_decisions"], "accepted_decisions")
-            player_turns = _integer(source["player_turns"], "player_turns")
-            truncation_trigger = _string(
-                source["truncation_trigger"], "truncation trigger", optional=True
-            )
-        else:
-            raise ValueError("combat outcome has missing or unknown fields")
+        source = _dict(payload, "combat outcome", _OUTCOME_KEYS)
         status = _string(source["status"], "outcome status")
         assert status is not None
         slots = tuple(
@@ -630,9 +550,11 @@ class CombatOutcome:
             counter_changes=changes,
             terminal=_boolean(source["terminal"], "terminal"),
             truncated=_boolean(source["truncated"], "truncated"),
-            accepted_decisions=accepted_decisions,
-            player_turns=player_turns,
-            truncation_trigger=truncation_trigger,
+            accepted_decisions=_integer(source["accepted_decisions"], "accepted_decisions"),
+            player_turns=_integer(source["player_turns"], "player_turns"),
+            truncation_trigger=_string(
+                source["truncation_trigger"], "truncation trigger", optional=True
+            ),
         )
 
 
@@ -654,23 +576,35 @@ class SymbolicTrainingRecord:
     teacher_pair_id: str | None
     repository: RepositoryVersion
     observation_digest: str
-    record_version: int = 1
-    root_manifest_digest: str | None = None
-    reward_config_digest: str | None = None
-    source_kind: str = "legacy"
-    episode_id: str = "legacy"
-    decision_index: int = 0
-    value_target_mask: bool = True
-    record_id: str | None = None
-    search_root_mean_value: float | None = None
+    record_version: int
+    root_manifest_digest: str
+    reward_config_digest: str
+    source_kind: str
+    episode_id: str
+    decision_index: int
+    value_target_mask: bool
+    record_id: str
+    search_root_mean_value: float | None
 
     def __post_init__(self) -> None:
+        identity = self._coerce_and_validate()
+        if (
+            type(self.record_id) is not str
+            or len(self.record_id) != 64
+            or any(character not in "0123456789abcdef" for character in self.record_id)
+            or self.record_id != identity
+        ):
+            raise ValueError("record ID is invalid")
+
+    def _coerce_and_validate(self) -> str:
         for name in (
             "value_target_name",
             "planner_name",
             "planner_version",
             "root_id",
             "split_group_id",
+            "source_kind",
+            "episode_id",
         ):
             if type(getattr(self, name)) is not str or not getattr(self, name):
                 raise TypeError(f"{name} must be a nonempty string")
@@ -705,81 +639,148 @@ class SymbolicTrainingRecord:
                 raise ValueError("target value must be finite and in [-1, 1]")
             if not self.value_target_mask:
                 raise ValueError("present target value must not be masked")
-        if self.record_version == 4:
-            if self.search_root_mean_value is None:
-                raise ValueError("V4 PUCT search root-mean diagnostic must be present")
-            if type(self.search_root_mean_value) not in {int, float}:
-                raise TypeError("search root-mean value must be numeric")
-            root_mean = float(self.search_root_mean_value)
+        if self.planner_name == PUCT_TEACHER_NAME:
+            raw_root_mean = self.search_root_mean_value
+            if type(raw_root_mean) is int:
+                root_mean = float(raw_root_mean)
+            elif type(raw_root_mean) is float:
+                root_mean = raw_root_mean
+            else:
+                raise TypeError("PUCT search root-mean value must be numeric")
             if not math.isfinite(root_mean) or not -1.0 <= root_mean <= 1.0:
                 raise ValueError("search root-mean value must be finite and in [-1, 1]")
-            if self.value_target_name != COMBAT_PROXY_VALUE_TARGET_NAME:
-                raise ValueError("V4 records must use combat_proxy_v1 training targets")
-            if self.outcome.truncated != (not self.value_target_mask):
-                raise ValueError("outcome truncation and value target mask disagree")
-            if self.chosen_action_index != first_argmax_visits(self.teacher_visit_counts):
-                raise ValueError("V4 chosen action is not the first visit-count argmax")
-        elif self.search_root_mean_value is not None:
-            raise ValueError("pre-V4 records must not include search_root_mean_value")
-        elif self.record_version == 3:
-            if self.value_target_name != PUCT_VALUE_TARGET_NAME:
-                raise ValueError("V3 records must use privileged_puct_root_mean_v1")
-            # Truncated PUCT rollouts still keep the backed-up root-mean present
-            # and unmasked. Only V2/V4 terminal combat_proxy_v1 values are masked
-            # when the episode is truncated.
-            if self.target_value is None or not self.value_target_mask:
-                raise ValueError("V3 PUCT root-mean targets must be present and unmasked")
-            if self.chosen_action_index != first_argmax_visits(self.teacher_visit_counts):
-                raise ValueError("V3 chosen action is not the first visit-count argmax")
-        elif self.outcome.truncated != (not self.value_target_mask):
+            object.__setattr__(self, "search_root_mean_value", root_mean)
+        elif self.planner_name == BEAM_TEACHER_NAME:
+            if self.search_root_mean_value is not None:
+                raise ValueError("beam records must not carry a PUCT search root-mean")
+        if self.value_target_name != COMBAT_PROXY_VALUE_TARGET_NAME:
+            raise ValueError("records must use combat_proxy_v1 training targets")
+        if self.outcome.truncated != (not self.value_target_mask):
             raise ValueError("outcome truncation and value target mask disagree")
-        if self.record_version not in {1, 2, 3, 4}:
+        if self.chosen_action_index != first_argmax_visits(self.teacher_visit_counts):
+            raise ValueError("chosen action is not the first visit-count argmax")
+        if self.record_version != RECORD_VERSION:
             raise ValueError("unsupported training record version")
         if type(self.decision_index) is not int or self.decision_index < 0:
             raise ValueError("decision index must be nonnegative")
-        for name in ("source_kind", "episode_id"):
-            if type(getattr(self, name)) is not str or not getattr(self, name):
-                raise TypeError(f"{name} must be a nonempty string")
-        if self.record_version == 2:
-            validate_v2_search_config(cast(Mapping[str, object], self.search_config))
-        elif self.record_version == 3:
-            validate_v3_search_config(cast(Mapping[str, object], self.search_config))
-        elif self.record_version == 4:
-            validate_v4_search_config(cast(Mapping[str, object], self.search_config))
+        validate_search_config(self.planner_name, cast(Mapping[str, object], self.search_config))
         frozen = _freeze_json(dict(self.search_config), "search config")
         if not isinstance(frozen, Mapping):
             raise TypeError("search config must be an object")
         object.__setattr__(self, "search_config", frozen)
-        if self.record_version in {2, 3, 4}:
-            for name in ("root_id", "root_manifest_digest", "reward_config_digest"):
-                value = getattr(self, name)
-                if (
-                    type(value) is not str
-                    or len(value) != 64
-                    or any(character not in "0123456789abcdef" for character in value)
-                ):
-                    raise ValueError(f"{name} must be a lowercase SHA-256 digest")
-            if self.record_version == 4:
-                if self.episode_id == "legacy":
-                    raise ValueError("V4 records must not use the default legacy episode ID")
-                expected_episode = puct_episode_id(
-                    self.root_id,
-                    self.search_config,
-                    cast(str, self.reward_config_digest),
-                )
-                if self.episode_id != expected_episode:
-                    raise ValueError(
-                        "V4 episode ID does not match canonical root/search/reward identity"
-                    )
-            identity = hashlib.sha256(
-                _canonical_json(self._substantive_payload()).encode()
-            ).hexdigest()
-            if self.record_id is None:
-                object.__setattr__(self, "record_id", identity)
-            elif self.record_id != identity:
-                raise ValueError("record ID is invalid")
+        for name in ("root_id", "root_manifest_digest", "reward_config_digest"):
+            value = getattr(self, name)
+            if (
+                type(value) is not str
+                or len(value) != 64
+                or any(character not in "0123456789abcdef" for character in value)
+            ):
+                raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+        expected_episode = canonical_episode_id(
+            self.root_id,
+            self.search_config,
+            self.reward_config_digest,
+        )
+        if self.episode_id != expected_episode:
+            raise ValueError("episode ID does not match canonical root/search/reward identity")
         if fair_observation_digest(self.observation) != self.observation_digest:
             raise ValueError("fair observation digest is invalid")
+        if not self.repository.clean:
+            raise ValueError("training records require a clean repository")
+        return sha256_bytes(canonical_bytes(self._substantive_payload()))
+
+    @classmethod
+    def create(
+        cls,
+        observation: FairCombatObservation,
+        actions: tuple[ActionDescriptor, ...],
+        chosen_action_index: int,
+        chosen_action: ActionDescriptor,
+        teacher_visit_counts: tuple[int, ...],
+        target_value: float | None,
+        value_target_name: str,
+        outcome: CombatOutcome,
+        planner_name: str,
+        planner_version: str,
+        search_config: Mapping[str, JsonValue],
+        root_id: str,
+        split_group_id: str,
+        teacher_pair_id: str | None,
+        repository: RepositoryVersion,
+        observation_digest: str,
+        record_version: int,
+        root_manifest_digest: str,
+        reward_config_digest: str,
+        source_kind: str,
+        episode_id: str,
+        decision_index: int,
+        value_target_mask: bool,
+        search_root_mean_value: float | None = None,
+    ) -> SymbolicTrainingRecord:
+        """Construct a record and assign the canonical record ID."""
+
+        self = object.__new__(cls)
+        object.__setattr__(self, "observation", observation)
+        object.__setattr__(self, "actions", actions)
+        object.__setattr__(self, "chosen_action_index", chosen_action_index)
+        object.__setattr__(self, "chosen_action", chosen_action)
+        object.__setattr__(self, "teacher_visit_counts", teacher_visit_counts)
+        object.__setattr__(self, "target_value", target_value)
+        object.__setattr__(self, "value_target_name", value_target_name)
+        object.__setattr__(self, "outcome", outcome)
+        object.__setattr__(self, "planner_name", planner_name)
+        object.__setattr__(self, "planner_version", planner_version)
+        object.__setattr__(self, "search_config", search_config)
+        object.__setattr__(self, "root_id", root_id)
+        object.__setattr__(self, "split_group_id", split_group_id)
+        object.__setattr__(self, "teacher_pair_id", teacher_pair_id)
+        object.__setattr__(self, "repository", repository)
+        object.__setattr__(self, "observation_digest", observation_digest)
+        object.__setattr__(self, "record_version", record_version)
+        object.__setattr__(self, "root_manifest_digest", root_manifest_digest)
+        object.__setattr__(self, "reward_config_digest", reward_config_digest)
+        object.__setattr__(self, "source_kind", source_kind)
+        object.__setattr__(self, "episode_id", episode_id)
+        object.__setattr__(self, "decision_index", decision_index)
+        object.__setattr__(self, "value_target_mask", value_target_mask)
+        object.__setattr__(self, "record_id", "0" * 64)
+        object.__setattr__(self, "search_root_mean_value", search_root_mean_value)
+        object.__setattr__(self, "record_id", self._coerce_and_validate())
+        return self
+
+    @classmethod
+    def create_from(
+        cls, record: SymbolicTrainingRecord, **changes: object
+    ) -> SymbolicTrainingRecord:
+        payload = {
+            "observation": record.observation,
+            "actions": record.actions,
+            "chosen_action_index": record.chosen_action_index,
+            "chosen_action": record.chosen_action,
+            "teacher_visit_counts": record.teacher_visit_counts,
+            "target_value": record.target_value,
+            "value_target_name": record.value_target_name,
+            "outcome": record.outcome,
+            "planner_name": record.planner_name,
+            "planner_version": record.planner_version,
+            "search_config": record.search_config,
+            "root_id": record.root_id,
+            "split_group_id": record.split_group_id,
+            "teacher_pair_id": record.teacher_pair_id,
+            "repository": record.repository,
+            "observation_digest": record.observation_digest,
+            "record_version": record.record_version,
+            "root_manifest_digest": record.root_manifest_digest,
+            "reward_config_digest": record.reward_config_digest,
+            "source_kind": record.source_kind,
+            "episode_id": record.episode_id,
+            "decision_index": record.decision_index,
+            "value_target_mask": record.value_target_mask,
+            "search_root_mean_value": record.search_root_mean_value,
+        }
+        payload.update(changes)
+        payload.pop("record_id", None)
+        return cls.create(**cast(Any, payload))
 
     def _substantive_payload(self) -> dict[str, object]:
         payload = self.to_dict()
@@ -787,7 +788,7 @@ class SymbolicTrainingRecord:
         return payload
 
     def to_dict(self) -> dict[str, object]:
-        payload: dict[str, object] = {
+        return {
             "observation": fair_observation_payload(self.observation),
             "actions": [action_descriptor_payload(action) for action in self.actions],
             "chosen_action_index": self.chosen_action_index,
@@ -804,46 +805,23 @@ class SymbolicTrainingRecord:
             "teacher_pair_id": self.teacher_pair_id,
             "repository": self.repository.to_dict(),
             "observation_digest": self.observation_digest,
+            "record_version": self.record_version,
+            "root_manifest_digest": self.root_manifest_digest,
+            "reward_config_digest": self.reward_config_digest,
+            "source_kind": self.source_kind,
+            "episode_id": self.episode_id,
+            "decision_index": self.decision_index,
+            "value_target_mask": self.value_target_mask,
+            "record_id": self.record_id,
+            "search_root_mean_value": self.search_root_mean_value,
         }
-        if self.record_version in {2, 3, 4}:
-            payload.update(
-                {
-                    "record_version": self.record_version,
-                    "root_manifest_digest": self.root_manifest_digest,
-                    "reward_config_digest": self.reward_config_digest,
-                    "source_kind": self.source_kind,
-                    "episode_id": self.episode_id,
-                    "decision_index": self.decision_index,
-                    "value_target_mask": self.value_target_mask,
-                    "record_id": self.record_id,
-                }
-            )
-        if self.record_version == 4:
-            payload["search_root_mean_value"] = self.search_root_mean_value
-        return payload
 
     @classmethod
     def from_dict(cls, payload: object) -> SymbolicTrainingRecord:
-        raw = _dict(payload, "training record")
-        search_root_mean_value: float | None = None
-        if set(raw) == _LEGACY_RECORD_KEYS:
-            source = raw
-            record_version = 1
-        elif set(raw) == _RECORD_KEYS:
-            source = raw
-            record_version = _integer(source["record_version"], "record version")
-            if record_version not in {2, 3}:
-                raise ValueError("training record has missing or unknown fields")
-        elif set(raw) == _RECORD_KEYS_V4:
-            source = raw
-            record_version = _integer(source["record_version"], "record version")
-            if record_version != 4:
-                raise ValueError("training record has missing or unknown fields")
-            search_root_mean_value = _number(
-                source["search_root_mean_value"], "search root-mean value"
-            )
-        else:
-            raise ValueError("training record has missing or unknown fields")
+        source = _dict(payload, "training record", _RECORD_KEYS)
+        record_version = _integer(source["record_version"], "record version")
+        if record_version != RECORD_VERSION:
+            raise ValueError("unsupported training record version")
         actions = tuple(
             action_descriptor_from_payload(action) for action in _list(source["actions"], "actions")
         )
@@ -858,6 +836,11 @@ class SymbolicTrainingRecord:
         split_group_id = _string(source["split_group_id"], "split group id")
         teacher_pair_id = _string(source["teacher_pair_id"], "teacher pair id", optional=True)
         observation_digest = _string(source["observation_digest"], "observation digest")
+        root_manifest_digest = _string(source["root_manifest_digest"], "root manifest digest")
+        reward_config_digest = _string(source["reward_config_digest"], "reward config digest")
+        source_kind = _string(source["source_kind"], "source kind")
+        episode_id = _string(source["episode_id"], "episode id")
+        record_id = _string(source["record_id"], "record id")
         assert all(
             value is not None
             for value in (
@@ -867,6 +850,11 @@ class SymbolicTrainingRecord:
                 root_id,
                 split_group_id,
                 observation_digest,
+                root_manifest_digest,
+                reward_config_digest,
+                source_kind,
+                episode_id,
+                record_id,
             )
         )
         repository_payload = _dict(source["repository"], "repository")
@@ -893,33 +881,54 @@ class SymbolicTrainingRecord:
             repository=RepositoryVersion.from_dict(repository_payload),
             observation_digest=cast(str, observation_digest),
             record_version=record_version,
-            root_manifest_digest=cast(str | None, source.get("root_manifest_digest")),
-            reward_config_digest=cast(str | None, source.get("reward_config_digest")),
-            source_kind=cast(str, source.get("source_kind", "legacy")),
-            episode_id=cast(str, source.get("episode_id", "legacy")),
-            decision_index=cast(int, source.get("decision_index", 0)),
-            value_target_mask=cast(bool, source.get("value_target_mask", True)),
-            record_id=cast(str | None, source.get("record_id")),
-            search_root_mean_value=search_root_mean_value,
+            root_manifest_digest=cast(str, root_manifest_digest),
+            reward_config_digest=cast(str, reward_config_digest),
+            source_kind=cast(str, source_kind),
+            episode_id=cast(str, episode_id),
+            decision_index=_integer(source["decision_index"], "decision index"),
+            value_target_mask=_boolean(source["value_target_mask"], "value target mask"),
+            record_id=cast(str, record_id),
+            search_root_mean_value=(
+                None
+                if source["search_root_mean_value"] is None
+                else _number(source["search_root_mean_value"], "search root-mean value")
+            ),
         )
 
 
+def parse_jsonl_records(content: bytes) -> tuple[SymbolicTrainingRecord, ...]:
+    """Parse canonical nonblank JSONL bytes into realized records."""
+
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("JSONL is not UTF-8") from error
+    if "\r" in text:
+        raise ValueError("JSONL must use canonical newline separators")
+    if not text.endswith("\n"):
+        raise ValueError("JSONL must end with a newline")
+    records: list[SymbolicTrainingRecord] = []
+    for line_number, line in enumerate(text[:-1].split("\n"), 1):
+        if not line or line.strip() != line:
+            raise ValueError(f"JSONL contains a blank or noncanonical line at {line_number}")
+        try:
+            loaded = json.loads(line)
+            record = SymbolicTrainingRecord.from_dict(loaded)
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"invalid symbolic record at line {line_number}") from error
+        if line.encode("utf-8") != canonical_bytes(record.to_dict()):
+            raise ValueError(f"JSONL contains a blank or noncanonical line at {line_number}")
+        records.append(record)
+    return tuple(records)
+
+
 def write_jsonl(path: Path, records: Iterable[SymbolicTrainingRecord]) -> None:
-    with path.open("w", encoding="utf-8") as output:
-        for record in records:
-            output.write(_canonical_json(record.to_dict()))
-            output.write("\n")
+    payload = b"".join(canonical_bytes(record.to_dict()) + b"\n" for record in records)
+    write_scientific_artifact(path, payload)
 
 
 def read_jsonl(path: Path) -> Iterator[SymbolicTrainingRecord]:
-    with path.open(encoding="utf-8") as source:
-        for line_number, line in enumerate(source, 1):
-            if not line.strip():
-                continue
-            try:
-                yield SymbolicTrainingRecord.from_dict(json.loads(line))
-            except (KeyError, TypeError, ValueError) as error:
-                raise ValueError(f"invalid symbolic record at line {line_number}") from error
+    yield from parse_jsonl_records(read_regular_file_bytes(path))
 
 
 @dataclass(frozen=True, slots=True)

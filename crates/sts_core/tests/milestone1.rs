@@ -1,7 +1,7 @@
 use sts_core::{
     apply_combat_action,
     content::cards::{BASH_ID, STRIKE_R_ID},
-    CombatAction, CombatPhase, CombatState, ContentId, Snapshot,
+    CombatAction, CombatPhase, CombatState, ContentId,
 };
 
 const EXPECTED_FINAL_HASH: &str = "7ba6025e448f4e09";
@@ -36,9 +36,22 @@ fn replay_from_every_decision_snapshot_matches_final_hash() {
             .snapshot()
             .canonical_json()
             .expect("decision snapshot serializes");
-        let restored: Snapshot<CombatState> =
-            serde_json::from_str(&snapshot_json).expect("decision snapshot restores");
-        let final_from_snapshot = replay(restored.state, &trace[action_index..]);
+        let document: serde_json::Value =
+            serde_json::from_str(&snapshot_json).expect("decision snapshot parses");
+        assert_eq!(
+            document
+                .get("schema_version")
+                .and_then(serde_json::Value::as_u64),
+            Some(8)
+        );
+        let restored: CombatState = serde_json::from_value(
+            document
+                .get("state")
+                .cloned()
+                .expect("combat snapshot has state"),
+        )
+        .expect("decision snapshot restores");
+        let final_from_snapshot = replay(restored, &trace[action_index..]);
 
         assert_eq!(
             final_from_snapshot

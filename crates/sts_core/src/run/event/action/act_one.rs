@@ -8,10 +8,10 @@ pub(super) fn apply_act_one_event_action(
     match screen.event {
         Event::GoldenIdol => match screen.stage {
             0 if choice_index == 0 => {
-                if has_relic_key(next, RelicKey::GoldenIdol) {
-                    next.gain_relic_key(RelicKey::Circlet)?;
+                if has_relic_key(next, Relic::GoldenIdol) {
+                    next.gain_relic_key(Relic::Circlet)?;
                 } else {
-                    next.gain_relic_key(RelicKey::GoldenIdol)?;
+                    next.gain_relic_key(Relic::GoldenIdol)?;
                 }
                 next.event = Some(EventScreen {
                     event: Event::GoldenIdol,
@@ -296,10 +296,10 @@ pub(super) fn apply_act_one_event_action(
                 next.pending_event_combat_gold_offer = misc_rng.random_int_range(20, 30);
                 next.store_rng_counter(RunRngStream::Misc, &misc_rng);
                 next.pending_event_combat_relic_offer =
-                    Some(if has_relic_key(next, RelicKey::OddMushroom) {
-                        RelicKey::Circlet
+                    Some(if has_relic_key(next, Relic::OddMushroom) {
+                        Relic::Circlet
                     } else {
-                        RelicKey::OddMushroom
+                        Relic::OddMushroom
                     });
                 // Target MonsterHelper encounter "The Mushroom Lair" creates
                 // three FungiBeast instances (desktop-1.0.jar case 18).

@@ -197,12 +197,6 @@ class RunEnv:
         payload = snapshot.json if isinstance(snapshot, Snapshot) else snapshot
         return cls(_native.OmniRunEnv.from_snapshot_json(payload))
 
-    @classmethod
-    def from_state_json_for_debugging(cls, state_json: str) -> RunEnv:
-        """Construct a validated privileged state for projection experiments."""
-
-        return cls(_native.OmniRunEnv.from_state_json_for_debugging(state_json))
-
     def clone(self) -> RunEnv:
         return type(self)(self._native.clone())
 

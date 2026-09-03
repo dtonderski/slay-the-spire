@@ -427,10 +427,10 @@ pub(super) fn apply_act_two_event_action(
                 next.pending_event_combat_gold_offer = misc_rng.random_int_range(25, 35);
                 next.store_rng_counter(RunRngStream::Misc, &misc_rng);
                 next.pending_event_combat_relic_offer =
-                    Some(if has_relic_key(next, RelicKey::RedMask) {
-                        RelicKey::Circlet
+                    Some(if has_relic_key(next, Relic::RedMask) {
+                        Relic::Circlet
                     } else {
-                        RelicKey::RedMask
+                        Relic::RedMask
                     });
                 enter_event_combat(
                     next,
@@ -520,10 +520,10 @@ pub(super) fn apply_act_two_event_action(
                 });
             }
             0 if choice_index == 2 => {
-                if has_relic_key(next, RelicKey::MutagenicStrength) {
-                    next.gain_relic_key(RelicKey::Circlet)?;
+                if has_relic_key(next, Relic::MutagenicStrength) {
+                    next.gain_relic_key(Relic::Circlet)?;
                 } else {
-                    next.gain_relic_key(RelicKey::MutagenicStrength)?;
+                    next.gain_relic_key(Relic::MutagenicStrength)?;
                 }
                 next.event = Some(EventScreen {
                     event: Event::DrugDealer,

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import asdict, dataclass
 from typing import Protocol
+
+from .provenance import canonical_bytes, sha256_bytes
 
 
 class OutcomeLike(Protocol):
@@ -68,8 +68,7 @@ class CombatRewardConfig:
 
     @property
     def digest(self) -> str:
-        payload = json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":")).encode()
-        return hashlib.sha256(payload).hexdigest()
+        return sha256_bytes(canonical_bytes(self.to_dict()))
 
     def value(self, outcome: OutcomeLike) -> float | None:
         if outcome.status == "truncated":

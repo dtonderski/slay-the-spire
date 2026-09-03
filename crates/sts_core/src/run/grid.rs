@@ -2913,7 +2913,7 @@ mod tests {
 
     #[test]
     fn dollys_mirror_shop_select_auto_confirms_and_duplicates_card() {
-        use crate::relic::RelicKey;
+        use crate::relic::Relic;
         use crate::RunAction;
 
         let mut run = RunState::seeded_ironclad(1, 0);
@@ -2923,7 +2923,7 @@ mod tests {
         let shop = shop::generate_shop_screen(&mut run).expect("shop fixture allocation is valid");
         run.shop = Some(shop);
         run.shop_merchant_open = true;
-        run.shop.as_mut().expect("shop").relics[0].relic_key = RelicKey::DollysMirror;
+        run.shop.as_mut().expect("shop").relics[0].relic_key = Relic::DollysMirror;
         run.shop.as_mut().expect("shop").relics[0].price = 100;
         run.shop.as_mut().expect("shop").relics[0].sold = false;
 

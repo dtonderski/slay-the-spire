@@ -710,23 +710,20 @@ pub struct RelicDefinition {
     pub effect_status: RelicEffectStatus,
 }
 
-/// Source-compatible name for the former duplicate relic identity enum.
-pub use Relic as RelicKey;
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RelicPoolState {
-    pub common: Vec<RelicKey>,
-    pub uncommon: Vec<RelicKey>,
-    pub rare: Vec<RelicKey>,
-    pub shop: Vec<RelicKey>,
-    pub boss: Vec<RelicKey>,
+    pub common: Vec<Relic>,
+    pub uncommon: Vec<Relic>,
+    pub rare: Vec<Relic>,
+    pub shop: Vec<Relic>,
+    pub boss: Vec<Relic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RelicSpawnContext {
     pub floor_num: i32,
     pub shop_room: bool,
-    pub owned_relics: Vec<RelicKey>,
+    pub owned_relics: Vec<Relic>,
     pub has_non_basic_attack: bool,
     pub has_non_basic_skill: bool,
     pub has_power: bool,
@@ -745,149 +742,149 @@ impl Default for RelicSpawnContext {
     }
 }
 
-pub const IRONCLAD_COMMON_RELIC_POOL: [RelicKey; 33] = [
-    RelicKey::Whetstone,
-    RelicKey::TheBoot,
-    RelicKey::BloodVial,
-    RelicKey::MealTicket,
-    RelicKey::PenNib,
-    RelicKey::Akabeko,
-    RelicKey::Lantern,
-    RelicKey::RegalPillow,
-    RelicKey::BagOfPreparation,
-    RelicKey::AncientTeaSet,
-    RelicKey::SmilingMask,
-    RelicKey::PotionBelt,
-    RelicKey::PreservedInsect,
-    RelicKey::Omamori,
-    RelicKey::MawBank,
-    RelicKey::ArtOfWar,
-    RelicKey::ToyOrnithopter,
-    RelicKey::CeramicFish,
-    RelicKey::Vajra,
-    RelicKey::CentennialPuzzle,
-    RelicKey::Strawberry,
-    RelicKey::HappyFlower,
-    RelicKey::OddlySmoothStone,
-    RelicKey::WarPaint,
-    RelicKey::BronzeScales,
-    RelicKey::JuzuBracelet,
-    RelicKey::DreamCatcher,
-    RelicKey::Nunchaku,
-    RelicKey::TinyChest,
-    RelicKey::Orichalcum,
-    RelicKey::Anchor,
-    RelicKey::BagOfMarbles,
-    RelicKey::RedSkull,
+pub const IRONCLAD_COMMON_RELIC_POOL: [Relic; 33] = [
+    Relic::Whetstone,
+    Relic::TheBoot,
+    Relic::BloodVial,
+    Relic::MealTicket,
+    Relic::PenNib,
+    Relic::Akabeko,
+    Relic::Lantern,
+    Relic::RegalPillow,
+    Relic::BagOfPreparation,
+    Relic::AncientTeaSet,
+    Relic::SmilingMask,
+    Relic::PotionBelt,
+    Relic::PreservedInsect,
+    Relic::Omamori,
+    Relic::MawBank,
+    Relic::ArtOfWar,
+    Relic::ToyOrnithopter,
+    Relic::CeramicFish,
+    Relic::Vajra,
+    Relic::CentennialPuzzle,
+    Relic::Strawberry,
+    Relic::HappyFlower,
+    Relic::OddlySmoothStone,
+    Relic::WarPaint,
+    Relic::BronzeScales,
+    Relic::JuzuBracelet,
+    Relic::DreamCatcher,
+    Relic::Nunchaku,
+    Relic::TinyChest,
+    Relic::Orichalcum,
+    Relic::Anchor,
+    Relic::BagOfMarbles,
+    Relic::RedSkull,
 ];
 
-pub const IRONCLAD_UNCOMMON_RELIC_POOL: [RelicKey; 30] = [
-    RelicKey::BottledTornado,
-    RelicKey::Sundial,
-    RelicKey::Kunai,
-    RelicKey::Pear,
-    RelicKey::BlueCandle,
-    RelicKey::EternalFeather,
-    RelicKey::StrikeDummy,
-    RelicKey::SingingBowl,
-    RelicKey::Matryoshka,
-    RelicKey::InkBottle,
-    RelicKey::TheCourier,
-    RelicKey::FrozenEgg,
-    RelicKey::OrnamentalFan,
-    RelicKey::BottledLightning,
-    RelicKey::GremlinHorn,
-    RelicKey::HornCleat,
-    RelicKey::ToxicEgg,
-    RelicKey::LetterOpener,
-    RelicKey::QuestionCard,
-    RelicKey::BottledFlame,
-    RelicKey::Shuriken,
-    RelicKey::MoltenEgg,
-    RelicKey::MeatOnTheBone,
-    RelicKey::DarkstonePeriapt,
-    RelicKey::MummifiedHand,
-    RelicKey::Pantograph,
-    RelicKey::WhiteBeastStatue,
-    RelicKey::MercuryHourglass,
-    RelicKey::SelfFormingClay,
-    RelicKey::PaperPhrog,
+pub const IRONCLAD_UNCOMMON_RELIC_POOL: [Relic; 30] = [
+    Relic::BottledTornado,
+    Relic::Sundial,
+    Relic::Kunai,
+    Relic::Pear,
+    Relic::BlueCandle,
+    Relic::EternalFeather,
+    Relic::StrikeDummy,
+    Relic::SingingBowl,
+    Relic::Matryoshka,
+    Relic::InkBottle,
+    Relic::TheCourier,
+    Relic::FrozenEgg,
+    Relic::OrnamentalFan,
+    Relic::BottledLightning,
+    Relic::GremlinHorn,
+    Relic::HornCleat,
+    Relic::ToxicEgg,
+    Relic::LetterOpener,
+    Relic::QuestionCard,
+    Relic::BottledFlame,
+    Relic::Shuriken,
+    Relic::MoltenEgg,
+    Relic::MeatOnTheBone,
+    Relic::DarkstonePeriapt,
+    Relic::MummifiedHand,
+    Relic::Pantograph,
+    Relic::WhiteBeastStatue,
+    Relic::MercuryHourglass,
+    Relic::SelfFormingClay,
+    Relic::PaperPhrog,
 ];
 
-pub const IRONCLAD_RARE_RELIC_POOL: [RelicKey; 28] = [
-    RelicKey::Ginger,
-    RelicKey::OldCoin,
-    RelicKey::BirdFacedUrn,
-    RelicKey::UnceasingTop,
-    RelicKey::Torii,
-    RelicKey::StoneCalendar,
-    RelicKey::Shovel,
-    RelicKey::WingBoots,
-    RelicKey::ThreadAndNeedle,
-    RelicKey::Turnip,
-    RelicKey::IceCream,
-    RelicKey::Calipers,
-    RelicKey::LizardTail,
-    RelicKey::PrayerWheel,
-    RelicKey::Girya,
-    RelicKey::DeadBranch,
-    RelicKey::DuVuDoll,
-    RelicKey::Pocketwatch,
-    RelicKey::Mango,
-    RelicKey::IncenseBurner,
-    RelicKey::GamblingChip,
-    RelicKey::PeacePipe,
-    RelicKey::CaptainsWheel,
-    RelicKey::FossilizedHelix,
-    RelicKey::TungstenRod,
-    RelicKey::MagicFlower,
-    RelicKey::CharonsAshes,
-    RelicKey::ChampionBelt,
+pub const IRONCLAD_RARE_RELIC_POOL: [Relic; 28] = [
+    Relic::Ginger,
+    Relic::OldCoin,
+    Relic::BirdFacedUrn,
+    Relic::UnceasingTop,
+    Relic::Torii,
+    Relic::StoneCalendar,
+    Relic::Shovel,
+    Relic::WingBoots,
+    Relic::ThreadAndNeedle,
+    Relic::Turnip,
+    Relic::IceCream,
+    Relic::Calipers,
+    Relic::LizardTail,
+    Relic::PrayerWheel,
+    Relic::Girya,
+    Relic::DeadBranch,
+    Relic::DuVuDoll,
+    Relic::Pocketwatch,
+    Relic::Mango,
+    Relic::IncenseBurner,
+    Relic::GamblingChip,
+    Relic::PeacePipe,
+    Relic::CaptainsWheel,
+    Relic::FossilizedHelix,
+    Relic::TungstenRod,
+    Relic::MagicFlower,
+    Relic::CharonsAshes,
+    Relic::ChampionBelt,
 ];
 
-pub const IRONCLAD_SHOP_RELIC_POOL: [RelicKey; 17] = [
-    RelicKey::SlingOfCourage,
-    RelicKey::HandDrill,
-    RelicKey::Toolbox,
-    RelicKey::ChemicalX,
-    RelicKey::LeesWaffle,
-    RelicKey::Orrery,
-    RelicKey::DollysMirror,
-    RelicKey::OrangePellets,
-    RelicKey::PrismaticShard,
-    RelicKey::ClockworkSouvenir,
-    RelicKey::FrozenEye,
-    RelicKey::TheAbacus,
-    RelicKey::MedicalKit,
-    RelicKey::Cauldron,
-    RelicKey::StrangeSpoon,
-    RelicKey::MembershipCard,
-    RelicKey::Brimstone,
+pub const IRONCLAD_SHOP_RELIC_POOL: [Relic; 17] = [
+    Relic::SlingOfCourage,
+    Relic::HandDrill,
+    Relic::Toolbox,
+    Relic::ChemicalX,
+    Relic::LeesWaffle,
+    Relic::Orrery,
+    Relic::DollysMirror,
+    Relic::OrangePellets,
+    Relic::PrismaticShard,
+    Relic::ClockworkSouvenir,
+    Relic::FrozenEye,
+    Relic::TheAbacus,
+    Relic::MedicalKit,
+    Relic::Cauldron,
+    Relic::StrangeSpoon,
+    Relic::MembershipCard,
+    Relic::Brimstone,
 ];
 
-pub const IRONCLAD_BOSS_RELIC_POOL: [RelicKey; 22] = [
-    RelicKey::FusionHammer,
-    RelicKey::VelvetChoker,
-    RelicKey::RunicDome,
-    RelicKey::SlaversCollar,
-    RelicKey::SneckoEye,
-    RelicKey::PandorasBox,
-    RelicKey::CursedKey,
-    RelicKey::BustedCrown,
-    RelicKey::Ectoplasm,
-    RelicKey::TinyHouse,
-    RelicKey::Sozu,
-    RelicKey::PhilosophersStone,
-    RelicKey::Astrolabe,
-    RelicKey::BlackStar,
-    RelicKey::SacredBark,
-    RelicKey::EmptyCage,
-    RelicKey::RunicPyramid,
-    RelicKey::CallingBell,
-    RelicKey::CoffeeDripper,
-    RelicKey::BlackBlood,
-    RelicKey::MarkOfPain,
-    RelicKey::RunicCube,
+pub const IRONCLAD_BOSS_RELIC_POOL: [Relic; 22] = [
+    Relic::FusionHammer,
+    Relic::VelvetChoker,
+    Relic::RunicDome,
+    Relic::SlaversCollar,
+    Relic::SneckoEye,
+    Relic::PandorasBox,
+    Relic::CursedKey,
+    Relic::BustedCrown,
+    Relic::Ectoplasm,
+    Relic::TinyHouse,
+    Relic::Sozu,
+    Relic::PhilosophersStone,
+    Relic::Astrolabe,
+    Relic::BlackStar,
+    Relic::SacredBark,
+    Relic::EmptyCage,
+    Relic::RunicPyramid,
+    Relic::CallingBell,
+    Relic::CoffeeDripper,
+    Relic::BlackBlood,
+    Relic::MarkOfPain,
+    Relic::RunicCube,
 ];
 
 pub fn initialize_ironclad_relic_pools(relic_rng: &mut StsRng) -> RelicPoolState {
@@ -913,7 +910,7 @@ pub fn initialize_ironclad_relic_pools(relic_rng: &mut StsRng) -> RelicPoolState
 }
 
 impl RelicPoolState {
-    pub fn remove_relic(&mut self, key: RelicKey) {
+    pub fn remove_relic(&mut self, key: Relic) {
         remove_relic_from_pool(&mut self.common, key);
         remove_relic_from_pool(&mut self.uncommon, key);
         remove_relic_from_pool(&mut self.rare, key);
@@ -921,11 +918,7 @@ impl RelicPoolState {
         remove_relic_from_pool(&mut self.boss, key);
     }
 
-    pub fn return_random_relic(
-        &mut self,
-        tier: RelicTier,
-        context: &RelicSpawnContext,
-    ) -> RelicKey {
+    pub fn return_random_relic(&mut self, tier: RelicTier, context: &RelicSpawnContext) -> Relic {
         self.return_random_relic_from(tier, context, true)
     }
 
@@ -933,7 +926,7 @@ impl RelicPoolState {
         &mut self,
         tier: RelicTier,
         context: &RelicSpawnContext,
-    ) -> RelicKey {
+    ) -> Relic {
         self.return_random_relic_from(tier, context, false)
     }
 
@@ -941,15 +934,15 @@ impl RelicPoolState {
         &mut self,
         tier: RelicTier,
         context: &RelicSpawnContext,
-    ) -> RelicKey {
+    ) -> Relic {
         loop {
             let relic = self.return_random_relic(tier, context);
             if !matches!(
                 relic,
-                RelicKey::BottledFlame
-                    | RelicKey::BottledLightning
-                    | RelicKey::BottledTornado
-                    | RelicKey::Whetstone
+                Relic::BottledFlame
+                    | Relic::BottledLightning
+                    | Relic::BottledTornado
+                    | Relic::Whetstone
             ) {
                 return relic;
             }
@@ -961,7 +954,7 @@ impl RelicPoolState {
         tier: RelicTier,
         context: &RelicSpawnContext,
         from_front: bool,
-    ) -> RelicKey {
+    ) -> Relic {
         let relic = match tier {
             RelicTier::Common if self.common.is_empty() => {
                 return self.return_random_relic_from(RelicTier::Uncommon, context, true);
@@ -971,13 +964,13 @@ impl RelicPoolState {
                 return self.return_random_relic_from(RelicTier::Rare, context, true);
             }
             RelicTier::Uncommon => pop_relic(&mut self.uncommon, tier, from_front),
-            RelicTier::Rare if self.rare.is_empty() => RelicKey::Circlet,
+            RelicTier::Rare if self.rare.is_empty() => Relic::Circlet,
             RelicTier::Rare => pop_relic(&mut self.rare, tier, from_front),
             RelicTier::Shop if self.shop.is_empty() => {
                 return self.return_random_relic_from(RelicTier::Uncommon, context, true);
             }
             RelicTier::Shop => pop_relic(&mut self.shop, tier, from_front),
-            RelicTier::Boss if self.boss.is_empty() => RelicKey::RedCirclet,
+            RelicTier::Boss if self.boss.is_empty() => Relic::RedCirclet,
             RelicTier::Boss => pop_relic(&mut self.boss, tier, from_front),
         };
 
@@ -993,7 +986,7 @@ impl RelicPoolState {
     }
 }
 
-fn pop_relic(pool: &mut Vec<RelicKey>, tier: RelicTier, from_front: bool) -> RelicKey {
+fn pop_relic(pool: &mut Vec<Relic>, tier: RelicTier, from_front: bool) -> Relic {
     if from_front || tier == RelicTier::Boss {
         pool.remove(0)
     } else {
@@ -1001,14 +994,14 @@ fn pop_relic(pool: &mut Vec<RelicKey>, tier: RelicTier, from_front: bool) -> Rel
     }
 }
 
-fn remove_relic_from_pool(pool: &mut Vec<RelicKey>, key: RelicKey) {
+fn remove_relic_from_pool(pool: &mut Vec<Relic>, key: Relic) {
     if let Some(index) = pool.iter().position(|candidate| *candidate == key) {
         pool.remove(index);
     }
 }
 
 #[must_use]
-pub fn relic_can_spawn(relic: RelicKey, context: &RelicSpawnContext) -> bool {
+pub fn relic_can_spawn(relic: Relic, context: &RelicSpawnContext) -> bool {
     use Relic::{
         AncientTeaSet, BlackBlood, BottledFlame, BottledLightning, BottledTornado, BurningBlood,
         CeramicFish, CrackedCore, DarkstonePeriapt, DreamCatcher, Ectoplasm, FrozenCore, FrozenEgg,
@@ -1029,7 +1022,7 @@ pub fn relic_can_spawn(relic: RelicKey, context: &RelicSpawnContext) -> bool {
         RingOfTheSerpent => context.owned_relics.contains(&RingOfTheSnake),
         HolyWater => context.owned_relics.contains(&PureWater),
         TinyChest => context.floor_num <= 35,
-        WingBoots | RelicKey::Matryoshka => context.floor_num <= 40,
+        WingBoots | Relic::Matryoshka => context.floor_num <= 40,
         Girya | PeacePipe | Shovel => {
             context.floor_num < 48 && campfire_relic_count(&context.owned_relics) < 2
         }
@@ -1049,15 +1042,10 @@ pub fn relic_can_spawn(relic: RelicKey, context: &RelicSpawnContext) -> bool {
     }
 }
 
-fn campfire_relic_count(owned: &[RelicKey]) -> usize {
+fn campfire_relic_count(owned: &[Relic]) -> usize {
     owned
         .iter()
-        .filter(|relic| {
-            matches!(
-                relic,
-                RelicKey::Girya | RelicKey::PeacePipe | RelicKey::Shovel
-            )
-        })
+        .filter(|relic| matches!(relic, Relic::Girya | Relic::PeacePipe | Relic::Shovel))
         .count()
 }
 
@@ -3382,7 +3370,7 @@ mod tests {
             shop_room: false,
             ..RelicSpawnContext::default()
         };
-        assert!(relic_can_spawn(RelicKey::TheCourier, &ordinary));
+        assert!(relic_can_spawn(Relic::TheCourier, &ordinary));
 
         let shop = RelicSpawnContext {
             floor_num: 28,
@@ -3390,18 +3378,18 @@ mod tests {
             has_non_basic_attack: true,
             ..RelicSpawnContext::default()
         };
-        assert!(!relic_can_spawn(RelicKey::TheCourier, &shop));
+        assert!(!relic_can_spawn(Relic::TheCourier, &shop));
 
         let mut pools = RelicPoolState {
             common: Vec::new(),
-            uncommon: vec![RelicKey::BottledFlame, RelicKey::TheCourier],
+            uncommon: vec![Relic::BottledFlame, Relic::TheCourier],
             rare: Vec::new(),
             shop: Vec::new(),
             boss: Vec::new(),
         };
         assert_eq!(
             pools.return_random_relic_end(RelicTier::Uncommon, &shop),
-            RelicKey::BottledFlame
+            Relic::BottledFlame
         );
         assert!(pools.uncommon.is_empty());
     }
@@ -3572,27 +3560,8 @@ mod tests {
             Relic::OddMushroom,
             Relic::NlothsGift,
         ] {
-            assert_eq!(relic.key(), relic);
-            assert_eq!(Relic::from_key(relic), Some(relic));
             assert_eq!(Relic::from_content_id(relic.content_id()), Some(relic));
         }
-    }
-
-    #[test]
-    fn relic_key_alias_preserves_wire_names() {
-        use RelicKey::MarkOfBloom;
-
-        let key: RelicKey = MarkOfBloom;
-
-        assert_eq!(
-            serde_json::to_string(&key).expect("relic identity serializes"),
-            r#""MarkOfBloom""#
-        );
-        assert_eq!(
-            serde_json::from_str::<RelicKey>(r#""NlothsGift""#)
-                .expect("legacy key name deserializes"),
-            Relic::NlothsGift
-        );
     }
 
     #[test]

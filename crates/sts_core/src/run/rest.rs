@@ -263,6 +263,7 @@ mod tests {
     use super::*;
     use crate::{
         content::cards::{ANGER_ID, SEARING_BLOW_PLUS_ID},
+        restore_run_snapshot_json,
         run::reward::{apply_run_action, roll_event_relic_reward, roll_reward_screen_relic},
         CardId, CardInstance, RoomKind, RunAction, Snapshot, SNAPSHOT_SCHEMA_VERSION,
     };
@@ -318,8 +319,7 @@ mod tests {
             state: reward.clone(),
         };
         let json = snapshot.canonical_json().expect("snapshot serializes");
-        let restored: Snapshot<RunState> =
-            serde_json::from_str(&json).expect("snapshot deserializes");
+        let restored = restore_run_snapshot_json(&json).expect("snapshot restores");
         assert_eq!(restored, snapshot);
         assert_eq!(
             restored

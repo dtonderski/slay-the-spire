@@ -7,7 +7,7 @@ the rarity-dependent reward is applied.
 
 The game can award `Spirit Poop` for offering a curse. The simulator does not
 model an effect-bearing relic for it, so it is represented as a serialized
-`RelicKey` with no combat or run effect. If it is already owned, the game gives
+`Relic` with no combat or run effect. If it is already owned, the game gives
 `Circlet` instead.
 
 Card outcomes follow the decompiled event: basic cards have no additional

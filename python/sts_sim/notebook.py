@@ -27,7 +27,6 @@ __all__ = [
     "format_actions",
     "format_decision",
     "format_observation",
-    "render_decision",
     "show_actions",
     "show_decision",
 ]
@@ -105,10 +104,7 @@ def _card_summary(cards: Iterable[FairCard]) -> str:
     counts = Counter(_card_name(card) for card in cards)
     if not counts:
         return "none"
-    return ", ".join(
-        f"{name} x{count}" if count > 1 else name
-        for name, count in counts.items()
-    )
+    return ", ".join(f"{name} x{count}" if count > 1 else name for name, count in counts.items())
 
 
 def _line(char: str = "-", width: int = 80) -> str:
@@ -124,16 +120,12 @@ def _section(lines: list[str], title: str) -> None:
 
 def _context_line(observation: FairRunObservation) -> str:
     context = observation.context
-    hp = (
-        f"HP {context.player_hp}/{context.player_max_hp}"
-        if context.player_hp is not None and context.player_max_hp is not None
-        else None
-    )
     values = [
         f"Act {context.act}",
         f"Floor {context.floor}",
         f"Ascension {context.ascension}",
-        *(value for value in (hp, f"Gold {context.gold}") if value is not None),
+        f"HP {context.player_hp}/{context.player_max_hp}",
+        f"Gold {context.gold}",
     ]
     return " | ".join(values)
 
@@ -143,12 +135,10 @@ def _run_inventory_lines(observation: FairRunObservation) -> list[str]:
     lines = [
         f"Deck ({len(context.deck)}): {_card_summary(context.deck)}",
         f"Relics ({len(context.relics)}): "
-        + (", ".join(_name(relic) for relic in context.relics) or "none"),
+        + (", ".join(_name(relic.content_key) for relic in context.relics) or "none"),
     ]
     occupied = [slot for slot in context.potion_slots if slot.content_key is not None]
-    potions = ", ".join(
-        f"[{slot.slot}] {_name(slot.content_key)}" for slot in occupied
-    )
+    potions = ", ".join(f"[{slot.slot}] {_name(slot.content_key)}" for slot in occupied)
     lines.append(f"Potions ({len(occupied)}/{len(context.potion_slots)}): {potions or 'none'}")
     return lines
 
@@ -190,8 +180,7 @@ def _run_screen_lines(observation: FairRunObservation) -> list[str]:
             marker = "*" if slot in reachable else " "
             children = ", ".join(str(child) for child in _integers(record.get("children")))
             lines.append(
-                f"  {marker}[{slot}] {_name(record.get('room_kind', 'unknown'))}"
-                f" -> [{children}]"
+                f"  {marker}[{slot}] {_name(record.get('room_kind', 'unknown'))} -> [{children}]"
             )
         return lines
 
@@ -211,7 +200,9 @@ def _run_screen_lines(observation: FairRunObservation) -> list[str]:
         cards = _records(screen, "cards")
         if cards:
             lines.append("  Cards:")
-            lines.extend(f"    [{record.get('slot')}] {_card_record_name(record)}" for record in cards)
+            lines.extend(
+                f"    [{record.get('slot')}] {_card_record_name(record)}" for record in cards
+            )
         boss_relics = _strings(screen.get("boss_relic_choices"))
         if boss_relics:
             lines.append("  Boss relics: " + ", ".join(_name(relic) for relic in boss_relics))
@@ -235,13 +226,14 @@ def _run_screen_lines(observation: FairRunObservation) -> list[str]:
 
     if observation.kind == "rest":
         lines.append(f"Rest site: complete={screen.get('complete', False)}")
-        lines.append("Options: " + (", ".join(_name(option) for option in _strings(screen.get("options"))) or "none"))
+        lines.append(
+            "Options: "
+            + (", ".join(_name(option) for option in _strings(screen.get("options"))) or "none")
+        )
         return lines
 
     if observation.kind == "shop":
-        lines.append(
-            f"Shop: merchant {'open' if screen.get('merchant_open') else 'closed'}"
-        )
+        lines.append(f"Shop: merchant {'open' if screen.get('merchant_open') else 'closed'}")
         if screen.get("remove_cost") is not None:
             lines.append(f"  Remove cost: {screen['remove_cost']}")
         for key, label in (("cards", "Cards"), ("relics", "Relics"), ("potions", "Potions")):
@@ -315,9 +307,7 @@ def _combat_lines(observation: FairCombatObservation) -> list[str]:
         lines.append("Orbs: " + ", ".join(orbs))
     _section(lines, f"Hand ({len(observation.hand)})")
     if observation.hand:
-        lines.extend(
-            f"  [{card.slot}] {_card_text(card.card)}" for card in observation.hand
-        )
+        lines.extend(f"  [{card.slot}] {_card_text(card.card)}" for card in observation.hand)
     else:
         lines.append("  none")
 
@@ -352,7 +342,9 @@ def _combat_lines(observation: FairCombatObservation) -> list[str]:
                 details.append("flags " + ", ".join(flags))
             if extras:
                 details.extend(extras)
-            lines.append(f"  [{monster.slot}] {_name(monster.content_key)} | " + " | ".join(details))
+            lines.append(
+                f"  [{monster.slot}] {_name(monster.content_key)} | " + " | ".join(details)
+            )
     else:
         lines.append("  none")
 
@@ -373,7 +365,7 @@ def _combat_lines(observation: FairCombatObservation) -> list[str]:
     _section(lines, "Relics")
     lines.extend(
         f"  [{relic.slot}] {_name(relic.content_key)}"
-                + (f" | {_counter_text(relic.state)}" if relic.state else "")
+        + (f" | {_counter_text(relic.state)}" if relic.state else "")
         for relic in observation.relics
     )
     if not observation.relics:
@@ -403,7 +395,9 @@ def action_label(decision: Decision, action: Action) -> str:
                 ),
                 None,
             )
-            return f"Choose {_humanize((option or {}).get('label', f'option {action.option_slot}'))}"
+            return (
+                f"Choose {_humanize((option or {}).get('label', f'option {action.option_slot}'))}"
+            )
         if action.kind == "choose_map_node":
             node = next(
                 (
@@ -458,18 +452,28 @@ def action_label(decision: Decision, action: Action) -> str:
                 (visible.card for visible in observation.hand if visible.slot == action.hand_slot),
                 None,
             )
-            label = f"Play {_card_name(card) if card is not None else f'hand slot {action.hand_slot}'}"
+            label = (
+                f"Play {_card_name(card) if card is not None else f'hand slot {action.hand_slot}'}"
+            )
         case "end_turn":
             return "End turn"
         case "use_potion_slot":
             potion = next(
-                (slot.content_key for slot in observation.potion_slots if slot.slot == action.potion_slot),
+                (
+                    slot.content_key
+                    for slot in observation.potion_slots
+                    if slot.slot == action.potion_slot
+                ),
                 None,
             )
             label = f"Use {_name(potion) if potion is not None else f'potion slot {action.potion_slot}'}"
         case "discard_potion_slot":
             potion = next(
-                (slot.content_key for slot in observation.potion_slots if slot.slot == action.potion_slot),
+                (
+                    slot.content_key
+                    for slot in observation.potion_slots
+                    if slot.slot == action.potion_slot
+                ),
                 None,
             )
             return f"Discard {_name(potion) if potion is not None else f'potion slot {action.potion_slot}'}"
@@ -477,7 +481,9 @@ def action_label(decision: Decision, action: Action) -> str:
             option = next(
                 (
                     selection.card
-                    for selection in (observation.selection.options if observation.selection else ())
+                    for selection in (
+                        observation.selection.options if observation.selection else ()
+                    )
                     if selection.slot == action.option_slot
                 ),
                 None,
@@ -510,7 +516,11 @@ def action_label(decision: Decision, action: Action) -> str:
             (monster for monster in observation.monsters if monster.slot == action.target_slot),
             None,
         )
-        target_name = _name(target.content_key) if target is not None else f"monster slot {action.target_slot}"
+        target_name = (
+            _name(target.content_key)
+            if target is not None
+            else f"monster slot {action.target_slot}"
+        )
         return f"{label} -> {target_name}"
     return label
 
@@ -596,12 +606,6 @@ def format_decision(decision: Decision) -> str:
     _section(lines, f"Legal actions ({len(decision.actions)})")
     lines.extend(format_actions(decision).splitlines())
     return "\n".join(lines)
-
-
-def render_decision(decision: Decision) -> str:
-    """Backward-compatible name for :func:`format_decision`."""
-
-    return format_decision(decision)
 
 
 def show_decision(decision: Decision) -> None:

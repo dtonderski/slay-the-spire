@@ -1,15 +1,14 @@
-"""Standalone train-to-evaluation-authorization-v1 parser and verifier.
+"""Train-to-evaluation-authorization-v1 parser, verifier, and held-out gate.
 
-This module does not run evaluation and does not change sealed or audit access.
-Later review wires it into static and gameplay evaluation after the six-arm
-evaluator lands. Booleans stored on disk are never proof; every digest and
-disjointness check is recomputed from the loaded manifests. Root manifests must
-be source-epoch-bundle bound (v6); unbound v4/v5 manifests fail closed.
+Booleans stored on disk are never proof; every digest and disjointness check is
+recomputed from the loaded manifests. Same-cohort development evaluation of the
+training root manifest needs no authorization. A different root manifest requires
+an authorization proving disjoint lineages, root IDs, and seeds plus matching
+source-epoch-bundle identity. Sealed and audit splits are never loadable.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import stat
 from collections.abc import Sequence
@@ -18,6 +17,7 @@ from pathlib import Path
 from typing import cast
 
 from .data import (
+    _LOADABLE_SPLITS,
     RootManifest,
     _require_canonical_root_snapshot,
     parse_root_manifest,
@@ -30,6 +30,8 @@ from .experiment import (
     resolve_inventory_path,
     write_scientific_artifact,
 )
+from .provenance import canonical_bytes, digest_payload, require_digest, sha256_bytes
+from .source_epoch import SOURCE_EPOCH_DIRNAME, load_source_epoch_bundle, verify_loaded_native_bytes
 
 AUTHORIZATION_KIND = "train-to-evaluation-authorization-v1"
 AUTHORIZATION_SCHEMA_VERSION = 1
@@ -62,14 +64,6 @@ _AUTHORIZATION_KEYS = frozenset(
 )
 
 
-def _canonical_bytes(payload: object) -> bytes:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
-
-
-def _sha256_bytes(payload: bytes) -> str:
-    return hashlib.sha256(payload).hexdigest()
-
-
 def _require_mapping(value: object, label: str) -> dict[str, object]:
     if type(value) is not dict:
         raise TypeError(f"{label} must be an object")
@@ -77,16 +71,6 @@ def _require_mapping(value: object, label: str) -> dict[str, object]:
     if any(type(key) is not str for key in result):
         raise TypeError(f"{label} keys must be strings")
     return result
-
-
-def _require_digest(value: object, label: str) -> str:
-    if (
-        type(value) is not str
-        or len(value) != 64
-        or any(character not in "0123456789abcdef" for character in value)
-    ):
-        raise ValueError(f"{label} must be a lowercase SHA-256 digest")
-    return value
 
 
 def _require_int(value: object, label: str) -> int:
@@ -113,12 +97,6 @@ def _require_string_list(value: object, label: str) -> tuple[str, ...]:
     if tuple(names) != tuple(sorted(names)):
         raise ValueError(f"{label} are not canonically ordered")
     return tuple(names)
-
-
-def _digest_payload(payload: dict[str, object], digest_key: str) -> str:
-    unsigned = dict(payload)
-    unsigned.pop(digest_key, None)
-    return _sha256_bytes(_canonical_bytes(unsigned))
 
 
 def _reject_symlink(path: Path, label: str) -> None:
@@ -199,14 +177,14 @@ def parse_authorization(payload: object) -> TrainToEvaluationAuthorization:
     )
     if dimensions != MANDATORY_DISJOINTNESS_DIMENSIONS:
         raise ValueError("mandatory disjointness dimensions must be root_ids, seeds, and lineages")
-    training_manifest = _require_digest(
+    training_manifest = require_digest(
         source["training_root_manifest_digest"], "training root-manifest digest"
     )
-    evaluation_manifest = _require_digest(
+    evaluation_manifest = require_digest(
         source["evaluation_root_manifest_digest"], "evaluation root-manifest digest"
     )
-    training_cohort = _require_digest(source["training_cohort_digest"], "training cohort digest")
-    evaluation_cohort = _require_digest(
+    training_cohort = require_digest(source["training_cohort_digest"], "training cohort digest")
+    evaluation_cohort = require_digest(
         source["evaluation_cohort_digest"], "evaluation cohort digest"
     )
     if training_manifest == evaluation_manifest:
@@ -218,13 +196,13 @@ def parse_authorization(payload: object) -> TrainToEvaluationAuthorization:
         training_cohort,
         evaluation_manifest,
         evaluation_cohort,
-        _require_digest(source["source_epoch_bundle_digest"], "source-epoch-bundle digest"),
+        require_digest(source["source_epoch_bundle_digest"], "source-epoch-bundle digest"),
         _require_int(source["evaluation_seed"], "evaluation seed"),
         names,
         dimensions,
-        _require_digest(source["authorization_digest"], "authorization digest"),
+        require_digest(source["authorization_digest"], "authorization digest"),
     )
-    expected_digest = _digest_payload(authorization.to_dict(), "authorization_digest")
+    expected_digest = digest_payload(authorization.to_dict(), "authorization_digest")
     if authorization.authorization_digest != expected_digest:
         raise ValueError("authorization digest is invalid")
     return authorization
@@ -253,7 +231,7 @@ def authorization_from_bindings(
         "mandatory_disjointness_dimensions": list(MANDATORY_DISJOINTNESS_DIMENSIONS),
         "authorization_digest": "0" * 64,
     }
-    payload["authorization_digest"] = _digest_payload(payload, "authorization_digest")
+    payload["authorization_digest"] = digest_payload(payload, "authorization_digest")
     return parse_authorization(payload)
 
 
@@ -265,20 +243,20 @@ def load_authorization(path: Path) -> TrainToEvaluationAuthorization:
     except json.JSONDecodeError as error:
         raise ValueError("authorization is not JSON") from error
     authorization = parse_authorization(payload)
-    if content != _canonical_bytes(authorization.to_dict()):
+    if content != canonical_bytes(authorization.to_dict()):
         raise ValueError("authorization is not canonical")
     return authorization
 
 
 def write_authorization(path: Path, authorization: TrainToEvaluationAuthorization) -> str:
     parsed = parse_authorization(authorization.to_dict())
-    return write_scientific_artifact(path, _canonical_bytes(parsed.to_dict()))
+    return write_scientific_artifact(path, canonical_bytes(parsed.to_dict()))
 
 
 def _load_cohort_manifest(path: Path, label: str) -> tuple[RootManifest, str]:
     _reject_symlink(path, f"{label} root manifest")
     content = _read_regular_file_bytes(path)
-    file_digest = _sha256_bytes(content)
+    file_digest = sha256_bytes(content)
     manifest = parse_root_manifest(content)
     if not manifest.roots:
         raise ValueError(f"{label} cohort is empty")
@@ -311,6 +289,11 @@ def _load_cohort_manifest(path: Path, label: str) -> tuple[RootManifest, str]:
             raise ValueError(f"{label} root path must be a regular file: {snapshot}")
         _reject_symlink(snapshot.parent, f"{label} root path")
         _require_canonical_root_snapshot(_read_regular_file_bytes(snapshot), root.root_id)
+    bundle_dir = parent / SOURCE_EPOCH_DIRNAME
+    bundle = load_source_epoch_bundle(bundle_dir)
+    verify_loaded_native_bytes(bundle)
+    if bundle.bundle_digest != manifest.source_epoch_bundle_digest:
+        raise ValueError(f"{label} source-epoch-bundle digest does not match the root manifest")
     return manifest, file_digest
 
 
@@ -343,7 +326,7 @@ def verify_train_to_evaluation_authorization(
         raise TypeError("evaluation seed must be an integer")
     if type(requested_evaluator_name) is not str or not requested_evaluator_name:
         raise TypeError("requested evaluator name must be a nonempty string")
-    expected_bundle = _require_digest(
+    expected_bundle = require_digest(
         expected_source_epoch_bundle_digest, "expected source-epoch-bundle digest"
     )
     authorization = load_authorization(authorization_path)
@@ -378,11 +361,6 @@ def verify_train_to_evaluation_authorization(
     if evaluation_manifest.cohort_digest != authorization.evaluation_cohort_digest:
         raise ValueError("evaluation cohort digest does not match authorization")
     if (
-        training_manifest.source_epoch_bundle_digest is None
-        or evaluation_manifest.source_epoch_bundle_digest is None
-    ):
-        raise ValueError("root manifests are not source-epoch-bundle bound")
-    if (
         training_manifest.source_epoch_bundle_digest
         != evaluation_manifest.source_epoch_bundle_digest
     ):
@@ -409,5 +387,57 @@ def verify_train_to_evaluation_authorization(
     )
 
 
+def require_held_out_evaluation(
+    *,
+    training_root_manifest_digest: str,
+    training_cohort_digest: str,
+    evaluation_manifest: RootManifest,
+    evaluation_root_manifest_path: Path,
+    evaluation_split: str,
+    evaluation_seed: int,
+    requested_evaluator_names: Sequence[str],
+    authorization_path: Path | None = None,
+    training_root_manifest_path: Path | None = None,
+) -> HeldOutAuthorizationProof | None:
+    """Same-cohort loadable splits pass; cross-manifest eval requires authorization."""
+
+    if evaluation_split not in _LOADABLE_SPLITS:
+        raise PermissionError("sealed and audit splits are not available for evaluation")
+    if not requested_evaluator_names:
+        raise ValueError("held-out evaluation must name at least one evaluator")
+    unknown = [name for name in requested_evaluator_names if name not in AUTHORIZED_EVALUATOR_NAMES]
+    if unknown:
+        raise ValueError(f"unauthorized evaluator name: {unknown[0]}")
+    if training_root_manifest_digest == evaluation_manifest.manifest_digest:
+        if training_cohort_digest != evaluation_manifest.cohort_digest:
+            raise ValueError("evaluation disjoint cohort")
+        if authorization_path is not None or training_root_manifest_path is not None:
+            raise ValueError("same-cohort evaluation must not include an authorization")
+        return None
+    if authorization_path is None or training_root_manifest_path is None:
+        raise ValueError("cross-manifest evaluation requires train-to-evaluation authorization")
+    proof = verify_train_to_evaluation_authorization(
+        authorization_path,
+        training_root_manifest_path=training_root_manifest_path,
+        evaluation_root_manifest_path=evaluation_root_manifest_path,
+        expected_source_epoch_bundle_digest=evaluation_manifest.source_epoch_bundle_digest,
+        evaluation_seed=evaluation_seed,
+        requested_evaluator_name=requested_evaluator_names[0],
+    )
+    if proof.authorization.evaluation_root_manifest_digest != evaluation_manifest.manifest_digest:
+        raise ValueError(
+            "authorized evaluation root does not match the authenticated dataset root"
+        )
+    if proof.authorization.evaluation_cohort_digest != evaluation_manifest.cohort_digest:
+        raise ValueError(
+            "authorized evaluation cohort does not match the authenticated dataset cohort"
+        )
+    authorized = frozenset(proof.authorization.authorized_evaluator_names)
+    missing = [name for name in requested_evaluator_names if name not in authorized]
+    if missing:
+        raise ValueError(f"evaluator is not authorized: {missing[0]}")
+    return proof
+
+
 def canonical_authorization_bytes(authorization: TrainToEvaluationAuthorization) -> bytes:
-    return _canonical_bytes(parse_authorization(authorization.to_dict()).to_dict())
+    return canonical_bytes(parse_authorization(authorization.to_dict()).to_dict())

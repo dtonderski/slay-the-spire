@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import ast
-import inspect
+import hashlib
 import json
 import subprocess
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Literal, cast
@@ -14,7 +15,6 @@ import torch
 from sts_sim import ActionDescriptor, FairCombatObservation, Potion, RunEnv
 from sts_sim.rl import (
     BatchedCombatDecision,
-    CheckpointSourceMismatchWarning,
     CombatModelConfig,
     CombatOutcome,
     CounterChange,
@@ -29,16 +29,59 @@ from sts_sim.rl import (
     collate_combat_tensors,
     collate_training_examples,
     fair_observation_digest,
-    load_checkpoint,
     policy_value_loss,
     read_jsonl,
     rollout_model_combat,
-    save_checkpoint,
     summarize_rollouts,
     teacher_conflict_report,
     tensorize_combat,
     write_jsonl,
 )
+from sts_sim.rl.records import (
+    BEAM_TEACHER_NAME,
+    RECORD_VERSION,
+    JsonValue,
+    canonical_episode_id,
+    parse_jsonl_records,
+)
+from sts_sim.rl.rewards import COMBAT_PROXY_V1
+
+_BEAM_SEARCH_CONFIG: dict[str, JsonValue] = {
+    "depth": 8,
+    "width": 24,
+    "transition_budget": 32,
+    "max_decisions": 512,
+    "max_player_turns": 100,
+    "deadline": None,
+    "replan": "every_public_decision",
+    "deduplicate_search_states": True,
+}
+
+
+def _from_mutated_combat_snapshot(mutate_state: Callable[[dict[str, object]], None]) -> RunEnv:
+    payload = json.loads(RunEnv.combat_fixture().snapshot().json)
+    mutate_state(cast(dict[str, object], payload["state"]))
+    return RunEnv.from_snapshot(json.dumps(payload))
+
+
+def _hex(label: str) -> str:
+    return hashlib.sha256(label.encode()).hexdigest()
+
+
+def _rebind_root(
+    record: SymbolicTrainingRecord,
+    root_id: str,
+    **changes: object,
+) -> SymbolicTrainingRecord:
+    digest_root = root_id if len(root_id) == 64 else _hex(root_id)
+    return SymbolicTrainingRecord.create_from(
+        record,
+        root_id=digest_root,
+        episode_id=canonical_episode_id(
+            digest_root, record.search_config, record.reward_config_digest
+        ),
+        **changes,
+    )
 
 
 def _decision() -> tuple[FairCombatObservation, tuple[ActionDescriptor, ...]]:
@@ -104,26 +147,40 @@ def _record(
     split_group: str = "split-a",
     root_id: str = "fixture-root",
     teacher_pair_id: str | None = None,
-    value_target_name: str = "combat_proxy_v1",
+    target_value: float | None = 0.75,
+    value_target_mask: bool | None = None,
+    search_root_mean_value: float | None = None,
 ) -> SymbolicTrainingRecord:
     counts = visits or tuple(1 if index == chosen else 0 for index in range(len(actions)))
-    return SymbolicTrainingRecord(
+    digest_root = root_id if len(root_id) == 64 else _hex(root_id)
+    reward_digest = COMBAT_PROXY_V1.digest
+    return SymbolicTrainingRecord.create(
         observation=observation,
         actions=actions,
         chosen_action_index=chosen,
         chosen_action=actions[chosen],
         teacher_visit_counts=counts,
-        target_value=0.75,
-        value_target_name=value_target_name,
+        target_value=target_value,
+        value_target_name=COMBAT_PROXY_V1.name,
         outcome=_outcome(),
-        planner_name="fixture_teacher",
-        planner_version="test-1",
-        search_config={"transition_budget": 32, "replan": "decision"},
-        root_id=root_id,
+        planner_name=BEAM_TEACHER_NAME,
+        planner_version="replan_each_public_decision_v2",
+        search_config=_BEAM_SEARCH_CONFIG,
+        root_id=digest_root,
         split_group_id=split_group,
         teacher_pair_id=teacher_pair_id,
         repository=RepositoryVersion("a" * 40, True),
         observation_digest=fair_observation_digest(observation),
+        record_version=RECORD_VERSION,
+        root_manifest_digest=_hex("root-manifest"),
+        reward_config_digest=reward_digest,
+        source_kind="simulator_legal_v1",
+        episode_id=canonical_episode_id(digest_root, _BEAM_SEARCH_CONFIG, reward_digest),
+        decision_index=0,
+        value_target_mask=target_value is not None
+        if value_target_mask is None
+        else value_target_mask,
+        search_root_mean_value=search_root_mean_value,
     )
 
 
@@ -232,9 +289,7 @@ def test_hand_and_action_permutation_is_policy_equivariant_and_value_invariant()
 
 def _init_git_fixture(repo: Path) -> None:
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
-    subprocess.run(
-        ["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True
-    )
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
     subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
 
 
@@ -300,9 +355,7 @@ def test_repository_capture_detects_mode_change_when_git_ignores_file_modes(
     tracked.write_text("#!/bin/sh\n")
     tracked.chmod(0o644)
     _commit_fixture(tmp_path)
-    subprocess.run(
-        ["git", "-C", str(tmp_path), "config", "core.fileMode", "false"], check=True
-    )
+    subprocess.run(["git", "-C", str(tmp_path), "config", "core.fileMode", "false"], check=True)
     assert capture_repository_version(tmp_path).clean
 
     tracked.chmod(0o755)
@@ -334,89 +387,6 @@ def test_repository_digest_tracks_symlink_target_changes_independently(tmp_path:
     assert first.dirty_diff_digest != second.dirty_diff_digest
 
 
-def test_checkpoint_round_trip_preserves_exact_outputs_mode_and_metadata(tmp_path: Path) -> None:
-    observation, actions = _decision()
-    vocab = _vocab(observation, actions)
-    batch = collate_combat_tensors((tensorize_combat(observation, actions, vocab),))
-    model = FairCombatPolicyValueNet(
-        vocab,
-        CombatModelConfig(width=32, heads=4, layers=1, feedforward_width=64, dropout=0.25),
-    ).eval()
-    before = model(batch)
-    checkpoint = tmp_path / "model.pt"
-    repository = RepositoryVersion("d" * 40, False, "a" * 64)
-    save_checkpoint(
-        checkpoint,
-        model,
-        repository,
-        {"experiment": "smoke", "learning_rate": 0.001},
-        value_target_name="combat_proxy_v1",
-    )
-    payload = torch.load(checkpoint, weights_only=True)
-    loaded = load_checkpoint(
-        checkpoint,
-        expected_vocabularies=vocab,
-        expected_value_target_name="combat_proxy_v1",
-    )
-    assert not loaded.model.training
-    after = loaded.model(batch)
-    assert torch.equal(before.logits, after.logits)
-    assert torch.equal(before.value, after.value)
-    assert loaded.repository == repository
-    assert loaded.experiment_config["experiment"] == "smoke"
-    assert loaded.value_target_name == "combat_proxy_v1"
-    assert loaded.tensorizer_source_digest == payload["tensorizer_source_digest"]
-    assert loaded.model_source_digest == payload["model_source_digest"]
-    training_checkpoint = tmp_path / "training.pt"
-    training_model = _model(vocab).train()
-    save_checkpoint(
-        training_checkpoint,
-        training_model,
-        repository,
-        {"experiment": "training-mode"},
-        value_target_name="combat_proxy_v1",
-    )
-    assert load_checkpoint(training_checkpoint).model.training
-    with pytest.raises(ValueError, match="value target"):
-        load_checkpoint(checkpoint, expected_value_target_name="other_proxy")
-
-    for field in ("tensorizer_source_digest", "model_source_digest"):
-        malformed = dict(payload)
-        malformed[field] = "bad"
-        malformed_path = tmp_path / f"malformed-{field}.pt"
-        torch.save(malformed, malformed_path)
-        with pytest.raises(ValueError, match=rf"{field}.*malformed"):
-            load_checkpoint(malformed_path)
-
-    mismatched = dict(payload)
-    mismatched["model_source_digest"] = "b" * 64
-    mismatched_path = tmp_path / "mismatched.pt"
-    torch.save(mismatched, mismatched_path)
-    with pytest.warns(CheckpointSourceMismatchWarning, match="model_source_digest"):
-        source_mismatch = load_checkpoint(mismatched_path)
-    assert source_mismatch.model_source_digest == "b" * 64
-    with pytest.raises(ValueError, match="source bytes differ.*model_source_digest"):
-        load_checkpoint(mismatched_path, strict_source=True)
-
-    other_builder = VocabularyBuilder()
-    other_builder.add(
-        replace(observation, monsters=(replace(observation.monsters[0], content_key="future"),)),
-        actions,
-    )
-    with pytest.raises(ValueError, match="expected vocabulary"):
-        load_checkpoint(checkpoint, expected_vocabularies=other_builder.freeze())
-    with pytest.raises(ValueError, match="model config"):
-        load_checkpoint(
-            checkpoint,
-            expected_config=CombatModelConfig(width=64, heads=4, layers=1),
-        )
-
-
-def test_checkpoint_api_uses_only_package_owned_source_paths() -> None:
-    assert "tensorizer_path" not in inspect.signature(save_checkpoint).parameters
-    assert "tensorizer_path" not in inspect.signature(load_checkpoint).parameters
-
-
 def test_symbolic_jsonl_round_trip_and_on_demand_dataset(tmp_path: Path) -> None:
     observation, actions = _decision()
     record = _record(observation, actions)
@@ -425,6 +395,22 @@ def test_symbolic_jsonl_round_trip_and_on_demand_dataset(tmp_path: Path) -> None
     assert "entity_scalars" not in path.read_text()
     loaded = tuple(read_jsonl(path))
     assert loaded == (record,)
+    canonical = path.read_bytes()
+    with pytest.raises(ValueError, match="blank or noncanonical"):
+        parse_jsonl_records(canonical + b"\n")
+    with pytest.raises(ValueError, match="blank or noncanonical"):
+        parse_jsonl_records(b"   \n" + canonical)
+    with pytest.raises(ValueError, match="must end with a newline"):
+        parse_jsonl_records(canonical.rstrip(b"\n"))
+    with pytest.raises(ValueError, match="canonical newline"):
+        parse_jsonl_records(canonical.replace(b"\n", b"\r\n"))
+    with pytest.raises(ValueError, match="blank or noncanonical"):
+        parse_jsonl_records(canonical.replace(b":", b": ", 1))
+    loaded_line = json.loads(canonical.splitlines()[0])
+    reordered = json.dumps(loaded_line, separators=(",", ":")) + "\n"
+    if reordered.encode() != canonical:
+        with pytest.raises(ValueError, match="blank or noncanonical"):
+            parse_jsonl_records(reordered.encode())
 
     vocab = _vocab(observation, actions)
     dataset = SymbolicCombatDataset(loaded, vocab)
@@ -435,40 +421,13 @@ def test_symbolic_jsonl_round_trip_and_on_demand_dataset(tmp_path: Path) -> None
     assert batch.outcomes == (_outcome(),)
 
 
-def test_known_v1_symbolic_payload_remains_tensorizable() -> None:
+def test_schema_one_symbolic_payload_is_rejected() -> None:
     observation, actions = _decision()
     payload = _record(observation, actions).to_dict()
     observation_payload = cast(dict[str, object], payload["observation"])
     observation_payload["schema_version"] = 1
-    observation_payload.pop("orb_slots")
-
-    def remove_v2_fields(value: object) -> None:
-        if isinstance(value, dict):
-            dynamic = value.get("dynamic")
-            if isinstance(dynamic, dict):
-                dynamic.pop("windmill_retain_damage", None)
-                dynamic.pop("steam_barrier_block_reduction", None)
-                dynamic.pop("combat_cost_under_turn_override", None)
-            for child in value.values():
-                remove_v2_fields(child)
-        elif isinstance(value, list):
-            for child in value:
-                remove_v2_fields(child)
-
-    remove_v2_fields(observation_payload)
-    parsed_observation = FairCombatObservation._from_payload(observation_payload)
-    payload["observation_digest"] = fair_observation_digest(parsed_observation)
-    restored = SymbolicTrainingRecord.from_dict(payload)
-    vocab = _vocab(restored.observation, restored.actions)
-    encoded = SymbolicCombatDataset((restored,), vocab)[0]
-    serialized = restored.to_dict()
-    serialized_observation = cast(dict[str, object], serialized["observation"])
-    assert serialized_observation["schema_version"] == 1
-    assert "orb_slots" not in serialized_observation
-    reparsed = SymbolicTrainingRecord.from_dict(serialized)
-    assert reparsed == restored
-    assert restored.observation.schema_version == 1
-    assert encoded.decision.action_count == len(actions)
+    with pytest.raises(ValueError, match="unsupported fair observation schema"):
+        SymbolicTrainingRecord.from_dict(payload)
 
 
 def test_tensorizer_rejects_nonfinite_and_float32_overflow_scalars() -> None:
@@ -575,12 +534,12 @@ def test_one_optimizer_step_uses_symbolic_policy_and_value_targets() -> None:
 
 
 def test_rollout_classifies_terminal_on_cap_smoke_escape_and_initial_noncombat() -> None:
-    lethal_env = RunEnv.combat_fixture()
-    state = lethal_env.full_state()
-    combat = cast(dict[str, object], state["combat"])
-    monsters = cast(list[dict[str, object]], combat["monsters"])
-    monsters[0]["hp"] = 1
-    lethal_env = RunEnv.from_state_json_for_debugging(json.dumps(state))
+    def mutate(state: dict[str, object]) -> None:
+        combat = cast(dict[str, object], state["combat"])
+        monsters = cast(list[dict[str, object]], combat["monsters"])
+        monsters[0]["hp"] = 1
+
+    lethal_env = _from_mutated_combat_snapshot(mutate)
     lethal_decision = lethal_env.decision()
     assert lethal_decision.actions[0].kind == "play_hand_slot"
     lethal_observation = cast(FairCombatObservation, lethal_decision.observation)
@@ -696,26 +655,28 @@ def test_teacher_conflict_uses_explicit_distinct_paired_public_roots() -> None:
         root_id="hidden-root-b",
         teacher_pair_id="pair-1",
     )
-    unrelated = replace(first, root_id="natural-root", teacher_pair_id=None)
+    unrelated = _rebind_root(first, "natural-root", teacher_pair_id=None)
     report = teacher_conflict_report([first, second, unrelated])
     assert len(report) == 1
     assert report[0].teacher_pair_id == "pair-1"
     assert report[0].record_count == 2
     assert report[0].jensen_shannon_divergence == pytest.approx(torch.log(torch.tensor(2.0)).item())
 
+    reversed_actions = second.actions[::-1]
     with pytest.raises(ValueError, match="legal action"):
         teacher_conflict_report(
             [
                 first,
-                replace(
+                SymbolicTrainingRecord.create_from(
                     second,
-                    actions=second.actions[::-1],
-                    chosen_action_index=2,
+                    actions=reversed_actions,
+                    chosen_action=reversed_actions[1],
+                    chosen_action_index=1,
                 ),
             ]
         )
     with pytest.raises(ValueError, match="one policy per root"):
-        teacher_conflict_report([first, replace(second, root_id=first.root_id)])
+        teacher_conflict_report([first, _rebind_root(second, first.root_id)])
     changed_observation = replace(
         observation,
         player=replace(observation.player, hp=observation.player.hp - 1),
@@ -766,19 +727,12 @@ def test_structured_outcome_rejects_invalid_hp_potions_flags_and_counters() -> N
         CounterChange("relic", "Ink Bottle", "cards", cast(int, True), 1)
 
 
-def test_dataset_and_batch_reject_mixed_value_target_names() -> None:
+def test_dataset_rejects_empty_and_out_of_range_targets() -> None:
     observation, actions = _decision()
-    first = _record(observation, actions, value_target_name="combat_proxy_v1")
-    second = _record(observation, actions, value_target_name="other_proxy")
+    first = _record(observation, actions)
     vocab = _vocab(observation, actions)
     with pytest.raises(ValueError, match="nonempty"):
         SymbolicCombatDataset((), vocab)
-    with pytest.raises(ValueError, match="mixes value target"):
-        SymbolicCombatDataset((first, second), vocab)
-    left = SymbolicCombatDataset((first,), vocab)[0]
-    right = SymbolicCombatDataset((second,), vocab)[0]
-    with pytest.raises(ValueError, match="mixes value target"):
-        collate_training_examples((left, right))
     with pytest.raises(ValueError, match=r"\[-1, 1\]"):
         replace(first, target_value=1.1)
     with pytest.raises(TypeError, match="nonempty"):
@@ -787,12 +741,10 @@ def test_dataset_and_batch_reject_mixed_value_target_names() -> None:
 
 def test_training_record_parsing_is_strict_and_mappings_are_deep_frozen() -> None:
     observation, actions = _decision()
-    record = replace(_record(observation, actions), search_config={"nested": {"budget": [1, 2]}})
+    record = _record(observation, actions)
     nested = cast(dict[str, object], record.to_dict()["search_config"])
-    nested["nested"] = {"budget": [99]}
-    assert cast(dict[str, object], record.to_dict()["search_config"])["nested"] == {
-        "budget": [1, 2]
-    }
+    nested["depth"] = 99
+    assert cast(dict[str, object], record.to_dict()["search_config"])["depth"] == 8
     with pytest.raises(TypeError):
         cast(dict[str, object], record.search_config)["new"] = 1
 
@@ -826,7 +778,7 @@ def test_training_record_parsing_is_strict_and_mappings_are_deep_frozen() -> Non
         SymbolicTrainingRecord.from_dict(payload)
     payload = record.to_dict()
     cast(dict[str, object], payload["observation"])["future_hidden_field"] = 1
-    with pytest.raises(ValueError, match="canonical"):
+    with pytest.raises(ValueError, match="unknown field"):
         SymbolicTrainingRecord.from_dict(payload)
     payload = record.to_dict()
     player = cast(
@@ -834,7 +786,7 @@ def test_training_record_parsing_is_strict_and_mappings_are_deep_frozen() -> Non
         cast(dict[str, object], payload["observation"])["player"],
     )
     player["hp"] = True
-    with pytest.raises(TypeError, match="scalar type"):
+    with pytest.raises(TypeError, match="integer"):
         SymbolicTrainingRecord.from_dict(payload)
 
 
@@ -846,26 +798,9 @@ def test_training_record_rejects_misaligned_choice_and_counts() -> None:
     with pytest.raises(ValueError, match="align"):
         replace(record, teacher_visit_counts=(1,))
     payload = record.to_dict()
-    payload["observation_digest"] = "bad"
+    with pytest.raises(TypeError, match="record id"):
+        SymbolicTrainingRecord.from_dict({**payload, "record_id": None})
+    with pytest.raises(ValueError, match="record ID is invalid"):
+        SymbolicTrainingRecord.from_dict({**payload, "record_id": "0" * 64})
     with pytest.raises(ValueError, match="digest"):
-        SymbolicTrainingRecord.from_dict(payload)
-
-
-def test_checkpoint_payload_contains_no_tensorized_training_records(tmp_path: Path) -> None:
-    observation, actions = _decision()
-    vocab = _vocab(observation, actions)
-    checkpoint = tmp_path / "checkpoint.pt"
-    save_checkpoint(
-        checkpoint,
-        _model(vocab),
-        RepositoryVersion("b" * 40, True),
-        {"name": "test"},
-        value_target_name="combat_proxy_v1",
-    )
-    payload = torch.load(checkpoint, weights_only=True)
-    assert "tensor_schema_version" not in payload
-    assert "training_records" not in payload
-    assert payload["checkpoint_format"] == 1
-    assert "model_source_digest" in payload
-    assert payload["vocabulary_fingerprint"] == vocab.fingerprint
-    assert json.dumps(payload["experiment_config"], sort_keys=True) == '{"name": "test"}'
+        SymbolicTrainingRecord.create_from(record, observation_digest="bad")

@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from typing import cast
 
 import pytest
@@ -15,7 +16,14 @@ from sts_sim import (
     RunEnv,
     StaleDecisionError,
     StepResult,
+    UnknownPublicContentError,
 )
+
+
+def _from_mutated_combat_snapshot(mutate_state: Callable[[dict[str, object]], None]) -> RunEnv:
+    payload = json.loads(RunEnv.combat_fixture().snapshot().json)
+    mutate_state(cast(dict[str, object], payload["state"]))
+    return RunEnv.from_snapshot(json.dumps(payload))
 
 
 def test_package_root_exposes_one_environment_and_action_concept() -> None:
@@ -24,6 +32,8 @@ def test_package_root_exposes_one_environment_and_action_concept() -> None:
     assert not hasattr(sts_sim, "OmniRunEnv")
     assert not hasattr(sts_sim, "FairCombatEnv")
     assert not hasattr(sts_sim, "ExactRunAction")
+    assert not hasattr(sts_sim._native, "FairCombatEnv")
+    assert not hasattr(sts_sim._native, "ExactRunAction")
     assert not hasattr(sts_sim, "PlayerChoice")
 
 
@@ -44,13 +54,12 @@ def test_run_env_has_one_action_list_and_one_step_method() -> None:
 
 
 def test_schema_two_orbs_and_card_dynamic_values_are_typed() -> None:
-    env = RunEnv.combat_fixture()
-    state = env.full_state()
-    combat = cast(dict[str, object], state["combat"])
-    combat["max_orbs"] = 3
-    combat["orbs"] = ["Lightning", {"Dark": {"evoke": 24}}]
+    def mutate(state: dict[str, object]) -> None:
+        combat = cast(dict[str, object], state["combat"])
+        combat["max_orbs"] = 3
+        combat["orbs"] = ["Lightning", {"Dark": {"evoke": 24}}]
 
-    projected = RunEnv.from_state_json_for_debugging(json.dumps(state)).observation()
+    projected = _from_mutated_combat_snapshot(mutate).observation()
 
     assert isinstance(projected, FairCombatObservation)
     assert projected.schema_version == 2
@@ -58,8 +67,7 @@ def test_schema_two_orbs_and_card_dynamic_values_are_typed() -> None:
     assert projected.orb_slots[1].orb == FairOrb(type="dark", evoke=24)
     assert projected.orb_slots[2].orb is None
     assert (
-        FairCardDynamicValues._from_payload({"windmill_retain_damage": 8})
-        .windmill_retain_damage
+        FairCardDynamicValues._from_payload({"windmill_retain_damage": 8}).windmill_retain_damage
         == 8
     )
     assert (
@@ -68,21 +76,17 @@ def test_schema_two_orbs_and_card_dynamic_values_are_typed() -> None:
         ).steam_barrier_block_reduction
         == 2
     )
-    assert (
-        FairCardDynamicValues._from_payload({}).windmill_retain_damage is None
-    ), "stored V1 card payloads remain readable"
-    assert (
-        FairCardDynamicValues._from_payload({}).steam_barrier_block_reduction is None
+    assert FairCardDynamicValues._from_payload({}).windmill_retain_damage is None, (
+        "omitted optional card-dynamic fields are null"
     )
+    assert FairCardDynamicValues._from_payload({}).steam_barrier_block_reduction is None
     assert (
         FairCardDynamicValues._from_payload(
             {"combat_cost_under_turn_override": 1}
         ).combat_cost_under_turn_override
         == 1
     )
-    assert (
-        FairCardDynamicValues._from_payload({}).combat_cost_under_turn_override is None
-    )
+    assert FairCardDynamicValues._from_payload({}).combat_cost_under_turn_override is None
 
 
 def test_action_from_old_decision_is_stale() -> None:
@@ -172,7 +176,7 @@ def test_typed_debug_content_helpers_mutate_the_run_and_revision() -> None:
     observation = env.observation()
     assert isinstance(observation, FairRunObservation)
     assert any(card.content_key == "Bash" for card in observation.context.deck)
-    assert "Ink Bottle" in observation.context.relics
+    assert any(relic.content_key == "Ink Bottle" for relic in observation.context.relics)
     assert observation.context.potion_slots[0].content_key == "fire"
     assert env.revision == 3
 
@@ -197,24 +201,34 @@ def test_step_result_rejects_negative_player_turn_advances() -> None:
 
 
 def test_playing_conclude_reports_a_forced_player_turn_advance() -> None:
-    state = RunEnv.combat_fixture().full_state()
-    combat = cast(dict[str, object], state["combat"])
-    player = cast(dict[str, object], combat["player"])
-    player["energy"] = 3
-    monsters = cast(list[dict[str, object]], combat["monsters"])
-    monsters[0]["hp"] = 100
-    monsters[0]["max_hp"] = 100
-    monsters[0]["intent"] = "Stun"
-    piles = cast(dict[str, object], combat["piles"])
-    piles["hand"] = [
-        {
-            "id": 100,
-            "content_id": 1_915_755_234_499,
-            "temp_cost": None,
-            "combat_only": False,
-        }
-    ]
-    env = RunEnv.from_state_json_for_debugging(json.dumps(state))
+    def mutate(state: dict[str, object]) -> None:
+        combat = cast(dict[str, object], state["combat"])
+        player = cast(dict[str, object], combat["player"])
+        player["energy"] = 3
+        monsters = cast(list[dict[str, object]], combat["monsters"])
+        monsters[0]["hp"] = 100
+        monsters[0]["max_hp"] = 100
+        monsters[0]["intent"] = "Stun"
+        piles = cast(dict[str, object], combat["piles"])
+        piles["hand"] = [
+            {
+                "id": 100,
+                "content_id": 1_915_755_234_499,
+                "temp_cost": None,
+                "combat_only": False,
+            }
+        ]
+
+    env = _from_mutated_combat_snapshot(mutate)
     play = next(action for action in env.decision().actions if action.kind == "play_hand_slot")
     result = env.step(play)
     assert result.player_turn_advances == 1
+
+
+def test_add_relic_rejects_trace_aliases() -> None:
+    env = RunEnv.combat_fixture()
+    with pytest.raises(UnknownPublicContentError, match="unknown relic name"):
+        env._native.debug_add_relic("Cleric Face")
+    with pytest.raises(UnknownPublicContentError, match="unknown relic name"):
+        env._native.debug_add_relic("Molten Egg 2")
+    env.add_relic(Relic.MOLTEN_EGG)

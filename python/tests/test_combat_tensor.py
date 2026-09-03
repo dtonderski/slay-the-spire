@@ -150,18 +150,16 @@ def test_tensor_module_has_no_privileged_import_or_accessor_seam() -> None:
     )
 
 
-def test_known_observation_schemas_are_encoded_and_unknown_schema_fails_closed() -> None:
+def test_known_observation_schema_is_encoded_and_unknown_schema_fails_closed() -> None:
     observation, actions = _decision()
-    version_one = replace(observation, schema_version=1, orb_slots=())
     version_two = replace(observation, schema_version=2, orb_slots=())
-    vocab = _vocab((version_one, actions), (version_two, actions))
-    one = tensorize_combat(version_one, actions, vocab)
+    vocab = _vocab((version_two, actions))
     two = tensorize_combat(version_two, actions, vocab)
     schema_column = SCALAR_INDEX["observation_schema_version"]
-    assert one.entity_scalar_mask[0, schema_column]
     assert two.entity_scalar_mask[0, schema_column]
-    assert one.entity_scalars[0, schema_column] == 1
     assert two.entity_scalars[0, schema_column] == 2
+    with pytest.raises(ValueError, match="unsupported fair observation schema"):
+        tensorize_combat(replace(observation, schema_version=1), actions, vocab)
     with pytest.raises(ValueError, match="unsupported fair observation schema"):
         tensorize_combat(replace(observation, schema_version=3), actions, vocab)
 

@@ -49,9 +49,8 @@ The transition opening a reward records its origin before switching to the
 reward phase. A non-`None` continuation must agree with the retained owner:
 `Event` requires an event screen, `Shop` requires an open merchant screen,
 `Rest` requires a completed rest room, and `Treasure` requires a treasure or
-opened boss chest. Versioned snapshot migration may derive this value once
-from the old retained-owner representation; current execution and current
-snapshots fail closed on disagreement.
+opened boss chest. Current execution and current snapshots fail closed on
+disagreement; there is no snapshot migration path.
 
 This is a prerequisite for replacing `RunPhase` and its independent active
 screen options with one valid-by-construction run decision enum. Retained

@@ -27,18 +27,18 @@ snapshot = env.snapshot()
 restored = RunEnv.from_snapshot(snapshot)
 ```
 
-For controlled projection experiments, `RunEnv.from_state_json_for_debugging`
-accepts a validated privileged state JSON. It is a debugging seam, not a fair
-observation input.
+For controlled projection experiments, mutate current schema-8 snapshot JSON
+and restore it with `RunEnv.from_snapshot()`. That path is the only supported
+restoration seam; raw `full_state()` dictionaries are not restorable.
 
 `observation()` is visibility-safe and tagged by the active decision screen;
 combat, map, event, reward, treasure, rest, shop, card-grid, and complete
 screens are represented. Combat schema V2 exposes typed `FairOrbSlot`/
 `FairOrb` values and `FairCardDynamicValues.windmill_retain_damage`; these types
-are exported from `sts_sim`. Producers emit V2. The Python reader remains
-additive-backward-compatible with stored V1 observations by defaulting missing
-orb slots to `()` and missing Windmill damage to `None`; callers should still
-gate version-specific logic on `schema_version`.
+are exported from `sts_sim`. Producers emit schema 2 with required `orb_slots`.
+The Python reader rejects any other `schema_version` and rejects payloads that
+omit `orb_slots`. Optional card-dynamic fields such as Windmill retained damage
+may be absent when the native projector omits nulls.
 
 `full_state()` is a detached dictionary for debugging
 and omniscient research; it is not a stable persistence format or fair model
@@ -61,10 +61,8 @@ env.add_potion(Potion.FIRE)
 the native content definitions; arbitrary strings are not accepted by these
 helpers.
 
-The old split environment and exact-action bindings remain in private native or
-compatibility implementation modules during migration, but are not exported by
-the package root. Every legal non-combat action now has a public decision-local
-slot descriptor while its authoritative command remains private. The target contract is documented in
+Every legal non-combat action has a public decision-local slot descriptor while
+its authoritative command remains private. The target contract is documented in
 `design_unified_python_run_environment.md`.
 
 Every Python source file and test is checked by `ty` and Ruff's annotation

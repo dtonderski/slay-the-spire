@@ -15554,8 +15554,6 @@ mod tests {
 
         confirm_exhaust_select(&mut state).expect("confirm exhaust select");
 
-        assert!(state.pending_elixir_exhaust_card_ids.is_empty());
-        assert_eq!(state.pending_elixir_exhaust_turns_remaining, 0);
         assert_eq!(
             state
                 .piles

@@ -556,7 +556,7 @@ fn known_pending_card_without_event_authority_is_invalid() {
     assert_eq!(
         run.validate(),
         Err(SimError::InvalidState(
-            "pending obtain cards do not match event authority"
+            "pending obtain Omamori metadata does not match pending cards"
         ))
     );
 }

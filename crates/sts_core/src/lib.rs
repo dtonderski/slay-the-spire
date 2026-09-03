@@ -26,11 +26,11 @@ pub use combat::{
     fair_combat_observation, initialize_combat_piles_with_relics, legal_combat_actions, potion_key,
     starter_only_deck, validate_combat_action, CardPiles, CombatDecisionState, CombatPhase,
     CombatState, CombatTransition, DamageInfo, DamageSource, FairCard, FairCardDynamicValues,
-    FairCombatObservation, FairCombatPhase, FairCounter, FairHandCard, FairIntentCategory,
-    FairMonster, FairMonsterIntent, FairObservationError, FairOrb, FairOrbSlot, FairPile,
-    FairPlayer, FairPotionSlot, FairPower, FairRelic, FairRunContext, FairSelection,
-    FairSelectionKind, FairSelectionOption, MonsterIntent, MonsterState, PlayerState, SlimeSize,
-    BASE_PLAYER_ENERGY, FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION,
+    FairCombatContext, FairCombatObservation, FairCombatPhase, FairCounter, FairHandCard,
+    FairIntentCategory, FairMonster, FairMonsterIntent, FairObservationError, FairOrb, FairOrbSlot,
+    FairPile, FairPlayer, FairPotionSlot, FairPower, FairRelic, FairSelection, FairSelectionKind,
+    FairSelectionOption, MonsterIntent, MonsterState, PlayerState, SlimeSize, BASE_PLAYER_ENERGY,
+    FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION,
 };
 pub use content::ascension::AscensionConfig;
 pub use content::character::{BURNING_BLOOD_HEAL_AMOUNT, IRONCLAD_A0_BASE_HP};
@@ -50,13 +50,13 @@ pub use map::{
 };
 pub use potion::{
     Potion, BLOCK_POTION_BLOCK, BLOCK_POTION_ID, FEAR_POTION_ID, FEAR_POTION_VULNERABLE,
-    FIRE_POTION_DAMAGE, FIRE_POTION_ID, GAMBLERS_BREW_POTION_ID, GAMBLE_POTION_ID, MAX_POTIONS,
+    FIRE_POTION_DAMAGE, FIRE_POTION_ID, GAMBLERS_BREW_POTION_ID, MAX_POTIONS,
 };
 pub use power::{MonsterPowers, PlayerPowers};
 pub use relic::{
     apply_on_card_play_relics, apply_start_of_combat_relics, initialize_ironclad_relic_pools,
     preserves_energy_between_turns, relic_can_spawn, reset_turn_relic_counters, Relic,
-    RelicCounters, RelicDefinition, RelicEffectStatus, RelicKey, RelicPoolState, RelicSpawnContext,
+    RelicCounters, RelicDefinition, RelicEffectStatus, RelicPoolState, RelicSpawnContext,
     RelicTier, ALL_RELICS, ANCHOR_BLOCK, ANCHOR_ID, COFFEE_DRIPPER_ENERGY, COFFEE_DRIPPER_ID,
     ICE_CREAM_ID, INK_BOTTLE_ID, INK_BOTTLE_THRESHOLD, ODDLY_SMOOTH_STONE_DEXTERITY,
     ODDLY_SMOOTH_STONE_ID, ORNAMENTAL_FAN_BLOCK, ORNAMENTAL_FAN_ID, ORNAMENTAL_FAN_THRESHOLD,
@@ -105,10 +105,6 @@ pub use seed::{
     STS_SEED_ALPHABET,
 };
 pub use snapshot::{
-    restore_combat_snapshot_json, restore_run_snapshot_json, Snapshot, SnapshotHash,
-    SnapshotRestoreError, LEGACY_COMBAT_DECISION_SNAPSHOT_SCHEMA_VERSION,
-    LEGACY_COMBUST_SNAPSHOT_SCHEMA_VERSION, LEGACY_NEOWS_LAMENT_RELIC_SNAPSHOT_SCHEMA_VERSION,
-    LEGACY_RELIC_STORAGE_SNAPSHOT_SCHEMA_VERSION, LEGACY_REWARD_FLOW_SNAPSHOT_SCHEMA_VERSION,
-    LEGACY_VALIDATED_SNAPSHOT_SCHEMA_VERSION, PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
+    restore_run_snapshot_json, Snapshot, SnapshotHash, SnapshotRestoreError,
     SNAPSHOT_SCHEMA_VERSION,
 };

@@ -30,15 +30,9 @@ leakage-proof public representation of the same legal choices.
 
 ## Public Decision Contract
 
-The legacy combat-only boundary remains available for compatibility:
-
-```text
-FairDecision
-  schema_version
-  decision_revision
-  observation: FairCombatObservation
-  choices: [PlayerChoice]
-```
+The public Python boundary is `RunEnv.decision()` / `RunEnv.step(Action)`.
+Combat still projects `FairCombatObservation` together with public
+decision-local action slots:
 
 `decision_revision` prevents a choice from an old state from being resolved
 against a new state. It must not encode a seed, internal ID, state hash, or
@@ -59,21 +53,19 @@ the current authoritative state and applies the corresponding internal action.
 Internal `CardId`, `MonsterId`, content-pool position, and generation provenance
 never cross the fair boundary.
 
-## FairCombatObservation V2
+## FairCombatObservation schema 2
 
-[`fair_combat_observation_v1.md`](fair_combat_observation_v1.md) remains the
-frozen V1 baseline. V2 is an additive public-state revision: it adds explicit
+Schema 2 is the current fair combat observation. It includes explicit
 `orb_slots[]`, the visible Windmill Strike retained-damage value, and visible
 Poison/Lock-On monster powers. This section remains the joint observation/action
 design rationale.
 
-Compatibility policy: producers emit only the current schema version. Consumers
-must inspect `schema_version` before relying on current fields. The typed Python
-reader accepts stored V1 payloads by treating the V2 additive fields as absent
-(`orb_slots=()` and `windmill_retain_damage=None`); it does not silently
-reinterpret fields whose meaning changes.
+Compatibility policy: producers emit only schema 2. Consumers reject any other
+`schema_version` and require the `orb_slots` key. Optional card-dynamic fields
+may be omitted when the native projector skips nulls; they are not inferred
+from an older observation schema.
 
-For orientation, the implemented V2 observation has this top-level shape:
+For orientation, the implemented schema-2 observation has this top-level shape:
 
 ```text
 FairCombatObservation
@@ -135,7 +127,7 @@ V2 adds the zero-field `Proceed` run-control choice for directly restored lost
 combat states and projects Secret Weapon/Secret Technique now that draw-pile
 membership is represented by the public multiset. Combat episodes classify a
 terminal accepted transition before requesting another model decision, so
-`Proceed` is never a combat training target. Stored V1 choices remain readable.
+`Proceed` is never a combat training target. Current producers emit V2 only.
 
 Implementation status: the combat-only symbolic projection, resolution,
 revision token, and stable public errors are implemented in `sts_core`. See
@@ -218,8 +210,7 @@ The run-level projection follows the active decision screen (`combat`, `map`,
 assembled atomically with public decision-local action slots. Raw map/card
 instance IDs and pre-rolled future outcomes remain private.
 
-The compatibility `Omni*`, `Exact*`, and `FairCombatEnv` bindings are not the
-target public architecture. See `design_unified_python_run_environment.md`.
+See `design_unified_python_run_environment.md`.
 
 ## Deferred Work
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -8,29 +9,34 @@ import pytest
 
 import sts_sim.rl.data as data_module
 from sts_sim import FairCombatObservation, RunEnv
-from sts_sim.fair import FairContext, FairRunObservation
+from sts_sim.fair import FairRunContext, FairRunObservation
 from sts_sim.rl import generate_legal_roots, load_root_manifest
 from sts_sim.rl.cli import data_main
-from sts_sim.rl.data import ROOT_MANIFEST_V4, ROOT_MANIFEST_VERSION, RootManifest
+from sts_sim.rl.data import ROOT_MANIFEST_VERSION, RootManifest
+from sts_sim.rl.provenance import canonical_bytes, digest_payload, sha256_bytes
 from sts_sim.run import Action, Decision
 
 
+def _from_mutated_combat_snapshot(mutate_state: Callable[[dict[str, object]], None]) -> RunEnv:
+    payload = json.loads(RunEnv.combat_fixture().snapshot().json)
+    mutate_state(cast(dict[str, object], payload["state"]))
+    return RunEnv.from_snapshot(json.dumps(payload))
+
+
 def _resign_root_manifest(payload: dict[str, object]) -> None:
-    payload["cohort_digest"] = data_module._cohort_digest(
-        requested_seeds=tuple(cast(list[str], payload["requested_seeds"])),
-        generator_name=cast(str, payload["generator_name"]),
-        generator_version=cast(str, payload["generator_version"]),
-        generator_source_digest=cast(str, payload["generator_source_digest"]),
-        split_salt=cast(str, payload["split_salt"]),
-        ascension=cast(int, payload["ascension"]),
-        max_run_steps=cast(int, payload["max_run_steps"]),
-        combat_depth=(cast(int, payload["combat_depth"]) if "combat_depth" in payload else None),
-    )
-    unsigned = dict(payload)
-    unsigned.pop("manifest_digest")
-    payload["manifest_digest"] = data_module._sha256_bytes(
-        json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode()
-    )
+    combat_depth = payload.get("combat_depth")
+    if type(combat_depth) is int:
+        payload["cohort_digest"] = data_module._cohort_digest(
+            requested_seeds=tuple(cast(list[str], payload["requested_seeds"])),
+            generator_name=cast(str, payload["generator_name"]),
+            generator_version=cast(str, payload["generator_version"]),
+            generator_source_digest=cast(str, payload["generator_source_digest"]),
+            split_salt=cast(str, payload["split_salt"]),
+            ascension=cast(int, payload["ascension"]),
+            max_run_steps=cast(int, payload["max_run_steps"]),
+            combat_depth=combat_depth,
+        )
+    payload["manifest_digest"] = digest_payload(payload, "manifest_digest")
 
 
 def test_combat_depth_bounds_are_positive_integers(tmp_path: Path) -> None:
@@ -42,7 +48,7 @@ def test_combat_depth_bounds_are_positive_integers(tmp_path: Path) -> None:
         generate_legal_roots(tmp_path / "float", ["BEAMCLONE0"], combat_depth=cast(int, 1.5))
 
 
-def test_default_depth_one_writes_v5_with_explicit_combat_depth(tmp_path: Path) -> None:
+def test_default_depth_one_writes_current_schema_with_explicit_combat_depth(tmp_path: Path) -> None:
     manifest = generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
     payload = json.loads((tmp_path / "roots/root-manifest.json").read_text())
     assert manifest.manifest_version == ROOT_MANIFEST_VERSION
@@ -71,7 +77,6 @@ def test_depth_two_generation_is_byte_identical_and_actionable(tmp_path: Path) -
         "hp_zero_player_turn",
         "unmodeled_public_content",
         "duplicate_root",
-        "cross_split_provenance",
         "withheld_audited_split",
         "generation_error",
     }
@@ -97,28 +102,7 @@ def test_cohort_digest_changes_with_combat_depth(tmp_path: Path) -> None:
     assert second.combat_depth == 2
 
 
-def test_legacy_v4_root_manifest_round_trips_without_combat_depth(tmp_path: Path) -> None:
-    generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
-    path = tmp_path / "roots/root-manifest.json"
-    payload = json.loads(path.read_text())
-    payload.pop("combat_depth")
-    payload["manifest_version"] = ROOT_MANIFEST_V4
-    payload["generator_version"] = data_module._GENERATOR_VERSION_V4
-    _resign_root_manifest(payload)
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    path.write_bytes(encoded)
-    loaded = load_root_manifest(path)
-    assert loaded.manifest_version == ROOT_MANIFEST_V4
-    assert loaded.combat_depth == 1
-    assert loaded.generator_version == data_module._GENERATOR_VERSION_V4
-    assert "combat_depth" not in json.loads(path.read_text())
-    assert path.read_bytes() == encoded
-    assert loaded.to_dict()["manifest_version"] == ROOT_MANIFEST_V4
-    assert "combat_depth" not in loaded.to_dict()
-    assert data_module._canonical_bytes(loaded.to_dict()) == encoded
-
-
-def test_root_manifest_rejects_unknown_fields_and_v5_without_depth(tmp_path: Path) -> None:
+def test_root_manifest_rejects_unknown_fields_and_missing_combat_depth(tmp_path: Path) -> None:
     generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
     path = tmp_path / "roots/root-manifest.json"
     original = json.loads(path.read_text())
@@ -138,39 +122,19 @@ def test_root_manifest_rejects_unknown_fields_and_v5_without_depth(tmp_path: Pat
         load_root_manifest(path)
 
     guessed = dict(original)
-    guessed["manifest_version"] = ROOT_MANIFEST_V4
+    guessed["manifest_version"] = 5
     _resign_root_manifest(guessed)
-    path.write_text(json.dumps(guessed, sort_keys=True, separators=(",", ":")))
+    path.write_bytes(canonical_bytes(guessed))
     with pytest.raises(ValueError, match="unsupported or malformed"):
         load_root_manifest(path)
 
 
-def test_depth_sampling_preserves_split_and_audited_withholding(tmp_path: Path) -> None:
+def test_depth_sampling_preserves_split_and_withholds_sealed_roots(tmp_path: Path) -> None:
     seeds = ["BEAMCLONE0", "BEAMCLONE12", "BEAMCLONE17"]
     ordinary = generate_legal_roots(tmp_path / "ordinary", seeds, max_run_steps=512, combat_depth=2)
-    assert ordinary.audited_splits_materialized is False
     assert {root.split for root in ordinary.roots} <= {"train", "development"}
     assert all(root.split not in {"sealed_test", "real_trace_audit"} for root in ordinary.roots)
-    withheld = {
-        exclusion.source_seed
-        for exclusion in ordinary.exclusions
-        if exclusion.reason == "withheld_audited_split"
-    }
-    audited = generate_legal_roots(
-        tmp_path / "audited",
-        seeds,
-        max_run_steps=512,
-        combat_depth=2,
-        materialize_audited_splits=True,
-    )
-    assert audited.audited_splits_materialized is True
-    audited_seeds = {
-        seed for root in audited.roots if root.split == "sealed_test" for seed in root.source_seeds
-    }
-    assert withheld == audited_seeds
-    with pytest.raises(PermissionError):
-        load_root_manifest(tmp_path / "audited/root-manifest.json")
-    load_root_manifest(tmp_path / "audited/root-manifest.json", allow_audited_materialization=True)
+    load_root_manifest(tmp_path / "ordinary/root-manifest.json")
 
 
 def test_step_limit_before_requested_depth_is_typed_and_complete(tmp_path: Path) -> None:
@@ -245,14 +209,8 @@ def test_depth_two_root_is_later_public_position_than_depth_one(tmp_path: Path) 
     )
 
 
-def test_root_manifest_key_sets_match_dataclass() -> None:
-    assert data_module._ROOT_MANIFEST_V6_KEYS == set(RootManifest.__dataclass_fields__)
-    assert data_module._ROOT_MANIFEST_V5_KEYS == data_module._ROOT_MANIFEST_V6_KEYS - {
-        "source_epoch_bundle_digest"
-    }
-    assert data_module._ROOT_MANIFEST_V4_KEYS == data_module._ROOT_MANIFEST_V5_KEYS - {
-        "combat_depth"
-    }
+def test_root_manifest_key_set_matches_dataclass() -> None:
+    assert data_module._ROOT_MANIFEST_KEYS == set(RootManifest.__dataclass_fields__)
 
 
 def test_root_manifest_rejects_non_int_versions_and_cross_schema_generators(
@@ -265,27 +223,15 @@ def test_root_manifest_rejects_non_int_versions_and_cross_schema_generators(
     for version in (4.0, 5.0, True, False):
         payload = dict(original)
         payload["manifest_version"] = version
-        if version == 4.0:
-            payload.pop("combat_depth", None)
-            payload["generator_version"] = data_module._GENERATOR_VERSION_V4
         _resign_root_manifest(payload)
-        path.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+        path.write_bytes(canonical_bytes(payload))
         with pytest.raises(ValueError, match="unsupported or malformed"):
             load_root_manifest(path)
 
-    v5_with_v3 = dict(original)
-    v5_with_v3["generator_version"] = data_module._GENERATOR_VERSION_V4
-    _resign_root_manifest(v5_with_v3)
-    path.write_text(json.dumps(v5_with_v3, sort_keys=True, separators=(",", ":")))
-    with pytest.raises(ValueError, match="generator identity does not match schema version"):
-        load_root_manifest(path)
-
-    v4_with_v4 = dict(original)
-    v4_with_v4.pop("combat_depth")
-    v4_with_v4["manifest_version"] = ROOT_MANIFEST_V4
-    v4_with_v4["generator_version"] = data_module._GENERATOR_VERSION
-    _resign_root_manifest(v4_with_v4)
-    path.write_text(json.dumps(v4_with_v4, sort_keys=True, separators=(",", ":")))
+    wrong_version = dict(original)
+    wrong_version["generator_version"] = "sha256_action_policy_v3"
+    _resign_root_manifest(wrong_version)
+    path.write_bytes(canonical_bytes(wrong_version))
     with pytest.raises(ValueError, match="generator identity does not match schema version"):
         load_root_manifest(path)
 
@@ -298,10 +244,20 @@ def test_root_manifest_rejects_non_int_versions_and_cross_schema_generators(
 
 
 def _run_kind_combat_decision(actions: tuple[Action, ...]) -> Decision:
-    context = FairContext(ascension=0, act=1, floor=1, gold=99)
+    context = FairRunContext(
+        ascension=0,
+        act=1,
+        floor=1,
+        gold=99,
+        player_hp=80,
+        player_max_hp=80,
+        deck=(),
+        relics=(),
+        potion_slots=(),
+    )
     observation = FairRunObservation(
         schema_version=1,
-        phase="combat",
+        phase="idle",
         kind="map",
         context=context,
         screen={},
@@ -359,12 +315,13 @@ def test_earlier_non_capturable_combat_with_actions_is_not_aborted() -> None:
 
 
 def test_zero_hp_waiting_for_player_is_not_a_capturable_root() -> None:
-    state = RunEnv.combat_fixture().full_state()
-    combat = cast(dict[str, object], state["combat"])
-    player = cast(dict[str, object], combat["player"])
-    player["hp"] = 0
-    state["player_hp"] = 0
-    env = RunEnv.from_state_json_for_debugging(json.dumps(state))
+    def mutate(state: dict[str, object]) -> None:
+        combat = cast(dict[str, object], state["combat"])
+        player = cast(dict[str, object], combat["player"])
+        player["hp"] = 0
+        state["player_hp"] = 0
+
+    env = _from_mutated_combat_snapshot(mutate)
     decision = env.decision()
     assert isinstance(decision.observation, FairCombatObservation)
     assert decision.observation.phase == "waiting_for_player"
@@ -381,7 +338,7 @@ def test_zero_hp_waiting_for_player_is_not_a_capturable_root() -> None:
     )
 
 
-def test_load_root_manifest_accepts_historical_zero_hp_root(tmp_path: Path) -> None:
+def test_load_root_manifest_rejects_zero_hp_waiting_for_player_root(tmp_path: Path) -> None:
     generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
     manifest_path = tmp_path / "roots/root-manifest.json"
     payload = json.loads(manifest_path.read_text())
@@ -393,8 +350,8 @@ def test_load_root_manifest_accepts_historical_zero_hp_root(tmp_path: Path) -> N
     player = cast(dict[str, object], combat["player"])
     player["hp"] = 0
     state["player_hp"] = 0
-    encoded = data_module._canonical_bytes(snapshot)
-    new_id = data_module._sha256_bytes(encoded)
+    encoded = canonical_bytes(snapshot)
+    new_id = sha256_bytes(encoded)
     relative_path = f"{root['split']}/roots/{new_id}.json"
     new_path = tmp_path / "roots" / relative_path
     new_path.write_bytes(encoded)
@@ -403,10 +360,6 @@ def test_load_root_manifest_accepts_historical_zero_hp_root(tmp_path: Path) -> N
     root["root_id"] = new_id
     root["relative_path"] = relative_path
     _resign_root_manifest(payload)
-    manifest_path.write_bytes(data_module._canonical_bytes(payload))
-    loaded = load_root_manifest(manifest_path)
-    assert loaded.roots[0].root_id == new_id
-    restored = RunEnv.from_snapshot(new_path.read_text())
-    decision = restored.decision()
-    assert isinstance(decision.observation, FairCombatObservation)
-    assert decision.observation.player.hp == 0
+    manifest_path.write_bytes(canonical_bytes(payload))
+    with pytest.raises(ValueError, match="actionable ongoing combat"):
+        load_root_manifest(manifest_path)

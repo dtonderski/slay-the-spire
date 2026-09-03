@@ -1,19 +1,13 @@
-"""Small permutation-aware combat policy/value network and checkpoints."""
+"""Small permutation-aware combat policy/value network."""
 
 from __future__ import annotations
 
-import json
-import warnings
-from collections.abc import Mapping
-from dataclasses import asdict, dataclass
-from pathlib import Path
-from types import MappingProxyType
-from typing import Any, Final, cast
+from dataclasses import dataclass
+from typing import Final
 
 import torch
 from torch import nn
 
-from .provenance import RepositoryVersion, file_digest
 from .tensor import (
     CATEGORY_NAMESPACES,
     SCALAR_NAMES,
@@ -21,8 +15,6 @@ from .tensor import (
     Vocabularies,
 )
 
-CHECKPOINT_FORMAT: Final = 1
-_TENSORIZER_SOURCE_PATH: Final = Path(__file__).with_name("tensor.py")
 CONTENT_NAMESPACE_BY_KIND: Final = {
     "global": "phase",
     "player": "entity_kind",
@@ -271,151 +263,3 @@ def policy_value_loss(
     if not torch.isfinite(loss):
         raise ValueError("policy/value loss is nonfinite")
     return loss
-
-
-@dataclass(frozen=True, slots=True)
-class LoadedCheckpoint:
-    model: FairCombatPolicyValueNet
-    vocabularies: Vocabularies
-    repository: RepositoryVersion
-    experiment_config: Mapping[str, object]
-    value_target_name: str
-    tensorizer_source_digest: str
-    model_source_digest: str
-
-
-class CheckpointSourceMismatchWarning(UserWarning):
-    """A checkpoint was loaded under source bytes other than those recorded."""
-
-
-def _json_copy(payload: dict[str, object]) -> dict[str, object]:
-    return cast(dict[str, object], json.loads(json.dumps(payload, sort_keys=True)))
-
-
-def _freeze_config(value: object) -> object:
-    if isinstance(value, dict):
-        return MappingProxyType({key: _freeze_config(item) for key, item in value.items()})
-    if isinstance(value, list):
-        return tuple(_freeze_config(item) for item in value)
-    return value
-
-
-def save_checkpoint(
-    path: Path,
-    model: FairCombatPolicyValueNet,
-    repository: RepositoryVersion,
-    experiment_config: dict[str, object],
-    *,
-    value_target_name: str,
-) -> None:
-    if type(value_target_name) is not str or not value_target_name:
-        raise TypeError("value target name must be a nonempty string")
-    experiment = _json_copy(experiment_config)
-    payload: dict[str, object] = {
-        "checkpoint_format": CHECKPOINT_FORMAT,
-        "model_config": asdict(model.config),
-        "model_state": model.state_dict(),
-        "model_training": model.training,
-        "vocabularies": model.vocabularies.to_dict(),
-        "vocabulary_fingerprint": model.vocabularies.fingerprint,
-        "repository": repository.to_dict(),
-        "tensorizer_source_digest": file_digest(_TENSORIZER_SOURCE_PATH),
-        "model_source_digest": file_digest(Path(__file__)),
-        "experiment_config": experiment,
-        "value_target_name": value_target_name,
-    }
-    torch.save(payload, path)
-
-
-def load_checkpoint(
-    path: Path,
-    *,
-    expected_vocabularies: Vocabularies | None = None,
-    expected_config: CombatModelConfig | None = None,
-    expected_value_target_name: str | None = None,
-    strict_source: bool = False,
-) -> LoadedCheckpoint:
-    payload = cast(dict[str, Any], torch.load(path, map_location="cpu", weights_only=True))
-    expected_keys = {
-        "checkpoint_format",
-        "model_config",
-        "model_state",
-        "model_training",
-        "vocabularies",
-        "vocabulary_fingerprint",
-        "repository",
-        "tensorizer_source_digest",
-        "model_source_digest",
-        "experiment_config",
-        "value_target_name",
-    }
-    if set(payload) != expected_keys or payload["checkpoint_format"] != CHECKPOINT_FORMAT:
-        raise ValueError("unsupported or malformed checkpoint envelope")
-    if type(strict_source) is not bool:
-        raise TypeError("strict_source must be boolean")
-    source_digests: dict[str, str] = {}
-    for field in ("tensorizer_source_digest", "model_source_digest"):
-        digest = payload[field]
-        if (
-            type(digest) is not str
-            or len(digest) != 64
-            or any(character not in "0123456789abcdef" for character in digest)
-        ):
-            raise ValueError(f"checkpoint {field} is malformed")
-        source_digests[field] = digest
-    value_target_name = payload["value_target_name"]
-    if type(value_target_name) is not str or not value_target_name:
-        raise ValueError("checkpoint value target name is invalid")
-    if expected_value_target_name is not None and value_target_name != expected_value_target_name:
-        raise ValueError("checkpoint value target name does not match expected target")
-    vocabularies = Vocabularies.from_dict(cast(dict[str, list[str]], payload["vocabularies"]))
-    if payload["vocabulary_fingerprint"] != vocabularies.fingerprint:
-        raise ValueError("checkpoint vocabulary fingerprint is invalid")
-    if (
-        expected_vocabularies is not None
-        and vocabularies.fingerprint != expected_vocabularies.fingerprint
-    ):
-        raise ValueError("checkpoint vocabulary does not match expected vocabulary")
-    current_source_digests = {
-        "tensorizer_source_digest": file_digest(_TENSORIZER_SOURCE_PATH),
-        "model_source_digest": file_digest(Path(__file__)),
-    }
-    mismatches = tuple(
-        field
-        for field, digest in source_digests.items()
-        if digest != current_source_digests[field]
-    )
-    if mismatches:
-        message = "checkpoint source bytes differ for: " + ", ".join(mismatches)
-        if strict_source:
-            raise ValueError(message)
-        warnings.warn(message, CheckpointSourceMismatchWarning, stacklevel=2)
-    raw_config = cast(dict[str, Any], payload["model_config"])
-    if set(raw_config) != set(asdict(CombatModelConfig())):
-        raise ValueError("checkpoint model config is malformed")
-    config = CombatModelConfig(**raw_config)
-    if expected_config is not None and config != expected_config:
-        raise ValueError("checkpoint model config does not match expected config")
-    training = payload["model_training"]
-    if type(training) is not bool:
-        raise TypeError("checkpoint model mode is malformed")
-    model = FairCombatPolicyValueNet(vocabularies, config)
-    model.load_state_dict(cast(dict[str, torch.Tensor], payload["model_state"]), strict=True)
-    model.train(training)
-    repository = RepositoryVersion.from_dict(cast(dict[str, object], payload["repository"]))
-    raw_experiment = payload["experiment_config"]
-    if not isinstance(raw_experiment, dict):
-        raise TypeError("checkpoint experiment config is malformed")
-    experiment = cast(
-        Mapping[str, object],
-        _freeze_config(_json_copy(cast(dict[str, object], raw_experiment))),
-    )
-    return LoadedCheckpoint(
-        model,
-        vocabularies,
-        repository,
-        experiment,
-        value_target_name,
-        source_digests["tensorizer_source_digest"],
-        source_digests["model_source_digest"],
-    )

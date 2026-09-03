@@ -243,12 +243,6 @@ pub struct CombatState {
     /// pre-turn block clearing has run.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_end_turn_juggernaut_damage: Vec<i32>,
-    /// Legacy fields retained for snapshot deserialization compatibility.
-    /// Elixir permanently exhausts selected cards; these are no longer written.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub pending_elixir_exhaust_card_ids: Vec<CardId>,
-    #[serde(default, skip_serializing_if = "is_zero_u8")]
-    pub pending_elixir_exhaust_turns_remaining: u8,
     /// Time Eater ends the current player turn after the twelfth card resolves.
     #[serde(default, skip_serializing_if = "is_false")]
     pub time_warp_end_turn: bool,
@@ -1214,8 +1208,6 @@ impl CombatState {
             pending_end_turn_dead_branch_cards: Vec::new(),
             pending_end_turn_dark_embrace_draws: 0,
             pending_end_turn_juggernaut_damage: Vec::new(),
-            pending_elixir_exhaust_card_ids: Vec::new(),
-            pending_elixir_exhaust_turns_remaining: 0,
             time_warp_end_turn: false,
             time_warp_end_turn_pre_discard_settled: false,
             time_warp_end_powers_applied: false,
@@ -1598,10 +1590,6 @@ fn is_zero_i32(value: &i32) -> bool {
 }
 
 fn is_zero_u32(value: &u32) -> bool {
-    *value == 0
-}
-
-fn is_zero_u8(value: &u8) -> bool {
     *value == 0
 }
 
