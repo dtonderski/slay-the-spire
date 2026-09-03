@@ -11,7 +11,7 @@ from typing import Any, cast
 from .._native import UnknownPublicContentError, UnmodeledPublicContentError
 from ..fair import FairCombatObservation
 from ..run import Action, Decision, RunEnv
-from .experiment import write_scientific_artifact
+from .experiment import _read_regular_file_bytes, write_scientific_artifact
 from .provenance import (
     RepositoryVersion,
     canonical_bytes,
@@ -1074,6 +1074,13 @@ def _publish_dataset(
     root_manifest_bytes = _canonical_bytes(root_manifest.to_dict())
     root_manifest_file_digest = _sha256_bytes(root_manifest_bytes)
     _atomic_write(output_dir / _DATASET_ROOT_MANIFEST_PATH, root_manifest_bytes)
+    provenance_dir = (output_dir / _DATASET_ROOT_MANIFEST_PATH).parent
+    source_root_dir = root_manifest_path.parent
+    for root in root_manifest.roots:
+        _atomic_write(
+            provenance_dir / root.relative_path,
+            _read_regular_file_bytes(source_root_dir / root.relative_path),
+        )
     copy_source_epoch_bundle(
         root_manifest_path.parent / SOURCE_EPOCH_DIRNAME,
         output_dir / "provenance" / SOURCE_EPOCH_DIRNAME,
