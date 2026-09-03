@@ -64,6 +64,7 @@ _CHECKPOINT_KEYS = {
     "numpy_rng_state",
     "torch_rng_state",
     "training_target_statistics",
+    "common_initial_model_state_digest",
 }
 _TRAINING_TARGET_STATISTICS_KEYS = {
     "count",
@@ -235,14 +236,24 @@ def _torch_rng_from_payload(value: object) -> torch.Tensor:
     return value
 
 
-def load_training_checkpoint(path: Path) -> tuple[dict[str, Any], TrainingConfig, str]:
+def load_training_checkpoint_bytes(
+    path: Path,
+) -> tuple[bytes, dict[str, Any], TrainingConfig, str]:
     """Load one checkpoint from a single nofollow read with weights-only unpickling."""
 
     _raise_if_symlink_ancestor(path)
     content = _read_regular_file_bytes(path)
+    digest = sha256_bytes(content)
     raw = torch.load(io.BytesIO(content), map_location="cpu", weights_only=True)
     payload, stored_config = _validate_checkpoint_envelope(raw)
-    return payload, stored_config, sha256_bytes(content)
+    return content, payload, stored_config, digest
+
+
+def load_training_checkpoint(path: Path) -> tuple[dict[str, Any], TrainingConfig, str]:
+    """Load one checkpoint from a single nofollow read with weights-only unpickling."""
+
+    _content, payload, stored_config, digest = load_training_checkpoint_bytes(path)
+    return payload, stored_config, digest
 
 
 def _source_digest() -> str:
@@ -483,6 +494,7 @@ def _validate_checkpoint_envelope(payload: object) -> tuple[dict[str, Any], Trai
         "vocabulary_fingerprint",
         "encoder_contract_digest",
         "source_epoch_bundle_digest",
+        "common_initial_model_state_digest",
     ):
         value = checkpoint[name]
         if (
@@ -598,9 +610,7 @@ def _load_records(
     minimum_roots: int,
     minimum_lineages: int,
 ) -> tuple[DatasetManifest, RootManifest, tuple[SymbolicTrainingRecord, ...]]:
-    manifest, named_root, records = load_dataset_manifest(
-        manifest_path, requested_split=split
-    )
+    manifest, named_root, records = load_dataset_manifest(manifest_path, requested_split=split)
     if named_root.manifest_digest != manifest.root_manifest_digest:
         raise ValueError("authenticated dataset root identity does not match the dataset manifest")
     if not records:
@@ -625,6 +635,50 @@ def _fit_vocabulary(records: tuple[SymbolicTrainingRecord, ...]) -> Vocabularies
     return builder.freeze()
 
 
+def fit_union_vocabularies(
+    record_groups: Sequence[Sequence[SymbolicTrainingRecord]],
+) -> Vocabularies:
+    """Freeze one vocabulary from every supplied training shard."""
+
+    if not record_groups:
+        raise ValueError("union vocabulary requires at least one record group")
+    builder = VocabularyBuilder()
+    nonempty = False
+    for records in record_groups:
+        for record in records:
+            nonempty = True
+            builder.add(record.observation, record.actions)
+    if not nonempty:
+        raise ValueError("union vocabulary requires at least one training record")
+    return builder.freeze()
+
+
+def clone_model_state(state: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    """Copy named CPU tensors so later training cannot mutate a shared init."""
+
+    _model_state_digest(state)
+    cloned: dict[str, torch.Tensor] = {}
+    for name, value in state.items():
+        if type(name) is not str or not isinstance(value, torch.Tensor):
+            raise TypeError("model state must contain named tensors")
+        cloned[name] = value.detach().cpu().contiguous().clone()
+    return cloned
+
+
+def create_common_initial_model_state(
+    vocabularies: Vocabularies,
+    config: TrainingConfig,
+) -> dict[str, torch.Tensor]:
+    """Construct one CPU-deterministic initial network for matched students."""
+
+    _configure_cpu(config.torch_threads)
+    random.seed(config.seed)
+    np.random.seed(config.seed)
+    torch.manual_seed(config.seed)
+    model = FairCombatPolicyValueNet(vocabularies, config.model_config())
+    return clone_model_state(model.state_dict())
+
+
 def _training_order(length: int, seed: int) -> tuple[int, ...]:
     generator = torch.Generator(device="cpu")
     generator.manual_seed(seed)
@@ -638,8 +692,20 @@ def train_beam_clone(
     *,
     resume: bool = False,
     stop_after_steps: int | None = None,
+    vocabularies: Vocabularies | None = None,
+    initial_model_state: Mapping[str, torch.Tensor] | None = None,
 ) -> TrainingResult:
-    """Train through ``config.total_steps`` and atomically checkpoint every batch."""
+    """Train through ``config.total_steps`` and atomically checkpoint every batch.
+
+    Injected ``vocabularies`` and ``initial_model_state`` are a non-resume
+    common-init seam. Format-5 dataset-bound resume is unchanged and refuses
+    injection. Checkpoint envelopes still bind the dataset being trained.
+    """
+
+    if resume and (vocabularies is not None or initial_model_state is not None):
+        raise ValueError("resume cannot inject vocabularies or initial model state")
+    if (vocabularies is None) != (initial_model_state is None):
+        raise ValueError("vocabularies and initial model state must be provided together")
 
     _configure_cpu(config.torch_threads)
     manifest, training_root, records = _load_records(
@@ -695,9 +761,18 @@ def train_beam_clone(
         random.setstate(_python_rng_from_payload(payload["python_rng_state"]))
         np.random.set_state(_numpy_rng_from_payload(payload["numpy_rng_state"]))
         torch.set_rng_state(payload["torch_rng_state"])
+        common_initial_model_state_digest = cast(str, payload["common_initial_model_state_digest"])
     else:
-        vocabularies = _fit_vocabulary(records)
-        model = FairCombatPolicyValueNet(vocabularies, config.model_config())
+        if vocabularies is None:
+            vocabularies = _fit_vocabulary(records)
+            model = FairCombatPolicyValueNet(vocabularies, config.model_config())
+            common_initial_model_state_digest = _model_state_digest(model.state_dict())
+        else:
+            model = FairCombatPolicyValueNet(vocabularies, config.model_config())
+            assert initial_model_state is not None
+            injected = clone_model_state(initial_model_state)
+            common_initial_model_state_digest = _model_state_digest(injected)
+            model.load_state_dict(injected, strict=True)
         optimizer = torch.optim.AdamW(
             model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
         )
@@ -706,6 +781,8 @@ def train_beam_clone(
         cursor = 0
         order = _training_order(len(records), config.seed)
 
+    if vocabularies is None:
+        raise ValueError("training vocabularies are missing")
     dataset = SymbolicCombatDataset(records, vocabularies)
     training_target_statistics = _compute_training_target_statistics(records)
     target_step = config.total_steps
@@ -769,6 +846,7 @@ def train_beam_clone(
             "python_rng_state": _python_rng_payload(random.getstate()),
             "numpy_rng_state": _numpy_rng_payload(np.random.get_state()),
             "torch_rng_state": torch.get_rng_state(),
+            "common_initial_model_state_digest": common_initial_model_state_digest,
         }
         _atomic_torch_save(checkpoint_path, checkpoint)
     return TrainingResult(

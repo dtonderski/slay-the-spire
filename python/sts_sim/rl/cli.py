@@ -22,6 +22,15 @@ from .gameplay import (
     DEFAULT_MATCHED_PUCT_MAX_PLAYER_TURNS,
     evaluate_matched_puct_gameplay,
 )
+from .label_ab import (
+    _bind_live_source,
+    identity_verify_experiment,
+    load_label_ab_plan,
+    rerun_label_ab_experiment,
+    run_label_ab_experiment,
+    verify_label_ab_rerun,
+    write_label_ab_plan,
+)
 from .provenance import canonical_bytes
 from .puct_data import generate_puct_dataset
 from .training import TrainingConfig, evaluate_beam_clone, train_beam_clone
@@ -288,6 +297,82 @@ def experiment_main(argv: Sequence[str] | None = None) -> int:
             )
             if args.output is not None:
                 write_scientific_artifact(args.output, canonical_bytes(payload))
+    except ArtifactIntegrityError as error:
+        print(json.dumps(error.report.to_dict(), sort_keys=True, allow_nan=False))
+        return 1
+    except ExperimentReproductionError as error:
+        print(json.dumps({"ok": False, "error": str(error)}, sort_keys=True, allow_nan=False))
+        return 1
+    except (ValueError, TypeError) as error:
+        print(json.dumps({"ok": False, "error": str(error)}, sort_keys=True, allow_nan=False))
+        return 1
+    print(json.dumps(payload, sort_keys=True, allow_nan=False))
+    return 0
+
+
+def label_ab_main(argv: Sequence[str] | None = None) -> int:
+    """Production CLI for the current beam-vs-PUCT paired-state label A/B.
+
+    Plans loaded from disk must encode the frozen production constants and bind
+    ``source_commit`` to the current clean HEAD. Tiny knobs are not reachable
+    from this CLI. ``run`` executes the full protocol. ``rerun`` re-executes
+    into fresh unpublished directories and then compares designated bytes.
+    ``identity-verify`` is identity verification: it does not retrain.
+    """
+
+    parser = argparse.ArgumentParser(prog="sts-combat-label-ab")
+    subcommands = parser.add_subparsers(dest="command", required=True)
+    write_plan = subcommands.add_parser("write-plan")
+    write_plan.add_argument("--output", type=Path, required=True)
+    write_plan.add_argument("--repository", type=Path, default=None)
+    validate_plan = subcommands.add_parser("validate-plan")
+    validate_plan.add_argument("--plan", type=Path, required=True)
+    validate_plan.add_argument("--repository", type=Path, default=None)
+    run = subcommands.add_parser("run")
+    run.add_argument("--plan", type=Path, required=True)
+    run.add_argument("--work-dir", type=Path, required=True)
+    run.add_argument("--experiment-dir", type=Path, required=True)
+    run.add_argument("--repository", type=Path, default=None)
+    rerun = subcommands.add_parser("rerun")
+    rerun.add_argument("--plan", type=Path, required=True)
+    rerun.add_argument("--work-dir", type=Path, required=True)
+    rerun.add_argument("--experiment-dir", type=Path, required=True)
+    rerun.add_argument("--reference", type=Path, required=True)
+    rerun.add_argument("--repository", type=Path, default=None)
+    verify_rerun = subcommands.add_parser("verify-rerun")
+    verify_rerun.add_argument("--reference", type=Path, required=True)
+    verify_rerun.add_argument("--candidate", type=Path, required=True)
+    identity = subcommands.add_parser("identity-verify")
+    identity.add_argument("--experiment-dir", type=Path, required=True)
+    identity.add_argument("--repository", type=Path, required=True)
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "write-plan":
+            plan = write_label_ab_plan(args.output, repository=args.repository)
+            payload: dict[str, object] = plan.to_dict()
+        elif args.command == "validate-plan":
+            plan = load_label_ab_plan(args.plan)
+            _bind_live_source(plan, repository=args.repository)
+            payload = plan.to_dict()
+        elif args.command == "run":
+            payload = run_label_ab_experiment(
+                args.plan,
+                args.work_dir,
+                args.experiment_dir,
+                repository=args.repository,
+            )
+        elif args.command == "rerun":
+            payload = rerun_label_ab_experiment(
+                args.plan,
+                args.work_dir,
+                args.experiment_dir,
+                reference=args.reference,
+                repository=args.repository,
+            )
+        elif args.command == "verify-rerun":
+            payload = verify_label_ab_rerun(reference=args.reference, candidate=args.candidate)
+        else:
+            payload = identity_verify_experiment(args.experiment_dir, repository=args.repository)
     except ArtifactIntegrityError as error:
         print(json.dumps(error.report.to_dict(), sort_keys=True, allow_nan=False))
         return 1
