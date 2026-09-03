@@ -3866,7 +3866,9 @@ fn hand_select_allows_card(
 
     match hand_select.purpose {
         HandSelectPurpose::WarcryPutOnDraw | HandSelectPurpose::ThinkingAheadPutOnDraw => true,
-        HandSelectPurpose::ArmamentsUpgrade => card_instance_is_upgradeable(card),
+        // Armaments filters the hand when its screen opens. Keep that frozen
+        // choice set legal even if Blessing upgrades cards before CHOOSE.
+        HandSelectPurpose::ArmamentsUpgrade => true,
         HandSelectPurpose::ForethoughtPutOnDraw
         | HandSelectPurpose::ForethoughtPutAnyOnDraw
         | HandSelectPurpose::PreparedDiscard => true,
@@ -3897,6 +3899,7 @@ pub fn confirm_hand_select_with_time_warp_policy(
             | HandSelectPurpose::ForethoughtPutOnDraw
             | HandSelectPurpose::ForethoughtPutAnyOnDraw
     );
+    let mut handled_dead_branch_count = 0;
     match hand_select.purpose {
         HandSelectPurpose::WarcryPutOnDraw => {
             confirm_warcry_select(
@@ -3913,10 +3916,11 @@ pub fn confirm_hand_select_with_time_warp_policy(
             )?;
         }
         HandSelectPurpose::ArmamentsUpgrade => {
-            confirm_armaments_select(
+            handled_dead_branch_count = confirm_armaments_select(
                 state,
                 hand_select.source_card_id,
                 required_hand_select_index(&hand_select)?,
+                hand_select.dual_wield_restore_on_confirm,
             )?;
         }
         HandSelectPurpose::ForethoughtPutOnDraw => {
@@ -3969,7 +3973,6 @@ pub fn confirm_hand_select_with_time_warp_policy(
         (pending_actions, VecDeque::new())
     };
     resume_actions_after_hand_select(state, pending_before_source)?;
-    let mut handled_dead_branch_count = 0;
     if source_settlement_after_pending {
         // UseCardAction exhaust is addToBot Feel No Pain, Dead Branch, then
         // Dark Embrace. Immediate Dark Embrace draw would place the run-level
@@ -4202,8 +4205,7 @@ pub fn confirm_hand_select_without_retrieval(state: &mut CombatState) -> SimResu
         .purpose;
     match purpose {
         HandSelectPurpose::ArmamentsUpgrade => {
-            confirm_hand_select_skipped_armaments_retrieval(state)?;
-            Ok(0)
+            confirm_hand_select_skipped_armaments_retrieval(state)
         }
         HandSelectPurpose::DualWieldCopy => {
             confirm_dual_wield_select_skipped_retrieval_with_restore(state, false)?;
@@ -4287,7 +4289,7 @@ pub fn confirm_hand_select_without_retrieval(state: &mut CombatState) -> SimResu
 /// Eligible only when Armaments is already in exhaust/discard (Havoc / Mayhem /
 /// Distilled Chaos). Ordinary hand Armaments keeps
 /// [`confirm_hand_select`] / [`confirm_armaments_select`] authoritative.
-fn confirm_hand_select_skipped_armaments_retrieval(state: &mut CombatState) -> SimResult<()> {
+fn confirm_hand_select_skipped_armaments_retrieval(state: &mut CombatState) -> SimResult<usize> {
     let (hand_select, pending_actions) = state
         .take_hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
@@ -4321,9 +4323,6 @@ fn confirm_hand_select_skipped_armaments_retrieval(state: &mut CombatState) -> S
             "pending hidden hand card already occupied",
         ));
     }
-    if !source_settled {
-        force_exhaust_armaments_source(state, hand_select.source_card_id)?;
-    }
     let selected_position = state
         .piles
         .hand
@@ -4332,14 +4331,20 @@ fn confirm_hand_select_skipped_armaments_retrieval(state: &mut CombatState) -> S
         .ok_or(SimError::IllegalAction("hand select index out of range"))?;
     state.piles.hand.remove(selected_position);
     state.pending_hidden_hand_card_until_end_turn = vec![selected];
-    // Drop non-selectable leftovers so the post-CONFIRM hand matches CM
-    // (upgradeable cards that were not chosen stay; upgraded/status cards go).
-    state.piles.hand.retain(card_instance_is_upgradeable);
+    // Remove the selected screen-owned card before source exhaust hooks draw.
+    // Initial non-selectable cards were already parked in the hand-select state
+    // and remain absent when retrieval is skipped; unselected frozen candidates
+    // stay in hand even if Blessing upgraded them while the screen was open.
+    let handled_dead_branch_count = if source_settled {
+        0
+    } else {
+        force_exhaust_armaments_source(state, hand_select.source_card_id)?
+    };
     state.play_top_force_exhaust_active = false;
     resume_actions_after_hand_select(state, pending_actions)?;
     state.activate_next_queued_decision_if_idle();
     settle_time_warp_end_turn_if_ready(state)?;
-    Ok(())
+    Ok(handled_dead_branch_count)
 }
 
 fn resume_actions_after_hand_select(
@@ -4979,44 +4984,27 @@ fn delayed_source_exhaust_destination(state: &mut CombatState) -> CardPile {
 fn force_exhaust_armaments_source(
     state: &mut CombatState,
     source_card_id: CardId,
-) -> SimResult<()> {
-    if let Some(position) = state
-        .piles
-        .hand
-        .iter()
-        .position(|card| card.id == source_card_id)
-    {
-        let source = state.piles.hand.remove(position);
-        let definition = get_card_definition(source.content_id)
-            .ok_or(SimError::UnknownContent(source.content_id))?;
-        match forced_source_card_destination(state, definition) {
-            CardPile::ExhaustPile => {
-                state.piles.exhaust_pile.push(source);
-                apply_on_exhaust_effects(state, source_card_id)?;
-            }
-            CardPile::DiscardPile => state.piles.discard_pile.push(source),
-            CardPile::Hand => state.piles.hand.push(source),
-            CardPile::DrawPile => state.piles.draw_pile.push(source),
-        }
-        return Ok(());
-    }
-    if state
-        .piles
-        .exhaust_pile
-        .iter()
-        .chain(state.piles.discard_pile.iter())
-        .any(|card| card.id == source_card_id)
-    {
-        return Ok(());
-    }
-    Err(SimError::UnknownCard(source_card_id))
+) -> SimResult<usize> {
+    // Existing Armaments traces require its delayed callback fast path. When
+    // Dead Branch and Dark Embrace are both active, use CardExhausted so the
+    // generated card remains ahead of Dark Embrace's addToBot draw.
+    let queue_bot_exhaust_follow_ups = state.relics.contains(&Relic::DeadBranch)
+        && state.player.powers.dark_embrace > 0
+        && state.monsters.iter().any(|monster| monster.alive);
+    move_delayed_played_source_with_exhaust_policy(
+        state,
+        source_card_id,
+        queue_bot_exhaust_follow_ups,
+        true,
+    )
 }
 
 fn confirm_armaments_select(
     state: &mut CombatState,
     source_card_id: CardId,
     index: usize,
-) -> SimResult<()> {
+    restore_on_confirm: Vec<CardInstance>,
+) -> SimResult<usize> {
     let selected = *state
         .piles
         .hand
@@ -5038,29 +5026,11 @@ fn confirm_armaments_select(
     if !source_already_settled {
         card_content_definition(state, source_card_id)?;
     }
-    let upgraded = upgrade_card_instance(selected)?
-        .ok_or(SimError::IllegalAction("selected card cannot be upgraded"))?;
-    let upgradeable_count = state
-        .piles
-        .hand
-        .iter()
-        .filter(|card| card.id != source_card_id && card_instance_is_upgradeable(card))
-        .count();
-    let cannot_upgrade = if upgradeable_count > 1 {
-        let card_ids: Vec<CardId> = state
-            .piles
-            .hand
-            .iter()
-            .filter(|card| card.id != source_card_id && !card_instance_is_upgradeable(card))
-            .map(|card| card.id)
-            .collect();
-        card_ids
-            .into_iter()
-            .map(|card_id| remove_card_from_pile(state, card_id, CardPile::Hand))
-            .collect::<SimResult<Vec<_>>>()?
-    } else {
-        Vec::new()
-    };
+    // ArmamentsAction calls AbstractCard.upgrade() without rechecking
+    // canUpgrade() after the selection opens. If Blessing of the Forge upgraded
+    // the selected card in the meantime, desktop's guarded card upgrade is a
+    // no-op and confirmation still settles normally.
+    let upgraded = upgrade_card_instance(selected)?.unwrap_or(selected);
     let selected_card_id = selected.id;
     let _removed = remove_card_from_pile(state, selected_card_id, CardPile::Hand)?;
     // ArmamentsAction returns the upgraded card (and any cards it pulled out of
@@ -5068,15 +5038,19 @@ fn confirm_armaments_select(
     // Embrace / Dead Branch draws therefore land after Rampage+ and leftover
     // upgraded cards (FIDL01334 Berserk after Havoc+).
     state.piles.hand.push(upgraded);
-    state.piles.hand.extend(cannot_upgrade);
-    if state.play_top_force_exhaust_active && !source_already_settled {
-        force_exhaust_armaments_source(state, source_card_id)?;
-    } else if !source_already_settled {
-        // Ordinary hand Armaments still settles the delayed source on CONFIRM.
-        move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
-    }
+    state.piles.hand.extend(restore_on_confirm);
+    let handled_dead_branch_count =
+        if state.play_top_force_exhaust_active && !source_already_settled {
+            force_exhaust_armaments_source(state, source_card_id)?
+        } else {
+            if !source_already_settled {
+                // Ordinary hand Armaments still settles the delayed source on CONFIRM.
+                move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
+            }
+            0
+        };
     state.play_top_force_exhaust_active = false;
-    Ok(())
+    Ok(handled_dead_branch_count)
 }
 
 fn confirm_forethought_select(

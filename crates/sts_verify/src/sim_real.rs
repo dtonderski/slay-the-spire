@@ -13,7 +13,7 @@ use std::{
 };
 use sts_core::card::CardType;
 use sts_core::combat::{ExhaustSelectPurpose, HandSelectPurpose};
-use sts_core::content::cards::{card_instance_is_upgradeable, card_type_and_rarity};
+use sts_core::content::cards::card_type_and_rarity;
 use sts_core::content::encounters::BossUnlockState;
 use sts_core::content::monsters::{target_move_byte, target_move_byte_for_monster};
 use sts_core::potion::Potion;
@@ -3003,8 +3003,6 @@ fn seed_start_simulated_combat_subset(run: &RunState) -> Value {
                                 HandSelectPurpose::ForethoughtPutAnyOnDraw
                                     | HandSelectPurpose::PreparedDiscard
                             ) && hand_select.selected_hand_indices.contains(index))
-                            || (hand_select.purpose == HandSelectPurpose::ArmamentsUpgrade
-                                && !card_instance_is_upgradeable(card))
                             || (hand_select.purpose == HandSelectPurpose::DualWieldCopy
                                 && card_type_and_rarity(card.content_id).is_none_or(|(card_type, _)| {
                                     !matches!(card_type, CardType::Attack | CardType::Power)

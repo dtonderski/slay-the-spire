@@ -70,6 +70,20 @@ pub(super) fn await_hand_select(
     // HAND_SELECT frame for force-played Dual Wield (source already out of hand).
     // Hand-played Dual Wield still opens the select even with one eligible card.
     let mut dual_wield_restore_on_confirm = Vec::new();
+    if purpose == HandSelectPurpose::ArmamentsUpgrade {
+        // ArmamentsAction removes cards that could not be upgraded when the
+        // selection opens, then returns them after the selected card. Preserve
+        // that frozen screen membership across intervening potion actions.
+        let mut selectable = Vec::with_capacity(state.piles.hand.len());
+        for card in state.piles.hand.drain(..) {
+            if card.id == source_card_id || super::card_instance_is_upgradeable(&card) {
+                selectable.push(card);
+            } else {
+                dual_wield_restore_on_confirm.push(card);
+            }
+        }
+        state.piles.hand = selectable;
+    }
     // This field also preserves the generic PlayTop force-exhaust marker while
     // any source-delaying hand selection is open.
     let mut dual_wield_force_exhaust = state.play_top_force_exhaust_active;

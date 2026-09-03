@@ -119,8 +119,9 @@ pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()
         }
         RunAction::SkipCombatCardReward => validate_combat_card_reward_skip(run),
         RunAction::ChooseHandSelect { index } => validate_hand_select_choice(run, index),
-        RunAction::ConfirmHandSelect | RunAction::ConfirmHandSelectWithoutRetrieval => {
-            validate_hand_select_confirm(run)
+        RunAction::ConfirmHandSelect => validate_hand_select_confirm(run),
+        RunAction::ConfirmHandSelectWithoutRetrieval => {
+            validate_hand_select_confirm_without_retrieval(run)
         }
         RunAction::ChooseDrawSelect { index } => validate_draw_select_choice(run, index),
         RunAction::ConfirmDrawSelect => validate_draw_select_confirm(run),
@@ -235,6 +236,41 @@ pub fn validate_hand_select_confirm(run: &RunState) -> SimResult<()> {
         && hand_select.selected_hand_index.is_none()
     {
         return Err(SimError::IllegalAction("hand select choice is required"));
+    }
+    Ok(())
+}
+
+fn validate_hand_select_confirm_without_retrieval(run: &RunState) -> SimResult<()> {
+    validate_hand_select_confirm(run)?;
+    let combat = run
+        .combat
+        .as_ref()
+        .ok_or(SimError::IllegalAction("hand select requires combat"))?;
+    let hand_select = combat
+        .hand_select()
+        .ok_or(SimError::IllegalAction("no hand select is open"))?;
+    if hand_select.purpose == HandSelectPurpose::PreparedDiscard {
+        return Err(SimError::IllegalAction(
+            "Prepared skipped retrieval is not implemented",
+        ));
+    }
+    if !combat.pending_hidden_hand_card_until_end_turn.is_empty() {
+        return Err(SimError::IllegalAction(
+            "pending hidden hand card already occupied",
+        ));
+    }
+    if hand_select.purpose == HandSelectPurpose::ArmamentsUpgrade {
+        let source_settled = combat
+            .piles
+            .exhaust_pile
+            .iter()
+            .chain(combat.piles.discard_pile.iter())
+            .any(|card| card.id == hand_select.source_card_id);
+        if !source_settled && !combat.play_top_force_exhaust_active {
+            return Err(SimError::IllegalAction(
+                "skipped Armaments retrieval requires force-played or settled source",
+            ));
+        }
     }
     Ok(())
 }
@@ -1195,7 +1231,16 @@ pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunSt
                 }
                 Potion::BlessingOfTheForge => {
                     let combat = next.combat.as_mut().expect("validated combat state");
+                    // A played card remains in our hand representation while its
+                    // modal selection is open, but desktop keeps it in cardInUse.
+                    // Blessing therefore must not upgrade that delayed source.
+                    let delayed_source = combat
+                        .hand_select()
+                        .map(|selection| selection.source_card_id);
                     for card in &mut combat.piles.hand {
+                        if Some(card.id) == delayed_source {
+                            continue;
+                        }
                         if let Some(upgraded) = upgrade_card_instance(*card)? {
                             *card = upgraded;
                         }

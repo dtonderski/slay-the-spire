@@ -393,10 +393,12 @@ mod tests {
             ExhaustSelectState, HandSelectPurpose, HandSelectState,
         },
         content::cards::{
-            BASH_ID, BURNING_PACT_ID, DEFEND_R_ID, EXHUME_ID, PURITY_ID, RECYCLE_ANY_COLOR_ID,
-            SECRET_WEAPON_ID, STRIKE_R_ID, THINKING_AHEAD_ID, TRUE_GRIT_PLUS_ID,
+            ARMAMENTS_ID, BASH_ID, BURNING_PACT_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID, EXHUME_ID,
+            PURITY_ID, RECYCLE_ANY_COLOR_ID, SECRET_WEAPON_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
+            THINKING_AHEAD_ID, TRUE_GRIT_PLUS_ID,
         },
-        legal_map_actions_on_run, CardGridScreen, CardId, CardInstance, GridPurpose,
+        legal_map_actions_on_run, restore_run_snapshot_json, CardGridScreen, CardId, CardInstance,
+        GridPurpose, Relic, Snapshot, SNAPSHOT_SCHEMA_VERSION,
     };
 
     #[test]
@@ -582,6 +584,173 @@ mod tests {
             Some(CombatDecisionState::HandSelect { .. })
         ));
         assert_eq!(after_potion.potion_at_slot(0), None);
+    }
+
+    #[test]
+    fn armaments_selection_settles_after_blessing_upgrades_the_selected_card() {
+        let mut run = RunState::combat_fixture();
+        run.potions = vec![Potion::BlessingOfTheForge];
+        run.empty_potion_slots = vec![1, 2];
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.player.energy = 3;
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(1), ARMAMENTS_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+            CardInstance::new(CardId::new(99), STRIKE_R_PLUS_ID),
+        ];
+
+        let selecting = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            }),
+        )
+        .expect("Armaments opens its selection");
+        let blessed_before_choice = apply_run_decision_action(
+            &selecting,
+            RunDecisionAction::Run(RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            }),
+        )
+        .expect("Blessing remains legal before selection");
+        let choices = legal_run_decision_actions(&blessed_before_choice)
+            .expect("Blessing must not empty the open Armaments decision");
+        assert!(choices.iter().any(|action| matches!(
+            action,
+            RunDecisionAction::Run(RunAction::ChooseHandSelect { .. })
+        )));
+        for action in choices {
+            apply_run_decision_action(&blessed_before_choice, action).unwrap_or_else(|error| {
+                panic!("post-Blessing legal action {action:?} failed to apply: {error}")
+            });
+        }
+
+        let selected = apply_run_decision_action(
+            &selecting,
+            RunDecisionAction::Run(RunAction::ChooseHandSelect { index: 0 }),
+        )
+        .expect("Strike is selected");
+        let blessed = apply_run_decision_action(
+            &selected,
+            RunDecisionAction::Run(RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            }),
+        )
+        .expect("Blessing remains legal during selection");
+        let blessed_combat = blessed.combat.as_ref().expect("combat remains active");
+        assert_eq!(blessed_combat.piles.hand[0].content_id, ARMAMENTS_ID);
+        assert_eq!(blessed_combat.piles.hand[1].content_id, STRIKE_R_PLUS_ID);
+        assert_eq!(blessed_combat.piles.hand[2].content_id, DEFEND_R_PLUS_ID);
+
+        let snapshot_json = Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: blessed.clone(),
+        }
+        .canonical_json()
+        .expect("open selection snapshot serializes");
+        let blessed = restore_run_snapshot_json(&snapshot_json)
+            .expect("open selection snapshot restores")
+            .state;
+
+        let mut invalid = blessed.clone();
+        invalid
+            .combat
+            .as_mut()
+            .expect("combat remains active")
+            .hand_select_mut()
+            .expect("selection remains open")
+            .selected_hand_index = Some(usize::MAX);
+        assert_eq!(
+            invalid.validate(),
+            Err(SimError::InvalidState(
+                "hand selection index is out of range"
+            ))
+        );
+
+        let skipped_confirm = RunDecisionAction::Run(RunAction::ConfirmHandSelectWithoutRetrieval);
+        assert_eq!(
+            validate_run_decision_action(&blessed, skipped_confirm),
+            Err(SimError::IllegalAction(
+                "skipped Armaments retrieval requires force-played or settled source"
+            ))
+        );
+
+        let mut skipped_input = blessed.clone();
+        {
+            let combat = skipped_input
+                .combat
+                .as_mut()
+                .expect("combat remains active");
+            combat.play_top_force_exhaust_active = true;
+            combat.relics.push(Relic::DeadBranch);
+            combat.player.powers.dark_embrace = 1;
+            combat.piles.draw_pile = vec![CardInstance::new(CardId::new(200), DEFEND_R_ID)];
+        }
+        assert_eq!(
+            validate_run_decision_action(&skipped_input, skipped_confirm),
+            Ok(())
+        );
+        let skipped = apply_run_decision_action(&skipped_input, skipped_confirm)
+            .expect("force-played skipped retrieval settles after Blessing");
+        let skipped_combat = skipped.combat.as_ref().expect("combat remains active");
+        assert_eq!(
+            skipped_combat
+                .pending_hidden_hand_card_until_end_turn
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(2)]
+        );
+        assert_eq!(skipped_combat.piles.hand.len(), 3);
+        assert_eq!(skipped_combat.piles.hand[0].id, CardId::new(3));
+        assert_eq!(skipped_combat.piles.hand[0].content_id, DEFEND_R_PLUS_ID);
+        assert!(
+            skipped_combat.piles.hand[1].combat_only,
+            "Dead Branch generation must precede the Dark Embrace draw"
+        );
+        assert_eq!(skipped_combat.piles.hand[2].id, CardId::new(200));
+        assert!(!skipped_combat
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(99)));
+        assert!(skipped_combat
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(1) && card.content_id == ARMAMENTS_ID));
+
+        let confirm = RunDecisionAction::Run(RunAction::ConfirmHandSelect);
+        assert!(legal_run_decision_actions(&blessed)
+            .expect("blessed selection has legal actions")
+            .contains(&confirm));
+        let settled = apply_run_decision_action(&blessed, confirm)
+            .expect("already-upgraded Armaments target settles as a no-op upgrade");
+        let settled_combat = settled.combat.as_ref().expect("combat remains active");
+        assert!(settled_combat.hand_select().is_none());
+        assert_eq!(
+            settled_combat
+                .piles
+                .hand
+                .iter()
+                .map(|card| (card.id, card.content_id))
+                .collect::<Vec<_>>(),
+            vec![
+                (CardId::new(3), DEFEND_R_PLUS_ID),
+                (CardId::new(2), STRIKE_R_PLUS_ID),
+                (CardId::new(99), STRIKE_R_PLUS_ID),
+            ],
+            "selected card returns before the initially unupgradeable card"
+        );
+        assert!(settled_combat
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(1) && card.content_id == ARMAMENTS_ID));
     }
 
     #[test]

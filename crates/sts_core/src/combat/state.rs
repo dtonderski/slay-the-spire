@@ -306,10 +306,11 @@ pub struct HandSelectState {
     pub selected_hand_index: Option<usize>,
     #[serde(default)]
     pub selected_hand_indices: Vec<usize>,
-    /// Force-play Dual Wield multi-select hides non-Attack/Power cards from the
-    /// CommunicationMod hand. Skills (Defend, etc.) re-enter hand on CONFIRM
-    /// (random-fidelity-9074); statuses/curses stay out of every combat pile for
-    /// the rest of the fight (FIDL00242 Shame).
+    /// Cards temporarily filtered out when a hand-selection screen opens.
+    /// Armaments returns cards that were already unupgradeable after CONFIRM.
+    /// Force-play Dual Wield restores hidden skills (random-fidelity-9074),
+    /// while its statuses/curses stay out for the rest of the fight
+    /// (FIDL00242 Shame).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dual_wield_restore_on_confirm: Vec<CardInstance>,
     /// Havoc/Mayhem/Distilled Chaos force-play exhausts a source card after a
@@ -1467,6 +1468,44 @@ impl CombatState {
             return Err(SimError::InvalidState(
                 "queued combat decision has no active predecessor",
             ));
+        }
+        if let Some(selection) = self.hand_select() {
+            let mut selected_indices = selection.selected_hand_indices.clone();
+            selected_indices.extend(selection.selected_hand_index);
+            if selected_indices
+                .iter()
+                .any(|index| *index >= self.piles.hand.len())
+            {
+                return Err(SimError::InvalidState(
+                    "hand selection index is out of range",
+                ));
+            }
+            let selected_count = selected_indices.len();
+            selected_indices.sort_unstable();
+            selected_indices.dedup();
+            if selected_indices.len() != selected_count {
+                return Err(SimError::InvalidState(
+                    "hand selection indices contain duplicates",
+                ));
+            }
+            if selected_indices
+                .iter()
+                .any(|index| self.piles.hand[*index].id == selection.source_card_id)
+            {
+                return Err(SimError::InvalidState(
+                    "hand selection cannot contain its source card",
+                ));
+            }
+            if !selection.dual_wield_restore_on_confirm.is_empty()
+                && !matches!(
+                    selection.purpose,
+                    HandSelectPurpose::ArmamentsUpgrade | HandSelectPurpose::DualWieldCopy
+                )
+            {
+                return Err(SimError::InvalidState(
+                    "hand selection has restoration cards for an unsupported purpose",
+                ));
+            }
         }
         if self.duplication_potion_stacks < 0
             || self.double_tap_pending < 0
