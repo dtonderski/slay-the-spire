@@ -1904,14 +1904,18 @@ mod tests {
     }
 
     #[test]
-    fn schema_one_combat_snapshot_migrates_when_state_is_valid() {
+    fn schema_one_combat_snapshot_is_rejected() {
         let env = PyOmniCombatEnv::initial_fixture();
         let mut snapshot: serde_json::Value =
             serde_json::from_str(&env.snapshot_json().expect("snapshot JSON")).expect("valid JSON");
         snapshot["schema_version"] = serde_json::Value::from(1);
 
-        PyOmniCombatEnv::from_snapshot_json(&snapshot.to_string())
-            .expect("validated schema-one snapshot migrates");
+        let error = PyOmniCombatEnv::from_snapshot_json(&snapshot.to_string())
+            .err()
+            .expect("historical snapshot schemas are unsupported");
+        assert!(error
+            .to_string()
+            .contains("unsupported snapshot schema version"));
     }
 
     #[test]
@@ -1975,14 +1979,18 @@ mod tests {
     }
 
     #[test]
-    fn schema_one_run_snapshot_migrates_when_state_is_valid() {
+    fn schema_one_run_snapshot_is_rejected() {
         let env = PyOmniRunEnv::map_fixture();
         let mut snapshot: serde_json::Value =
             serde_json::from_str(&env.snapshot_json().expect("snapshot JSON")).expect("valid JSON");
         snapshot["schema_version"] = serde_json::Value::from(1);
 
-        PyOmniRunEnv::from_snapshot_json(&snapshot.to_string())
-            .expect("validated schema-one run snapshot migrates");
+        let error = PyOmniRunEnv::from_snapshot_json(&snapshot.to_string())
+            .err()
+            .expect("historical snapshot schemas are unsupported");
+        assert!(error
+            .to_string()
+            .contains("unsupported snapshot schema version"));
     }
 
     #[test]

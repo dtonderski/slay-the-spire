@@ -3,8 +3,6 @@ mod card_effects;
 pub(crate) mod cost;
 pub mod damage;
 pub mod draw;
-#[allow(dead_code)] // Crate-private until the fair facade issues bound knowledge.
-pub(crate) mod fair_belief;
 #[cfg(test)]
 pub(crate) mod fair_json_allowlist;
 pub mod fair_observation;
