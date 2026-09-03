@@ -941,27 +941,34 @@ fn forethought_multi_select_hides_selected_cards_from_hand_projection() {
 }
 
 #[test]
-fn armaments_select_keeps_ritual_dagger_in_hand_projection() {
+fn armaments_select_projects_frozen_screen_membership() {
     // Ritual Dagger upgrades in place (no + content id). CommunicationMod still
     // lists it in combat_state.hand while ArmamentsAction is open (FIDL01774).
+    // A candidate upgraded by Blessing after the screen opened also remains
+    // visible, while cards filtered at open stay parked until retrieval.
     let mut run = RunState::combat_fixture();
+    let blessed = CardInstance::new(
+        CardId::new(10_003),
+        sts_core::content::cards::STRIKE_R_PLUS_ID,
+    );
+    let blessed_key = simulated_card_projection_key(&blessed);
     {
         let combat = run.combat.as_mut().expect("combat fixture");
         combat.piles.hand.push(CardInstance::new(
             CardId::new(10_001),
             sts_core::content::cards::RITUAL_DAGGER_ID,
         ));
-        combat.piles.hand.push(CardInstance::new(
-            CardId::new(10_002),
-            sts_core::content::cards::DAZED_ID,
-        ));
+        combat.piles.hand.push(blessed);
         combat.decision = Some(CombatDecisionState::HandSelect {
             state: sts_core::combat::HandSelectState {
                 purpose: HandSelectPurpose::ArmamentsUpgrade,
                 source_card_id: CardId::new(999_999),
                 selected_hand_index: None,
                 selected_hand_indices: Vec::new(),
-                dual_wield_restore_on_confirm: Vec::new(),
+                dual_wield_restore_on_confirm: vec![CardInstance::new(
+                    CardId::new(10_002),
+                    sts_core::content::cards::DAZED_ID,
+                )],
                 dual_wield_force_exhaust: false,
             },
             pending_actions: VecDeque::new(),
@@ -975,8 +982,12 @@ fn armaments_select_keeps_ritual_dagger_in_hand_projection() {
         "Ritual Dagger must remain visible: {hand:?}"
     );
     assert!(
+        hand.iter().any(|card| card == &json!(blessed_key)),
+        "a candidate upgraded after open must remain visible: {hand:?}"
+    );
+    assert!(
         !hand.iter().any(|card| card == &json!("Dazed")),
-        "statuses are not Armaments-upgradeable: {hand:?}"
+        "cards filtered when Armaments opened must remain hidden: {hand:?}"
     );
 }
 
