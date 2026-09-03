@@ -1,7 +1,7 @@
 # Combat RL Architecture
 
 Status: design contract; the initial fair tensorizer, tiny policy/value model, and naive synchronous privileged PUCT are implemented.
-Last updated: 2026-08-31.
+Last updated: 2026-09-03.
 
 The first learned combat agent uses AlphaZero-style Expert Iteration over
 collected combat roots. Its policy/value network receives only fair public
@@ -39,7 +39,7 @@ seeded simulator runs are the scalable training source; immutable real-trace
 roots remain fixed distribution anchors for development, sealed evaluation, and
 audit. Root generation must advance only through accepted legal transitions and
 must never randomize raw state fields independently. The default sampler still
-captures the first actionable combat of a seeded run. An opt-in 1-based
+captures the first actionable combat of a seeded run. Required 1-based
 `combat_depth` continues the same deterministic public hash policy through earlier
 combats and intervening run decisions, then captures the first
 `waiting_for_player` decision of the requested combat. Depth sampling stays at
@@ -73,8 +73,11 @@ one decision-maker, so value backups never alternate or negate by tree depth.
 
 Split combat roots by source run/seed before generating examples. Descendant
 decisions from one combat must not cross train/development/test boundaries.
-Keep a sealed test split and a real-trace audit split in addition to the
-development split used for model and search tuning.
+Sealed and real-trace-audit splits remain assigned by the public hash policy
+but are withheld from generation, training, and evaluation. Held-out evaluation
+uses `train` or `development` only. Distinct root manifests require an explicit
+train-to-evaluation authorization proving disjoint roots and matching
+source-epoch bundles.
 
 ## Beam-Search Bootstrap
 
@@ -90,21 +93,19 @@ The existing beam planner is the initial expert:
 5. Initialize PUCT with that network, then replace beam one-hot targets with
    MCTS visit distributions.
 
-The implemented trainer remains supervised imitation. Beam cloning writes
-Record V2 / manifest V5 one-hot labels and terminal `combat_proxy_v1` values.
-Privileged PUCT distillation now writes Record V4 / manifest V7 labels by
-default: raw root visit counts remain the policy target, but the trained value
-is the episode-terminal `combat_proxy_v1` outcome, masked on truncation exactly
-as V2. The search root-mean stays a required finite `search_root_mean_value`
-diagnostic and is not tensorized. Record V3 / manifest V6 root-mean training
-targets remain accepted. Search still backs up `privileged_puct_root_mean_v1`;
-the native teacher identity stays `synchronous_batch1_v3`. W&B PUCT metadata
-follows manifests V6 and V7, not an unchecked teacher literal. Optional offline
-W&B tracking records scalar `step`/`loss` plus symbolic config and provenance
-digests; it is opt-in, never uploads, and does not change checkpoint bytes.
-Each offline `--resume` is a separate W&B run segment. Source or lockfile
-changes intentionally invalidate source-bound checkpoints. `target/wandb` is
-removed by `cargo clean`.
+The implemented trainer remains supervised imitation. Beam cloning and
+privileged PUCT distillation both write Record 4 / dataset manifest 7. Raw
+teacher visit counts remain the policy target. The trained value is the
+episode-terminal `combat_proxy_v1` outcome, masked on truncation. The search
+root-mean is a required finite `search_root_mean_value` diagnostic and is not
+tensorized. Search still backs up `privileged_puct_root_mean_v1`; the native
+teacher identity stays `synchronous_batch1_v3`. Root generation writes a
+source-epoch bundle of the exact loaded native bytes and binds
+`source_epoch_bundle_digest` on the root manifest. Datasets copy that bundle
+next to `provenance/root-manifest.json`. Training checkpoints store the same
+digest. Source or lockfile changes intentionally invalidate source-bound
+checkpoints. Canonical JSON is the scientific record; there is no W&B
+integration.
 
 A naive privileged PUCT now exists: it expands public `PlayerChoice` rows over
 authoritative `RunState` clones, evaluates one fair leaf at a time, and selects

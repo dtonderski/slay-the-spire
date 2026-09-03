@@ -29,19 +29,12 @@ run state exists, then derive identity and order from that state. Transient
 boss-relic overlays snapshot the pre-command core relic projection explicitly;
 they do not maintain a second verifier-owned relic authority.
 
-## Snapshot migration
+## Snapshot schema
 
-The snapshot schema is versioned for the new relic authority. Schema-seven and
-older snapshots with a positive Neow's Lament counter receive the missing relic
-identity immediately after the starter slot. A zero counter is historically
-ambiguous because old state did not record whether the relic was never acquired
-or already spent; migration preserves the old absence rather than guessing.
-All newly created states record the identity permanently, including after the
-counter reaches zero.
-
-## Failure behavior
-
-Current-schema snapshots and raw states with a positive counter but no Neow's
-Lament identity fail validation. Duplicate identity remains invalid under the
-existing owned-relic invariant. Simulated projection never invents, reorders,
-or carries relics to make an observation match.
+Current snapshots are schema 8 only. Restore requires that exact schema and
+does not migrate older bytes. Historical schema-seven Neow identity repair is
+not applied at load time; git history is the archive. Current-schema snapshots
+and raw states with a positive counter but no Neow's Lament identity fail
+validation. Duplicate identity remains invalid under the existing owned-relic
+invariant. Simulated projection never invents, reorders, or carries relics to
+make an observation match.

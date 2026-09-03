@@ -1,8 +1,0 @@
-Traceback (most recent call last):
-  File "<stdin>", line 4, in <module>
-  File "/tmp/sts-puct-scale-final-v2/python/sts_sim/rl/cli.py", line 240, in puct_rollout_main
-    report = evaluate_matched_puct_gameplay(
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/tmp/sts-puct-scale-final-v2/python/sts_sim/rl/gameplay.py", line 875, in evaluate_matched_puct_gameplay
-    raise ValueError("evaluation checkpoint source digest mismatch")
-ValueError: evaluation checkpoint source digest mismatch

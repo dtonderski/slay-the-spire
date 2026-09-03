@@ -85,26 +85,20 @@ uv run sts-combat-puct-rollout \
   --transition-budget 64 --simulation-budget 64
 ```
 
-The trainer is supervised imitation. Beam `label` writes V2 one-hot targets;
-`puct-label` writes privileged PUCT V3 visit counts and root-mean values from a
-source-bound format-3 checkpoint. Truncated V3 rollouts keep those root-mean
-targets unmasked; W&B PUCT metadata follows manifest V6. Optional offline W&B tracking records scalar loss and symbolic
-provenance only; it never uploads, syncs, or logs tensors. Each `--resume` with
-`--wandb-offline` starts a separate offline run segment rather than continuing a
-previous W&B run id. `target/wandb` lives under Cargo's `target/` directory and
-is removed by `cargo clean`. Source or `uv.lock` changes change the source-bound
-`source_digest` / runtime identity and intentionally reject old checkpoints.
+The trainer is supervised imitation. Beam `label` and `puct-label` both write
+Record 4 / dataset manifest 7. Policy targets are teacher visit counts. Value
+targets are terminal `combat_proxy_v1`, masked on truncation. Search root-mean
+is a required diagnostic field and is not tensorized. Root generation writes a
+source-epoch bundle of the exact loaded native bytes. Source or `uv.lock`
+changes change the source-bound `source_digest` / runtime identity and
+intentionally reject old checkpoints.
 
 ```bash
-uv sync --extra rl --extra tracking
+uv sync --extra rl
 uv run sts-combat-train \
   --dataset /tmp/sts-train/dataset-manifest.json \
   --checkpoint /tmp/sts-checkpoint.pt --steps 1000 \
-  --minimum-roots 225 --minimum-lineages 100 \
-  --wandb-offline --wandb-project sts-combat --wandb-dir ../target/wandb
-ls ../target/wandb/wandb
-# later, only if you choose to upload a local offline run:
-# wandb sync ../target/wandb/wandb/offline-run-*
+  --minimum-roots 225 --minimum-lineages 100
 ```
 
 `sts-combat-evaluate` is static imitation accuracy on already-labeled public
@@ -126,9 +120,9 @@ Roots advance only through accepted public legal actions. Dataset generation
 copies the canonical named root manifest to `provenance/root-manifest.json` and
 accounts for every requested root as either a membership or a typed exclusion.
 Training records contain fair observations and public choices, never hidden
-state, RNG, native handles, or snapshots. Audited splits require explicit
-`roots --materialize-audited-splits` and `--allow-audited-split`; these are
-fail-closed workflow defaults, not filesystem security. Derived roots, datasets,
+state, RNG, native handles, or snapshots. Sealed and audit splits are withheld
+from generation, training, and evaluation. Cross-manifest held-out evaluation
+requires `--authorization` and `--training-roots`. Derived roots, datasets,
 and checkpoints are disposable and should be regenerated after source/layout
 changes rather than migrated by weakening their source digests.
 

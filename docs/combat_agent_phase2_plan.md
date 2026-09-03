@@ -1,7 +1,7 @@
 # Combat Agent Phase 2 Plan
 
-Status: beam-cloning training vertical slice implemented; naive synchronous privileged PUCT distillation (Record V3 / manifest V6) exists; Stage 6 batching/virtual-loss/performance gates remain open.
-Last updated: 2026-08-31.
+Status: beam-cloning training vertical slice implemented; naive synchronous privileged PUCT distillation (Record 4 / manifest 7) exists; Stage 6 batching/virtual-loss/performance gates remain open.
+Last updated: 2026-09-03.
 
 This document settles the architecture decisions that precede writing the
 Expert Iteration loop, and stages the work behind measurable gates. It is
@@ -10,14 +10,10 @@ evaluation protocol are out of scope.
 
 The first training-ready slice now implements deterministic legal simulator
 roots, a public-decision replanning teacher that reuses the extracted `sts_search`
-beam core, symbolic Record V2 datasets, masked terminal values, exact CPU
-checkpoint/resume, optional offline W&B scalar/provenance tracking, and
-development evaluation. Training can clone beam V2 labels or privileged PUCT V3
-visit/root-mean labels; W&B metadata follows manifest V6 rather than an
-unchecked teacher-name literal. Truncated V3 PUCT rollouts keep root-mean
-value targets present and unmasked. Offline W&B
-resume starts a new run segment; `target/wandb` is
-removed by `cargo clean`; source/`uv.lock` changes reject old checkpoints.
+beam core, symbolic Record 4 datasets, masked terminal values, exact CPU
+checkpoint/resume, and development evaluation. Training can clone beam labels or
+privileged PUCT visit-count labels with terminal `combat_proxy_v1` values.
+Source/`uv.lock` changes reject old checkpoints.
 It intentionally does not claim batched PUCT, candidate promotion, or
 trace-derived root extraction. The native episode payload currently reports the full HP/max-HP/gold,
 potion, status, decision/turn, and truncation contract; card/relic counter deltas
@@ -364,23 +360,18 @@ the frozen checkpoint vocabulary.
 
 Current vertical-slice note: generated records and shards are digest-bound to a
 validated root manifest, and training fits vocabularies from `train` only. Each
-dataset now embeds canonical root-manifest bytes at a fixed relative path; the
-loader validates both file and manifest digests and re-resolves every root,
+dataset embeds canonical root-manifest bytes and a copied source-epoch bundle.
+The loader validates file and manifest digests and re-resolves every root,
 split group, split, and canonical lineage membership without embedding root
-snapshots. Root manifest V4 stores the requested seed cohort and a cohort
-contract digest over the ordered canonical seed list, generator/source identity,
-split salt, ascension, and `max_run_steps`; access mode and realized roots or
-exclusions are excluded so ordinary and audited generation of the same seed list
-share that digest. Dataset manifest V5 and training checkpoint format 3 also
-bind that cohort digest plus a teacher/search contract digest covering teacher
-name, version, and the full beam search config. Resume validates both digests.
-Audited evaluation against a different realized root manifest requires
-`allow_audited_split`, a valid audited-access dataset, and a matching cohort
-digest; disjoint cohorts and teacher/search mismatches are rejected. Report V3
-records official accuracy over every row, exact and truncated/nontruncated
-numerators and denominators, truncated root count, `value_mae_rows`, and
-per-record root, status, truncation, value-mask, correctness or error, and
-value fields. These format bumps have no compatibility shim.
+snapshots. The current root manifest stores the requested seed cohort, combat
+depth, source-epoch-bundle digest, and a cohort contract digest. Dataset
+manifest 7 and training checkpoint format 4 bind that cohort digest plus a
+teacher/search contract digest covering teacher name, version, and the full
+search config. Resume validates those digests. Held-out evaluation on a
+different realized root manifest requires an explicit train-to-evaluation
+authorization with proven disjoint roots and matching source-epoch bundles.
+Sealed and audit splits are withheld; there is no audited-access bypass.
+These formats have no compatibility shim.
 
 Training config V1 enforces the pre-frozen floor of 225 roots and 100 distinct
 canonical lineages by default. Explicit lower thresholds are limited to tests

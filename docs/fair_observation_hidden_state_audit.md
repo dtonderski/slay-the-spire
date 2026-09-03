@@ -5,7 +5,6 @@ Status: Lane 3 combat-search audit against schema V2 at epoch
 Source of truth for projection: `crates/sts_core/src/combat/fair_observation.rs`.
 Taxonomy: [`docs/fair_belief_architecture.md`](fair_belief_architecture.md)
 Section 1 and [`PROJECT_OVERVIEW.md`](../PROJECT_OVERVIEW.md) State Visibility.
-Contracts that consume this audit: [`docs/fair_belief_contracts.md`](fair_belief_contracts.md).
 
 This audit classifies every `FairCombatObservation` field and every
 combat-search-relevant hidden simulator field. It does not change the

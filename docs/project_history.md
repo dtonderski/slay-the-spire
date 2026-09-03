@@ -19,9 +19,9 @@ fair run-level policy. Run-level decisions are presently considered the main
 bottleneck to generating varied, internally consistent simulator runs and later
 combat roots. First-combat-only simulator roots also collapsed early PUCT value
 learning: A0 openers were almost all wins, so search root-mean targets had no
-contrast. The generator therefore grew an opt-in combat-depth sampler so later
-A0 fights can be collected with the same public hash policy, rather than
-pretending unvalidated ascension mechanics are a difficulty lever. Once depth-4
+contrast. The generator therefore records a required `combat_depth` on the current root
+schema so later A0 fights can be collected with the same public hash policy,
+rather than pretending unvalidated ascension mechanics are a difficulty lever. Once depth-4
 A0 roots produced real losses, PUCT distillation switched the trained value to
 terminal `combat_proxy_v1` while keeping visit-count policy targets and the
 root-mean as a diagnostic. This ordering is a working hypothesis, not an
@@ -116,15 +116,8 @@ verifier can consult the answer, every unexplained divergence has a cheap local
 fix, and the cheap fix is always available. Prohibiting the shape is the only
 durable defence: transition code must not be able to see the post-state at all.
 
-Leftover candidate apply-paths later survived as unused public wrappers
-(skipped-retrieval confirms, Time Warp lag variants, deferred Colosseum
-opening), while Discovery used an encounter/hand-shape table to guess leftover
-`generateCardChoices` pulses. Those production-path guesses were removed so
-remaining mismatches fail honestly. Target bytecode also settled a rejected
-relic-pool experiment: only `Exordium` calls `initializeRelicList`; `TheCity`,
-`TheBeyond`, and `TheEnding` retain the depleted pools. `confirm_*_skipped_retrieval`
-helpers remain only for unit tests of CommunicationMod lag frames and are not
-on the `apply_run_action` path.
+Leftover candidate apply-paths later survived as unused public wrappers.
+Those production-path guesses were removed so remaining mismatches fail honestly.
 
 Two defects surfaced immediately underneath. Event obtains were being published
 into the master deck a boundary early, which alone accounted for two thirds of
@@ -214,41 +207,14 @@ two later failure-driving captures, FIDL02161 and FIDL02166. Their source-backed
 repairs covered Steam Barrier's target card ID and Exhume's action-time full-hand
 check, producing the current 433-trace lock.
 
-A later 222-trace overnight cohort was frozen before its 213 passing payloads
-were removed from live staging. Eight of its nine failure-driving traces exposed
-generic combat gaps and now replay completely, but none entered the authoritative
-lock: the collection fork's global 100× delta had also advanced dungeon playtime,
-changing Act 3 Secret Portal eligibility, and one same-seed/action capture consumed
-Omamori while still adding Writhing Mass's Parasite. That payload contradicts both
-vanilla source and the earlier authoritative capture. All nine remain immutable
-quarantined evidence pending recollection with an unmultiplied gameplay clock.
-
-A larger apparent lifecycle ambiguity was ultimately a collection-speed defect,
-not a missing trace input. The SuperFastMode collection fork multiplied the
-delta used by gameplay `tickDuration`. `ExhaustAction` opens its hand screen on
-one update and retrieves selected cards on a later update; at 100×, an opening
-frame over 2.5 ms expired its 0.25-second duration immediately. The same
-failure shape affected PutOnDeck, Gambling Chip, Forethought, Armaments, Dual
-Wield, and Recycle. Across the expanded 602-file corpus, 2,222 of 8,288 audited
-selected-card confirms skipped retrieval, contaminating 328 traces. Fork `.2`
-gave gameplay action state machines fixed 60 Hz ticks, but mistakenly left
-`AbstractDungeon.update` on multiplied delta. A later 163-trace cohort again
-advanced playtime far faster than wall time and remains frozen, not promoted.
-Fork `.3` restores raw wall-clock delta only for that dungeon clock while
-leaving action ticks deterministic and visual transitions accelerated.
-
-The hand-selection audit was subsequently shown to be only a narrow detector:
-an unquarantined Discovery reward had the same skipped-retrieval artifact, and
-other timing-sensitive paths could not be certified trace by trace. The entire
-602-trace pre-`.2` cohort was therefore archived unchanged as legacy evidence
-and removed from the authoritative gate. A paired `.2`/unmodded run disproved a
-trace-fitted claim that generated draw-pile cards could be randomly inserted
-four or seven times; target bytecode and three matched Wild Strike insertions
-show exactly one insertion draw. That workaround was deleted. The same paired
-run exposed a separate bridge defect at normal speed: CommunicationMod could
-publish combat while a living monster still had `DEBUG` intent, allowing a
-command before its first move was initialized. Current collection blocks that
-boundary before beginning a small replacement pilot.
+A later overnight cohort was frozen rather than promoted: the collection fork's
+global 100× delta advanced dungeon playtime and contaminated Secret Portal and
+hand-selection retrieval. Fork `.3` restores raw wall-clock delta only for that
+dungeon clock while leaving action ticks deterministic. The entire 602-trace
+pre-`.2` cohort remains archived unchanged as legacy evidence. A paired
+`.2`/unmodded run also showed CommunicationMod could publish combat while a
+living monster still had `DEBUG` intent; current collection blocks that
+boundary.
 
 Sources: the July 2026 SlayTheData and fidelity history;
 [`research.md`](research.md);
@@ -289,6 +255,16 @@ budgets were rejected as a learned-agent abstraction: provisional combat value
 scores resulting resources, and the eventual run-level value model evaluates
 the complete post-combat state.
 
+Learned-combat artifacts now have one current schema each: snapshot 8, root
+manifest 6 with a blocking source-epoch bundle, dataset manifest 7, record 4,
+training checkpoint 4, and the six-arm matched PUCT report. Git history is the
+archive. Sealed and audit splits stay withheld from training and evaluation;
+held-out evaluation across distinct root manifests requires an explicit
+train-to-evaluation authorization. Offline W&B was removed because canonical
+JSON is the scientific record. An uncalibrated fair-belief foundation was
+removed until a calibrated consumer exists; beam remains the label-treatment
+control.
+
 ## Run-Level RL Moved Ahead of Combat RL
 
 The repository roadmap placed combat learning before run-level learning. By July
@@ -324,16 +300,8 @@ scope, and feedback-loop quality matter more than task duration or agent count.
 - Communication boundary schema made command settlement contractual rather than
   observational: `STATE` closes only on `poll`, gameplay closes only on an
   explicit ready/quiescent/terminal boundary, and steps and timing metadata fail
-  closed. Schema-v0 compatibility ended on 2026-08-07; schema 2 (2026-08-18)
-  added the queued-end-turn guard. Schema 3 (2026-08-20) added the
-  uninitialized-monster-intent guard; schema 4 prevents deferred out-of-combat
-  stabilization from completing a combat command; schema 5 requires a monotonic
-  command-execution fence before a gameplay boundary can close; schema 6 also
-  waits for gameplay-affecting dungeon effect queues. Replay accepts explicit
-  metadata/state schemas 1 through 7 with typed profile/RNG input. Schema 7 adds
-  target-echoed command identity plus separate attempt and settlement sequences
-  so stale or rejected responses cannot be misattributed. The locked corpus
-  remains schema 6. Old passes are evidence, not supported inputs.
+  closed. Replay accepts explicit metadata/state schemas 1 through 7; the locked
+  corpus remains schema 6. Old passes are evidence, not supported inputs.
 - A verifier that may inspect the expected output will eventually select its
   transition to match it, and no amount of care in the individual cases
   prevents that. Replay advances from state and action alone; the observation
@@ -347,6 +315,9 @@ scope, and feedback-loop quality matter more than task duration or agent count.
   Retaining both while excluding them from the active gate is what later makes
   it possible to prove which simulator behaviour was modelling a collection
   artifact.
+- RL and snapshot compatibility shims were deleted rather than migrated. One
+  current exact schema is the supported contract; older artifacts are
+  unsupported inputs.
 
 ## Open Strategic Questions
 

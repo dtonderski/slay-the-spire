@@ -1,12 +1,11 @@
 # Fair Belief Architecture
 
-Status: Rust public-knowledge/hypothesis/materializer foundation implemented;
-belief update, fair search, and learned belief implementation remain deferred.
-The active boundary contracts include
-[`fair_combat_api_design.md`](fair_combat_api_design.md),
-[`fair_belief_contracts.md`](fair_belief_contracts.md), and
-[`combat_rl_architecture.md`](combat_rl_architecture.md).
-Last reconciled: 2026-09-02.
+Status: design only. The uncalibrated Rust public-knowledge/hypothesis/materializer
+foundation was removed because it had no executable consumer. Belief update,
+fair search, and learned belief implementation remain deferred until a
+calibrated consumer exists. The active neural boundary remains
+`FairCombatObservation` plus public action descriptors.
+Last reconciled: 2026-09-03.
 
 This document designs a fair agent architecture for Ironclad combat and run
 play that handles hidden information without cheating. It consolidates and
