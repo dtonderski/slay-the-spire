@@ -9,7 +9,13 @@ from typing import cast
 import pytest
 import torch
 
-from sts_sim import FairCombatObservation, RunEnv
+from sts_sim import (
+    FairCombatObservation,
+    FairPotionSlot,
+    FairRunContext,
+    FairRunObservation,
+    RunEnv,
+)
 from sts_sim.rl import (
     RESULT_KIND,
     TrainingConfig,
@@ -31,6 +37,7 @@ from sts_sim.rl.label_ab import (
     _copied_tree_refs,
     _copy_tree_nofollow,
     _execute_label_ab,
+    _outcome_from_shared_walk,
     _plan_for_execution,
     _query_beam_first_step,
     _require_authorization_bindings,
@@ -545,6 +552,90 @@ def test_copied_input_tree_refs_are_relative_and_stable(tmp_path: Path) -> None:
     assert [ref.sha256 for ref in left] == [ref.sha256 for ref in right]
     assert all(not Path(ref.path).is_absolute() for ref in left)
     assert {ref.role for ref in left} == {"bootstrap_root_manifest", "input_tree_member"}
+
+
+def test_terminal_fair_run_observation_supplies_shared_outcome_fields() -> None:
+    root = RunEnv.combat_fixture().decision().observation
+    assert isinstance(root, FairCombatObservation)
+    terminal = FairRunObservation(
+        schema_version=1,
+        phase="reward",
+        kind="reward",
+        context=FairRunContext(
+            ascension=root.context.ascension,
+            act=root.context.act,
+            floor=root.context.floor,
+            gold=root.context.gold + 7,
+            player_hp=root.player.hp - 3,
+            player_max_hp=root.player.max_hp - 2,
+            deck=(),
+            relics=(),
+            potion_slots=(FairPotionSlot(0, "fire_potion"), FairPotionSlot(1, None)),
+        ),
+        screen={},
+    )
+    outcome = _outcome_from_shared_walk(
+        root_observation=root,
+        terminal_observation=terminal,
+        status="won",
+        accepted_decisions=2,
+        player_turns=1,
+        truncation_trigger=None,
+    )
+    assert outcome.status == "won"
+    assert outcome.terminal_hp == root.player.hp - 3
+    assert outcome.terminal_max_hp == root.player.max_hp - 2
+    assert outcome.hp_change == -3
+    assert outcome.max_hp_change == -2
+    assert outcome.gold_change == 7
+    assert outcome.potion_slots == ("fire_potion", None)
+    assert outcome.terminal is True
+    assert outcome.truncated is False
+
+
+def test_terminal_fair_combat_observation_supplies_shared_loss_fields() -> None:
+    root = RunEnv.combat_fixture().decision().observation
+    assert isinstance(root, FairCombatObservation)
+    terminal = replace(
+        root,
+        phase="lost",
+        player=replace(root.player, hp=0, max_hp=root.player.max_hp - 1),
+        context=replace(root.context, gold=root.context.gold + 5),
+        potion_slots=(FairPotionSlot(0, "weak_potion"),),
+    )
+    outcome = _outcome_from_shared_walk(
+        root_observation=root,
+        terminal_observation=terminal,
+        status="lost",
+        accepted_decisions=4,
+        player_turns=2,
+        truncation_trigger=None,
+    )
+    assert outcome.status == "lost"
+    assert outcome.terminal_hp == 0
+    assert outcome.terminal_max_hp == root.player.max_hp - 1
+    assert outcome.max_hp_change == -1
+    assert outcome.gold_change == 5
+    assert outcome.potion_slots == ("weak_potion",)
+    assert outcome.terminal is True
+    assert outcome.truncated is False
+
+
+def test_shared_outcome_preserves_truncation_contract() -> None:
+    root = RunEnv.combat_fixture().decision().observation
+    assert isinstance(root, FairCombatObservation)
+    outcome = _outcome_from_shared_walk(
+        root_observation=root,
+        terminal_observation=root,
+        status="truncated",
+        accepted_decisions=512,
+        player_turns=3,
+        truncation_trigger="accepted_decisions",
+    )
+    assert outcome.status == "truncated"
+    assert outcome.terminal is False
+    assert outcome.truncated is True
+    assert outcome.truncation_trigger == "accepted_decisions"
 
 
 def test_nested_output_dir_refuses_symlink(tmp_path: Path) -> None:
