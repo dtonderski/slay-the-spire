@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from .records import SymbolicTrainingRecord, _canonical_json, action_descriptor_payload
+from .provenance import canonical_bytes
+from .records import SymbolicTrainingRecord, action_descriptor_payload
 from .rewards import COMBAT_PROXY_V1
 
 AFFINE_TANH_WIN_PROBABILITY_MAP = "affine_tanh_unit_interval_v1"
@@ -75,7 +76,7 @@ def teacher_conflict_report(
         if len(digests) != 1:
             raise ValueError("teacher pair observations do not share one fair digest")
         ordered_actions = [
-            tuple(_canonical_json(action_descriptor_payload(action)) for action in record.actions)
+            tuple(canonical_bytes(action_descriptor_payload(action)).decode() for action in record.actions)
             for record in group
         ]
         if any(actions != ordered_actions[0] for actions in ordered_actions[1:]):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import inspect
 import json
 import subprocess
@@ -14,7 +15,6 @@ import torch
 from sts_sim import ActionDescriptor, FairCombatObservation, Potion, RunEnv
 from sts_sim.rl import (
     BatchedCombatDecision,
-    CheckpointSourceMismatchWarning,
     CombatModelConfig,
     CombatOutcome,
     CounterChange,
@@ -39,6 +39,40 @@ from sts_sim.rl import (
     tensorize_combat,
     write_jsonl,
 )
+from sts_sim.rl.records import BEAM_TEACHER_NAME, RECORD_VERSION, JsonValue, canonical_episode_id
+from sts_sim.rl.rewards import COMBAT_PROXY_V1
+
+_BEAM_SEARCH_CONFIG: dict[str, JsonValue] = {
+    "depth": 8,
+    "width": 24,
+    "transition_budget": 32,
+    "max_decisions": 512,
+    "max_player_turns": 100,
+    "deadline": None,
+    "replan": "every_public_decision",
+    "deduplicate_search_states": True,
+}
+
+
+def _hex(label: str) -> str:
+    return hashlib.sha256(label.encode()).hexdigest()
+
+
+def _rebind_root(
+    record: SymbolicTrainingRecord,
+    root_id: str,
+    **changes: object,
+) -> SymbolicTrainingRecord:
+    digest_root = root_id if len(root_id) == 64 else _hex(root_id)
+    return replace(
+        record,
+        root_id=digest_root,
+        episode_id=canonical_episode_id(
+            digest_root, record.search_config, record.reward_config_digest
+        ),
+        record_id=None,
+        **changes,
+    )
 
 
 def _decision() -> tuple[FairCombatObservation, tuple[ActionDescriptor, ...]]:
@@ -104,26 +138,39 @@ def _record(
     split_group: str = "split-a",
     root_id: str = "fixture-root",
     teacher_pair_id: str | None = None,
-    value_target_name: str = "combat_proxy_v1",
+    target_value: float | None = 0.75,
+    value_target_mask: bool | None = None,
+    search_root_mean_value: float = 0.75,
 ) -> SymbolicTrainingRecord:
     counts = visits or tuple(1 if index == chosen else 0 for index in range(len(actions)))
+    digest_root = root_id if len(root_id) == 64 else _hex(root_id)
+    reward_digest = COMBAT_PROXY_V1.digest
     return SymbolicTrainingRecord(
         observation=observation,
         actions=actions,
         chosen_action_index=chosen,
         chosen_action=actions[chosen],
         teacher_visit_counts=counts,
-        target_value=0.75,
-        value_target_name=value_target_name,
+        target_value=target_value,
+        value_target_name=COMBAT_PROXY_V1.name,
         outcome=_outcome(),
-        planner_name="fixture_teacher",
-        planner_version="test-1",
-        search_config={"transition_budget": 32, "replan": "decision"},
-        root_id=root_id,
+        planner_name=BEAM_TEACHER_NAME,
+        planner_version="replan_each_public_decision_v2",
+        search_config=_BEAM_SEARCH_CONFIG,
+        root_id=digest_root,
         split_group_id=split_group,
         teacher_pair_id=teacher_pair_id,
         repository=RepositoryVersion("a" * 40, True),
         observation_digest=fair_observation_digest(observation),
+        record_version=RECORD_VERSION,
+        root_manifest_digest=_hex("root-manifest"),
+        reward_config_digest=reward_digest,
+        source_kind="simulator_legal_v1",
+        episode_id=canonical_episode_id(digest_root, _BEAM_SEARCH_CONFIG, reward_digest),
+        decision_index=0,
+        value_target_mask=target_value is not None if value_target_mask is None else value_target_mask,
+        record_id=None,
+        search_root_mean_value=search_root_mean_value,
     )
 
 
@@ -392,11 +439,8 @@ def test_checkpoint_round_trip_preserves_exact_outputs_mode_and_metadata(tmp_pat
     mismatched["model_source_digest"] = "b" * 64
     mismatched_path = tmp_path / "mismatched.pt"
     torch.save(mismatched, mismatched_path)
-    with pytest.warns(CheckpointSourceMismatchWarning, match="model_source_digest"):
-        source_mismatch = load_checkpoint(mismatched_path)
-    assert source_mismatch.model_source_digest == "b" * 64
     with pytest.raises(ValueError, match="source bytes differ.*model_source_digest"):
-        load_checkpoint(mismatched_path, strict_source=True)
+        load_checkpoint(mismatched_path)
 
     other_builder = VocabularyBuilder()
     other_builder.add(
@@ -435,40 +479,13 @@ def test_symbolic_jsonl_round_trip_and_on_demand_dataset(tmp_path: Path) -> None
     assert batch.outcomes == (_outcome(),)
 
 
-def test_known_v1_symbolic_payload_remains_tensorizable() -> None:
+def test_schema_one_symbolic_payload_is_rejected() -> None:
     observation, actions = _decision()
     payload = _record(observation, actions).to_dict()
     observation_payload = cast(dict[str, object], payload["observation"])
     observation_payload["schema_version"] = 1
-    observation_payload.pop("orb_slots")
-
-    def remove_v2_fields(value: object) -> None:
-        if isinstance(value, dict):
-            dynamic = value.get("dynamic")
-            if isinstance(dynamic, dict):
-                dynamic.pop("windmill_retain_damage", None)
-                dynamic.pop("steam_barrier_block_reduction", None)
-                dynamic.pop("combat_cost_under_turn_override", None)
-            for child in value.values():
-                remove_v2_fields(child)
-        elif isinstance(value, list):
-            for child in value:
-                remove_v2_fields(child)
-
-    remove_v2_fields(observation_payload)
-    parsed_observation = FairCombatObservation._from_payload(observation_payload)
-    payload["observation_digest"] = fair_observation_digest(parsed_observation)
-    restored = SymbolicTrainingRecord.from_dict(payload)
-    vocab = _vocab(restored.observation, restored.actions)
-    encoded = SymbolicCombatDataset((restored,), vocab)[0]
-    serialized = restored.to_dict()
-    serialized_observation = cast(dict[str, object], serialized["observation"])
-    assert serialized_observation["schema_version"] == 1
-    assert "orb_slots" not in serialized_observation
-    reparsed = SymbolicTrainingRecord.from_dict(serialized)
-    assert reparsed == restored
-    assert restored.observation.schema_version == 1
-    assert encoded.decision.action_count == len(actions)
+    with pytest.raises(ValueError, match="unsupported fair observation schema"):
+        SymbolicTrainingRecord.from_dict(payload)
 
 
 def test_tensorizer_rejects_nonfinite_and_float32_overflow_scalars() -> None:
@@ -696,26 +713,29 @@ def test_teacher_conflict_uses_explicit_distinct_paired_public_roots() -> None:
         root_id="hidden-root-b",
         teacher_pair_id="pair-1",
     )
-    unrelated = replace(first, root_id="natural-root", teacher_pair_id=None)
+    unrelated = _rebind_root(first, "natural-root", teacher_pair_id=None)
     report = teacher_conflict_report([first, second, unrelated])
     assert len(report) == 1
     assert report[0].teacher_pair_id == "pair-1"
     assert report[0].record_count == 2
     assert report[0].jensen_shannon_divergence == pytest.approx(torch.log(torch.tensor(2.0)).item())
 
+    reversed_actions = second.actions[::-1]
     with pytest.raises(ValueError, match="legal action"):
         teacher_conflict_report(
             [
                 first,
                 replace(
                     second,
-                    actions=second.actions[::-1],
-                    chosen_action_index=2,
+                    actions=reversed_actions,
+                    chosen_action=reversed_actions[1],
+                    chosen_action_index=1,
+                    record_id=None,
                 ),
             ]
         )
     with pytest.raises(ValueError, match="one policy per root"):
-        teacher_conflict_report([first, replace(second, root_id=first.root_id)])
+        teacher_conflict_report([first, _rebind_root(second, first.root_id)])
     changed_observation = replace(
         observation,
         player=replace(observation.player, hp=observation.player.hp - 1),
@@ -766,19 +786,12 @@ def test_structured_outcome_rejects_invalid_hp_potions_flags_and_counters() -> N
         CounterChange("relic", "Ink Bottle", "cards", cast(int, True), 1)
 
 
-def test_dataset_and_batch_reject_mixed_value_target_names() -> None:
+def test_dataset_rejects_empty_and_out_of_range_targets() -> None:
     observation, actions = _decision()
-    first = _record(observation, actions, value_target_name="combat_proxy_v1")
-    second = _record(observation, actions, value_target_name="other_proxy")
+    first = _record(observation, actions)
     vocab = _vocab(observation, actions)
     with pytest.raises(ValueError, match="nonempty"):
         SymbolicCombatDataset((), vocab)
-    with pytest.raises(ValueError, match="mixes value target"):
-        SymbolicCombatDataset((first, second), vocab)
-    left = SymbolicCombatDataset((first,), vocab)[0]
-    right = SymbolicCombatDataset((second,), vocab)[0]
-    with pytest.raises(ValueError, match="mixes value target"):
-        collate_training_examples((left, right))
     with pytest.raises(ValueError, match=r"\[-1, 1\]"):
         replace(first, target_value=1.1)
     with pytest.raises(TypeError, match="nonempty"):
@@ -787,12 +800,10 @@ def test_dataset_and_batch_reject_mixed_value_target_names() -> None:
 
 def test_training_record_parsing_is_strict_and_mappings_are_deep_frozen() -> None:
     observation, actions = _decision()
-    record = replace(_record(observation, actions), search_config={"nested": {"budget": [1, 2]}})
+    record = _record(observation, actions)
     nested = cast(dict[str, object], record.to_dict()["search_config"])
-    nested["nested"] = {"budget": [99]}
-    assert cast(dict[str, object], record.to_dict()["search_config"])["nested"] == {
-        "budget": [1, 2]
-    }
+    nested["depth"] = 99
+    assert cast(dict[str, object], record.to_dict()["search_config"])["depth"] == 8
     with pytest.raises(TypeError):
         cast(dict[str, object], record.search_config)["new"] = 1
 
@@ -847,6 +858,7 @@ def test_training_record_rejects_misaligned_choice_and_counts() -> None:
         replace(record, teacher_visit_counts=(1,))
     payload = record.to_dict()
     payload["observation_digest"] = "bad"
+    payload["record_id"] = None
     with pytest.raises(ValueError, match="digest"):
         SymbolicTrainingRecord.from_dict(payload)
 

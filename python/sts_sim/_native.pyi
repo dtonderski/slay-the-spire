@@ -124,6 +124,7 @@ class OmniRunEnv:
         reward_config_json: str | None = ...,
         episode_root_max_hp: int | None = ...,
         episode_root_gold: int | None = ...,
+        leaf_cache: str | None = ...,
     ) -> str: ...
     def puct_clone_episode_json(
         self,
@@ -134,6 +135,7 @@ class OmniRunEnv:
         max_decisions: int = ...,
         max_player_turns: int = ...,
         reward_config_json: str | None = ...,
+        leaf_cache: str | None = ...,
     ) -> str: ...
 
 class FairCombatEnv:

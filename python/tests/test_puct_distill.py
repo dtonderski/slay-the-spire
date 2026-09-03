@@ -19,7 +19,7 @@ from sts_sim.rl import (
     Vocabularies,
     VocabularyBuilder,
     evaluate_matched_puct_gameplay,
-    evaluate_matched_puct_roots_v2,
+    evaluate_matched_puct_roots,
     generate_beam_dataset,
     generate_legal_roots,
     generate_puct_dataset,
@@ -29,12 +29,11 @@ from sts_sim.rl import (
     train_beam_clone,
 )
 from sts_sim.rl.cli import data_main
-from sts_sim.rl.data import DATASET_MANIFEST_V7, DATASET_MANIFEST_VERSION
+from sts_sim.rl.data import DATASET_MANIFEST_VERSION
 from sts_sim.rl.puct import FAIR_LEAF_BATCH_SCHEMA, PUCT_TEACHER_NAME, network_leaf_evaluator
 from sts_sim.rl.puct_data import AuthoritativeRootMutationError
 from sts_sim.rl.records import COMBAT_PROXY_VALUE_TARGET_NAME
 from sts_sim.rl.rewards import COMBAT_PROXY_V1, CombatRewardConfig
-from sts_sim.rl.tracking import OfflineWandbConfig
 from sts_sim.rl.training import TRAINING_CHECKPOINT_FORMAT
 
 
@@ -209,7 +208,7 @@ def test_puct_dataset_generation_is_deterministic_and_v7(
         max_player_turns=3,
     )
     assert first.manifest_digest == second.manifest_digest
-    assert first.manifest_version == DATASET_MANIFEST_V7
+    assert first.manifest_version == DATASET_MANIFEST_VERSION
     assert first.teacher_name == PUCT_TEACHER_NAME
     records = tuple(read_jsonl(tmp_path / "puct-left/train/train.jsonl"))
     assert records
@@ -227,7 +226,7 @@ def test_puct_dataset_generation_is_deterministic_and_v7(
     assert loaded.manifest_digest == first.manifest_digest
 
 
-def test_v5_beam_datasets_still_load_and_v6_tampering_fails_closed(tmp_path: Path) -> None:
+def test_old_dataset_manifest_versions_fail_closed(tmp_path: Path) -> None:
     generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
     beam = generate_beam_dataset(
         tmp_path / "roots/root-manifest.json",
@@ -252,7 +251,7 @@ def test_v5_beam_datasets_still_load_and_v6_tampering_fails_closed(tmp_path: Pat
         max_decisions=1,
         max_player_turns=3,
     )
-    assert puct.manifest_version == DATASET_MANIFEST_V7
+    assert puct.manifest_version == DATASET_MANIFEST_VERSION
     records = tuple(read_jsonl(tmp_path / "puct/train/train.jsonl"))
     truncated = [record for record in records if record.outcome.truncated]
     assert truncated
@@ -264,7 +263,7 @@ def test_v5_beam_datasets_still_load_and_v6_tampering_fails_closed(tmp_path: Pat
     )
     manifest_path = tmp_path / "puct/dataset-manifest.json"
     payload = json.loads(manifest_path.read_text())
-    payload["manifest_version"] = DATASET_MANIFEST_VERSION
+    payload["manifest_version"] = 6
     _resign_dataset_manifest(payload)
     manifest_path.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")))
     with pytest.raises(ValueError):
@@ -349,12 +348,7 @@ def test_puct_dataset_excludes_failed_root_and_keeps_complete_accounting(
     assert any(exclusion.root_id == failed for exclusion in manifest.exclusions)
 
 
-def test_puct_training_logs_puct_targets_in_wandb(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from tests.test_wandb_offline import _install_fake_wandb
-
-    fake = _install_fake_wandb(monkeypatch)
+def test_puct_training_writes_current_checkpoint_format(tmp_path: Path) -> None:
     roots, checkpoint = _beam_train_checkpoint(tmp_path)
     generate_puct_dataset(
         roots,
@@ -366,19 +360,15 @@ def test_puct_training_logs_puct_targets_in_wandb(
         max_decisions=1,
         max_player_turns=3,
     )
+    student_path = tmp_path / "student.pt"
     train_beam_clone(
         tmp_path / "puct-train/dataset-manifest.json",
-        tmp_path / "student.pt",
+        student_path,
         _smoke_training_config(),
-        wandb_offline=OfflineWandbConfig(project="demo", directory=tmp_path / "wandb"),
     )
-    assert fake.run is not None
-    assert fake.run.config["puct_targets_in_training"] is True
-    assert fake.run.config["trainer"] == "privileged_puct_distill"
-    assert fake.run.config["teacher_name"] == PUCT_TEACHER_NAME
-    assert fake.run.config["dataset_manifest_version"] == DATASET_MANIFEST_V7
-    student = torch.load(tmp_path / "student.pt", map_location="cpu", weights_only=False)
+    student = torch.load(student_path, map_location="cpu", weights_only=False)
     assert student["checkpoint_format"] == TRAINING_CHECKPOINT_FORMAT
+    assert student["source_epoch_bundle_digest"]
 
 
 def test_six_policy_matched_roots_restore_independently_and_keep_errors() -> None:
@@ -386,7 +376,7 @@ def test_six_policy_matched_roots_restore_independently_and_keep_errors() -> Non
     snapshot = env.snapshot()
     snapshot_bytes = snapshot.json.encode()
     root_id = hashlib.sha256(snapshot_bytes).hexdigest()
-    report = evaluate_matched_puct_roots_v2(
+    report = evaluate_matched_puct_roots(
         split_roots=((root_id, snapshot_bytes),),
         evaluation_seed=0,
         model=model,
@@ -547,7 +537,7 @@ def test_six_policy_keeps_overflow_errors_in_the_denominator(
         raise OverflowError("injected overflow")
 
     monkeypatch.setattr("sts_sim.rl.puct.rollout_puct_policy", boom)
-    report = evaluate_matched_puct_roots_v2(
+    report = evaluate_matched_puct_roots(
         split_roots=((root_id, snapshot_bytes),),
         evaluation_seed=0,
         model=model,
@@ -628,7 +618,7 @@ def test_cli_puct_label_subprocess_writes_v7_manifest(tmp_path: Path) -> None:
     )
     assert completed.returncode == 0, completed.stderr
     manifest = load_dataset_manifest(output / "dataset-manifest.json", requested_split="train")
-    assert manifest.manifest_version == DATASET_MANIFEST_V7
+    assert manifest.manifest_version == DATASET_MANIFEST_VERSION
     payload = json.loads(completed.stdout)
-    assert payload["manifest_version"] == DATASET_MANIFEST_V7
+    assert payload["manifest_version"] == DATASET_MANIFEST_VERSION
     assert payload["teacher_name"] == PUCT_TEACHER_NAME

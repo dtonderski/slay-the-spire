@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import stat
 import subprocess
@@ -10,7 +11,34 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+_HEX = "0123456789abcdef"
 _REPOSITORY_KEYS = {"git_sha", "clean", "dirty_diff_digest"}
+
+
+def canonical_bytes(payload: object) -> bytes:
+    return json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+    ).encode()
+
+
+def sha256_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
+
+def require_digest(value: object, label: str) -> str:
+    if (
+        type(value) is not str
+        or len(value) != 64
+        or any(character not in _HEX for character in value)
+    ):
+        raise ValueError(f"{label} must be a lowercase SHA-256 digest")
+    return value
+
+
+def digest_payload(payload: dict[str, object], digest_key: str) -> str:
+    unsigned = dict(payload)
+    unsigned.pop(digest_key, None)
+    return sha256_bytes(canonical_bytes(unsigned))
 
 
 @dataclass(frozen=True, slots=True)

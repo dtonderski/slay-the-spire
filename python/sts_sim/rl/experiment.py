@@ -15,13 +15,6 @@ from types import MappingProxyType
 from typing import cast
 
 from .provenance import capture_repository_version, file_digest
-from .tracking import (
-    DEFAULT_LOCAL_WANDB_BASE_URL,
-    MUTABLE_SYNCHRONIZATION_DIRECTORY_NAME,
-    discover_offline_wandb_runs,
-    is_wandb_synchronization_path,
-    sync_offline_wandb,
-)
 
 PREDECLARATION_KIND = "experiment_predeclaration_v1"
 PREDECLARATION_SCHEMA_VERSION = 1
@@ -78,7 +71,6 @@ _FILE_DIGEST_ROLES = {
     "checkpoint": "checkpoint_file_digest",
 }
 _LIVE_ENVIRONMENT_KEYS = frozenset({"source_digest", "runtime_identity_digest"})
-_ALLOWED_MUTABLE_SYMLINK_NAMES = frozenset({"latest-run"})
 
 
 def _canonical_bytes(payload: object) -> bytes:
@@ -145,14 +137,11 @@ def _absolute_without_follow(path: Path) -> Path:
 
 
 def is_mutable_synchronization_path(relative: Path) -> bool:
-    """Mutable observational metadata: W&B trees, timing files, and sync sidecars."""
+    """Mutable observational metadata: timing files written beside immutable artifacts."""
 
     if relative.is_absolute():
         raise ValueError("artifact paths must be relative to the experiment directory")
-    if is_wandb_synchronization_path(relative):
-        return True
-    name = relative.name
-    return name.endswith(".time.txt")
+    return relative.name.endswith(".time.txt")
 
 
 def normalize_inventory_relative_path(path_text: str) -> str:
@@ -327,12 +316,12 @@ class ArtifactRef:
 @dataclass(frozen=True, slots=True)
 class ExperimentPredeclaration:
     kind: str
-    schema_version: int | None
+    schema_version: int
     name: str
     source_commit: str
     source_worktree_must_be_clean: bool
     promotion_claim: bool
-    consumed_evidence_policy: Mapping[str, bool] | None
+    consumed_evidence_policy: Mapping[str, bool]
     inputs: tuple[ArtifactRef, ...]
     outputs: tuple[ArtifactRef, ...]
     environment: Mapping[str, str | None]
@@ -468,24 +457,9 @@ def _iter_tree_entries(root: Path) -> Iterator[tuple[Path, str]]:
                 yield child, "file"
 
 
-def _symlink_target_within_root(root: Path, path: Path) -> bool:
-    raw = os.readlink(path)
-    target = Path(raw)
-    if not target.is_absolute():
-        target = path.parent / target
-    try:
-        _lexically_normalized(target).relative_to(_lexically_normalized(root))
-    except ValueError:
-        return False
-    return True
-
-
 def _symlink_is_allowed(root: Path, path: Path, relative: Path) -> bool:
-    if not is_mutable_synchronization_path(relative):
-        return False
-    if path.name not in _ALLOWED_MUTABLE_SYMLINK_NAMES:
-        return False
-    return _symlink_target_within_root(root, path)
+    del root, path, relative
+    return False
 
 
 def _scientific_file_digests(root: Path) -> dict[str, str]:
@@ -531,10 +505,10 @@ def _undeclared_policy_for(root: Path) -> str:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("predeclaration.json is not valid JSON") from error
     source = _require_mapping(payload, "predeclaration")
-    if source.get("kind") == PREDECLARATION_KIND:
-        _load_v1_predeclaration(source)
-        return UNDECLARED_POLICY_STRICT
-    return UNDECLARED_POLICY_REPORT_ONLY
+    if source.get("kind") != PREDECLARATION_KIND:
+        raise ValueError("unsupported experiment predeclaration")
+    _load_v1_predeclaration(source)
+    return UNDECLARED_POLICY_STRICT
 
 
 def write_artifact_inventory(
@@ -575,7 +549,7 @@ def verify_artifact_integrity(
     *,
     inventory_path: Path | None = None,
 ) -> ArtifactIntegrityReport:
-    """Check declared scientific digests. W&B and timing files are observational."""
+    """Check declared scientific digests. Timing files are observational."""
 
     root = _absolute_without_follow(experiment_dir)
     if not root.is_dir():
@@ -724,52 +698,12 @@ def _require_list(value: object, label: str) -> list[object]:
     return cast(list[object], value)
 
 
-def _load_legacy_predeclaration(payload: Mapping[str, object]) -> ExperimentPredeclaration:
-    name_value = payload.get("name")
-    if type(name_value) is str:
-        name = _require_string(name_value, "name")
-    else:
-        name = "legacy_predeclaration"
-    clean_value = payload.get("source_worktree_must_be_clean")
-    if clean_value is None:
-        clean = True
-    else:
-        clean = _require_bool(clean_value, "source_worktree_must_be_clean")
-    promotion_value = payload.get("promotion_claim")
-    promotion = (
-        False if promotion_value is None else _require_bool(promotion_value, "promotion_claim")
-    )
-    policy_value = payload.get("consumed_evidence_policy")
-    policy: dict[str, bool] | None
-    if policy_value is None:
-        policy = None
-    else:
-        source = _require_mapping(policy_value, "consumed_evidence_policy")
-        policy = {}
-        for key in ("sealed_test", "real_trace_audit"):
-            if key in source:
-                policy[key] = _require_bool(source[key], f"consumed_evidence_policy.{key}")
-    return ExperimentPredeclaration(
-        kind="legacy_predeclaration",
-        schema_version=None,
-        name=name,
-        source_commit=_require_git_sha(payload.get("source_commit"), "source_commit"),
-        source_worktree_must_be_clean=clean,
-        promotion_claim=promotion,
-        consumed_evidence_policy=None if policy is None else MappingProxyType(policy),
-        inputs=(),
-        outputs=(),
-        environment=MappingProxyType({}),
-        payload=MappingProxyType(dict(payload)),
-    )
-
-
 def load_experiment_predeclaration(path: Path) -> ExperimentPredeclaration:
     payload = json.loads(path.read_text(encoding="utf-8"))
     source = _require_mapping(payload, "predeclaration")
-    if source.get("kind") == PREDECLARATION_KIND:
-        return _load_v1_predeclaration(source)
-    return _load_legacy_predeclaration(source)
+    if source.get("kind") != PREDECLARATION_KIND:
+        raise ValueError("unsupported experiment predeclaration")
+    return _load_v1_predeclaration(source)
 
 
 def _resolve_declared_path(path_text: str, experiment_dir: Path | None) -> Path:
@@ -1003,48 +937,3 @@ def reproduce_experiment(
     }
     report["report_digest"] = _sha256_bytes(_canonical_bytes(report))
     return report
-
-
-def sync_experiment_wandb(
-    directory: Path,
-    *,
-    base_url: str = DEFAULT_LOCAL_WANDB_BASE_URL,
-) -> dict[str, object]:
-    """Sync W&B metadata only; refuse if scientific bytes change."""
-
-    root = _absolute_without_follow(directory)
-    before = _scientific_file_digests(root)
-    before_symlinks = _symlink_violations(root)
-    result = sync_offline_wandb(root, base_url=base_url)
-    after = _scientific_file_digests(root)
-    after_symlinks = _symlink_violations(root)
-    if before != after or before_symlinks != after_symlinks:
-        changed = sorted(set(before) | set(after))
-        drifted = [path for path in changed if before.get(path) != after.get(path)]
-        raise ArtifactIntegrityError(
-            ArtifactIntegrityReport(
-                ok=False,
-                experiment_dir=str(root),
-                inventory_path="",
-                checked=len(before),
-                skipped_mutable=tuple(
-                    _relative_to_root(root, path).as_posix()
-                    for path, kind in _iter_tree_entries(root)
-                    if kind == "file"
-                    and is_mutable_synchronization_path(_relative_to_root(root, path))
-                ),
-                missing=(),
-                mismatches=tuple(
-                    IntegrityMismatch(path, before.get(path, ""), after.get(path))
-                    for path in drifted
-                ),
-                undeclared_scientific=(),
-                undeclared_policy=UNDECLARED_POLICY_REPORT_ONLY,
-                symlink_violations=after_symlinks,
-            )
-        )
-    result = dict(result)
-    result["scientific_artifacts_modified"] = False
-    result["offline_run_count"] = len(discover_offline_wandb_runs(root))
-    result["mutable_directory_name"] = MUTABLE_SYNCHRONIZATION_DIRECTORY_NAME
-    return result

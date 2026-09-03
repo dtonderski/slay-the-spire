@@ -43,7 +43,7 @@ PAD: Final = "<pad>"
 UNK: Final = "<unk>"
 NONE: Final = "<none>"
 _RESERVED: Final = (PAD, UNK, NONE)
-KNOWN_OBSERVATION_SCHEMA_VERSIONS: Final = frozenset({1, 2})
+KNOWN_OBSERVATION_SCHEMA_VERSIONS: Final = frozenset({2})
 REQUIRED_NAMESPACES: Final = frozenset(
     {
         "action_family",

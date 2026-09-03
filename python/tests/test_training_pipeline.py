@@ -37,6 +37,7 @@ from sts_sim.rl import (
     read_jsonl,
     train_beam_clone,
 )
+from sts_sim.rl.records import BEAM_TEACHER_NAME, RECORD_VERSION, canonical_episode_id
 
 
 def test_reward_is_bounded_survival_dominant_and_masks_truncation() -> None:
@@ -196,11 +197,7 @@ def _fail_native_episodes(monkeypatch: pytest.MonkeyPatch, failing_root_ids: set
 
 
 def _resign_dataset_manifest(payload: dict[str, object]) -> None:
-    unsigned = dict(payload)
-    unsigned.pop("manifest_digest")
-    payload["manifest_digest"] = hashlib.sha256(
-        json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    payload["manifest_digest"] = data_module._digest_payload(payload, "manifest_digest")
 
 
 def _resign_root_manifest(payload: dict[str, object]) -> None:
@@ -212,7 +209,7 @@ def _resign_root_manifest(payload: dict[str, object]) -> None:
         split_salt=cast(str, payload["split_salt"]),
         ascension=cast(int, payload["ascension"]),
         max_run_steps=cast(int, payload["max_run_steps"]),
-        combat_depth=(cast(int, payload["combat_depth"]) if "combat_depth" in payload else None),
+        combat_depth=cast(int, payload["combat_depth"]),
     )
     _resign_dataset_manifest(payload)
 
@@ -267,7 +264,7 @@ def test_root_and_beam_dataset_generation_is_byte_deterministic(tmp_path: Path) 
     ).read_bytes()
     records = tuple(read_jsonl(tmp_path / "data-left/train/train.jsonl"))
     assert records
-    assert all(record.record_version == 2 for record in records)
+    assert all(record.record_version == RECORD_VERSION for record in records)
     assert all(sum(record.teacher_visit_counts) == 1 for record in records)
     assert all(record.teacher_visit_counts[record.chosen_action_index] == 1 for record in records)
     assert all(
@@ -375,7 +372,19 @@ def test_truncated_value_rows_are_masked_from_loss() -> None:
         2,
         "accepted_decisions",
     )
-    legacy = SymbolicTrainingRecord(
+    search_config = {
+        "depth": 8,
+        "width": 24,
+        "transition_budget": 32,
+        "max_decisions": 512,
+        "max_player_turns": 100,
+        "deadline": None,
+        "replan": "every_public_decision",
+        "deduplicate_search_states": True,
+    }
+    root_id = hashlib.sha256(b"truncated-root").hexdigest()
+    reward_digest = COMBAT_PROXY_V1.digest
+    masked = SymbolicTrainingRecord(
         observation=observation,
         actions=actions,
         chosen_action_index=0,
@@ -384,22 +393,30 @@ def test_truncated_value_rows_are_masked_from_loss() -> None:
         target_value=None,
         value_target_name="combat_proxy_v1",
         outcome=outcome,
-        planner_name="test",
-        planner_version="1",
-        search_config={},
-        root_id="legacy",
-        split_group_id="legacy",
+        planner_name=BEAM_TEACHER_NAME,
+        planner_version="replan_each_public_decision_v2",
+        search_config=search_config,
+        root_id=root_id,
+        split_group_id=hashlib.sha256(b"truncated-group").hexdigest(),
         teacher_pair_id=None,
         repository=RepositoryVersion("a" * 40, True),
         observation_digest=fair_observation_digest(observation),
+        record_version=RECORD_VERSION,
+        root_manifest_digest=hashlib.sha256(b"truncated-manifest").hexdigest(),
+        reward_config_digest=reward_digest,
+        source_kind="simulator_legal_v1",
+        episode_id=canonical_episode_id(root_id, search_config, reward_digest),
+        decision_index=0,
         value_target_mask=False,
+        record_id=None,
+        search_root_mean_value=0.0,
     )
     builder = VocabularyBuilder()
     builder.add(observation, actions)
     vocab = builder.freeze()
-    batch = collate_training_examples((SymbolicCombatDataset((legacy,), vocab)[0],))
+    batch = collate_training_examples((SymbolicCombatDataset((masked,), vocab)[0],))
     assert not hasattr(batch.decision, "records")
-    assert batch.records == (legacy,)  # diagnostics only; never passed to the model
+    assert batch.records == (masked,)  # diagnostics only; never passed to the model
     model = FairCombatPolicyValueNet(
         vocab, CombatModelConfig(width=16, heads=4, layers=1, feedforward_width=32)
     )
@@ -642,44 +659,21 @@ def test_training_resume_and_development_report_are_deterministic(tmp_path: Path
         )
 
 
-def test_sealed_roots_are_withheld_by_default_and_audited_materialization_is_explicit(
-    tmp_path: Path,
-) -> None:
+def test_sealed_roots_are_withheld_and_cannot_be_materialized(tmp_path: Path) -> None:
     ordinary = generate_legal_roots(tmp_path / "ordinary-roots", ["BEAMCLONE17"], max_run_steps=128)
-    assert ordinary.audited_splits_materialized is False
     assert ordinary.roots == ()
-    assert list((tmp_path / "ordinary-roots").rglob("*.json")) == [
-        tmp_path / "ordinary-roots/root-manifest.json"
-    ]
-
-    audited = generate_legal_roots(
-        tmp_path / "audited-roots",
-        ["BEAMCLONE17"],
-        max_run_steps=128,
-        materialize_audited_splits=True,
-    )
-    assert audited.audited_splits_materialized is True
-    assert ordinary.cohort_digest == audited.cohort_digest
-    assert ordinary.manifest_digest != audited.manifest_digest
-    assert ordinary.requested_seeds == audited.requested_seeds == ("BEAMCLONE17",)
-    assert {root.split for root in audited.roots} == {"sealed_test"}
-    assert all(root.relative_path.startswith("sealed_test/roots/") for root in audited.roots)
-    generate_beam_dataset(
-        tmp_path / "audited-roots/root-manifest.json",
-        tmp_path / "sealed",
-        split="sealed_test",
-        allow_audited_split=True,
-        depth=2,
-        width=4,
-        transition_budget=100,
-        max_decisions=8,
-        max_player_turns=3,
-    )
-    with pytest.raises(PermissionError, match="explicit access"):
-        load_root_manifest(tmp_path / "audited-roots/root-manifest.json")
-    with pytest.raises(PermissionError, match="explicit audited access"):
-        load_dataset_manifest(
-            tmp_path / "sealed/dataset-manifest.json", requested_split="sealed_test"
+    assert {exclusion.reason for exclusion in ordinary.exclusions} == {"withheld_audited_split"}
+    assert not list((tmp_path / "ordinary-roots").glob("sealed_test/**"))
+    with pytest.raises(ValueError, match="unknown or sealed dataset split"):
+        generate_beam_dataset(
+            tmp_path / "ordinary-roots/root-manifest.json",
+            tmp_path / "sealed",
+            split="sealed_test",
+            depth=2,
+            width=4,
+            transition_budget=100,
+            max_decisions=8,
+            max_player_turns=3,
         )
 
 
@@ -696,18 +690,10 @@ def _smoke_training_config() -> TrainingConfig:
     )
 
 
-def test_explicit_audited_evaluation_requires_matching_cohort_and_teacher_search(
-    tmp_path: Path,
-) -> None:
-    seeds = ["BEAMCLONE17", "BEAMCLONE0"]
-    ordinary = generate_legal_roots(tmp_path / "train-roots", seeds, max_run_steps=128)
-    reversed_order = generate_legal_roots(
-        tmp_path / "train-roots-reversed", list(reversed(seeds)), max_run_steps=128
-    )
-    assert ordinary.requested_seeds == ("BEAMCLONE0", "BEAMCLONE17")
-    assert ordinary.cohort_digest == reversed_order.cohort_digest
-    train = generate_beam_dataset(
-        tmp_path / "train-roots/root-manifest.json",
+def test_held_out_evaluation_rejects_sealed_splits(tmp_path: Path) -> None:
+    generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
+    generate_beam_dataset(
+        tmp_path / "roots/root-manifest.json",
         tmp_path / "train",
         split="train",
         depth=2,
@@ -716,102 +702,11 @@ def test_explicit_audited_evaluation_requires_matching_cohort_and_teacher_search
         max_decisions=8,
         max_player_turns=3,
     )
-    audited = generate_legal_roots(
-        tmp_path / "audited-roots",
-        seeds,
-        max_run_steps=128,
-        materialize_audited_splits=True,
-    )
-    sealed = generate_beam_dataset(
-        tmp_path / "audited-roots/root-manifest.json",
-        tmp_path / "sealed",
-        split="sealed_test",
-        allow_audited_split=True,
-        depth=2,
-        width=4,
-        transition_budget=100,
-        max_decisions=8,
-        max_player_turns=3,
-    )
-    assert (
-        ordinary.cohort_digest
-        == audited.cohort_digest
-        == train.cohort_digest
-        == sealed.cohort_digest
-    )
-    assert train.root_manifest_digest != sealed.root_manifest_digest
-    assert train.teacher_search_contract_digest == sealed.teacher_search_contract_digest
     checkpoint = tmp_path / "checkpoint.pt"
     train_beam_clone(tmp_path / "train/dataset-manifest.json", checkpoint, _smoke_training_config())
-    with pytest.raises(PermissionError, match="explicit audited access"):
+    with pytest.raises(ValueError, match="dataset split does not match requested split"):
         evaluate_beam_clone(
-            tmp_path / "sealed/dataset-manifest.json", checkpoint, split="sealed_test"
-        )
-    report = evaluate_beam_clone(
-        tmp_path / "sealed/dataset-manifest.json",
-        checkpoint,
-        split="sealed_test",
-        allow_audited_split=True,
-    )
-    assert report["report_version"] == 4
-    assert all(
-        "error" not in cast(dict[str, object], row)
-        for row in cast(list[object], report["per_record"])
-    )
-    assert report["checkpoint_training_root_manifest_digest"] == train.root_manifest_digest
-    assert report["root_manifest_digest"] == sealed.root_manifest_digest
-    assert (
-        report["checkpoint_training_cohort_digest"]
-        == report["cohort_digest"]
-        == train.cohort_digest
-    )
-    assert report["teacher_search_contract_digest"] == train.teacher_search_contract_digest
-
-    generate_legal_roots(
-        tmp_path / "disjoint-roots",
-        ["BEAMCLONE4"],
-        max_run_steps=128,
-        materialize_audited_splits=True,
-    )
-    disjoint = generate_beam_dataset(
-        tmp_path / "disjoint-roots/root-manifest.json",
-        tmp_path / "disjoint",
-        split="sealed_test",
-        allow_audited_split=True,
-        depth=2,
-        width=4,
-        transition_budget=100,
-        max_decisions=8,
-        max_player_turns=3,
-    )
-    assert disjoint.cohort_digest != train.cohort_digest
-    with pytest.raises(ValueError, match="disjoint cohort"):
-        evaluate_beam_clone(
-            tmp_path / "disjoint/dataset-manifest.json",
-            checkpoint,
-            split="sealed_test",
-            allow_audited_split=True,
-        )
-
-    mismatched = generate_beam_dataset(
-        tmp_path / "audited-roots/root-manifest.json",
-        tmp_path / "sealed-mismatch",
-        split="sealed_test",
-        allow_audited_split=True,
-        depth=3,
-        width=4,
-        transition_budget=100,
-        max_decisions=8,
-        max_player_turns=3,
-    )
-    assert mismatched.cohort_digest == train.cohort_digest
-    assert mismatched.teacher_search_contract_digest != train.teacher_search_contract_digest
-    with pytest.raises(ValueError, match="teacher/search contract"):
-        evaluate_beam_clone(
-            tmp_path / "sealed-mismatch/dataset-manifest.json",
-            checkpoint,
-            split="sealed_test",
-            allow_audited_split=True,
+            tmp_path / "train/dataset-manifest.json", checkpoint, split="sealed_test"
         )
 
 
@@ -1054,9 +949,8 @@ def test_dataset_loader_rejects_policy_chosen_action_contradiction(tmp_path: Pat
     payloads = [json.loads(line) for line in shard.read_text().splitlines()]
     first = payloads[0]
     chosen = cast(int, first["chosen_action_index"])
-    replacement = next(index for index in range(len(first["actions"])) if index != chosen)
     first["teacher_visit_counts"] = [0] * len(first["actions"])
-    first["teacher_visit_counts"][replacement] = 1
+    first["teacher_visit_counts"][chosen] = 2
     first["record_id"] = None
     changed = SymbolicTrainingRecord.from_dict(first)
     payloads[0] = changed.to_dict()
@@ -1141,7 +1035,7 @@ def test_dataset_loader_recomputes_value_targets_and_record_identity_is_substant
         load_dataset_manifest(manifest_path, requested_split="train")
 
 
-def test_v2_record_rejects_forbidden_search_state_keys(tmp_path: Path) -> None:
+def test_record_rejects_forbidden_search_state_keys(tmp_path: Path) -> None:
     generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
     generate_beam_dataset(
         tmp_path / "roots/root-manifest.json",

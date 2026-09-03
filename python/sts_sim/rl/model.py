@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import warnings
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -284,10 +283,6 @@ class LoadedCheckpoint:
     model_source_digest: str
 
 
-class CheckpointSourceMismatchWarning(UserWarning):
-    """A checkpoint was loaded under source bytes other than those recorded."""
-
-
 def _json_copy(payload: dict[str, object]) -> dict[str, object]:
     return cast(dict[str, object], json.loads(json.dumps(payload, sort_keys=True)))
 
@@ -333,7 +328,6 @@ def load_checkpoint(
     expected_vocabularies: Vocabularies | None = None,
     expected_config: CombatModelConfig | None = None,
     expected_value_target_name: str | None = None,
-    strict_source: bool = False,
 ) -> LoadedCheckpoint:
     payload = cast(dict[str, Any], torch.load(path, map_location="cpu", weights_only=True))
     expected_keys = {
@@ -351,8 +345,6 @@ def load_checkpoint(
     }
     if set(payload) != expected_keys or payload["checkpoint_format"] != CHECKPOINT_FORMAT:
         raise ValueError("unsupported or malformed checkpoint envelope")
-    if type(strict_source) is not bool:
-        raise TypeError("strict_source must be boolean")
     source_digests: dict[str, str] = {}
     for field in ("tensorizer_source_digest", "model_source_digest"):
         digest = payload[field]
@@ -386,10 +378,7 @@ def load_checkpoint(
         if digest != current_source_digests[field]
     )
     if mismatches:
-        message = "checkpoint source bytes differ for: " + ", ".join(mismatches)
-        if strict_source:
-            raise ValueError(message)
-        warnings.warn(message, CheckpointSourceMismatchWarning, stacklevel=2)
+        raise ValueError("checkpoint source bytes differ for: " + ", ".join(mismatches))
     raw_config = cast(dict[str, Any], payload["model_config"])
     if set(raw_config) != set(asdict(CombatModelConfig())):
         raise ValueError("checkpoint model config is malformed")

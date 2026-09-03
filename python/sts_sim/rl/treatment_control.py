@@ -10,8 +10,6 @@ from pathlib import Path
 from typing import cast
 
 from .data import (
-    DATASET_MANIFEST_V6,
-    DATASET_MANIFEST_V7,
     DATASET_MANIFEST_VERSION,
     DatasetManifest,
     _sha256_bytes,
@@ -22,13 +20,13 @@ from .experiment import (
     _read_regular_file_bytes,
     write_scientific_artifact,
 )
-from .records import PUCT_TEACHER_NAME, SymbolicTrainingRecord
+from .records import BEAM_TEACHER_NAME, PUCT_TEACHER_NAME, SymbolicTrainingRecord
+from .source_epoch import SOURCE_EPOCH_DIRNAME
 from .tensor import Vocabularies, VocabularyBuilder, encoder_contract_digest
 
 SHARED_TRAINING_VOCABULARY_KIND = "shared-training-vocabulary-v1"
 SHARED_TRAINING_VOCABULARY_VERSION = 1
 _HEX = "0123456789abcdef"
-_PUCT_MANIFEST_VERSIONS = frozenset({DATASET_MANIFEST_V6, DATASET_MANIFEST_V7})
 _ARTIFACT_KEYS = frozenset(
     {
         "kind",
@@ -151,16 +149,16 @@ def _require_beam_dataset(manifest: DatasetManifest) -> None:
     if manifest.split != "train":
         raise ValueError("shared training vocabulary requires train-split datasets")
     if manifest.manifest_version != DATASET_MANIFEST_VERSION:
-        raise ValueError("beam dataset must use the beam-clone dataset manifest version")
-    if manifest.teacher_name == PUCT_TEACHER_NAME:
-        raise ValueError("beam dataset must not use the privileged PUCT teacher")
+        raise ValueError("dataset must use the current dataset manifest version")
+    if manifest.teacher_name != BEAM_TEACHER_NAME:
+        raise ValueError("beam dataset must use the public replanning-beam teacher")
 
 
 def _require_puct_dataset(manifest: DatasetManifest) -> None:
     if manifest.split != "train":
         raise ValueError("shared training vocabulary requires train-split datasets")
-    if manifest.manifest_version not in _PUCT_MANIFEST_VERSIONS:
-        raise ValueError("PUCT dataset must use a PUCT dataset manifest version")
+    if manifest.manifest_version != DATASET_MANIFEST_VERSION:
+        raise ValueError("dataset must use the current dataset manifest version")
     if manifest.teacher_name != PUCT_TEACHER_NAME:
         raise ValueError("PUCT dataset must use the privileged PUCT teacher")
 
@@ -192,6 +190,16 @@ def _load_completed_dataset(
             _declared_relative_path(source.get("root_manifest_path"), f"{role} root manifest path"),
         }
     )
+    root_manifest_rel = _declared_relative_path(
+        source.get("root_manifest_path"), f"{role} root manifest path"
+    )
+    bundle_dir = dataset_root / Path(root_manifest_rel).parent / SOURCE_EPOCH_DIRNAME
+    bundle_files: set[str] = set()
+    if bundle_dir.exists():
+        for child in bundle_dir.rglob("*"):
+            if child.is_file():
+                bundle_files.add(child.relative_to(dataset_root).as_posix())
+    declared = declared | bundle_files
     for relative in declared:
         _require_regular_file(dataset_root / relative, f"{role} dataset file {relative}")
     _reject_undeclared_dataset_inputs(dataset_root, declared)

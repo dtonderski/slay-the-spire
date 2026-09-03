@@ -289,16 +289,14 @@ def test_unsorted_and_duplicate_matched_roots_are_rejected() -> None:
         )
 
 
-def test_audited_split_gating_does_not_materialize_development(
+def test_sealed_split_evaluation_fails_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seen: list[bool] = []
+    seen: list[Path] = []
 
-    def fake_load(
-        path: Path, *, verify_roots: bool = True, allow_audited_materialization: bool = False
-    ) -> object:
-        del path, verify_roots
-        seen.append(allow_audited_materialization)
+    def fake_load(path: Path, *, verify_roots: bool = True, verify_source_epoch: bool = True) -> object:
+        del verify_roots, verify_source_epoch
+        seen.append(path)
         raise RuntimeError("stop-after-load")
 
     monkeypatch.setattr(gameplay, "load_root_manifest", fake_load)
@@ -307,13 +305,11 @@ def test_audited_split_gating_does_not_materialize_development(
     roots.write_text("{}", encoding="utf-8")
     checkpoint.write_bytes(b"x")
     with pytest.raises(RuntimeError, match="stop-after-load"):
-        evaluate_matched_gameplay(roots, checkpoint, split="development", allow_audited_split=True)
-    assert seen == [False]
-    with pytest.raises(PermissionError, match="explicit audited access"):
+        evaluate_matched_gameplay(roots, checkpoint, split="development")
+    assert seen == [roots]
+    with pytest.raises(PermissionError, match="sealed and audit splits are not available"):
         evaluate_matched_gameplay(roots, checkpoint, split="sealed_test")
-    with pytest.raises(RuntimeError, match="stop-after-load"):
-        evaluate_matched_gameplay(roots, checkpoint, split="sealed_test", allow_audited_split=True)
-    assert seen[-1] is True
+    assert seen == [roots]
 
 
 def test_teacher_search_contract_mismatch_is_rejected_before_report(

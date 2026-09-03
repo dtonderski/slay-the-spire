@@ -30,12 +30,10 @@ from sts_sim.rl.experiment import (
     normalize_inventory_relative_path,
     parse_sha256sum_inventory,
     reproduce_experiment,
-    sync_experiment_wandb,
     verify_artifact_integrity,
     write_artifact_inventory,
     write_scientific_artifact,
 )
-from sts_sim.rl.tracking import DEFAULT_LOCAL_WANDB_BASE_URL, validate_local_wandb_base_url
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "experiment_infra"
 
@@ -119,10 +117,10 @@ def _write_scientific_worker(payload: tuple[str, bytes]) -> tuple[str, str]:
     return ("ok", digest)
 
 
-def test_mutable_path_classification_separates_wandb_and_timing() -> None:
-    assert is_mutable_synchronization_path(Path("wandb/offline-run-1/run.wandb"))
+def test_mutable_path_classification_is_timing_only() -> None:
     assert is_mutable_synchronization_path(Path("development-gameplay.time.txt"))
-    assert is_mutable_synchronization_path(Path("wandb/wandb/latest-run"))
+    assert not is_mutable_synchronization_path(Path("wandb/offline-run-1/run.wandb"))
+    assert not is_mutable_synchronization_path(Path("wandb/wandb/latest-run"))
     assert not is_mutable_synchronization_path(Path("predeclaration.json"))
     assert not is_mutable_synchronization_path(Path("roots/root-manifest.json"))
     assert not is_mutable_synchronization_path(Path("student/checkpoint.pt"))
@@ -194,43 +192,35 @@ def test_verify_rejects_absolute_and_traversal_inventory_paths(tmp_path: Path) -
         verify_artifact_integrity(experiment)
 
 
-def test_inventory_skips_wandb_and_timing_and_rejects_scientific_tamper(tmp_path: Path) -> None:
+def test_inventory_skips_timing_and_rejects_scientific_tamper(tmp_path: Path) -> None:
     experiment = tmp_path / "exp"
-    scientific = experiment / "predeclaration.json"
+    scientific = experiment / "report.json"
     timing = experiment / "run.time.txt"
-    wandb_run = experiment / "wandb" / "wandb" / "offline-run-1"
-    wandb_run.mkdir(parents=True)
     _write_json(scientific, {"name": "demo"})
     timing.write_text("1.23\n", encoding="utf-8")
-    (wandb_run / "run-1.wandb").write_bytes(b"wandb-bytes")
     inventory = write_artifact_inventory(experiment)
     text = inventory.read_text(encoding="utf-8")
-    assert "predeclaration.json" in text
+    assert "report.json" in text
     assert "run.time.txt" not in text
-    assert "wandb" not in text
     report = verify_artifact_integrity(experiment)
     assert report.ok
     assert report.checked == 1
     assert report.undeclared_policy == UNDECLARED_POLICY_REPORT_ONLY
     timing.write_text("9.99\n", encoding="utf-8")
-    (wandb_run / "run-1.wandb").write_bytes(b"changed-wandb")
     assert verify_artifact_integrity(experiment).ok
     listed_timing = experiment / ARTIFACT_INVENTORY_NAME
     listed_timing.write_text(
-        listed_timing.read_text(encoding="utf-8")
-        + f"{'b' * 64}  ./run.time.txt\n"
-        + f"{'c' * 64}  ./wandb/wandb/offline-run-1/run-1.wandb\n",
+        listed_timing.read_text(encoding="utf-8") + f"{'b' * 64}  ./run.time.txt\n",
         encoding="utf-8",
     )
     skipped = verify_artifact_integrity(experiment)
     assert skipped.ok
     assert "run.time.txt" in skipped.skipped_mutable
-    assert any("wandb" in path for path in skipped.skipped_mutable)
     scientific.write_text('{"name":"tampered"}', encoding="utf-8")
-    with pytest.raises(ArtifactIntegrityError, match="predeclaration.json") as error:
+    with pytest.raises(ArtifactIntegrityError, match="report.json") as error:
         verify_artifact_integrity(experiment)
     mismatch = error.value.report.mismatches[0]
-    assert mismatch.relative_path == "predeclaration.json"
+    assert mismatch.relative_path == "report.json"
     assert mismatch.actual_sha256 != mismatch.declared_sha256
 
 
@@ -272,18 +262,18 @@ def test_inventory_refuses_symlinks_including_parent_links(tmp_path: Path) -> No
         write_artifact_inventory(nested)
 
 
-def test_wandb_latest_run_symlink_is_mutable_not_a_violation(tmp_path: Path) -> None:
+def test_undeclared_wandb_symlink_is_a_violation(tmp_path: Path) -> None:
     experiment = tmp_path / "exp"
     _write_json(experiment / "kept.json", {"ok": True})
+    write_artifact_inventory(experiment)
     run = experiment / "wandb" / "wandb" / "offline-run-1"
     run.mkdir(parents=True)
     (run / "run.wandb").write_bytes(b"x")
     (experiment / "wandb" / "wandb" / "latest-run").symlink_to(run)
-    write_artifact_inventory(experiment)
-    report = verify_artifact_integrity(experiment)
-    assert report.ok
-    assert report.symlink_violations == ()
-    assert report.checked == 1
+    with pytest.raises(ValueError, match="symlink"):
+        write_artifact_inventory(experiment)
+    with pytest.raises(ArtifactIntegrityError, match="symlink"):
+        verify_artifact_integrity(experiment)
 
 
 def test_legacy_undeclared_files_are_report_only(tmp_path: Path) -> None:
@@ -478,7 +468,7 @@ def test_reproduce_rejects_self_attested_source_digest(tmp_path: Path) -> None:
     assert fields["source_digest"]["observed_artifact"] == [fabricated]
 
 
-def test_legacy_reproduction_evidence_policy_is_unknown(tmp_path: Path) -> None:
+def test_unknown_predeclaration_kind_fails_closed(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     experiment = tmp_path / "exp"
     _init_git_fixture(repo)
@@ -486,10 +476,8 @@ def test_legacy_reproduction_evidence_policy_is_unknown(tmp_path: Path) -> None:
     sha = _commit_fixture(repo)
     predeclaration = experiment / "predeclaration.json"
     _write_json(predeclaration, {"name": "legacy-run", "source_commit": sha})
-    report = reproduce_experiment(predeclaration, repository=repo, experiment_dir=experiment)
-    assert report["ok"] is True
-    assert report["predeclaration_kind"] == "legacy_predeclaration"
-    assert report["consumed_sealed_or_audit_evidence"] is None
+    with pytest.raises(ValueError, match="unsupported experiment predeclaration"):
+        reproduce_experiment(predeclaration, repository=repo, experiment_dir=experiment)
 
 
 def test_affine_win_probability_and_exact_brier() -> None:
@@ -646,79 +634,6 @@ def test_cli_verify_and_calibrate(tmp_path: Path, capsys: pytest.CaptureFixture[
     mutate_payload = json.loads(capsys.readouterr().out)
     assert mutate_payload["ok"] is False
     assert "refusing to mutate" in str(mutate_payload["error"])
-
-
-def test_local_wandb_sync_rejects_remote_and_leaves_scientific_bytes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    with pytest.raises(ValueError, match="localhost"):
-        validate_local_wandb_base_url("https://api.wandb.ai")
-    experiment = tmp_path / "exp"
-    scientific = experiment / "scale-assessment.json"
-    _write_json(scientific, {"gate": True})
-    run_dir = experiment / "wandb" / "wandb" / "offline-run-demo"
-    run_dir.mkdir(parents=True)
-    wandb_file = run_dir / "run-demo.wandb"
-    wandb_file.write_bytes(b"offline")
-    synced: list[str] = []
-
-    class _SyncWandb:
-        Settings = object
-
-        def init(self, **kwargs: object) -> object:
-            del kwargs
-            raise AssertionError("sync must not init a new run")
-
-        def log(self, data: object, step: int | None = None) -> None:
-            del data, step
-
-        def finish(self) -> None:
-            return None
-
-        def sync(self, path: str) -> None:
-            synced.append(path)
-            wandb_file.write_bytes(b"synced-metadata")
-
-    monkeypatch.setattr("sts_sim.rl.tracking._import_wandb", lambda: _SyncWandb())
-    before = scientific.read_bytes()
-    result = sync_experiment_wandb(experiment, base_url=DEFAULT_LOCAL_WANDB_BASE_URL)
-    assert result["scientific_artifacts_modified"] is False
-    assert scientific.read_bytes() == before
-    assert wandb_file.read_bytes() == b"synced-metadata"
-    assert synced == [str(run_dir)]
-
-
-def test_sync_refuses_if_helper_rewrites_scientific_artifact(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    experiment = tmp_path / "exp"
-    scientific = experiment / "report.json"
-    _write_json(scientific, {"ok": True})
-    run_dir = experiment / "wandb" / "offline-run-demo"
-    run_dir.mkdir(parents=True)
-    (run_dir / "run.wandb").write_bytes(b"x")
-
-    class _EvilSync:
-        Settings = object
-
-        def init(self, **kwargs: object) -> object:
-            del kwargs
-            raise AssertionError("unused")
-
-        def log(self, data: object, step: int | None = None) -> None:
-            del data, step
-
-        def finish(self) -> None:
-            return None
-
-        def sync(self, path: str) -> None:
-            del path
-            scientific.write_text('{"ok":false}', encoding="utf-8")
-
-    monkeypatch.setattr("sts_sim.rl.tracking._import_wandb", lambda: _EvilSync())
-    with pytest.raises(ArtifactIntegrityError, match="report.json"):
-        sync_experiment_wandb(experiment)
-    assert json.loads(scientific.read_text(encoding="utf-8")) == {"ok": False}
 
 
 def test_write_scientific_artifact_refuses_symlinked_parent(tmp_path: Path) -> None:

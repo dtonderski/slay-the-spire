@@ -11,7 +11,6 @@ from typing import cast
 import pytest
 import torch
 
-import sts_sim.rl.data as data_module
 from sts_sim.rl import (
     SymbolicCombatDataset,
     SymbolicTrainingRecord,
@@ -23,24 +22,19 @@ from sts_sim.rl import (
     train_beam_clone,
     write_jsonl,
 )
-from sts_sim.rl.data import DATASET_MANIFEST_V6, DATASET_MANIFEST_V7
+from sts_sim.rl.data import DATASET_MANIFEST_VERSION
 from sts_sim.rl.model import FairCombatPolicyValueNet, PolicyValueOutput
-from sts_sim.rl.puct import PUCT_TEACHER_NAME
 from sts_sim.rl.records import (
     COMBAT_PROXY_VALUE_TARGET_NAME,
     PUCT_SEARCH_ROOT_MEAN_NAME,
-    PUCT_VALUE_TARGET_NAME,
     CombatOutcome,
-    JsonValue,
+    canonical_episode_id,
     collate_training_examples,
-    puct_episode_id,
 )
 from sts_sim.rl.rewards import COMBAT_PROXY_V1
 from sts_sim.rl.tensor import BatchedCombatDecision, VocabularyBuilder
-from sts_sim.rl.tracking import OfflineWandbConfig
 from sts_sim.rl.training import (
     TRAINING_CHECKPOINT_FORMAT,
-    TRAINING_CHECKPOINT_FORMAT_V3,
     _bounded_fmean,
     _canonical_unmasked_target,
     _compute_training_target_statistics,
@@ -50,7 +44,6 @@ from sts_sim.rl.training import (
     _validate_checkpoint_envelope,
 )
 from tests.test_puct_distill import _beam_train_checkpoint, _smoke_training_config
-from tests.test_wandb_offline import _install_fake_wandb
 
 
 def _resign_dataset_manifest(payload: dict[str, object]) -> None:
@@ -79,7 +72,7 @@ def _tiny_puct_dataset(tmp_path: Path) -> tuple[Path, Path]:
 def test_v4_record_round_trip_and_terminal_z_identity(tmp_path: Path) -> None:
     manifest_path, _checkpoint = _tiny_puct_dataset(tmp_path)
     manifest = load_dataset_manifest(manifest_path, requested_split="train")
-    assert manifest.manifest_version == DATASET_MANIFEST_V7
+    assert manifest.manifest_version == DATASET_MANIFEST_VERSION
     records = tuple(read_jsonl(manifest_path.parent / manifest.shard_path))
     assert records
     assert all(record.record_version == 4 for record in records)
@@ -102,8 +95,8 @@ def test_v4_record_round_trip_and_terminal_z_identity(tmp_path: Path) -> None:
         assert record.search_config["value_target_name"] == COMBAT_PROXY_VALUE_TARGET_NAME
         assert record.search_config["search_root_mean_name"] == PUCT_SEARCH_ROOT_MEAN_NAME
         assert record.episode_id != "legacy"
-        assert record.episode_id == puct_episode_id(
-            record.root_id, record.search_config, cast(str, record.reward_config_digest)
+        assert record.episode_id == canonical_episode_id(
+            record.root_id, record.search_config, record.reward_config_digest
         )
         if record.outcome.truncated:
             assert expected is None
@@ -163,67 +156,11 @@ def test_v4_rejects_malformed_records_and_unknown_fields(tmp_path: Path) -> None
         SymbolicTrainingRecord.from_dict(infinite)
     guessed = dict(payload)
     guessed["record_version"] = 3
-    with pytest.raises(ValueError, match="missing or unknown"):
+    with pytest.raises(ValueError, match="unsupported training record version"):
         SymbolicTrainingRecord.from_dict(guessed)
 
 
-def test_v3_v6_compatibility_still_loads(tmp_path: Path) -> None:
-    manifest_path, _checkpoint = _tiny_puct_dataset(tmp_path)
-    records = tuple(read_jsonl(manifest_path.parent / "train/train.jsonl"))
-    converted: list[SymbolicTrainingRecord] = []
-    for record in records:
-        search_config = cast(dict[str, object], record.to_dict()["search_config"])
-        search_config.pop("search_root_mean_name")
-        search_config["value_target_name"] = PUCT_VALUE_TARGET_NAME
-        converted.append(
-            SymbolicTrainingRecord(
-                observation=record.observation,
-                actions=record.actions,
-                chosen_action_index=record.chosen_action_index,
-                chosen_action=record.chosen_action,
-                teacher_visit_counts=record.teacher_visit_counts,
-                target_value=record.search_root_mean_value,
-                value_target_name=PUCT_VALUE_TARGET_NAME,
-                outcome=record.outcome,
-                planner_name=record.planner_name,
-                planner_version=record.planner_version,
-                search_config=cast(dict[str, JsonValue], search_config),
-                root_id=record.root_id,
-                split_group_id=record.split_group_id,
-                teacher_pair_id=record.teacher_pair_id,
-                repository=record.repository,
-                observation_digest=record.observation_digest,
-                record_version=3,
-                root_manifest_digest=record.root_manifest_digest,
-                reward_config_digest=record.reward_config_digest,
-                source_kind=record.source_kind,
-                episode_id=record.episode_id,
-                decision_index=record.decision_index,
-                value_target_mask=True,
-            )
-        )
-    shard = tmp_path / "puct-train/train/train.jsonl"
-    write_jsonl(shard, converted)
-    manifest_payload = json.loads(manifest_path.read_text())
-    manifest_payload["manifest_version"] = DATASET_MANIFEST_V6
-    manifest_payload["search_config"] = dict(converted[0].search_config)
-    manifest_payload["teacher_search_contract_digest"] = (
-        data_module._teacher_search_contract_digest(
-            cast(str, manifest_payload["teacher_name"]),
-            cast(str, manifest_payload["teacher_version"]),
-            cast(dict[str, object], manifest_payload["search_config"]),
-        )
-    )
-    manifest_payload["shard_digest"] = hashlib.sha256(shard.read_bytes()).hexdigest()
-    manifest_payload["record_ids"] = [cast(str, record.record_id) for record in converted]
-    _resign_dataset_manifest(manifest_payload)
-    manifest_path.write_text(json.dumps(manifest_payload, sort_keys=True, separators=(",", ":")))
-    loaded = load_dataset_manifest(manifest_path, requested_split="train")
-    assert loaded.manifest_version == DATASET_MANIFEST_V6
-    assert all(record.record_version == 3 for record in converted)
-
-
-def test_checkpoint_v4_stores_stats_and_accepts_authentic_v3(tmp_path: Path) -> None:
+def test_checkpoint_v4_stores_stats_and_rejects_v3(tmp_path: Path) -> None:
     manifest_path, _teacher = _tiny_puct_dataset(tmp_path)
     student = tmp_path / "student.pt"
     train_beam_clone(manifest_path, student, _smoke_training_config())
@@ -239,16 +176,13 @@ def test_checkpoint_v4_stores_stats_and_accepts_authentic_v3(tmp_path: Path) -> 
     assert payload["training_target_statistics"] == original_stats
     v3 = dict(payload)
     v3.pop("training_target_statistics")
-    v3["checkpoint_format"] = TRAINING_CHECKPOINT_FORMAT_V3
+    v3["checkpoint_format"] = 3
     v3_path = tmp_path / "student-v3.pt"
     torch.save(v3, v3_path)
-    loaded_v3, _config = _validate_checkpoint_envelope(
-        torch.load(v3_path, map_location="cpu", weights_only=False)
-    )
-    assert loaded_v3["checkpoint_format"] == TRAINING_CHECKPOINT_FORMAT_V3
-    assert "training_target_statistics" not in loaded_v3
+    with pytest.raises(ValueError, match="unsupported or malformed"):
+        _validate_checkpoint_envelope(torch.load(v3_path, map_location="cpu", weights_only=False))
     mixed = dict(payload)
-    mixed["checkpoint_format"] = TRAINING_CHECKPOINT_FORMAT_V3
+    mixed["checkpoint_format"] = 3
     with pytest.raises(ValueError, match="unsupported or malformed"):
         _validate_checkpoint_envelope(mixed)
     tampered = dict(payload)
@@ -371,22 +305,6 @@ def test_static_v4_metrics_match_formulas(tmp_path: Path) -> None:
     assert report["pearson_undefined_reason"] == expected_reason
 
 
-def test_wandb_v7_metadata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    fake = _install_fake_wandb(monkeypatch)
-    manifest_path, _teacher = _tiny_puct_dataset(tmp_path)
-    train_beam_clone(
-        manifest_path,
-        tmp_path / "student.pt",
-        _smoke_training_config(),
-        wandb_offline=OfflineWandbConfig(project="demo", directory=tmp_path / "wandb"),
-    )
-    assert fake.run is not None
-    assert fake.run.config["dataset_manifest_version"] == DATASET_MANIFEST_V7
-    assert fake.run.config["puct_targets_in_training"] is True
-    assert fake.run.config["trainer"] == "privileged_puct_distill"
-    assert fake.run.config["teacher_name"] == PUCT_TEACHER_NAME
-
-
 def test_bounded_fmean_clamps_identical_0_95_labels() -> None:
     values = (0.95,) * 19
     raw = statistics.fmean(values)
@@ -421,23 +339,6 @@ def test_value_metric_helpers_cover_defined_and_undefined_paths() -> None:
     assert _mean_absolute_deviation(values, 0.4) == statistics.fmean([0.2, 0.0, 0.2])
     awkward = 0.9388888888888889
     assert float(torch.tensor(awkward, dtype=torch.float32)) != awkward
-
-
-def test_v3_checkpoint_marks_training_mean_undefined(tmp_path: Path) -> None:
-    manifest_path, _teacher = _tiny_puct_dataset(tmp_path)
-    student = tmp_path / "student.pt"
-    train_beam_clone(manifest_path, student, _smoke_training_config())
-    payload = torch.load(student, map_location="cpu", weights_only=False)
-    v3 = dict(payload)
-    v3.pop("training_target_statistics")
-    v3["checkpoint_format"] = TRAINING_CHECKPOINT_FORMAT_V3
-    v3_path = tmp_path / "student-v3.pt"
-    torch.save(v3, v3_path)
-    report = evaluate_beam_clone(manifest_path, v3_path, split="train")
-    assert report["training_target_mean"] is None
-    assert report["training_target_mean_mae"] is None
-    assert report["training_target_mean_undefined_reason"] == "checkpoint_v3_no_statistics"
-    assert cast(int, report["value_mae_rows"]) > 0
 
 
 def test_inference_error_stays_in_model_denominator(
@@ -508,28 +409,23 @@ def test_v4_dataset_rejects_mixed_episode_outcome(tmp_path: Path) -> None:
     _resign_dataset_manifest(manifest_payload)
     manifest_path.write_text(json.dumps(manifest_payload, sort_keys=True, separators=(",", ":")))
     with pytest.raises(
-        ValueError, match="^V4 PUCT episode outcome is not identical across decisions$"
+        ValueError, match="^episode outcome is not identical across decisions$"
     ):
         load_dataset_manifest(manifest_path, requested_split="train")
 
 
-def test_v4_rejects_legacy_and_noncanonical_episode_ids(tmp_path: Path) -> None:
+def test_v4_rejects_noncanonical_episode_ids(tmp_path: Path) -> None:
     manifest_path, _checkpoint = _tiny_puct_dataset(tmp_path)
     records = tuple(read_jsonl(manifest_path.parent / "train/train.jsonl"))
     payload = records[0].to_dict()
-    legacy = dict(payload)
-    legacy["episode_id"] = "legacy"
-    legacy["record_id"] = None
-    with pytest.raises(ValueError, match="must not use the default legacy episode ID"):
-        SymbolicTrainingRecord.from_dict(legacy)
     wrong = dict(payload)
     wrong["episode_id"] = "0" * 64
     wrong["record_id"] = None
     with pytest.raises(ValueError, match="does not match canonical root/search/reward identity"):
         SymbolicTrainingRecord.from_dict(wrong)
-    expected = puct_episode_id(
+    expected = canonical_episode_id(
         records[0].root_id,
         records[0].search_config,
-        cast(str, records[0].reward_config_digest),
+        records[0].reward_config_digest,
     )
     assert records[0].episode_id == expected
