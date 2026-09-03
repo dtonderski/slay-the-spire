@@ -257,7 +257,7 @@ the complete post-combat state.
 
 Learned-combat artifacts now have one current schema each: snapshot 8, root
 manifest 6 with a blocking source-epoch bundle, dataset manifest 7, record 4,
-training checkpoint 4, and the six-arm matched PUCT report. Git history is the
+training checkpoint 5, and the six-arm matched PUCT report. Git history is the
 archive. Sealed and audit splits stay withheld from training and evaluation;
 held-out evaluation across distinct root manifests requires an explicit
 train-to-evaluation authorization. Offline W&B was removed because canonical
