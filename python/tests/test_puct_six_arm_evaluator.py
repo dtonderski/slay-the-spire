@@ -8,6 +8,7 @@ from typing import Literal, cast
 import pytest
 import torch
 
+import sts_sim.rl.cli as rl_cli
 from sts_sim import FairCombatObservation, RunEnv
 from sts_sim.rl import (
     MATCHED_PUCT_REPORT_ARMS,
@@ -18,6 +19,7 @@ from sts_sim.rl import (
     Vocabularies,
     VocabularyBuilder,
     evaluate_matched_puct_gameplay,
+    evaluate_matched_puct_gameplay_v2,
     evaluate_matched_puct_roots,
     evaluate_matched_puct_roots_v2,
     gameplay,
@@ -373,9 +375,9 @@ def test_six_policy_gameplay_rejects_nonpositive_budgets() -> None:
     missing = Path("missing-roots.json")
     checkpoint = Path("missing-checkpoint.pt")
     with pytest.raises(ValueError, match="c_puct must be finite and positive"):
-        evaluate_matched_puct_gameplay(missing, checkpoint, c_puct=float("inf"))
+        evaluate_matched_puct_gameplay_v2(missing, checkpoint, c_puct=float("inf"))
     with pytest.raises(ValueError, match="simulation_budget must be a positive integer"):
-        evaluate_matched_puct_gameplay(missing, checkpoint, simulation_budget=-1)
+        evaluate_matched_puct_gameplay_v2(missing, checkpoint, simulation_budget=-1)
 
 
 def test_v1_matched_roots_keep_the_four_policy_schema() -> None:
@@ -422,11 +424,48 @@ def test_search_arm_attestation_is_isolated_from_report_mutation() -> None:
     assert second_role["uniform_prior_network_value_puct"]["role"] == expected
 
 
-def test_matched_puct_gameplay_defaults_use_next_epoch_episode_caps() -> None:
-    defaults = evaluate_matched_puct_gameplay.__kwdefaults__
-    assert defaults is not None
-    assert defaults["max_decisions"] == gameplay.DEFAULT_MATCHED_PUCT_MAX_DECISIONS
-    assert defaults["max_player_turns"] == gameplay.DEFAULT_MATCHED_PUCT_MAX_PLAYER_TURNS
-    assert gameplay.DEFAULT_MATCHED_PUCT_MAX_DECISIONS == 128
-    assert gameplay.DEFAULT_MATCHED_PUCT_MAX_PLAYER_TURNS == 40
+def test_matched_puct_gameplay_versions_have_distinct_stable_defaults() -> None:
+    v1_defaults = evaluate_matched_puct_gameplay.__kwdefaults__
+    v2_defaults = evaluate_matched_puct_gameplay_v2.__kwdefaults__
+    assert v1_defaults is not None
+    assert v2_defaults is not None
+    assert v1_defaults["max_decisions"] == 512
+    assert v1_defaults["max_player_turns"] == 100
+    assert v2_defaults["max_decisions"] == gameplay.DEFAULT_MATCHED_PUCT_V2_MAX_DECISIONS
+    assert v2_defaults["max_player_turns"] == gameplay.DEFAULT_MATCHED_PUCT_V2_MAX_PLAYER_TURNS
+    assert gameplay.DEFAULT_MATCHED_PUCT_V2_MAX_DECISIONS == 128
+    assert gameplay.DEFAULT_MATCHED_PUCT_V2_MAX_PLAYER_TURNS == 40
     assert not hasattr(gameplay, "evaluate_predeclared_matched_puct_gameplay")
+
+
+def test_puct_cli_versions_are_explicit_and_preserve_v1_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls: list[tuple[int, dict[str, object]]] = []
+
+    def fake_v1(_roots: Path, _checkpoint: Path, **kwargs: object) -> dict[str, object]:
+        calls.append((1, kwargs))
+        return {"report_version": 1}
+
+    def fake_v2(_roots: Path, _checkpoint: Path, **kwargs: object) -> dict[str, object]:
+        calls.append((2, kwargs))
+        return {"report_version": 2}
+
+    monkeypatch.setattr(rl_cli, "evaluate_matched_puct_gameplay", fake_v1)
+    monkeypatch.setattr(rl_cli, "evaluate_matched_puct_gameplay_v2", fake_v2)
+    required = ["--roots", "roots.json", "--checkpoint", "checkpoint.pt"]
+    assert rl_cli.puct_rollout_main(required) == 0
+    assert rl_cli.puct_rollout_v2_main(required) == 0
+    assert calls[0][0] == 1
+    assert calls[0][1]["max_decisions"] == 512
+    assert calls[0][1]["max_player_turns"] == 100
+    assert calls[1][0] == 2
+    assert calls[1][1]["max_decisions"] == 128
+    assert calls[1][1]["max_player_turns"] == 40
+    assert [
+        json.loads(line)["report_version"] for line in capsys.readouterr().out.splitlines()
+    ] == [
+        1,
+        2,
+    ]
