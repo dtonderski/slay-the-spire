@@ -19,7 +19,6 @@ from .experiment import (
 from .gameplay import (
     DEFAULT_MATCHED_PUCT_MAX_DECISIONS,
     DEFAULT_MATCHED_PUCT_MAX_PLAYER_TURNS,
-    evaluate_matched_gameplay,
     evaluate_matched_puct_gameplay,
 )
 from .puct_data import generate_puct_dataset
@@ -247,46 +246,6 @@ def puct_rollout_main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-def rollout_main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="sts-combat-rollout")
-    parser.add_argument("--roots", type=Path, required=True)
-    parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument("--split", default="development")
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--authorization", type=Path, default=None)
-    parser.add_argument("--training-roots", type=Path, default=None)
-    parser.add_argument("--depth", type=int, default=8)
-    parser.add_argument("--width", type=int, default=24)
-    parser.add_argument("--transition-budget", type=int, default=5_000)
-    parser.add_argument("--max-decisions", type=int, default=512)
-    parser.add_argument("--max-player-turns", type=int, default=100)
-    parser.add_argument(
-        "--deduplicate-search-states", action=argparse.BooleanOptionalAction, default=True
-    )
-    parser.add_argument("--output", type=Path)
-    args = parser.parse_args(argv)
-    report = evaluate_matched_gameplay(
-        args.roots,
-        args.checkpoint,
-        split=args.split,
-        evaluation_seed=args.seed,
-        authorization_path=args.authorization,
-        training_root_manifest_path=args.training_roots,
-        depth=args.depth,
-        width=args.width,
-        transition_budget=args.transition_budget,
-        max_decisions=args.max_decisions,
-        max_player_turns=args.max_player_turns,
-        deduplicate_search_states=args.deduplicate_search_states,
-    )
-    content = json.dumps(report, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    if args.output is not None:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(content, encoding="utf-8")
-    print(content)
-    return 0
-
-
 def experiment_main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="sts-combat-experiment")
     subcommands = parser.add_subparsers(dest="command", required=True)
@@ -297,7 +256,6 @@ def experiment_main(argv: Sequence[str] | None = None) -> int:
     reproduce.add_argument("--predeclaration", type=Path, required=True)
     reproduce.add_argument("--repository", type=Path, required=True)
     reproduce.add_argument("--experiment-dir", type=Path, default=None)
-    reproduce.add_argument("--allow-dirty", action="store_true")
     calibrate = subcommands.add_parser("calibrate")
     calibrate.add_argument("--static", type=Path, required=True)
     calibrate.add_argument("--gameplay", type=Path, default=None)
@@ -313,7 +271,6 @@ def experiment_main(argv: Sequence[str] | None = None) -> int:
                 args.predeclaration,
                 repository=args.repository,
                 experiment_dir=args.experiment_dir,
-                allow_dirty=args.allow_dirty,
             )
         else:
             static_bytes = args.static.read_bytes()

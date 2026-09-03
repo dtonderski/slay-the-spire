@@ -2,12 +2,11 @@
 
 ## Supported contract
 
-`sts_sim.OmniCombatEnv.from_snapshot_json()` and
-`sts_sim.OmniRunEnv.from_snapshot_json()` are
-the supported restoration APIs. Their input includes an explicit schema
-version, accepts only the current schema or a named validated legacy schema,
-and must pass `CombatState::validate()` or `RunState::validate()` before the
-environment is published.
+`sts_sim.RunEnv.from_snapshot()` is the supported restoration API. Its input
+includes an explicit schema version, accepts only the current snapshot schema
+(version 8), and must pass `RunState::validate()` before the environment is
+published. Historical schema versions are rejected; there is no named validated
+legacy schema.
 
 ## Debugging-only raw import
 

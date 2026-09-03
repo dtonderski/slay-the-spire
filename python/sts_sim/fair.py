@@ -383,17 +383,20 @@ class FairCombatObservation:
     @classmethod
     def _from_payload(cls, payload: object) -> FairCombatObservation:
         value = _mapping(payload)
+        schema_version = cast(int, value["schema_version"])
+        if schema_version != 2:
+            raise ValueError("unsupported fair combat observation schema")
+        if "orb_slots" not in value:
+            raise ValueError("fair combat observation is missing orb_slots")
         selection = value.get("selection")
         return cls(
-            schema_version=cast(int, value["schema_version"]),
+            schema_version=schema_version,
             context=FairContext._from_payload(value["context"]),
             phase=cast(FairCombatPhase, value["phase"]),
             player=FairPlayer._from_payload(value["player"]),
-            # The parser remains additive-backward-compatible with stored V1
-            # payloads, which predate public orb slots.
             orb_slots=tuple(
                 FairOrbSlot._from_payload(slot)
-                for slot in _items(value.get("orb_slots", []))
+                for slot in _items(value["orb_slots"])
             ),
             hand=tuple(FairHandCard._from_payload(card) for card in _items(value["hand"])),
             draw_pile=FairPile._from_payload(value["draw_pile"]),

@@ -482,4 +482,3 @@ class Potion(StrEnum):
     FAIRY: ClassVar[Potion]
     SMOKE_BOMB: ClassVar[Potion]
     ENTROPIC_BREW: ClassVar[Potion]
-    GAMBLE: ClassVar[Potion]

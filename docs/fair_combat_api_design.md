@@ -59,21 +59,19 @@ the current authoritative state and applies the corresponding internal action.
 Internal `CardId`, `MonsterId`, content-pool position, and generation provenance
 never cross the fair boundary.
 
-## FairCombatObservation V2
+## FairCombatObservation schema 2
 
-[`fair_combat_observation_v1.md`](fair_combat_observation_v1.md) remains the
-frozen V1 baseline. V2 is an additive public-state revision: it adds explicit
+Schema 2 is the current fair combat observation. It includes explicit
 `orb_slots[]`, the visible Windmill Strike retained-damage value, and visible
 Poison/Lock-On monster powers. This section remains the joint observation/action
 design rationale.
 
-Compatibility policy: producers emit only the current schema version. Consumers
-must inspect `schema_version` before relying on current fields. The typed Python
-reader accepts stored V1 payloads by treating the V2 additive fields as absent
-(`orb_slots=()` and `windmill_retain_damage=None`); it does not silently
-reinterpret fields whose meaning changes.
+Compatibility policy: producers emit only schema 2. Consumers reject any other
+`schema_version` and require the `orb_slots` key. Optional card-dynamic fields
+may be omitted when the native projector skips nulls; they are not inferred
+from an older observation schema.
 
-For orientation, the implemented V2 observation has this top-level shape:
+For orientation, the implemented schema-2 observation has this top-level shape:
 
 ```text
 FairCombatObservation

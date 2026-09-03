@@ -1198,8 +1198,8 @@ pub struct RunState {
     /// Target `EventHelper.MONSTER_CHANCE` probability in `[0, ∞)`.
     ///
     /// Accumulated with Java `float` semantics and converted to a weight via
-    /// `(chance * 100.0f) as i32` at roll time. Legacy snapshots that stored
-    /// integer percentage points (e.g. `10`) are accepted on deserialize.
+    /// `(chance * 100.0f) as i32` at roll time. Accumulated values may exceed
+    /// `1.0`; deserialize stores the recorded probability as-is.
     #[serde(default = "default_event_room_monster_chance")]
     pub event_room_monster_chance: EventRoomChance,
     /// Target `EventHelper.SHOP_CHANCE` probability. See monster field notes.
@@ -1407,19 +1407,11 @@ impl<'de> Deserialize<'de> for EventRoomChance {
     where
         D: serde::Deserializer<'de>,
     {
-        let raw = f64::deserialize(deserializer)?;
-        Ok(Self(normalize_event_room_chance_value(raw as f32)))
-    }
-}
-
-/// Accept legacy integer percentage-point snapshots (`10` → `0.1`) while keeping
-/// true probability values (including accumulated values above `1.0` that are
-/// not whole integers) unchanged.
-fn normalize_event_room_chance_value(value: f32) -> f32 {
-    if value > 1.0 && value.fract() == 0.0 {
-        value / 100.0
-    } else {
-        value
+        let value = f32::deserialize(deserializer)?;
+        if !value.is_finite() {
+            return Err(serde::de::Error::custom("event room chance must be finite"));
+        }
+        Ok(Self(value))
     }
 }
 

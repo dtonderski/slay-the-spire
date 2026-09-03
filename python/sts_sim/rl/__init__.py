@@ -37,7 +37,6 @@ from .diagnostics import (
     teacher_conflict_report,
 )
 from .experiment import (
-    UNDECLARED_POLICY_REPORT_ONLY,
     UNDECLARED_POLICY_STRICT,
     ArtifactIntegrityError,
     ArtifactIntegrityReport,
@@ -58,10 +57,8 @@ from .gameplay import (
     PolicyEpisode,
     aggregate_paired_differences,
     aggregate_policy_metrics,
-    evaluate_matched_gameplay,
     evaluate_matched_puct_gameplay,
     evaluate_matched_puct_roots,
-    evaluate_matched_roots,
     matched_puct_search_arms,
     random_policy_index,
     select_greedy_action,
@@ -69,11 +66,8 @@ from .gameplay import (
 from .model import (
     CombatModelConfig,
     FairCombatPolicyValueNet,
-    LoadedCheckpoint,
     PolicyValueOutput,
-    load_checkpoint,
     policy_value_loss,
-    save_checkpoint,
 )
 from .provenance import RepositoryVersion, capture_repository_version, file_digest
 from .puct import (
@@ -153,7 +147,6 @@ __all__ = [
     "SCALAR_NAMES",
     "SHARED_TRAINING_VOCABULARY_KIND",
     "SHARED_TRAINING_VOCABULARY_VERSION",
-    "UNDECLARED_POLICY_REPORT_ONLY",
     "UNDECLARED_POLICY_STRICT",
     "ArtifactIntegrityError",
     "ArtifactIntegrityReport",
@@ -171,7 +164,6 @@ __all__ = [
     "FairCombatPolicyValueNet",
     "FrozenVocabulary",
     "HeldOutAuthorizationProof",
-    "LoadedCheckpoint",
     "PolicyEpisode",
     "PolicyValueOutput",
     "RepositoryVersion",
@@ -203,10 +195,8 @@ __all__ = [
     "constant_value_uniform_prior_leaf_evaluator",
     "encoder_contract_digest",
     "evaluate_beam_clone",
-    "evaluate_matched_gameplay",
     "evaluate_matched_puct_gameplay",
     "evaluate_matched_puct_roots",
-    "evaluate_matched_roots",
     "fair_observation_digest",
     "field_coverage_mismatches",
     "file_digest",
@@ -215,7 +205,6 @@ __all__ = [
     "generate_puct_dataset",
     "is_mutable_synchronization_path",
     "load_authorization",
-    "load_checkpoint",
     "load_dataset_manifest",
     "load_experiment_predeclaration",
     "load_root_manifest",
@@ -235,7 +224,6 @@ __all__ = [
     "rollout_puct_policy",
     "rollout_uniform_prior_constant_value_puct_policy",
     "rollout_uniform_prior_network_value_puct_policy",
-    "save_checkpoint",
     "select_greedy_action",
     "select_puct_action",
     "select_uniform_prior_constant_value_puct_action",

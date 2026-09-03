@@ -20,7 +20,6 @@ PREDECLARATION_KIND = "experiment_predeclaration_v1"
 PREDECLARATION_SCHEMA_VERSION = 1
 ARTIFACT_INVENTORY_NAME = "artifact-inventory.sha256"
 UNDECLARED_POLICY_STRICT = "strict"
-UNDECLARED_POLICY_REPORT_ONLY = "report_only"
 _HEX = "0123456789abcdef"
 _V1_KEYS = frozenset(
     {
@@ -499,7 +498,7 @@ def _undeclared_policy_for(root: Path) -> str:
     if path.is_symlink():
         raise ValueError("predeclaration.json must not be a symlink")
     if not path.is_file():
-        return UNDECLARED_POLICY_REPORT_ONLY
+        raise ValueError("experiment directory is missing predeclaration.json")
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -659,8 +658,9 @@ def _load_v1_predeclaration(payload: Mapping[str, object]) -> ExperimentPredecla
         raise ValueError("experiment predeclaration v1 has missing or unknown fields")
     if payload["kind"] != PREDECLARATION_KIND:
         raise ValueError("experiment predeclaration kind mismatch")
-    if payload["schema_version"] != PREDECLARATION_SCHEMA_VERSION:
-        raise ValueError("unsupported experiment predeclaration schema version")
+    schema_version = payload["schema_version"]
+    if type(schema_version) is not int or schema_version != PREDECLARATION_SCHEMA_VERSION:
+        raise TypeError("unsupported experiment predeclaration schema version")
     promotion = _require_bool(payload["promotion_claim"], "promotion_claim")
     if promotion:
         raise ExperimentReproductionError("predeclaration v1 refuses promotion claims")
@@ -863,7 +863,6 @@ def reproduce_experiment(
     *,
     repository: Path,
     experiment_dir: Path | None = None,
-    allow_dirty: bool = False,
 ) -> dict[str, object]:
     """Validate source and content identities. Does not retrain or repair artifacts."""
 
@@ -873,9 +872,8 @@ def reproduce_experiment(
     policy = predeclaration.consumed_evidence_policy
     if policy is not None and (policy.get("sealed_test") or policy.get("real_trace_audit")):
         raise ExperimentReproductionError("reproduction refuses sealed/audit evidence")
-    allow_dirty_capture = allow_dirty and not predeclaration.source_worktree_must_be_clean
     try:
-        version = capture_repository_version(repository, allow_dirty=allow_dirty_capture)
+        version = capture_repository_version(repository)
     except ValueError as error:
         raise ExperimentReproductionError(str(error)) from error
     if predeclaration.source_worktree_must_be_clean and not version.clean:

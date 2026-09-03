@@ -3,8 +3,7 @@
 Status: Lane 3 combat-search audit against schema V2 at epoch
 `1de079889eb14f5a86a14073f7ca3dd2ec19d80b`.
 Source of truth for projection: `crates/sts_core/src/combat/fair_observation.rs`.
-Taxonomy: [`docs/fair_belief_architecture.md`](fair_belief_architecture.md)
-Section 1 and [`PROJECT_OVERVIEW.md`](../PROJECT_OVERVIEW.md) State Visibility.
+Taxonomy: [`docs/project_history.md`](project_history.md) (fair-belief work is deferred until a calibrated consumer exists) and [`PROJECT_OVERVIEW.md`](../PROJECT_OVERVIEW.md) State Visibility.
 
 This audit classifies every `FairCombatObservation` field and every
 combat-search-relevant hidden simulator field. It does not change the
@@ -36,7 +35,7 @@ Schema version constant: `FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION = 2`.
 | `context.ascension` | Public | Run UI / character select. | Conditions A0 vs higher move tables. |
 | `context.act` | Public | Act banner, map. | Encounter tables. |
 | `context.floor` | Public | Map floor index. | Floor-offset combat RNG is hidden; the floor number is not. |
-| `context.gold` | Public | Gold counter. Projection adds `combat_gold_gained` so in-combat gold matches the visible total (`fair_combat_observation_v1.md`). | Terminal proxy / potion opportunity cost. |
+| `context.gold` | Public | Gold counter. Projection adds `combat_gold_gained` so in-combat gold matches the visible total. | Terminal proxy / potion opportunity cost. |
 | `phase` | Public | Combat UI: player turn, enemy turn, victory, death. Coarse `CombatPhase` only. | Fair search should act on `waiting_for_player`. Other phases are not deployable decision roots. |
 | `player.hp` / `max_hp` / `block` / `energy` / `max_energy` | Public | Player panel. | |
 | `player.powers[]` | Public | Allowlisted visible powers plus displayed Strength/Thorns totals and their public turn-end components (`lose_strength`, `lose_dexterity`, `temporary_thorns`, `rage`, `no_block`, `no_draw`, `double_tap`, `duplication`, `bomb_*`). Sorted by key. | Amount `0` omitted. |
@@ -44,7 +43,7 @@ Schema version constant: `FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION = 2`.
 | `hand[].slot` | Public | Decision-local hand index, not `CardId`. | Policy must be permutation-equivariant with matching choice slots. |
 | `hand[].card` | Public | See card table. | |
 | `draw_pile.count` | Public | Pile viewer count. | |
-| `draw_pile.cards[]` | Public | Unordered multiset; canonical `FairCard` sort. Real pile viewer shows sorted contents, not order (`fair_belief_architecture.md` §1). | Analytic remaining-multiset prior. |
+| `draw_pile.cards[]` | Public | Unordered multiset; canonical `FairCard` sort. Real pile viewer shows sorted contents, not order. | Analytic remaining-multiset prior. |
 | `draw_pile.known_order[]` | Public when a visibility rule holds; otherwise must be empty | Frozen Eye: top-to-bottom full order from draw-pile storage (last vec entry is top). V2 still has no Headbutt/Scry public-history prefix. | Empty ⇒ entire order is latent-generative (uniform permutation). Full length ⇒ order is public; do not reshuffle. |
 | `discard_pile.count` / `cards[]` | Public | Inspectable pile; canonical multiset. | |
 | `discard_pile.known_order[]` | Forbidden if ever populated from storage order | Producers emit `[]`. Internal `Vec` order is hidden. | Next reshuffle is latent-generative. |
@@ -52,7 +51,7 @@ Schema version constant: `FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION = 2`.
 | `monsters[]` | Public records; see monster table | Visible slots preserved. | |
 | `relics[]` | Public identities and allowlisted counters | Visible relic bar order. | Unlisted relics contribute no `state` counters. |
 | `potion_slots[]` | Public | Belt slots; empty has no identity. | |
-| `selection` | Public overlay | Kind, visible options, selected slots. Hidden-pile options are canonicalized before slots so pile indices cannot leak (`fair_combat_observation_v1.md`). | |
+| `selection` | Public overlay | Kind, visible options, selected slots. Hidden-pile options are canonicalized before slots so pile indices cannot leak. | |
 | `public_counters[]` | Public-history | `cards_played_this_turn`, `attacks_played_this_turn`, `cards_discarded_this_turn`. UI-derivable this turn. | |
 
 ### 1.1 `FairCard`
@@ -100,7 +99,7 @@ Skull, Velvet Choker, Horn Cleat / Captain's Wheel / Stone Calendar
 (`player_turns_started`), Omamori charges, Maw Bank, Ancient Tea Set, Girya,
 Matryoshka, Tiny Chest, Wing Boots, Neow's Lament.
 
-These are UI-visible or public-history (`fair_combat_observation_v1.md`).
+These are UI-visible or public-history.
 Generic relic internals are omitted.
 
 ### 1.4 Selection kinds

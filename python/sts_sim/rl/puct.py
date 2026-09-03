@@ -13,6 +13,7 @@ from ..fair import FairCombatObservation
 from ..run import Action, ActionDescriptor, Decision, RunEnv
 from .gameplay import PolicyEpisode, _capped_public_episode
 from .model import FairCombatPolicyValueNet
+from .records import fair_observation_from_payload
 from .rewards import COMBAT_PROXY_V1, CombatRewardConfig
 from .tensor import Vocabularies, collate_combat_tensors, tensorize_combat
 
@@ -121,7 +122,7 @@ def _parse_fair_leaf_request(
     if extra_item:
         raise ValueError(f"PUCT leaf has unknown fields: {sorted(extra_item)}")
     _reject_hidden_fields(item)
-    observation = FairCombatObservation._from_payload(item["observation"])
+    observation = fair_observation_from_payload(item["observation"])
     raw_choices = item["choices"]
     if not isinstance(raw_choices, list) or not raw_choices:
         raise ValueError("PUCT leaf requires a nonempty public choice list")

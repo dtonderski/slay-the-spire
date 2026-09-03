@@ -264,15 +264,48 @@ def _validate_runtime_type(value: object, annotation: object, path: str) -> None
     raise TypeError(f"{path} uses an unsupported symbolic annotation")
 
 
+def _is_omissible_default(value: object) -> bool:
+    return value is None or value == [] or value == {}
+
+
+def _fill_omitted_defaults(source: object, canonical: object) -> object:
+    if type(canonical) is dict and type(source) is dict:
+        canonical_map = cast(dict[str, object], canonical)
+        source_map = cast(dict[str, object], source)
+        filled = dict(source_map)
+        for key, value in canonical_map.items():
+            if key not in filled:
+                if _is_omissible_default(value):
+                    filled[key] = value
+                continue
+            filled[key] = _fill_omitted_defaults(filled[key], value)
+        return filled
+    if type(canonical) is list and type(source) is list:
+        canonical_items = cast(list[object], canonical)
+        source_items = cast(list[object], source)
+        if len(canonical_items) != len(source_items):
+            return source
+        return [
+            _fill_omitted_defaults(item, expected)
+            for item, expected in zip(source_items, canonical_items, strict=True)
+        ]
+    return source
+
+
 def fair_observation_from_payload(payload: object) -> FairCombatObservation:
     source = _dict(payload, "fair observation")
-    schema = _integer(source.get("schema_version"), "fair observation schema_version")
+    if "schema_version" not in source:
+        raise ValueError("fair observation is missing schema_version")
+    schema = _integer(source["schema_version"], "fair observation schema_version")
     if schema != 2:
         raise ValueError("unsupported fair observation schema")
+    if "orb_slots" not in source:
+        raise ValueError("fair observation is missing orb_slots")
     observation = FairCombatObservation._from_payload(source)
     _validate_runtime_type(observation, FairCombatObservation, "fair observation")
     canonical = fair_observation_payload(observation)
-    if not _type_sensitive_equal(source, canonical):
+    aligned = _fill_omitted_defaults(source, canonical)
+    if not _type_sensitive_equal(aligned, canonical):
         raise ValueError("fair observation payload is not canonical for its schema")
     return observation
 
@@ -579,7 +612,7 @@ class SymbolicTrainingRecord:
     decision_index: int
     value_target_mask: bool
     record_id: str | None
-    search_root_mean_value: float
+    search_root_mean_value: float | None
 
     def __post_init__(self) -> None:
         for name in (
@@ -624,11 +657,20 @@ class SymbolicTrainingRecord:
                 raise ValueError("target value must be finite and in [-1, 1]")
             if not self.value_target_mask:
                 raise ValueError("present target value must not be masked")
-        if type(self.search_root_mean_value) not in {int, float}:
-            raise TypeError("search root-mean value must be numeric")
-        root_mean = float(self.search_root_mean_value)
-        if not math.isfinite(root_mean) or not -1.0 <= root_mean <= 1.0:
-            raise ValueError("search root-mean value must be finite and in [-1, 1]")
+        if self.planner_name == PUCT_TEACHER_NAME:
+            raw_root_mean = self.search_root_mean_value
+            if type(raw_root_mean) is int:
+                root_mean = float(raw_root_mean)
+            elif type(raw_root_mean) is float:
+                root_mean = raw_root_mean
+            else:
+                raise TypeError("PUCT search root-mean value must be numeric")
+            if not math.isfinite(root_mean) or not -1.0 <= root_mean <= 1.0:
+                raise ValueError("search root-mean value must be finite and in [-1, 1]")
+            object.__setattr__(self, "search_root_mean_value", root_mean)
+        elif self.planner_name == BEAM_TEACHER_NAME:
+            if self.search_root_mean_value is not None:
+                raise ValueError("beam records must not carry a PUCT search root-mean")
         if self.value_target_name != COMBAT_PROXY_VALUE_TARGET_NAME:
             raise ValueError("records must use combat_proxy_v1 training targets")
         if self.outcome.truncated != (not self.value_target_mask):
@@ -772,8 +814,10 @@ class SymbolicTrainingRecord:
             decision_index=_integer(source["decision_index"], "decision index"),
             value_target_mask=_boolean(source["value_target_mask"], "value target mask"),
             record_id=record_id,
-            search_root_mean_value=_number(
-                source["search_root_mean_value"], "search root-mean value"
+            search_root_mean_value=(
+                None
+                if source["search_root_mean_value"] is None
+                else _number(source["search_root_mean_value"], "search root-mean value")
             ),
         )
 

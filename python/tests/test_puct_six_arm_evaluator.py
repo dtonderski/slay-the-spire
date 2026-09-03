@@ -33,12 +33,6 @@ from sts_sim.rl.puct import (
 )
 from sts_sim.rl.tensor import BatchedCombatDecision
 
-_PREDECLARATION = (
-    Path(__file__).resolve().parents[2]
-    / "docs"
-    / "puct-teacher-control-v1"
-    / "next-epoch-control-predeclaration.json"
-)
 LogitOverride = Literal["keep", "nan"] | int
 ValueOverride = Literal["keep", "nan", "action_count", "neg_action_count"]
 
@@ -132,10 +126,16 @@ def _evaluate_one_root(
     )
 
 
-def test_report_arm_names_match_the_predeclaration() -> None:
-    payload = json.loads(_PREDECLARATION.read_text(encoding="utf-8"))
-    assert set(MATCHED_PUCT_REPORT_ARMS) == set(payload["search_arms"])
-    assert set(MATCHED_PUCT_SEARCH_ARMS) == set(payload["search_arms"])
+def test_report_arm_names_are_the_six_matched_puct_arms() -> None:
+    assert MATCHED_PUCT_REPORT_ARMS == (
+        "random",
+        "network",
+        "beam",
+        "network_puct",
+        "uniform_prior_network_value_puct",
+        "uniform_prior_constant_value_puct",
+    )
+    assert set(MATCHED_PUCT_SEARCH_ARMS) == set(MATCHED_PUCT_REPORT_ARMS)
     ablation = MATCHED_PUCT_SEARCH_ARMS["uniform_prior_network_value_puct"]
     unguided = MATCHED_PUCT_SEARCH_ARMS["uniform_prior_constant_value_puct"]
     assert ablation["role"] == "policy-prior ablation, not an unguided baseline"
@@ -403,8 +403,6 @@ def test_matched_puct_gameplay_defaults_are_the_six_arm_caps() -> None:
     assert defaults["max_player_turns"] == gameplay.DEFAULT_MATCHED_PUCT_MAX_PLAYER_TURNS
     assert gameplay.DEFAULT_MATCHED_PUCT_MAX_DECISIONS == 128
     assert gameplay.DEFAULT_MATCHED_PUCT_MAX_PLAYER_TURNS == 40
-    assert not hasattr(gameplay, "evaluate_matched_puct_gameplay_v2")
-    assert not hasattr(rl_cli, "puct_rollout_v2_main")
 
 
 def test_puct_cli_uses_canonical_six_arm_defaults(

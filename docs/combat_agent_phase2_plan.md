@@ -79,8 +79,8 @@ absorb 24 threads.
    performs masked policy/value optimization, resumes exactly at batch
    boundaries, and evaluates development records. Static imitation evaluation
    (`sts-combat-evaluate`) scores labeled public rows; matched gameplay rollout
-   (`sts-combat-rollout`) compares random, greedy-network, and beam episodes on
-   independently restored roots and does not promote a candidate. Naive
+   (`sts-combat-puct-rollout`) compares the six matched arms on independently
+   restored roots and does not promote a candidate. Naive
    synchronous privileged PUCT now searches one public decision at a time with
    batch size 1 and no virtual loss. A replay buffer, fair batched leaf
    evaluation, and sealed candidate promotion remain unimplemented.
@@ -495,9 +495,8 @@ than a pass.
 - Stage 7 uses development only. `sealed_test` is opened under the explicit
   Stage 8 audit protocol; `real_trace_audit` remains a separately reported final
   diagnostic. Filesystem controls are operational, not cryptographic.
-- Matched gameplay (`evaluate_matched_gameplay` / `sts-combat-rollout`) is a
+- Matched gameplay (`evaluate_matched_puct_gameplay` / `sts-combat-puct-rollout`) is a
   separate diagnostic from static imitation (`sts-combat-evaluate`). It restores
-  each split-root snapshot independently, compares seeded random, greedy-network,
-  and live beam episodes under the checkpoint teacher/search contract, keeps
+  each split-root snapshot independently, compares the six matched arms, keeps
   errors and truncations in the win-rate denominator, and does not promote a
   candidate.

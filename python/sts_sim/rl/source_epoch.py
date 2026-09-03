@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import platform
 import subprocess
 import sys
@@ -127,6 +128,8 @@ def _parse_bundle(payload: object) -> SourceEpochBundle:
         if type(part) is not int:
             raise TypeError("python version components must be integers")
         version_parts.append(part)
+    if len(version_parts) != 4:
+        raise TypeError("python version must be major, minor, micro, and serial")
     platform_value = source["platform"]
     if type(platform_value) is not dict:
         raise TypeError("platform must be an object")
@@ -165,12 +168,11 @@ def _parse_bundle(payload: object) -> SourceEpochBundle:
     clean = source["clean"]
     if type(clean) is not bool:
         raise TypeError("clean flag must be boolean")
-    dirty_value = source["dirty_diff_digest"]
-    dirty = None if dirty_value is None else require_digest(dirty_value, "dirty digest")
-    if clean == (dirty is not None):
-        raise ValueError(
-            "clean source epochs must omit a dirty digest and dirty ones must include it"
-        )
+    if not clean:
+        raise ValueError("source-epoch bundles require a clean repository")
+    if source["dirty_diff_digest"] is not None:
+        raise ValueError("clean source-epoch bundles must omit a dirty digest")
+    dirty = None
     bundle = SourceEpochBundle(
         SOURCE_EPOCH_BUNDLE_KIND,
         git_sha,
@@ -192,7 +194,82 @@ def _parse_bundle(payload: object) -> SourceEpochBundle:
     return bundle
 
 
+def _python_version_sidecar(bundle: SourceEpochBundle) -> bytes:
+    major, minor, micro, serial = bundle.python_version
+    return (
+        f"{bundle.python_implementation} {major}.{minor}.{micro} "
+        f"{bundle.python_releaselevel} {serial}\n"
+    ).encode()
+
+
+def _expected_relative_files(bundle: SourceEpochBundle) -> frozenset[str]:
+    name = bundle.native_extension_name
+    return frozenset(
+        {
+            _MANIFEST_NAME,
+            f"native/{name}",
+            f"native/{name}.sha256",
+            "source/git-sha.txt",
+            "toolchain/python-version.txt",
+            "toolchain/platform.json",
+            "toolchain/rustc-version.txt",
+            "toolchain/cargo-version.txt",
+        }
+    )
+
+
+def _nofollow_relative_files(bundle_dir: Path) -> tuple[str, ...]:
+    _raise_if_symlink_ancestor(bundle_dir)
+    if bundle_dir.is_symlink() or not bundle_dir.is_dir():
+        raise ValueError("source-epoch-bundle must be a directory")
+    found: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(bundle_dir, followlinks=False, topdown=True):
+        directory = Path(dirpath)
+        for name in (*dirnames, *filenames):
+            child = directory / name
+            if child.is_symlink():
+                raise ValueError("source-epoch-bundle must not contain symlinks")
+        for name in filenames:
+            child = directory / name
+            if not child.is_file():
+                raise ValueError("source-epoch-bundle members must be regular files")
+            found.append(child.relative_to(bundle_dir).as_posix())
+    return tuple(sorted(found))
+
+
+def _verify_sidecars(bundle_dir: Path, bundle: SourceEpochBundle) -> None:
+    expected = _expected_relative_files(bundle)
+    found = frozenset(_nofollow_relative_files(bundle_dir))
+    if found != expected:
+        raise ValueError("source-epoch-bundle members are not the exact allowlisted set")
+    native_bytes = _read_regular_file_bytes(bundle_dir / bundle.native_relative_path)
+    if sha256_bytes(native_bytes) != bundle.native_extension_digest:
+        raise ValueError("archived native bytes do not match the source-epoch-bundle digest")
+    declared_native = _read_regular_file_bytes(
+        bundle_dir / "native" / f"{bundle.native_extension_name}.sha256"
+    )
+    if declared_native != f"{bundle.native_extension_digest}\n".encode():
+        raise ValueError("archived native digest sidecar is not canonical")
+    git_sidecar = _read_regular_file_bytes(bundle_dir / "source" / "git-sha.txt")
+    if git_sidecar != f"{bundle.git_sha}\n".encode():
+        raise ValueError("archived git SHA sidecar is not canonical")
+    python_sidecar = _read_regular_file_bytes(bundle_dir / "toolchain" / "python-version.txt")
+    if python_sidecar != _python_version_sidecar(bundle):
+        raise ValueError("archived python version sidecar is not canonical")
+    platform_sidecar = _read_regular_file_bytes(bundle_dir / "toolchain" / "platform.json")
+    if platform_sidecar != canonical_bytes(bundle.platform):
+        raise ValueError("archived platform sidecar is not canonical")
+    rustc_sidecar = _read_regular_file_bytes(bundle_dir / "toolchain" / "rustc-version.txt")
+    if rustc_sidecar != f"{bundle.rustc_version}\n".encode():
+        raise ValueError("archived rustc version sidecar is not canonical")
+    cargo_sidecar = _read_regular_file_bytes(bundle_dir / "toolchain" / "cargo-version.txt")
+    if cargo_sidecar != f"{bundle.cargo_version}\n".encode():
+        raise ValueError("archived cargo version sidecar is not canonical")
+
+
 def write_source_epoch_bundle(output_dir: Path, repository: RepositoryVersion) -> SourceEpochBundle:
+    if not repository.clean or repository.dirty_diff_digest is not None:
+        raise ValueError("source-epoch bundles require a clean repository")
     native_path = loaded_native_path()
     native_bytes = loaded_native_bytes()
     native_digest = sha256_bytes(native_bytes)
@@ -235,14 +312,9 @@ def write_source_epoch_bundle(output_dir: Path, repository: RepositoryVersion) -
         f"{native_digest}\n".encode(),
     )
     write_scientific_artifact(output_dir / "source" / "git-sha.txt", f"{repository.git_sha}\n".encode())
-    if repository.dirty_diff_digest is not None:
-        write_scientific_artifact(
-            output_dir / "source" / "dirty-diff.sha256",
-            f"{repository.dirty_diff_digest}\n".encode(),
-        )
     write_scientific_artifact(
         output_dir / "toolchain" / "python-version.txt",
-        f"{platform.python_implementation()} {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro} {sys.version_info.releaselevel} {sys.version_info.serial}\n".encode(),
+        _python_version_sidecar(bundle),
     )
     write_scientific_artifact(
         output_dir / "toolchain" / "platform.json",
@@ -272,14 +344,7 @@ def load_source_epoch_bundle(bundle_dir: Path) -> SourceEpochBundle:
     bundle = _parse_bundle(payload)
     if content != canonical_bytes(bundle.to_dict()):
         raise ValueError("source-epoch-bundle manifest is not canonical")
-    native_bytes = _read_regular_file_bytes(bundle_dir / bundle.native_relative_path)
-    if sha256_bytes(native_bytes) != bundle.native_extension_digest:
-        raise ValueError("archived native bytes do not match the source-epoch-bundle digest")
-    declared_native = _read_regular_file_bytes(
-        bundle_dir / "native" / f"{bundle.native_extension_name}.sha256"
-    )
-    if declared_native != f"{bundle.native_extension_digest}\n".encode():
-        raise ValueError("archived native digest sidecar is not canonical")
+    _verify_sidecars(bundle_dir, bundle)
     return bundle
 
 
@@ -293,11 +358,11 @@ def copy_source_epoch_bundle(source_dir: Path, destination_dir: Path) -> SourceE
     bundle = load_source_epoch_bundle(source_dir)
     verify_loaded_native_bytes(bundle)
     destination_dir.mkdir(parents=True, exist_ok=True)
-    for path in sorted(source_dir.rglob("*")):
-        if path.is_dir():
-            continue
-        relative = path.relative_to(source_dir)
-        write_scientific_artifact(destination_dir / relative, _read_regular_file_bytes(path))
+    for relative in _nofollow_relative_files(source_dir):
+        write_scientific_artifact(
+            destination_dir / relative,
+            _read_regular_file_bytes(source_dir / relative),
+        )
     loaded = load_source_epoch_bundle(destination_dir)
     if loaded.bundle_digest != bundle.bundle_digest:
         raise ValueError("copied source-epoch-bundle digest mismatch")
@@ -308,12 +373,12 @@ def source_epoch_relative_files(bundle_dir: Path) -> tuple[str, ...]:
     bundle = load_source_epoch_bundle(bundle_dir)
     files = tuple(
         sorted(
-            path.relative_to(bundle_dir.parent).as_posix()
-            for path in bundle_dir.rglob("*")
-            if path.is_file()
+            f"{SOURCE_EPOCH_DIRNAME}/{relative}"
+            for relative in _nofollow_relative_files(bundle_dir)
         )
     )
     if not files:
         raise ValueError("source-epoch-bundle is empty")
-    _ = bundle
+    if frozenset(path.split("/", 1)[1] for path in files) != _expected_relative_files(bundle):
+        raise ValueError("source-epoch-bundle members are not the exact allowlisted set")
     return files

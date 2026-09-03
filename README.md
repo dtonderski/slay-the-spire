@@ -102,15 +102,15 @@ uv run sts-combat-train \
 ```
 
 `sts-combat-evaluate` is static imitation accuracy on already-labeled public
-decisions. `sts-combat-rollout` is a separate diagnostic: it independently
-restores identical split-root snapshot bytes and compares a seeded SHA-256
-random policy, a greedy network that scores only `FairCombatObservation` plus
-current public action descriptors, and the native privileged replanning beam.
+decisions. `sts-combat-puct-rollout` is a separate diagnostic: it independently
+restores identical split-root snapshot bytes and compares the six matched
+policies (seeded SHA-256 random, greedy network, replanning beam, network PUCT,
+uniform-prior network-value PUCT, and uniform-prior constant-value PUCT).
 Errors and truncations stay in the win-rate denominator. The rollout report is
 not a promotion or replacement claim.
 
 ```bash
-uv run sts-combat-rollout \
+uv run sts-combat-puct-rollout \
   --roots /tmp/sts-roots/root-manifest.json \
   --checkpoint /tmp/sts-checkpoint.pt --split development \
   --seed 0 --output /tmp/sts-gameplay-report.json

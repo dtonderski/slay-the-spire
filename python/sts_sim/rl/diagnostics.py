@@ -398,9 +398,9 @@ def _coverage_bounds(
     }
 
 
-def _decision_index(row: Mapping[str, object], label: str) -> int | None:
+def _decision_index(row: Mapping[str, object], label: str) -> int:
     if "decision_index" not in row:
-        return None
+        raise ValueError(f"{label} is missing decision_index")
     value = row["decision_index"]
     if type(value) is not int or value < 0:
         raise TypeError(f"{label}.decision_index must be a nonnegative integer")
@@ -461,15 +461,10 @@ def _static_first_decision_joins(
 ) -> tuple[dict[str, dict[str, object]], dict[str, object]]:
     static_rows = _require_list(static.get("per_record"), "static per_record")
     parsed: list[dict[str, object]] = []
-    index_present = 0
     for index, raw in enumerate(static_rows):
         row = _require_mapping(raw, f"static per_record[{index}]")
-        decision_index = _decision_index(row, f"static per_record[{index}]")
-        if decision_index is not None:
-            index_present += 1
         parsed.append(
             {
-                "file_order": index,
                 "record_id": _require_string(
                     row.get("record_id"), f"static per_record[{index}].record_id"
                 ),
@@ -477,12 +472,9 @@ def _static_first_decision_joins(
                     row.get("root_id"), f"static per_record[{index}].root_id"
                 ),
                 "predicted": _finite_predicted_value(row.get("predicted_value")),
-                "decision_index": decision_index,
+                "decision_index": _decision_index(row, f"static per_record[{index}]"),
             }
         )
-    if parsed and index_present not in {0, len(parsed)}:
-        raise ValueError("static per_record decision_index is incomplete")
-    proven = index_present == len(parsed) and bool(parsed)
     chosen: dict[str, dict[str, object]] = {}
     for item in parsed:
         root_id = cast(str, item["root_id"])
@@ -490,31 +482,21 @@ def _static_first_decision_joins(
         if current is None:
             chosen[root_id] = item
             continue
-        if proven:
-            current_index = cast(int, current["decision_index"])
-            candidate_index = cast(int, item["decision_index"])
-            if candidate_index < current_index:
-                chosen[root_id] = item
-            elif candidate_index == current_index:
-                raise ValueError(
-                    f"ambiguous first-decision identity for root {root_id}: "
-                    "multiple records share the minimum decision_index"
-                )
-            continue
-        if cast(int, item["file_order"]) < cast(int, current["file_order"]):
+        current_index = cast(int, current["decision_index"])
+        candidate_index = cast(int, item["decision_index"])
+        if candidate_index < current_index:
             chosen[root_id] = item
-    if proven:
-        for root_id, item in chosen.items():
-            if item["decision_index"] != 0:
-                raise ValueError(f"root {root_id} first-decision identity is not decision_index 0")
+        elif candidate_index == current_index:
+            raise ValueError(
+                f"ambiguous first-decision identity for root {root_id}: "
+                "multiple records share the minimum decision_index"
+            )
+    for root_id, item in chosen.items():
+        if item["decision_index"] != 0:
+            raise ValueError(f"root {root_id} first-decision identity is not decision_index 0")
     audit = {
-        "rule": "min_decision_index" if proven else "unproven_v4_file_order",
-        "limitation": None
-        if proven
-        else (
-            "static per_record rows do not include decision_index; join uses the first matching "
-            "root_id in file order and cannot prove first-decision identity"
-        ),
+        "rule": "min_decision_index",
+        "limitation": None,
         "chosen_joins": [
             {
                 "root_id": root_id,
@@ -546,31 +528,23 @@ def combat_proxy_observations_from_gameplay_report(
         per_root_by_id[root_id] = row
     root_ids_value = gameplay.get("root_ids")
     if root_ids_value is None:
-        requested = [
-            _require_string(
-                _require_mapping(raw, f"gameplay per_root[{index}]").get("root_id"),
-                f"gameplay per_root[{index}].root_id",
-            )
-            for index, raw in enumerate(per_root)
-        ]
-        requested_source = "per_root_file_order"
-    else:
-        requested_list = _require_list(root_ids_value, "gameplay root_ids")
-        requested = [
-            _require_string(item, f"gameplay root_ids[{index}]")
-            for index, item in enumerate(requested_list)
-        ]
-        requested_source = "root_ids"
-        if len(requested) != len(set(requested)):
-            raise ValueError("gameplay root_ids must be unique")
-        extra = sorted(set(per_root_by_id) - set(requested))
-        if extra:
-            raise ValueError(
-                "gameplay per_root contains roots absent from root_ids: " + ", ".join(extra)
-            )
-        missing_roots = [root_id for root_id in requested if root_id not in per_root_by_id]
-        if missing_roots:
-            raise ValueError("gameplay root_ids missing per_root rows: " + ", ".join(missing_roots))
+        raise ValueError("gameplay root_ids is required")
+    requested_list = _require_list(root_ids_value, "gameplay root_ids")
+    requested = [
+        _require_string(item, f"gameplay root_ids[{index}]")
+        for index, item in enumerate(requested_list)
+    ]
+    requested_source = "root_ids"
+    if len(requested) != len(set(requested)):
+        raise ValueError("gameplay root_ids must be unique")
+    extra = sorted(set(per_root_by_id) - set(requested))
+    if extra:
+        raise ValueError(
+            "gameplay per_root contains roots absent from root_ids: " + ", ".join(extra)
+        )
+    missing_roots = [root_id for root_id in requested if root_id not in per_root_by_id]
+    if missing_roots:
+        raise ValueError("gameplay root_ids missing per_root rows: " + ", ".join(missing_roots))
     accounting = _empty_official_accounting(len(requested))
     accounting["requested_root_source"] = requested_source
     accounting["predicted_value_aggregation"] = join_audit["rule"]

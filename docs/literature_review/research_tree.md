@@ -102,7 +102,7 @@ Core project docs:
 
 - `docs/fair_combat_api_design.md`
 - `docs/combat_rl_architecture.md`
-- `docs/fair_belief_architecture.md`
+- `docs/project_history.md`
 
 Project questions:
 

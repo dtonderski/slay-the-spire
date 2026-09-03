@@ -32,7 +32,6 @@ from .records import (
     canonical_episode_id,
     fair_observation_digest,
     fair_observation_from_payload,
-    fair_observation_payload,
     first_argmax_visits,
     read_jsonl,
     validate_beam_search_config,
@@ -425,12 +424,9 @@ def _verify_source_epoch_bundle(manifest: RootManifest, bundle_dir: Path) -> Non
     verify_loaded_native_bytes(bundle)
 
 
-def load_root_manifest(
-    path: Path, *, verify_roots: bool = True, verify_source_epoch: bool = True
-) -> RootManifest:
+def load_root_manifest(path: Path, *, verify_roots: bool = True) -> RootManifest:
     manifest = parse_root_manifest(path.read_bytes())
-    if verify_source_epoch:
-        _verify_source_epoch_bundle(manifest, path.parent / SOURCE_EPOCH_DIRNAME)
+    _verify_source_epoch_bundle(manifest, path.parent / SOURCE_EPOCH_DIRNAME)
     if verify_roots:
         for root in manifest.roots:
             root_path = path.parent / root.relative_path
@@ -609,7 +605,7 @@ def generate_legal_roots(
     _require_empty_output_dir(output_dir)
     if repository_root is None:
         repository_root = Path(__file__).resolve().parents[3]
-    repository = capture_repository_version(repository_root, allow_dirty=True)
+    repository = capture_repository_version(repository_root)
     source_digest = _sha256_bytes(_canonical_bytes(repository.to_dict()))
     output_dir.mkdir(parents=True, exist_ok=True)
     bundle = write_source_epoch_bundle(output_dir / SOURCE_EPOCH_DIRNAME, repository)
@@ -797,7 +793,11 @@ def _require_loadable_split(split: str) -> str:
 
 
 def load_dataset_manifest(path: Path, *, requested_split: str) -> DatasetManifest:
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    content = path.read_bytes()
+    try:
+        raw = json.loads(content)
+    except json.JSONDecodeError as error:
+        raise ValueError("dataset manifest is not JSON") from error
     if type(raw) is not dict:
         raise TypeError("dataset manifest must be an object")
     source = cast(dict[str, object], raw)
@@ -927,11 +927,13 @@ def load_dataset_manifest(path: Path, *, requested_split: str) -> DatasetManifes
         raise ValueError("dataset teacher/search contract digest is invalid")
     if manifest.manifest_digest != _digest_payload(manifest.to_dict(), "manifest_digest"):
         raise ValueError("dataset manifest digest is invalid")
+    if content != _canonical_bytes(manifest.to_dict()):
+        raise ValueError("dataset manifest is not canonical")
     named_root_path = path.parent / manifest.root_manifest_path
     named_root_bytes = named_root_path.read_bytes()
     if _sha256_bytes(named_root_bytes) != manifest.root_manifest_file_digest:
         raise ValueError("dataset root manifest file digest is invalid")
-    named_root_manifest = load_root_manifest(named_root_path, verify_roots=False)
+    named_root_manifest = load_root_manifest(named_root_path)
     if named_root_manifest.manifest_digest != manifest.root_manifest_digest:
         raise ValueError("dataset root manifest digest is invalid")
     if named_root_manifest.cohort_digest != manifest.cohort_digest:
@@ -976,6 +978,8 @@ def load_dataset_manifest(path: Path, *, requested_split: str) -> DatasetManifes
                 raise ValueError("PUCT teacher labels must have positive visit mass")
             if record.chosen_action_index != first_argmax_visits(record.teacher_visit_counts):
                 raise ValueError("PUCT chosen action is not the first visit-count argmax")
+            if record.search_root_mean_value is None:
+                raise ValueError("PUCT search root-mean diagnostic must be present")
         elif record.planner_name == BEAM_TEACHER_NAME:
             if (
                 sum(record.teacher_visit_counts) != 1
@@ -984,6 +988,8 @@ def load_dataset_manifest(path: Path, *, requested_split: str) -> DatasetManifes
                 raise ValueError("beam-clone teacher labels must be one-hot at the chosen action")
             if record.value_target_name != reward.name:
                 raise ValueError("dataset record reward contract mismatch")
+            if record.search_root_mean_value is not None:
+                raise ValueError("beam records must not carry a PUCT search root-mean")
         else:
             raise ValueError("dataset teacher identity is unsupported")
         expected_value = reward.value(record.outcome)
@@ -1146,7 +1152,7 @@ def generate_beam_dataset(
         raise ValueError(f"root manifest contains no {split} roots")
     if repository_root is None:
         repository_root = Path(__file__).resolve().parents[3]
-    repository = capture_repository_version(repository_root, allow_dirty=True)
+    repository = capture_repository_version(repository_root)
     search_config: dict[str, object] = {
         "depth": depth,
         "width": width,
@@ -1189,13 +1195,9 @@ def generate_beam_dataset(
             steps = cast(list[dict[str, object]], payload["steps"])
             if not steps:
                 raise ValueError("terminal or post-combat root cannot produce training records")
-            root_mean = float(target) if target is not None else 0.0
             root_records: list[SymbolicTrainingRecord] = []
             for decision_index, step in enumerate(steps):
-                projected = FairCombatObservation._from_payload(
-                    cast(dict[str, object], step["observation"])
-                )
-                observation = fair_observation_from_payload(fair_observation_payload(projected))
+                observation = fair_observation_from_payload(step["observation"])
                 actions = tuple(
                     action_descriptor_from_payload(
                         {"family": "combat", **cast(dict[str, object], choice)}
@@ -1230,7 +1232,7 @@ def generate_beam_dataset(
                         decision_index,
                         target is not None,
                         None,
-                        root_mean,
+                        None,
                     )
                 )
         except (

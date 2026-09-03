@@ -100,7 +100,7 @@ def _source_digest() -> str:
     """Attest the complete checkout and the exact loaded native extension bytes."""
 
     repository_root = Path(__file__).resolve().parents[3]
-    repository = capture_repository_version(repository_root, allow_dirty=True)
+    repository = capture_repository_version(repository_root)
     native_path = Path(_native.__file__)
     payload = {
         "repository": repository.to_dict(),
@@ -498,7 +498,6 @@ def train_beam_clone(
     )
     training_root = load_root_manifest(
         dataset_manifest_path.parent / manifest.root_manifest_path,
-        verify_roots=False,
     )
     source_epoch_bundle_digest = training_root.source_epoch_bundle_digest
     source_digest = _source_digest()
@@ -652,7 +651,7 @@ def evaluate_beam_clone(
         requested_split=split,
     )
     evaluation_root_manifest_path = dataset_manifest_path.parent / manifest.root_manifest_path
-    evaluation_root = load_root_manifest(evaluation_root_manifest_path, verify_roots=False)
+    evaluation_root = load_root_manifest(evaluation_root_manifest_path)
     checkpoint_bytes = checkpoint_path.read_bytes()
     payload, stored_config = _validate_checkpoint_envelope(
         torch.load(checkpoint_path, map_location="cpu", weights_only=False)
@@ -732,6 +731,7 @@ def evaluate_beam_clone(
                 "value_target_mask": record.value_target_mask,
                 "target_value": record.target_value,
                 "teacher_action_index": record.chosen_action_index,
+                "decision_index": record.decision_index,
                 "tied_visit_argmax": tied,
             }
             try:

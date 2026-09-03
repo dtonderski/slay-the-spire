@@ -97,10 +97,8 @@ def _member_name(value: str) -> str:
     return value if value and not value[0].isdigit() else f"_{value}"
 
 
-def _enum(name: str, values: list[str], *, aliases: dict[str, str] | None = None) -> type[StrEnum]:
+def _enum(name: str, values: list[str]) -> type[StrEnum]:
     members: dict[str, str] = {_member_name(value): value for value in values}
-    for alias, value in (aliases or {}).items():
-        members[alias] = value
     return StrEnum(name, members, module=__name__)
 
 
@@ -116,8 +114,4 @@ CARD_DEFINITIONS: Mapping[str, CardDefinition] = MappingProxyType(
 
 Card = _enum("Card", _native.card_keys())
 Relic = _enum("Relic", _native.relic_names())
-Potion = _enum(
-    "Potion",
-    _native.potion_names(),
-    aliases={"GAMBLE": "GamblersBrew"},
-)
+Potion = _enum("Potion", _native.potion_names())

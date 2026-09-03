@@ -308,11 +308,10 @@ def _load_cohort_manifest(path: Path, label: str) -> tuple[RootManifest, str]:
         _reject_symlink(snapshot.parent, f"{label} root path")
         _require_canonical_root_snapshot(_read_regular_file_bytes(snapshot), root.root_id)
     bundle_dir = parent / SOURCE_EPOCH_DIRNAME
-    if bundle_dir.exists():
-        bundle = load_source_epoch_bundle(bundle_dir)
-        verify_loaded_native_bytes(bundle)
-        if bundle.bundle_digest != manifest.source_epoch_bundle_digest:
-            raise ValueError(f"{label} source-epoch-bundle digest does not match the root manifest")
+    bundle = load_source_epoch_bundle(bundle_dir)
+    verify_loaded_native_bytes(bundle)
+    if bundle.bundle_digest != manifest.source_epoch_bundle_digest:
+        raise ValueError(f"{label} source-epoch-bundle digest does not match the root manifest")
     return manifest, file_digest
 
 

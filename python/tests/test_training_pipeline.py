@@ -409,7 +409,7 @@ def test_truncated_value_rows_are_masked_from_loss() -> None:
         decision_index=0,
         value_target_mask=False,
         record_id=None,
-        search_root_mean_value=0.0,
+        search_root_mean_value=None,
     )
     builder = VocabularyBuilder()
     builder.add(observation, actions)

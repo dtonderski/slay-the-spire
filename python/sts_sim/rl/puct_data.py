@@ -9,7 +9,6 @@ from typing import Any, cast
 
 import torch
 
-from ..fair import FairCombatObservation
 from ..run import RunEnv
 from .data import (
     _NATIVE_EPISODE_ERROR,
@@ -38,7 +37,6 @@ from .records import (
     canonical_episode_id,
     fair_observation_digest,
     fair_observation_from_payload,
-    fair_observation_payload,
     first_argmax_visits,
     validate_puct_search_config,
 )
@@ -155,8 +153,10 @@ def generate_puct_dataset(
         raise ValueError(f"root manifest contains no {split} roots")
     if repository_root is None:
         repository_root = Path(__file__).resolve().parents[3]
-    repository = capture_repository_version(repository_root, allow_dirty=True)
+    repository = capture_repository_version(repository_root)
     model, vocabularies, checkpoint_payload = _load_teacher_checkpoint(checkpoint_path)
+    if checkpoint_payload["source_epoch_bundle_digest"] != root_manifest.source_epoch_bundle_digest:
+        raise ValueError("PUCT teacher checkpoint source-epoch-bundle digest mismatch")
     search_config = _puct_search_config(
         c_puct=float(c_puct),
         simulation_budget=simulation_budget,
@@ -205,10 +205,7 @@ def generate_puct_dataset(
                 raise ValueError("terminal or post-combat root cannot produce training records")
             root_records: list[SymbolicTrainingRecord] = []
             for decision_index, step in enumerate(steps):
-                projected = FairCombatObservation._from_payload(
-                    cast(dict[str, object], step["observation"])
-                )
-                observation = fair_observation_from_payload(fair_observation_payload(projected))
+                observation = fair_observation_from_payload(step["observation"])
                 actions = tuple(
                     action_descriptor_from_payload(
                         {"family": "combat", **cast(dict[str, object], choice)}

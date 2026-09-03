@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import inspect
 import json
 import subprocess
 from dataclasses import replace
@@ -29,11 +28,9 @@ from sts_sim.rl import (
     collate_combat_tensors,
     collate_training_examples,
     fair_observation_digest,
-    load_checkpoint,
     policy_value_loss,
     read_jsonl,
     rollout_model_combat,
-    save_checkpoint,
     summarize_rollouts,
     teacher_conflict_report,
     tensorize_combat,
@@ -140,7 +137,7 @@ def _record(
     teacher_pair_id: str | None = None,
     target_value: float | None = 0.75,
     value_target_mask: bool | None = None,
-    search_root_mean_value: float = 0.75,
+    search_root_mean_value: float | None = None,
 ) -> SymbolicTrainingRecord:
     counts = visits or tuple(1 if index == chosen else 0 for index in range(len(actions)))
     digest_root = root_id if len(root_id) == 64 else _hex(root_id)
@@ -379,86 +376,6 @@ def test_repository_digest_tracks_symlink_target_changes_independently(tmp_path:
     link.symlink_to("target-c")
     second = capture_repository_version(tmp_path, allow_dirty=True)
     assert first.dirty_diff_digest != second.dirty_diff_digest
-
-
-def test_checkpoint_round_trip_preserves_exact_outputs_mode_and_metadata(tmp_path: Path) -> None:
-    observation, actions = _decision()
-    vocab = _vocab(observation, actions)
-    batch = collate_combat_tensors((tensorize_combat(observation, actions, vocab),))
-    model = FairCombatPolicyValueNet(
-        vocab,
-        CombatModelConfig(width=32, heads=4, layers=1, feedforward_width=64, dropout=0.25),
-    ).eval()
-    before = model(batch)
-    checkpoint = tmp_path / "model.pt"
-    repository = RepositoryVersion("d" * 40, False, "a" * 64)
-    save_checkpoint(
-        checkpoint,
-        model,
-        repository,
-        {"experiment": "smoke", "learning_rate": 0.001},
-        value_target_name="combat_proxy_v1",
-    )
-    payload = torch.load(checkpoint, weights_only=True)
-    loaded = load_checkpoint(
-        checkpoint,
-        expected_vocabularies=vocab,
-        expected_value_target_name="combat_proxy_v1",
-    )
-    assert not loaded.model.training
-    after = loaded.model(batch)
-    assert torch.equal(before.logits, after.logits)
-    assert torch.equal(before.value, after.value)
-    assert loaded.repository == repository
-    assert loaded.experiment_config["experiment"] == "smoke"
-    assert loaded.value_target_name == "combat_proxy_v1"
-    assert loaded.tensorizer_source_digest == payload["tensorizer_source_digest"]
-    assert loaded.model_source_digest == payload["model_source_digest"]
-    training_checkpoint = tmp_path / "training.pt"
-    training_model = _model(vocab).train()
-    save_checkpoint(
-        training_checkpoint,
-        training_model,
-        repository,
-        {"experiment": "training-mode"},
-        value_target_name="combat_proxy_v1",
-    )
-    assert load_checkpoint(training_checkpoint).model.training
-    with pytest.raises(ValueError, match="value target"):
-        load_checkpoint(checkpoint, expected_value_target_name="other_proxy")
-
-    for field in ("tensorizer_source_digest", "model_source_digest"):
-        malformed = dict(payload)
-        malformed[field] = "bad"
-        malformed_path = tmp_path / f"malformed-{field}.pt"
-        torch.save(malformed, malformed_path)
-        with pytest.raises(ValueError, match=rf"{field}.*malformed"):
-            load_checkpoint(malformed_path)
-
-    mismatched = dict(payload)
-    mismatched["model_source_digest"] = "b" * 64
-    mismatched_path = tmp_path / "mismatched.pt"
-    torch.save(mismatched, mismatched_path)
-    with pytest.raises(ValueError, match="source bytes differ.*model_source_digest"):
-        load_checkpoint(mismatched_path)
-
-    other_builder = VocabularyBuilder()
-    other_builder.add(
-        replace(observation, monsters=(replace(observation.monsters[0], content_key="future"),)),
-        actions,
-    )
-    with pytest.raises(ValueError, match="expected vocabulary"):
-        load_checkpoint(checkpoint, expected_vocabularies=other_builder.freeze())
-    with pytest.raises(ValueError, match="model config"):
-        load_checkpoint(
-            checkpoint,
-            expected_config=CombatModelConfig(width=64, heads=4, layers=1),
-        )
-
-
-def test_checkpoint_api_uses_only_package_owned_source_paths() -> None:
-    assert "tensorizer_path" not in inspect.signature(save_checkpoint).parameters
-    assert "tensorizer_path" not in inspect.signature(load_checkpoint).parameters
 
 
 def test_symbolic_jsonl_round_trip_and_on_demand_dataset(tmp_path: Path) -> None:
@@ -861,23 +778,3 @@ def test_training_record_rejects_misaligned_choice_and_counts() -> None:
     payload["record_id"] = None
     with pytest.raises(ValueError, match="digest"):
         SymbolicTrainingRecord.from_dict(payload)
-
-
-def test_checkpoint_payload_contains_no_tensorized_training_records(tmp_path: Path) -> None:
-    observation, actions = _decision()
-    vocab = _vocab(observation, actions)
-    checkpoint = tmp_path / "checkpoint.pt"
-    save_checkpoint(
-        checkpoint,
-        _model(vocab),
-        RepositoryVersion("b" * 40, True),
-        {"name": "test"},
-        value_target_name="combat_proxy_v1",
-    )
-    payload = torch.load(checkpoint, weights_only=True)
-    assert "tensor_schema_version" not in payload
-    assert "training_records" not in payload
-    assert payload["checkpoint_format"] == 1
-    assert "model_source_digest" in payload
-    assert payload["vocabulary_fingerprint"] == vocab.fingerprint
-    assert json.dumps(payload["experiment_config"], sort_keys=True) == '{"name": "test"}'

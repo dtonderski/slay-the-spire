@@ -21,7 +21,6 @@ from sts_sim.rl.diagnostics import (
 from sts_sim.rl.experiment import (
     ARTIFACT_INVENTORY_NAME,
     PREDECLARATION_KIND,
-    UNDECLARED_POLICY_REPORT_ONLY,
     UNDECLARED_POLICY_STRICT,
     ArtifactIntegrityError,
     ExperimentReproductionError,
@@ -103,6 +102,10 @@ def _write_json(path: Path, payload: object) -> None:
     )
 
 
+def _seed_predeclaration(experiment: Path) -> None:
+    _write_json(experiment / "predeclaration.json", _v1_predeclaration("a" * 40))
+
+
 def _load_fixture(name: str) -> dict[str, object]:
     payload = json.loads((FIXTURE_DIR / name).read_text(encoding="utf-8"))
     return cast(dict[str, object], payload)
@@ -119,8 +122,8 @@ def _write_scientific_worker(payload: tuple[str, bytes]) -> tuple[str, str]:
 
 def test_mutable_path_classification_is_timing_only() -> None:
     assert is_mutable_synchronization_path(Path("development-gameplay.time.txt"))
-    assert not is_mutable_synchronization_path(Path("wandb/offline-run-1/run.wandb"))
-    assert not is_mutable_synchronization_path(Path("wandb/wandb/latest-run"))
+    assert not is_mutable_synchronization_path(Path("cache/offline-run-1/events"))
+    assert not is_mutable_synchronization_path(Path("cache/latest-run"))
     assert not is_mutable_synchronization_path(Path("predeclaration.json"))
     assert not is_mutable_synchronization_path(Path("roots/root-manifest.json"))
     assert not is_mutable_synchronization_path(Path("student/checkpoint.pt"))
@@ -182,6 +185,7 @@ def test_inventory_path_normalization_rejects_escape_and_duplicates() -> None:
 def test_verify_rejects_absolute_and_traversal_inventory_paths(tmp_path: Path) -> None:
     experiment = tmp_path / "exp"
     _write_json(experiment / "kept.json", {"ok": True})
+    _seed_predeclaration(experiment)
     write_artifact_inventory(experiment)
     inventory = experiment / ARTIFACT_INVENTORY_NAME
     inventory.write_text(f"{'a' * 64}  /etc/passwd\n", encoding="utf-8")
@@ -197,6 +201,7 @@ def test_inventory_skips_timing_and_rejects_scientific_tamper(tmp_path: Path) ->
     scientific = experiment / "report.json"
     timing = experiment / "run.time.txt"
     _write_json(scientific, {"name": "demo"})
+    _seed_predeclaration(experiment)
     timing.write_text("1.23\n", encoding="utf-8")
     inventory = write_artifact_inventory(experiment)
     text = inventory.read_text(encoding="utf-8")
@@ -204,8 +209,8 @@ def test_inventory_skips_timing_and_rejects_scientific_tamper(tmp_path: Path) ->
     assert "run.time.txt" not in text
     report = verify_artifact_integrity(experiment)
     assert report.ok
-    assert report.checked == 1
-    assert report.undeclared_policy == UNDECLARED_POLICY_REPORT_ONLY
+    assert report.checked == 2
+    assert report.undeclared_policy == UNDECLARED_POLICY_STRICT
     timing.write_text("9.99\n", encoding="utf-8")
     assert verify_artifact_integrity(experiment).ok
     listed_timing = experiment / ARTIFACT_INVENTORY_NAME
@@ -228,6 +233,7 @@ def test_inventory_rejects_missing_declared_scientific_file(tmp_path: Path) -> N
     experiment = tmp_path / "exp"
     path = experiment / "kept.json"
     _write_json(path, {"keep": True})
+    _seed_predeclaration(experiment)
     write_artifact_inventory(experiment)
     gone = experiment / "gone.json"
     _write_json(gone, {"gone": True})
@@ -244,6 +250,7 @@ def test_inventory_refuses_symlinks_including_parent_links(tmp_path: Path) -> No
     experiment = tmp_path / "exp"
     payload = experiment / "report.json"
     _write_json(payload, {"ok": True})
+    _seed_predeclaration(experiment)
     write_artifact_inventory(experiment)
     linked = experiment / "linked.json"
     linked.symlink_to(payload)
@@ -262,29 +269,28 @@ def test_inventory_refuses_symlinks_including_parent_links(tmp_path: Path) -> No
         write_artifact_inventory(nested)
 
 
-def test_undeclared_wandb_symlink_is_a_violation(tmp_path: Path) -> None:
+def test_undeclared_nested_symlink_is_a_violation(tmp_path: Path) -> None:
     experiment = tmp_path / "exp"
     _write_json(experiment / "kept.json", {"ok": True})
+    _seed_predeclaration(experiment)
     write_artifact_inventory(experiment)
-    run = experiment / "wandb" / "wandb" / "offline-run-1"
+    run = experiment / "cache" / "offline-run-1"
     run.mkdir(parents=True)
-    (run / "run.wandb").write_bytes(b"x")
-    (experiment / "wandb" / "wandb" / "latest-run").symlink_to(run)
+    (run / "events").write_bytes(b"x")
+    (experiment / "cache" / "latest-run").symlink_to(run)
     with pytest.raises(ValueError, match="symlink"):
         write_artifact_inventory(experiment)
     with pytest.raises(ArtifactIntegrityError, match="symlink"):
         verify_artifact_integrity(experiment)
 
 
-def test_legacy_undeclared_files_are_report_only(tmp_path: Path) -> None:
+def test_undeclared_files_fail_closed_without_predeclaration(tmp_path: Path) -> None:
     experiment = tmp_path / "exp"
     _write_json(experiment / "kept.json", {"keep": True})
     write_artifact_inventory(experiment)
     _write_json(experiment / "extra.json", {"extra": True})
-    report = verify_artifact_integrity(experiment)
-    assert report.ok
-    assert report.undeclared_policy == UNDECLARED_POLICY_REPORT_ONLY
-    assert report.undeclared_scientific == ("extra.json",)
+    with pytest.raises(ValueError, match="missing predeclaration"):
+        verify_artifact_integrity(experiment)
 
 
 def test_v1_undeclared_files_fail_closed(tmp_path: Path) -> None:
@@ -318,6 +324,15 @@ def test_predeclaration_v1_rejects_unknown_fields_and_promotion(tmp_path: Path) 
     policy["sealed_test"] = True
     _write_json(path, payload)
     with pytest.raises(ExperimentReproductionError, match="sealed/audit"):
+        load_experiment_predeclaration(path)
+    payload["consumed_evidence_policy"] = {
+        "sealed_test": False,
+        "real_trace_audit": False,
+        "development_only_for_assessment": True,
+    }
+    payload["schema_version"] = True
+    _write_json(path, payload)
+    with pytest.raises(TypeError, match="schema version"):
         load_experiment_predeclaration(path)
 
 
@@ -552,8 +567,8 @@ def test_calibration_official_denominators_and_coverage_bounds() -> None:
     assert gameplay_accounting["included_truncated"] == 1
     assert gameplay_accounting["requested_root_source"] == "root_ids"
     join = cast(dict[str, object], gameplay_accounting["join"])
-    assert join["rule"] == "unproven_v4_file_order"
-    assert "cannot prove first-decision identity" in str(join["limitation"])
+    assert join["rule"] == "min_decision_index"
+    assert join["limitation"] is None
     chosen = {
         row["root_id"]: row["record_id"]
         for row in cast(list[dict[str, object]], join["chosen_joins"])
@@ -589,6 +604,7 @@ def test_gameplay_join_uses_minimum_decision_index_when_present() -> None:
 def test_cli_verify_and_calibrate(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     experiment = tmp_path / "exp"
     _write_json(experiment / "report.json", {"ok": True})
+    _seed_predeclaration(experiment)
     write_artifact_inventory(experiment)
     assert experiment_main(["verify", "--experiment-dir", str(experiment)]) == 0
     verify_payload = json.loads(capsys.readouterr().out)
@@ -602,6 +618,7 @@ def test_cli_verify_and_calibrate(tmp_path: Path, capsys: pytest.CaptureFixture[
                 "truncated": False,
                 "value_target_mask": True,
                 "predicted_value": 0.9,
+                "decision_index": 0,
             },
             {
                 "record_id": "r2",
@@ -610,6 +627,7 @@ def test_cli_verify_and_calibrate(tmp_path: Path, capsys: pytest.CaptureFixture[
                 "truncated": False,
                 "value_target_mask": True,
                 "predicted_value": -0.9,
+                "decision_index": 0,
             },
         ]
     }
@@ -648,18 +666,25 @@ def test_write_scientific_artifact_refuses_symlinked_parent(tmp_path: Path) -> N
     assert not (outside / "artifact.json").exists()
 
 
-def test_wandb_parent_directory_symlink_is_a_violation(tmp_path: Path) -> None:
+def test_parent_directory_symlink_is_a_violation(tmp_path: Path) -> None:
     experiment = tmp_path / "exp"
     _write_json(experiment / "kept.json", {"ok": True})
-    outside = tmp_path / "wandb-outside"
+    _seed_predeclaration(experiment)
+    outside = tmp_path / "cache-outside"
     run = outside / "offline-run-1"
     run.mkdir(parents=True)
-    (run / "run.wandb").write_bytes(b"x")
-    (experiment / "wandb").symlink_to(outside)
+    (run / "events").write_bytes(b"x")
+    (experiment / "cache").symlink_to(outside)
     with pytest.raises(ValueError, match="symlink"):
         write_artifact_inventory(experiment)
     digest = hashlib.sha256((experiment / "kept.json").read_bytes()).hexdigest()
-    (experiment / ARTIFACT_INVENTORY_NAME).write_text(f"{digest}  ./kept.json\n", encoding="utf-8")
+    predeclaration_digest = hashlib.sha256(
+        (experiment / "predeclaration.json").read_bytes()
+    ).hexdigest()
+    (experiment / ARTIFACT_INVENTORY_NAME).write_text(
+        f"{digest}  ./kept.json\n{predeclaration_digest}  ./predeclaration.json\n",
+        encoding="utf-8",
+    )
     with pytest.raises(ArtifactIntegrityError, match="symlink"):
         verify_artifact_integrity(experiment)
 
@@ -667,6 +692,7 @@ def test_wandb_parent_directory_symlink_is_a_violation(tmp_path: Path) -> None:
 def test_verify_rejects_inventory_outside_experiment(tmp_path: Path) -> None:
     experiment = tmp_path / "exp"
     _write_json(experiment / "kept.json", {"ok": True})
+    _seed_predeclaration(experiment)
     write_artifact_inventory(experiment)
     outside = tmp_path / "outside.sha256"
     outside.write_text((experiment / ARTIFACT_INVENTORY_NAME).read_text(encoding="utf-8"))
@@ -677,6 +703,7 @@ def test_verify_rejects_inventory_outside_experiment(tmp_path: Path) -> None:
 def test_verify_rejects_lexically_escaped_inventory(tmp_path: Path) -> None:
     experiment = tmp_path / "exp"
     _write_json(experiment / "kept.json", {"ok": True})
+    _seed_predeclaration(experiment)
     write_artifact_inventory(experiment)
     outside = tmp_path / "outside"
     outside.write_text((experiment / ARTIFACT_INVENTORY_NAME).read_text(encoding="utf-8"))

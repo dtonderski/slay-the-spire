@@ -35,10 +35,10 @@ observation input.
 combat, map, event, reward, treasure, rest, shop, card-grid, and complete
 screens are represented. Combat schema V2 exposes typed `FairOrbSlot`/
 `FairOrb` values and `FairCardDynamicValues.windmill_retain_damage`; these types
-are exported from `sts_sim`. Producers emit V2. The Python reader remains
-additive-backward-compatible with stored V1 observations by defaulting missing
-orb slots to `()` and missing Windmill damage to `None`; callers should still
-gate version-specific logic on `schema_version`.
+are exported from `sts_sim`. Producers emit schema 2 with required `orb_slots`.
+The Python reader rejects any other `schema_version` and rejects payloads that
+omit `orb_slots`. Optional card-dynamic fields such as Windmill retained damage
+may be absent when the native projector omits nulls.
 
 `full_state()` is a detached dictionary for debugging
 and omniscient research; it is not a stable persistence format or fair model
