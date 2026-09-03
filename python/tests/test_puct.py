@@ -20,7 +20,14 @@ from sts_sim.rl import (
     rollout_puct_policy,
     select_puct_action,
 )
-from sts_sim.rl.puct import FAIR_LEAF_BATCH_SCHEMA, PUCT_TEACHER_VERSION, network_leaf_evaluator
+from sts_sim.rl.puct import (
+    FAIR_LEAF_BATCH_SCHEMA,
+    PUCT_TEACHER_VERSION,
+    network_leaf_evaluator,
+    select_puct_action_with_evaluator,
+    select_uniform_prior_constant_value_puct_action,
+    select_uniform_prior_network_value_puct_action,
+)
 from sts_sim.run import Decision
 
 
@@ -196,25 +203,59 @@ def test_select_puct_action_requires_descriptor_alignment(
         )
 
 
+def _install_leaf_cache_capture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[str | None]:
+    import sts_sim.rl.puct as puct_module
+
+    captured: list[str | None] = []
+    original = puct_module.puct_search_payload
+    wrapped = cast("Callable[..., dict[str, object]]", original)
+
+    def capture(*args: object, **kwargs: object) -> dict[str, object]:
+        captured.append(cast(str | None, kwargs.get("leaf_cache")))
+        return wrapped(*args, **kwargs)
+
+    monkeypatch.setattr(puct_module, "puct_search_payload", capture)
+    return captured
+
+
 def test_select_puct_action_opts_into_exact_state_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     env, model, vocabularies = _tiny_policy_net()
     decision = env.decision()
-    import sts_sim.rl.puct as puct_module
+    captured = _install_leaf_cache_capture(monkeypatch)
+    select_puct_action(env, decision, model, vocabularies, simulation_budget=2, transition_budget=2)
+    assert captured == ["exact_state"]
 
-    captured: list[str | None] = []
-    original = puct_module.puct_search_payload
 
-    def capture(*args: object, **kwargs: object) -> dict[str, object]:
-        captured.append(cast(str | None, kwargs.get("leaf_cache")))
-        return original(*args, **kwargs)
+def test_generic_evaluator_selector_defaults_to_cache_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = RunEnv.combat_fixture()
+    decision = env.decision()
+    captured = _install_leaf_cache_capture(monkeypatch)
+    selected = select_puct_action_with_evaluator(
+        env, decision, _uniform_evaluator, simulation_budget=2, transition_budget=2
+    )
+    assert captured == [None]
+    assert any(candidate is selected for candidate in decision.actions)
 
-    monkeypatch.setattr(puct_module, "puct_search_payload", capture)
-    select_puct_action(
+
+def test_deterministic_uniform_prior_wrappers_opt_into_exact_state_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env, model, vocabularies = _tiny_policy_net()
+    decision = env.decision()
+    captured = _install_leaf_cache_capture(monkeypatch)
+    select_uniform_prior_network_value_puct_action(
         env, decision, model, vocabularies, simulation_budget=2, transition_budget=2
     )
-    assert captured == ["exact_state"]
+    select_uniform_prior_constant_value_puct_action(
+        env, decision, simulation_budget=2, transition_budget=2
+    )
+    assert captured == ["exact_state", "exact_state"]
 
 
 def test_rollout_carries_public_episode_root_baselines(
