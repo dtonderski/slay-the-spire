@@ -15,7 +15,8 @@ import torch
 
 from ..fair import FairCombatObservation
 from ..run import ActionDescriptor
-from .provenance import RepositoryVersion, canonical_bytes, sha256_bytes
+from .experiment import write_scientific_artifact
+from .provenance import RepositoryVersion, canonical_bytes, read_regular_file_bytes, sha256_bytes
 from .tensor import (
     BatchedCombatDecision,
     TensorizedCombatDecision,
@@ -215,7 +216,7 @@ def _type_sensitive_equal(left: object, right: object) -> bool:
 
 
 def fair_observation_payload(observation: FairCombatObservation) -> dict[str, object]:
-    return cast(dict[str, object], json.loads(json.dumps(asdict(observation))))
+    return cast(dict[str, object], json.loads(canonical_bytes(observation.to_wire_dict())))
 
 
 def _validate_runtime_type(value: object, annotation: object, path: str) -> None:
@@ -264,34 +265,6 @@ def _validate_runtime_type(value: object, annotation: object, path: str) -> None
     raise TypeError(f"{path} uses an unsupported symbolic annotation")
 
 
-def _is_omissible_default(value: object) -> bool:
-    return value is None or value == [] or value == {}
-
-
-def _fill_omitted_defaults(source: object, canonical: object) -> object:
-    if type(canonical) is dict and type(source) is dict:
-        canonical_map = cast(dict[str, object], canonical)
-        source_map = cast(dict[str, object], source)
-        filled = dict(source_map)
-        for key, value in canonical_map.items():
-            if key not in filled:
-                if _is_omissible_default(value):
-                    filled[key] = value
-                continue
-            filled[key] = _fill_omitted_defaults(filled[key], value)
-        return filled
-    if type(canonical) is list and type(source) is list:
-        canonical_items = cast(list[object], canonical)
-        source_items = cast(list[object], source)
-        if len(canonical_items) != len(source_items):
-            return source
-        return [
-            _fill_omitted_defaults(item, expected)
-            for item, expected in zip(source_items, canonical_items, strict=True)
-        ]
-    return source
-
-
 def fair_observation_from_payload(payload: object) -> FairCombatObservation:
     source = _dict(payload, "fair observation")
     if "schema_version" not in source:
@@ -304,8 +277,7 @@ def fair_observation_from_payload(payload: object) -> FairCombatObservation:
     observation = FairCombatObservation._from_payload(source)
     _validate_runtime_type(observation, FairCombatObservation, "fair observation")
     canonical = fair_observation_payload(observation)
-    aligned = _fill_omitted_defaults(source, canonical)
-    if not _type_sensitive_equal(aligned, canonical):
+    if not _type_sensitive_equal(source, canonical):
         raise ValueError("fair observation payload is not canonical for its schema")
     return observation
 
@@ -611,10 +583,20 @@ class SymbolicTrainingRecord:
     episode_id: str
     decision_index: int
     value_target_mask: bool
-    record_id: str | None
+    record_id: str
     search_root_mean_value: float | None
 
     def __post_init__(self) -> None:
+        identity = self._coerce_and_validate()
+        if (
+            type(self.record_id) is not str
+            or len(self.record_id) != 64
+            or any(character not in "0123456789abcdef" for character in self.record_id)
+            or self.record_id != identity
+        ):
+            raise ValueError("record ID is invalid")
+
+    def _coerce_and_validate(self) -> str:
         for name in (
             "value_target_name",
             "planner_name",
@@ -701,13 +683,104 @@ class SymbolicTrainingRecord:
         )
         if self.episode_id != expected_episode:
             raise ValueError("episode ID does not match canonical root/search/reward identity")
-        identity = sha256_bytes(canonical_bytes(self._substantive_payload()))
-        if self.record_id is None:
-            object.__setattr__(self, "record_id", identity)
-        elif self.record_id != identity:
-            raise ValueError("record ID is invalid")
         if fair_observation_digest(self.observation) != self.observation_digest:
             raise ValueError("fair observation digest is invalid")
+        if not self.repository.clean:
+            raise ValueError("training records require a clean repository")
+        return sha256_bytes(canonical_bytes(self._substantive_payload()))
+
+    @classmethod
+    def create(
+        cls,
+        observation: FairCombatObservation,
+        actions: tuple[ActionDescriptor, ...],
+        chosen_action_index: int,
+        chosen_action: ActionDescriptor,
+        teacher_visit_counts: tuple[int, ...],
+        target_value: float | None,
+        value_target_name: str,
+        outcome: CombatOutcome,
+        planner_name: str,
+        planner_version: str,
+        search_config: Mapping[str, JsonValue],
+        root_id: str,
+        split_group_id: str,
+        teacher_pair_id: str | None,
+        repository: RepositoryVersion,
+        observation_digest: str,
+        record_version: int,
+        root_manifest_digest: str,
+        reward_config_digest: str,
+        source_kind: str,
+        episode_id: str,
+        decision_index: int,
+        value_target_mask: bool,
+        search_root_mean_value: float | None = None,
+    ) -> SymbolicTrainingRecord:
+        """Construct a record and assign the canonical record ID."""
+
+        self = object.__new__(cls)
+        object.__setattr__(self, "observation", observation)
+        object.__setattr__(self, "actions", actions)
+        object.__setattr__(self, "chosen_action_index", chosen_action_index)
+        object.__setattr__(self, "chosen_action", chosen_action)
+        object.__setattr__(self, "teacher_visit_counts", teacher_visit_counts)
+        object.__setattr__(self, "target_value", target_value)
+        object.__setattr__(self, "value_target_name", value_target_name)
+        object.__setattr__(self, "outcome", outcome)
+        object.__setattr__(self, "planner_name", planner_name)
+        object.__setattr__(self, "planner_version", planner_version)
+        object.__setattr__(self, "search_config", search_config)
+        object.__setattr__(self, "root_id", root_id)
+        object.__setattr__(self, "split_group_id", split_group_id)
+        object.__setattr__(self, "teacher_pair_id", teacher_pair_id)
+        object.__setattr__(self, "repository", repository)
+        object.__setattr__(self, "observation_digest", observation_digest)
+        object.__setattr__(self, "record_version", record_version)
+        object.__setattr__(self, "root_manifest_digest", root_manifest_digest)
+        object.__setattr__(self, "reward_config_digest", reward_config_digest)
+        object.__setattr__(self, "source_kind", source_kind)
+        object.__setattr__(self, "episode_id", episode_id)
+        object.__setattr__(self, "decision_index", decision_index)
+        object.__setattr__(self, "value_target_mask", value_target_mask)
+        object.__setattr__(self, "record_id", "0" * 64)
+        object.__setattr__(self, "search_root_mean_value", search_root_mean_value)
+        object.__setattr__(self, "record_id", self._coerce_and_validate())
+        return self
+
+    @classmethod
+    def create_from(
+        cls, record: SymbolicTrainingRecord, **changes: object
+    ) -> SymbolicTrainingRecord:
+        payload = {
+            "observation": record.observation,
+            "actions": record.actions,
+            "chosen_action_index": record.chosen_action_index,
+            "chosen_action": record.chosen_action,
+            "teacher_visit_counts": record.teacher_visit_counts,
+            "target_value": record.target_value,
+            "value_target_name": record.value_target_name,
+            "outcome": record.outcome,
+            "planner_name": record.planner_name,
+            "planner_version": record.planner_version,
+            "search_config": record.search_config,
+            "root_id": record.root_id,
+            "split_group_id": record.split_group_id,
+            "teacher_pair_id": record.teacher_pair_id,
+            "repository": record.repository,
+            "observation_digest": record.observation_digest,
+            "record_version": record.record_version,
+            "root_manifest_digest": record.root_manifest_digest,
+            "reward_config_digest": record.reward_config_digest,
+            "source_kind": record.source_kind,
+            "episode_id": record.episode_id,
+            "decision_index": record.decision_index,
+            "value_target_mask": record.value_target_mask,
+            "search_root_mean_value": record.search_root_mean_value,
+        }
+        payload.update(changes)
+        payload.pop("record_id", None)
+        return cls.create(**cast(Any, payload))
 
     def _substantive_payload(self) -> dict[str, object]:
         payload = self.to_dict()
@@ -767,7 +840,7 @@ class SymbolicTrainingRecord:
         reward_config_digest = _string(source["reward_config_digest"], "reward config digest")
         source_kind = _string(source["source_kind"], "source kind")
         episode_id = _string(source["episode_id"], "episode id")
-        record_id = _string(source["record_id"], "record id", optional=True)
+        record_id = _string(source["record_id"], "record id")
         assert all(
             value is not None
             for value in (
@@ -781,6 +854,7 @@ class SymbolicTrainingRecord:
                 reward_config_digest,
                 source_kind,
                 episode_id,
+                record_id,
             )
         )
         repository_payload = _dict(source["repository"], "repository")
@@ -813,7 +887,7 @@ class SymbolicTrainingRecord:
             episode_id=cast(str, episode_id),
             decision_index=_integer(source["decision_index"], "decision index"),
             value_target_mask=_boolean(source["value_target_mask"], "value target mask"),
-            record_id=record_id,
+            record_id=cast(str, record_id),
             search_root_mean_value=(
                 None
                 if source["search_root_mean_value"] is None
@@ -822,22 +896,39 @@ class SymbolicTrainingRecord:
         )
 
 
+def parse_jsonl_records(content: bytes) -> tuple[SymbolicTrainingRecord, ...]:
+    """Parse canonical nonblank JSONL bytes into realized records."""
+
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("JSONL is not UTF-8") from error
+    if "\r" in text:
+        raise ValueError("JSONL must use canonical newline separators")
+    if not text.endswith("\n"):
+        raise ValueError("JSONL must end with a newline")
+    records: list[SymbolicTrainingRecord] = []
+    for line_number, line in enumerate(text[:-1].split("\n"), 1):
+        if not line or line.strip() != line:
+            raise ValueError(f"JSONL contains a blank or noncanonical line at {line_number}")
+        try:
+            loaded = json.loads(line)
+            record = SymbolicTrainingRecord.from_dict(loaded)
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"invalid symbolic record at line {line_number}") from error
+        if line.encode("utf-8") != canonical_bytes(record.to_dict()):
+            raise ValueError(f"JSONL contains a blank or noncanonical line at {line_number}")
+        records.append(record)
+    return tuple(records)
+
+
 def write_jsonl(path: Path, records: Iterable[SymbolicTrainingRecord]) -> None:
-    with path.open("w", encoding="utf-8") as output:
-        for record in records:
-            output.write(canonical_bytes(record.to_dict()).decode())
-            output.write("\n")
+    payload = b"".join(canonical_bytes(record.to_dict()) + b"\n" for record in records)
+    write_scientific_artifact(path, payload)
 
 
 def read_jsonl(path: Path) -> Iterator[SymbolicTrainingRecord]:
-    with path.open(encoding="utf-8") as source:
-        for line_number, line in enumerate(source, 1):
-            if not line.strip():
-                continue
-            try:
-                yield SymbolicTrainingRecord.from_dict(json.loads(line))
-            except (KeyError, TypeError, ValueError) as error:
-                raise ValueError(f"invalid symbolic record at line {line_number}") from error
+    yield from parse_jsonl_records(read_regular_file_bytes(path))
 
 
 @dataclass(frozen=True, slots=True)

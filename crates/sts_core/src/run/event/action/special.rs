@@ -190,7 +190,7 @@ pub(super) fn apply_special_event_action(
                 open_event_upgrade_return_to_event_grid(next, Event::AccursedBlacksmith);
             }
             0 if choice_index == 1 => {
-                next.gain_relic_key(RelicKey::WarpedTongs)?;
+                next.gain_relic_key(Relic::WarpedTongs)?;
                 next.queue_pending_obtain_card(PAIN_ID);
                 next.event = Some(EventScreen {
                     event: Event::AccursedBlacksmith,
@@ -293,15 +293,15 @@ pub(super) fn apply_special_event_action(
                 let offered = *owned
                     .get(offered_index)
                     .ok_or(SimError::InvalidState("N'loth offered relic is missing"))?;
-                if has_relic_key(next, RelicKey::NlothsGift) {
-                    next.gain_relic_key(RelicKey::Circlet)?;
+                if has_relic_key(next, Relic::NlothsGift) {
+                    next.gain_relic_key(Relic::Circlet)?;
                 } else {
                     if !remove_relic_key(next, offered)? {
                         return Err(SimError::InvalidState(
                             "N'loth offered relic is no longer owned",
                         ));
                     }
-                    next.gain_relic_key(RelicKey::NlothsGift)?;
+                    next.gain_relic_key(Relic::NlothsGift)?;
                 }
                 next.event = Some(EventScreen {
                     event: Event::Nloth,

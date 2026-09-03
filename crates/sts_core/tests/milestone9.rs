@@ -7,9 +7,8 @@ use sts_core::{
     enter_event_screen, leave_shop_room, legal_event_actions, legal_map_actions_on_run,
     legal_rest_actions, legal_shop_actions, rest_heal_amount, validate_event_action, CardId,
     CardInstance, Event, EventAction, EventChoice, EventScreen, MapAction, MapNodeId, Potion,
-    Relic, RelicKey, RestAction, RoomKind, RunAction, RunPhase, RunState, ShopCardSlot,
-    ShopPotionSlot, ShopRelicSlot, ShopScreen, SimError, FIRE_POTION_DAMAGE, GOLDEN_SHRINE_GOLD,
-    VAJRA_STRENGTH,
+    Relic, RestAction, RoomKind, RunAction, RunPhase, RunState, ShopCardSlot, ShopPotionSlot,
+    ShopRelicSlot, ShopScreen, SimError, FIRE_POTION_DAMAGE, GOLDEN_SHRINE_GOLD, VAJRA_STRENGTH,
 };
 
 const SHOP_ANGER_PRICE: i32 = 50;
@@ -24,7 +23,7 @@ fn legacy_fixed_shop_screen(next_card_id: u64) -> ShopScreen {
             sold: false,
         }],
         relics: vec![ShopRelicSlot {
-            relic_key: RelicKey::Vajra,
+            relic_key: Relic::Vajra,
             price: SHOP_VAJRA_PRICE,
             sold: false,
         }],
@@ -277,7 +276,7 @@ fn explicit_legacy_shop_fixture_exposes_anger_and_blocks_map_actions() {
     assert_eq!(shop.cards[0].price, SHOP_ANGER_PRICE);
     assert_eq!(shop.cards[0].card.content_id, ANGER_ID);
     let relic = shop.relics[0];
-    assert_eq!(relic.relic_key, RelicKey::Vajra);
+    assert_eq!(relic.relic_key, Relic::Vajra);
     assert_eq!(relic.price, SHOP_VAJRA_PRICE);
     let potion = shop.potions[0];
     assert_eq!(potion.potion, Potion::Fire);

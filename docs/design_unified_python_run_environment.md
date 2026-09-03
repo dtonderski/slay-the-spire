@@ -61,11 +61,8 @@ The same screen projection supplies public decision-local slots for every
 non-combat action. Map node IDs, card IDs, relic identities retained for later
 rewards, RNG state, and pre-rolled future outcomes remain private.
 
-## Compatibility
+## Native backing
 
-The old native `OmniRunEnv`, `FairCombatEnv`, `ExactRunAction`, and
-`PlayerChoiceRequest` bindings remain temporarily available in the private
-native or compatibility implementation modules so existing verifier/search
-code is not broken in the same change. They are not exported by the package
-root. New notebooks and user-facing documentation use only `RunEnv`,
-`Decision`, and `Action`.
+Python `RunEnv` is backed by the private native `OmniRunEnv`. Combat and
+non-combat decisions share one public `Action` list and one `step` boundary.
+There is no remaining combat-only environment or second exact-action type.

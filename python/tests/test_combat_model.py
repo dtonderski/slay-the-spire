@@ -4,6 +4,7 @@ import ast
 import hashlib
 import json
 import subprocess
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Literal, cast
@@ -36,7 +37,13 @@ from sts_sim.rl import (
     tensorize_combat,
     write_jsonl,
 )
-from sts_sim.rl.records import BEAM_TEACHER_NAME, RECORD_VERSION, JsonValue, canonical_episode_id
+from sts_sim.rl.records import (
+    BEAM_TEACHER_NAME,
+    RECORD_VERSION,
+    JsonValue,
+    canonical_episode_id,
+    parse_jsonl_records,
+)
 from sts_sim.rl.rewards import COMBAT_PROXY_V1
 
 _BEAM_SEARCH_CONFIG: dict[str, JsonValue] = {
@@ -51,6 +58,12 @@ _BEAM_SEARCH_CONFIG: dict[str, JsonValue] = {
 }
 
 
+def _from_mutated_combat_snapshot(mutate_state: Callable[[dict[str, object]], None]) -> RunEnv:
+    payload = json.loads(RunEnv.combat_fixture().snapshot().json)
+    mutate_state(cast(dict[str, object], payload["state"]))
+    return RunEnv.from_snapshot(json.dumps(payload))
+
+
 def _hex(label: str) -> str:
     return hashlib.sha256(label.encode()).hexdigest()
 
@@ -61,13 +74,12 @@ def _rebind_root(
     **changes: object,
 ) -> SymbolicTrainingRecord:
     digest_root = root_id if len(root_id) == 64 else _hex(root_id)
-    return replace(
+    return SymbolicTrainingRecord.create_from(
         record,
         root_id=digest_root,
         episode_id=canonical_episode_id(
             digest_root, record.search_config, record.reward_config_digest
         ),
-        record_id=None,
         **changes,
     )
 
@@ -142,7 +154,7 @@ def _record(
     counts = visits or tuple(1 if index == chosen else 0 for index in range(len(actions)))
     digest_root = root_id if len(root_id) == 64 else _hex(root_id)
     reward_digest = COMBAT_PROXY_V1.digest
-    return SymbolicTrainingRecord(
+    return SymbolicTrainingRecord.create(
         observation=observation,
         actions=actions,
         chosen_action_index=chosen,
@@ -165,8 +177,9 @@ def _record(
         source_kind="simulator_legal_v1",
         episode_id=canonical_episode_id(digest_root, _BEAM_SEARCH_CONFIG, reward_digest),
         decision_index=0,
-        value_target_mask=target_value is not None if value_target_mask is None else value_target_mask,
-        record_id=None,
+        value_target_mask=target_value is not None
+        if value_target_mask is None
+        else value_target_mask,
         search_root_mean_value=search_root_mean_value,
     )
 
@@ -276,9 +289,7 @@ def test_hand_and_action_permutation_is_policy_equivariant_and_value_invariant()
 
 def _init_git_fixture(repo: Path) -> None:
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
-    subprocess.run(
-        ["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True
-    )
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
     subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
 
 
@@ -344,9 +355,7 @@ def test_repository_capture_detects_mode_change_when_git_ignores_file_modes(
     tracked.write_text("#!/bin/sh\n")
     tracked.chmod(0o644)
     _commit_fixture(tmp_path)
-    subprocess.run(
-        ["git", "-C", str(tmp_path), "config", "core.fileMode", "false"], check=True
-    )
+    subprocess.run(["git", "-C", str(tmp_path), "config", "core.fileMode", "false"], check=True)
     assert capture_repository_version(tmp_path).clean
 
     tracked.chmod(0o755)
@@ -386,6 +395,22 @@ def test_symbolic_jsonl_round_trip_and_on_demand_dataset(tmp_path: Path) -> None
     assert "entity_scalars" not in path.read_text()
     loaded = tuple(read_jsonl(path))
     assert loaded == (record,)
+    canonical = path.read_bytes()
+    with pytest.raises(ValueError, match="blank or noncanonical"):
+        parse_jsonl_records(canonical + b"\n")
+    with pytest.raises(ValueError, match="blank or noncanonical"):
+        parse_jsonl_records(b"   \n" + canonical)
+    with pytest.raises(ValueError, match="must end with a newline"):
+        parse_jsonl_records(canonical.rstrip(b"\n"))
+    with pytest.raises(ValueError, match="canonical newline"):
+        parse_jsonl_records(canonical.replace(b"\n", b"\r\n"))
+    with pytest.raises(ValueError, match="blank or noncanonical"):
+        parse_jsonl_records(canonical.replace(b":", b": ", 1))
+    loaded_line = json.loads(canonical.splitlines()[0])
+    reordered = json.dumps(loaded_line, separators=(",", ":")) + "\n"
+    if reordered.encode() != canonical:
+        with pytest.raises(ValueError, match="blank or noncanonical"):
+            parse_jsonl_records(reordered.encode())
 
     vocab = _vocab(observation, actions)
     dataset = SymbolicCombatDataset(loaded, vocab)
@@ -509,12 +534,12 @@ def test_one_optimizer_step_uses_symbolic_policy_and_value_targets() -> None:
 
 
 def test_rollout_classifies_terminal_on_cap_smoke_escape_and_initial_noncombat() -> None:
-    lethal_env = RunEnv.combat_fixture()
-    state = lethal_env.full_state()
-    combat = cast(dict[str, object], state["combat"])
-    monsters = cast(list[dict[str, object]], combat["monsters"])
-    monsters[0]["hp"] = 1
-    lethal_env = RunEnv.from_state_json_for_debugging(json.dumps(state))
+    def mutate(state: dict[str, object]) -> None:
+        combat = cast(dict[str, object], state["combat"])
+        monsters = cast(list[dict[str, object]], combat["monsters"])
+        monsters[0]["hp"] = 1
+
+    lethal_env = _from_mutated_combat_snapshot(mutate)
     lethal_decision = lethal_env.decision()
     assert lethal_decision.actions[0].kind == "play_hand_slot"
     lethal_observation = cast(FairCombatObservation, lethal_decision.observation)
@@ -642,12 +667,11 @@ def test_teacher_conflict_uses_explicit_distinct_paired_public_roots() -> None:
         teacher_conflict_report(
             [
                 first,
-                replace(
+                SymbolicTrainingRecord.create_from(
                     second,
                     actions=reversed_actions,
                     chosen_action=reversed_actions[1],
                     chosen_action_index=1,
-                    record_id=None,
                 ),
             ]
         )
@@ -754,7 +778,7 @@ def test_training_record_parsing_is_strict_and_mappings_are_deep_frozen() -> Non
         SymbolicTrainingRecord.from_dict(payload)
     payload = record.to_dict()
     cast(dict[str, object], payload["observation"])["future_hidden_field"] = 1
-    with pytest.raises(ValueError, match="canonical"):
+    with pytest.raises(ValueError, match="unknown field"):
         SymbolicTrainingRecord.from_dict(payload)
     payload = record.to_dict()
     player = cast(
@@ -762,7 +786,7 @@ def test_training_record_parsing_is_strict_and_mappings_are_deep_frozen() -> Non
         cast(dict[str, object], payload["observation"])["player"],
     )
     player["hp"] = True
-    with pytest.raises(TypeError, match="scalar type"):
+    with pytest.raises(TypeError, match="integer"):
         SymbolicTrainingRecord.from_dict(payload)
 
 
@@ -774,7 +798,9 @@ def test_training_record_rejects_misaligned_choice_and_counts() -> None:
     with pytest.raises(ValueError, match="align"):
         replace(record, teacher_visit_counts=(1,))
     payload = record.to_dict()
-    payload["observation_digest"] = "bad"
-    payload["record_id"] = None
+    with pytest.raises(TypeError, match="record id"):
+        SymbolicTrainingRecord.from_dict({**payload, "record_id": None})
+    with pytest.raises(ValueError, match="record ID is invalid"):
+        SymbolicTrainingRecord.from_dict({**payload, "record_id": "0" * 64})
     with pytest.raises(ValueError, match="digest"):
-        SymbolicTrainingRecord.from_dict(payload)
+        SymbolicTrainingRecord.create_from(record, observation_digest="bad")

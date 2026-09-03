@@ -65,8 +65,8 @@ pub(super) fn apply_act_three_event_action(
                 next.heal_player(next.player_max_hp)?;
                 next.event = Some(make_event_screen(Event::MoaiHead, moai_choices(next, 1), 1));
             }
-            0 if has_relic_key(next, RelicKey::GoldenIdol) && choice_index == 1 => {
-                remove_relic_key(next, RelicKey::GoldenIdol)?;
+            0 if has_relic_key(next, Relic::GoldenIdol) && choice_index == 1 => {
+                remove_relic_key(next, Relic::GoldenIdol)?;
                 next.gain_gold(333)?;
                 next.event = Some(make_event_screen(Event::MoaiHead, moai_choices(next, 1), 1));
             }
@@ -253,11 +253,11 @@ pub(super) fn apply_act_three_event_action(
             }
         },
         Event::TombOfLordRedMask if screen.stage == 0 && choice_index == 0 => {
-            if has_relic_key(next, RelicKey::RedMask) {
+            if has_relic_key(next, Relic::RedMask) {
                 next.gain_gold(222)?;
             } else {
                 next.gold = 0;
-                next.gain_relic_key(RelicKey::RedMask)?;
+                next.gain_relic_key(Relic::RedMask)?;
             }
             next.event = Some(make_event_screen(
                 Event::TombOfLordRedMask,
@@ -293,7 +293,7 @@ pub(super) fn apply_act_three_event_action(
                     *card = upgraded;
                 }
             }
-            next.gain_relic_key(RelicKey::MarkOfBloom)?;
+            next.gain_relic_key(Relic::MarkOfBloom)?;
             next.event = Some(make_event_screen(
                 Event::MindBloom,
                 labeled_choices(&["Leave"]),

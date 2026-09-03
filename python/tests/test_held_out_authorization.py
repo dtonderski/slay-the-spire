@@ -4,6 +4,7 @@ import hashlib
 import json
 import shutil
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -16,12 +17,13 @@ from sts_sim.rl.authorization import (
     canonical_authorization_bytes,
     load_authorization,
     parse_authorization,
+    require_held_out_evaluation,
     verify_train_to_evaluation_authorization,
     write_authorization,
 )
-from sts_sim.rl.data import RootManifest, load_root_manifest
+from sts_sim.rl.data import RootManifest, parse_root_manifest
 from sts_sim.rl.experiment import normalize_inventory_relative_path
-from sts_sim.rl.provenance import RepositoryVersion
+from sts_sim.rl.provenance import RepositoryVersion, canonical_bytes, digest_payload, sha256_bytes
 from sts_sim.rl.source_epoch import SOURCE_EPOCH_DIRNAME, write_source_epoch_bundle
 
 _BUNDLE = hashlib.sha256(b"source-epoch-bundle-v1-fixture").hexdigest()
@@ -33,45 +35,43 @@ def _digest_label(label: str) -> str:
     return hashlib.sha256(label.encode()).hexdigest()
 
 
-def _lineage_for_split(split: str, nonce: str) -> str:
+def _seed_for_split(split: str, nonce: str) -> str:
     for index in range(20_000):
-        candidate = f"{nonce}:{index}"
-        if data_module._split_for_lineage(candidate) == split:
+        candidate = f"{nonce}-{index}"
+        if data_module._split_for_lineage(f"sim-seed:{candidate}") == split:
             return candidate
-    raise AssertionError(f"could not find a {split} lineage")
+    raise AssertionError(f"could not find a {split} seed")
 
 
 def _canonical_snapshot(payload: object) -> tuple[str, bytes]:
-    content = data_module._canonical_bytes(payload)
-    return data_module._sha256_bytes(content), content
+    content = canonical_bytes(payload)
+    return sha256_bytes(content), content
 
 
 def _write_root_manifest(
     directory: Path,
     *,
     nonce: str,
-    roots: list[tuple[str, str, dict[str, object]]],
+    roots: list[tuple[str, dict[str, object]]],
     extra_seeds: tuple[str, ...] = (),
     git_sha: str = "a" * 40,
 ) -> Path:
-    """Write a canonical root-manifest. roots are (seed, lineage, snapshot)."""
+    """Write a canonical root-manifest. roots are (seed, snapshot)."""
 
     directory.mkdir(parents=True, exist_ok=True)
     repository = RepositoryVersion(git_sha, True, None)
     bundle = write_source_epoch_bundle(directory / SOURCE_EPOCH_DIRNAME, repository)
     source_epoch_bundle_digest = bundle.bundle_digest
-    generator_source_digest = data_module._sha256_bytes(
-        data_module._canonical_bytes(repository.to_dict())
-    )
+    generator_source_digest = sha256_bytes(canonical_bytes(repository.to_dict()))
     entries: list[dict[str, object]] = []
     accounted: set[str] = set()
-    materialized: list[tuple[str, str, str, bytes]] = []
-    for seed, lineage, snapshot_payload in roots:
+    materialized: list[tuple[str, str, bytes]] = []
+    for seed, snapshot_payload in roots:
         root_id, snapshot_bytes = _canonical_snapshot(snapshot_payload)
-        materialized.append((root_id, seed, lineage, snapshot_bytes))
-    for root_id, seed, lineage, snapshot_bytes in sorted(materialized, key=lambda item: item[0]):
-        lineages = (lineage,)
-        split = data_module._split_for_lineage(lineage)
+        materialized.append((root_id, seed, snapshot_bytes))
+    for root_id, seed, snapshot_bytes in sorted(materialized, key=lambda item: item[0]):
+        lineages = (f"sim-seed:{seed}",)
+        split = data_module._split_for_lineage(lineages[0])
         relative_path = f"{split}/roots/{root_id}.json"
         entries.append(
             {
@@ -89,8 +89,9 @@ def _write_root_manifest(
         snapshot.write_bytes(snapshot_bytes)
     exclusions: list[dict[str, object]] = []
     for seed in extra_seeds:
-        exclusions.append({"source_seed": seed, "reason": "synthetic", "detail": nonce})
+        exclusions.append({"source_seed": seed, "reason": "generation_error", "detail": nonce})
         accounted.add(seed)
+    exclusions.sort(key=lambda item: (item["source_seed"], item["reason"], item["detail"]))
     requested_seeds = tuple(sorted(accounted))
     cohort_digest = data_module._cohort_digest(
         requested_seeds=requested_seeds,
@@ -119,29 +120,29 @@ def _write_root_manifest(
         "exclusions": exclusions,
         "manifest_digest": "0" * 64,
     }
-    payload["manifest_digest"] = data_module._digest_payload(payload, "manifest_digest")
+    payload["manifest_digest"] = digest_payload(payload, "manifest_digest")
     manifest = RootManifest.from_dict(payload)
     path = directory / "root-manifest.json"
-    path.write_bytes(data_module._canonical_bytes(manifest.to_dict()))
+    path.write_bytes(canonical_bytes(manifest.to_dict()))
     return path
 
 
 def _disjoint_pair(tmp_path: Path) -> tuple[Path, Path, RootManifest, RootManifest]:
-    train_lineage = _lineage_for_split("train", "train-lineage")
-    eval_lineage = _lineage_for_split("train", "eval-lineage")
-    assert train_lineage != eval_lineage
+    train_seed = _seed_for_split("train", "train")
+    eval_seed = _seed_for_split("train", "eval")
+    assert train_seed != eval_seed
     training_path = _write_root_manifest(
         tmp_path / "training",
         nonce="train",
-        roots=[("TRAIN-SEED", train_lineage, {"fixture": "train"})],
+        roots=[(train_seed, {"fixture": "train"})],
     )
     evaluation_path = _write_root_manifest(
         tmp_path / "evaluation",
         nonce="eval",
-        roots=[("EVAL-SEED", eval_lineage, {"fixture": "eval"})],
+        roots=[(eval_seed, {"fixture": "eval"})],
     )
-    training = load_root_manifest(training_path, verify_roots=False)
-    evaluation = load_root_manifest(evaluation_path, verify_roots=False)
+    training = parse_root_manifest(training_path.read_bytes())
+    evaluation = parse_root_manifest(evaluation_path.read_bytes())
     return training_path, evaluation_path, training, evaluation
 
 
@@ -159,7 +160,9 @@ def _write_bound_authorization(
         training_cohort_digest=training.cohort_digest,
         evaluation_root_manifest_digest=evaluation.manifest_digest,
         evaluation_cohort_digest=evaluation.cohort_digest,
-        source_epoch_bundle_digest=training.source_epoch_bundle_digest if bundle is None else bundle,
+        source_epoch_bundle_digest=training.source_epoch_bundle_digest
+        if bundle is None
+        else bundle,
         evaluation_seed=evaluation_seed,
         authorized_evaluator_names=names,
     )
@@ -244,15 +247,15 @@ def test_overlapping_root_ids_are_rejected_when_seeds_and_lineages_are_disjoint(
     training_path = _write_root_manifest(
         tmp_path / "training",
         nonce="train",
-        roots=[("TRAIN-SEED", _lineage_for_split("train", "train-lineage"), shared)],
+        roots=[(_seed_for_split("train", "train"), shared)],
     )
     evaluation_path = _write_root_manifest(
         tmp_path / "evaluation",
         nonce="eval",
-        roots=[("EVAL-SEED", _lineage_for_split("train", "eval-lineage"), shared)],
+        roots=[(_seed_for_split("train", "eval"), shared)],
     )
-    training = load_root_manifest(training_path, verify_roots=False)
-    evaluation = load_root_manifest(evaluation_path, verify_roots=False)
+    training = parse_root_manifest(training_path.read_bytes())
+    evaluation = parse_root_manifest(evaluation_path.read_bytes())
     assert set(training.requested_seeds).isdisjoint(evaluation.requested_seeds)
     assert {root.lineages for root in training.roots}.isdisjoint(
         {root.lineages for root in evaluation.roots}
@@ -264,32 +267,21 @@ def test_overlapping_root_ids_are_rejected_when_seeds_and_lineages_are_disjoint(
 def test_overlapping_generation_seeds_are_rejected_when_ids_and_lineages_are_disjoint(
     tmp_path: Path,
 ) -> None:
+    shared_seed = _seed_for_split("train", "shared")
     training_path = _write_root_manifest(
         tmp_path / "training",
         nonce="train",
-        roots=[
-            (
-                "SHARED-SEED",
-                _lineage_for_split("train", "train-lineage"),
-                {"fixture": "train-shared-seed"},
-            )
-        ],
-        extra_seeds=("TRAIN-ONLY",),
+        roots=[(shared_seed, {"fixture": "train-shared-seed"})],
+        extra_seeds=(_seed_for_split("train", "train-only"),),
     )
     evaluation_path = _write_root_manifest(
         tmp_path / "evaluation",
         nonce="eval",
-        roots=[
-            (
-                "SHARED-SEED",
-                _lineage_for_split("train", "eval-lineage"),
-                {"fixture": "eval-shared-seed"},
-            )
-        ],
-        extra_seeds=("EVAL-ONLY",),
+        roots=[(_seed_for_split("train", "eval"), {"fixture": "eval-only-root"})],
+        extra_seeds=(shared_seed, _seed_for_split("train", "eval-only")),
     )
-    training = load_root_manifest(training_path, verify_roots=False)
-    evaluation = load_root_manifest(evaluation_path, verify_roots=False)
+    training = parse_root_manifest(training_path.read_bytes())
+    evaluation = parse_root_manifest(evaluation_path.read_bytes())
     assert {root.root_id for root in training.roots}.isdisjoint(
         {root.root_id for root in evaluation.roots}
     )
@@ -303,25 +295,69 @@ def test_overlapping_generation_seeds_are_rejected_when_ids_and_lineages_are_dis
 def test_overlapping_lineages_are_rejected_when_ids_and_seeds_are_disjoint(
     tmp_path: Path,
 ) -> None:
-    shared_lineage = _lineage_for_split("train", "shared-lineage")
-    training_path = _write_root_manifest(
-        tmp_path / "training",
-        nonce="train",
-        roots=[("TRAIN-SEED", shared_lineage, {"fixture": "train-shared-lineage"})],
+    path = _write_root_manifest(
+        tmp_path / "roots",
+        nonce="lineage-mismatch",
+        roots=[(_seed_for_split("train", "owner"), {"fixture": "owner"})],
     )
-    evaluation_path = _write_root_manifest(
-        tmp_path / "evaluation",
-        nonce="eval",
-        roots=[("EVAL-SEED", shared_lineage, {"fixture": "eval-shared-lineage"})],
+    payload = json.loads(path.read_text())
+    dishonest = dict(payload)
+    other_seed = _seed_for_split("train", "other")
+    dishonest["roots"] = [dict(payload["roots"][0], lineages=[f"sim-seed:{other_seed}"])]
+    dishonest["manifest_digest"] = digest_payload(dishonest, "manifest_digest")
+    with pytest.raises(ValueError, match="root lineage does not match its source seed"):
+        RootManifest.from_dict(dishonest)
+
+
+def test_root_manifest_rejects_incomplete_and_overlapping_seed_accounting(
+    tmp_path: Path,
+) -> None:
+    owner = _seed_for_split("train", "owner")
+    extra = _seed_for_split("train", "extra")
+    other = _seed_for_split("train", "other")
+    path = _write_root_manifest(
+        tmp_path / "roots",
+        nonce="accounting",
+        roots=[(owner, {"fixture": "owner"})],
+        extra_seeds=(extra, other),
     )
-    training = load_root_manifest(training_path, verify_roots=False)
-    evaluation = load_root_manifest(evaluation_path, verify_roots=False)
-    assert {root.root_id for root in training.roots}.isdisjoint(
-        {root.root_id for root in evaluation.roots}
+    payload = json.loads(path.read_text())
+
+    both = dict(payload)
+    both["exclusions"] = [
+        *payload["exclusions"],
+        {"source_seed": owner, "reason": "generation_error", "detail": "overlap"},
+    ]
+    both["exclusions"] = sorted(
+        cast(list[dict[str, object]], both["exclusions"]),
+        key=lambda item: (item["source_seed"], item["reason"], item["detail"]),
     )
-    assert set(training.requested_seeds).isdisjoint(evaluation.requested_seeds)
-    with pytest.raises(ValueError, match="lineages are not disjoint"):
-        _verify(tmp_path, training_path, evaluation_path, training, evaluation)
+    both["manifest_digest"] = digest_payload(both, "manifest_digest")
+    with pytest.raises(ValueError, match="source seed has both a root and an exclusion"):
+        RootManifest.from_dict(both)
+
+    unsorted = dict(payload)
+    unsorted["exclusions"] = list(reversed(cast(list[object], payload["exclusions"])))
+    unsorted["manifest_digest"] = digest_payload(unsorted, "manifest_digest")
+    with pytest.raises(ValueError, match="root exclusions are not canonically ordered"):
+        RootManifest.from_dict(unsorted)
+
+    incomplete = dict(payload)
+    requested = sorted([owner, extra, other, "UNACCOUNTED-SEED"])
+    incomplete["requested_seeds"] = requested
+    incomplete["cohort_digest"] = data_module._cohort_digest(
+        requested_seeds=tuple(requested),
+        generator_name=cast(str, incomplete["generator_name"]),
+        generator_version=cast(str, incomplete["generator_version"]),
+        generator_source_digest=cast(str, incomplete["generator_source_digest"]),
+        split_salt=cast(str, incomplete["split_salt"]),
+        ascension=cast(int, incomplete["ascension"]),
+        max_run_steps=cast(int, incomplete["max_run_steps"]),
+        combat_depth=cast(int, incomplete["combat_depth"]),
+    )
+    incomplete["manifest_digest"] = digest_payload(incomplete, "manifest_digest")
+    with pytest.raises(ValueError, match="requested seed accounting is incomplete"):
+        RootManifest.from_dict(incomplete)
 
 
 def test_digest_and_caller_bindings_are_recomputed(tmp_path: Path) -> None:
@@ -416,11 +452,11 @@ def test_same_artifact_and_empty_cohort_are_rejected(tmp_path: Path) -> None:
         tmp_path / "empty",
         nonce="empty",
         roots=[],
-        extra_seeds=("EMPTY-SEED",),
+        extra_seeds=(_seed_for_split("train", "empty"),),
     )
-    empty = load_root_manifest(empty_path, verify_roots=False)
+    empty = parse_root_manifest(empty_path.read_bytes())
     empty_auth = tmp_path / "empty-auth.json"
-    disjoint_eval = load_root_manifest(evaluation_path, verify_roots=False)
+    disjoint_eval = parse_root_manifest(evaluation_path.read_bytes())
     _write_bound_authorization(empty_auth, empty, disjoint_eval)
     with pytest.raises(ValueError, match="cohort is empty"):
         verify_train_to_evaluation_authorization(
@@ -531,23 +567,17 @@ def test_sealed_split_roots_are_rejected_from_manifests(tmp_path: Path) -> None:
     path = _write_root_manifest(
         tmp_path / "sealed",
         nonce="sealed",
-        roots=[
-            (
-                "SEALED-SEED",
-                _lineage_for_split("train", "sealed-lineage"),
-                {"fixture": "sealed"},
-            )
-        ],
+        roots=[(_seed_for_split("train", "sealed"), {"fixture": "sealed"})],
     )
     payload = json.loads(path.read_text())
     root = dict(payload["roots"][0])
     root["split"] = "sealed_test"
     root["relative_path"] = f"sealed_test/roots/{root['root_id']}.json"
     payload["roots"] = [root]
-    payload["manifest_digest"] = data_module._digest_payload(payload, "manifest_digest")
-    path.write_bytes(data_module._canonical_bytes(payload))
+    payload["manifest_digest"] = digest_payload(payload, "manifest_digest")
+    path.write_bytes(canonical_bytes(payload))
     with pytest.raises(ValueError, match="sealed or unknown split"):
-        load_root_manifest(path, verify_roots=False)
+        parse_root_manifest(path.read_bytes())
 
 
 def test_missing_or_mismatched_snapshots_are_rejected(tmp_path: Path) -> None:
@@ -569,7 +599,7 @@ def test_missing_or_mismatched_snapshots_are_rejected(tmp_path: Path) -> None:
     auth_path = tmp_path / "mismatch-authorization.json"
     _write_bound_authorization(auth_path, training, evaluation)
     snapshot = training_path.parent / next(iter(training.roots)).relative_path
-    snapshot.write_bytes(data_module._canonical_bytes({"tampered": True}))
+    snapshot.write_bytes(canonical_bytes({"tampered": True}))
     with pytest.raises(ValueError, match="is not canonical"):
         verify_train_to_evaluation_authorization(
             auth_path,
@@ -582,12 +612,12 @@ def test_missing_or_mismatched_snapshots_are_rejected(tmp_path: Path) -> None:
 
 
 def test_missing_or_mismatched_source_epoch_bundles_fail_closed(tmp_path: Path) -> None:
-    train_lineage = _lineage_for_split("train", "train-lineage")
-    eval_lineage = _lineage_for_split("train", "eval-lineage")
+    train_seed = _seed_for_split("train", "train")
+    eval_seed = _seed_for_split("train", "eval")
     missing_field = _write_root_manifest(
         tmp_path / "missing-training",
         nonce="train",
-        roots=[("TRAIN-SEED", train_lineage, {"fixture": "train"})],
+        roots=[(train_seed, {"fixture": "train"})],
     )
     payload = json.loads(missing_field.read_text())
     payload.pop("source_epoch_bundle_digest")
@@ -596,17 +626,17 @@ def test_missing_or_mismatched_source_epoch_bundles_fail_closed(tmp_path: Path) 
     bound_training = _write_root_manifest(
         tmp_path / "bound-training",
         nonce="bound-train",
-        roots=[("TRAIN-SEED", train_lineage, {"fixture": "train-bound"})],
+        roots=[(train_seed, {"fixture": "train-bound"})],
         git_sha="a" * 40,
     )
     other_eval = _write_root_manifest(
         tmp_path / "other-eval",
         nonce="other-eval",
-        roots=[("EVAL-SEED", eval_lineage, {"fixture": "eval-other"})],
+        roots=[(eval_seed, {"fixture": "eval-other"})],
         git_sha="b" * 40,
     )
-    training = load_root_manifest(bound_training, verify_roots=False)
-    evaluation = load_root_manifest(other_eval, verify_roots=False)
+    training = parse_root_manifest(bound_training.read_bytes())
+    evaluation = parse_root_manifest(other_eval.read_bytes())
     assert training.source_epoch_bundle_digest != evaluation.source_epoch_bundle_digest
     mismatch_auth = tmp_path / "mismatch-bundle.json"
     _write_bound_authorization(mismatch_auth, training, evaluation)
@@ -638,13 +668,7 @@ def test_integer_lineages_are_rejected_as_malformed_identities(tmp_path: Path) -
     path = _write_root_manifest(
         tmp_path / "roots",
         nonce="lineage-type",
-        roots=[
-            (
-                "TRAIN-SEED",
-                _lineage_for_split("train", "typed-lineage"),
-                {"fixture": "typed"},
-            )
-        ],
+        roots=[(_seed_for_split("train", "typed"), {"fixture": "typed"})],
     )
     payload = json.loads(path.read_text())
     integer_lineages = dict(payload)
@@ -655,3 +679,29 @@ def test_integer_lineages_are_rejected_as_malformed_identities(tmp_path: Path) -
     empty_lineage["roots"] = [dict(payload["roots"][0], lineages=[""])]
     with pytest.raises(TypeError, match="root lineages"):
         RootManifest.from_dict(empty_lineage)
+
+
+def test_held_out_evaluation_binds_authenticated_evaluation_root(tmp_path: Path) -> None:
+    training_path, evaluation_path, training, evaluation = _disjoint_pair(tmp_path)
+    other_path = _write_root_manifest(
+        tmp_path / "other",
+        nonce="other",
+        roots=[(_seed_for_split("train", "other"), {"fixture": "other"})],
+    )
+    other = parse_root_manifest(other_path.read_bytes())
+    assert other.source_epoch_bundle_digest == evaluation.source_epoch_bundle_digest
+    assert other.manifest_digest != evaluation.manifest_digest
+    auth_path = tmp_path / "authorization.json"
+    _write_bound_authorization(auth_path, training, evaluation)
+    with pytest.raises(ValueError, match="authenticated dataset root"):
+        require_held_out_evaluation(
+            training_root_manifest_digest=training.manifest_digest,
+            training_cohort_digest=training.cohort_digest,
+            evaluation_manifest=other,
+            evaluation_root_manifest_path=evaluation_path,
+            evaluation_split="train",
+            evaluation_seed=_EVALUATION_SEED,
+            requested_evaluator_names=(_EVALUATOR,),
+            authorization_path=auth_path,
+            training_root_manifest_path=training_path,
+        )

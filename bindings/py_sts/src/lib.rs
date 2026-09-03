@@ -4,14 +4,13 @@ use pyo3::prelude::*;
 use pyo3::types::PyAnyMethods;
 use sts_core::potion::IRONCLAD_POTION_POOL;
 use sts_core::{
-    apply_combat_action_with_events, apply_run_decision_action, fair_combat_observation,
-    fair_run_observation, legal_combat_actions, legal_run_decision_actions, player_choices,
-    potion_key, resolve_player_choice, restore_combat_snapshot_json, restore_run_snapshot_json,
-    CardDefinition, CardId, CardKeywords, CardType, CardValues, CombatAction, CombatPhase,
-    CombatState, DecisionRevision, EventAction, FairCombatObservation, FairObservationError,
-    MapAction, MonsterId, PlayerChoice, PlayerChoiceError, PlayerChoiceRequest, Potion, Relic,
-    RestAction, RunAction, RunDecisionAction, RunPhase, RunState, Snapshot, TargetRequirement,
-    ALL_RELICS, SNAPSHOT_SCHEMA_VERSION,
+    apply_run_decision_action, fair_combat_observation, fair_run_observation,
+    legal_run_decision_actions, player_choices, potion_key, resolve_player_choice,
+    restore_run_snapshot_json, CardDefinition, CardKeywords, CardType, CardValues, CombatAction,
+    DecisionRevision, EventAction, FairCombatObservation, FairObservationError, MapAction,
+    PlayerChoice, PlayerChoiceError, PlayerChoiceRequest, Potion, RestAction, RunAction,
+    RunDecisionAction, RunPhase, RunState, Snapshot, TargetRequirement, ALL_RELICS,
+    SNAPSHOT_SCHEMA_VERSION,
 };
 use sts_search::{
     classify_combat_episode_transition, classify_combat_state, puct_clone_episode_with_leaf_cache,
@@ -81,20 +80,6 @@ fn card_catalogue_entries() -> Vec<CardCatalogueEntry<'static>> {
 }
 
 #[derive(serde::Serialize)]
-struct FairDecisionWire {
-    schema_version: u32,
-    decision_revision: u64,
-    observation: FairCombatObservation,
-    choices: Vec<PlayerChoice>,
-}
-
-#[derive(serde::Serialize)]
-struct FairStepWire {
-    terminal: bool,
-    decision: Option<FairDecisionWire>,
-}
-
-#[derive(serde::Serialize)]
 struct PublicStepWire {
     combat_outcome: Option<&'static str>,
     player_turn_advances: usize,
@@ -110,7 +95,7 @@ struct BeamCloneSearchWire {
 #[derive(serde::Serialize)]
 struct BeamCloneStepWire {
     observation: FairCombatObservation,
-    choices: Vec<PlayerChoice>,
+    choices: Vec<serde_json::Value>,
     selected_index: usize,
     teacher_visit_counts: Vec<u64>,
     search: BeamCloneSearchWire,
@@ -140,77 +125,6 @@ struct BeamCloneEpisodeWire {
     teacher_version: &'static str,
     steps: Vec<BeamCloneStepWire>,
     outcome: CombatEpisodeOutcomeWire,
-}
-
-#[pyclass(name = "FairCombatEnv")]
-#[derive(Clone)]
-pub struct PyFairCombatEnv {
-    state: RunState,
-    revision: DecisionRevision,
-}
-
-#[pymethods]
-impl PyFairCombatEnv {
-    #[staticmethod]
-    pub fn combat_fixture() -> Self {
-        Self {
-            state: RunState::combat_fixture(),
-            revision: DecisionRevision::new(0),
-        }
-    }
-
-    #[staticmethod]
-    pub fn from_snapshot_for_testing(json: &str) -> PyResult<Self> {
-        let snapshot = restore_run_snapshot_json(json).map_err(|error| {
-            PyValueError::new_err(format!("invalid fair combat snapshot: {error}"))
-        })?;
-        if snapshot.state.phase != RunPhase::Combat {
-            return Err(PyValueError::new_err(
-                "fair combat environment requires combat phase",
-            ));
-        }
-        Ok(Self {
-            state: snapshot.state,
-            revision: DecisionRevision::new(0),
-        })
-    }
-
-    #[pyo3(name = "clone")]
-    pub fn clone_env(&self) -> Self {
-        self.clone()
-    }
-
-    pub fn decision_json(&self) -> PyResult<String> {
-        to_json(&fair_decision_wire(&self.state, self.revision)?)
-    }
-
-    pub fn step_json(&mut self, request_json: &str) -> PyResult<String> {
-        let request: PlayerChoiceRequest = serde_json::from_str(request_json)
-            .map_err(|_| InvalidChoiceError::new_err("invalid public choice request"))?;
-        let action = resolve_player_choice(&self.state, self.revision, request)
-            .map_err(fair_choice_error)?;
-        let next = apply_run_decision_action(&self.state, action)
-            .map_err(|_| DecisionUnavailableError::new_err("public choice could not be applied"))?;
-        let revision = self
-            .revision
-            .checked_next()
-            .ok_or_else(|| PyRuntimeError::new_err("public decision revision exhausted"))?;
-
-        let terminal = fair_combat_terminal(&next);
-        let decision = if terminal {
-            None
-        } else {
-            Some(fair_decision_wire(&next, revision)?)
-        };
-        let result = to_json(&FairStepWire { terminal, decision })?;
-        self.state = next;
-        self.revision = revision;
-        Ok(result)
-    }
-
-    fn __repr__(&self) -> String {
-        format!("FairCombatEnv(revision={})", self.revision.get())
-    }
 }
 
 #[pyclass(name = "Action")]
@@ -262,282 +176,6 @@ impl PyAction {
     }
 }
 
-#[pyclass(name = "ExactCombatAction")]
-#[derive(Clone)]
-pub struct PyExactCombatAction {
-    action: CombatAction,
-}
-
-#[pymethods]
-impl PyExactCombatAction {
-    #[staticmethod]
-    pub fn end_turn() -> Self {
-        Self {
-            action: CombatAction::EndTurn,
-        }
-    }
-
-    #[staticmethod]
-    pub fn play_card(card_id: u64, target: Option<u64>) -> Self {
-        Self {
-            action: CombatAction::PlayCard {
-                card_id: CardId::new(card_id),
-                target: target.map(MonsterId::new),
-            },
-        }
-    }
-
-    pub fn json(&self) -> PyResult<String> {
-        to_json(&self.action)
-    }
-
-    pub fn kind(&self) -> &'static str {
-        match self.action {
-            CombatAction::PlayCard { .. } => "play_card",
-            CombatAction::EndTurn => "end_turn",
-        }
-    }
-
-    pub fn card_id(&self) -> Option<u64> {
-        match self.action {
-            CombatAction::PlayCard { card_id, .. } => Some(card_id.get()),
-            CombatAction::EndTurn => None,
-        }
-    }
-
-    pub fn target(&self) -> Option<u64> {
-        match self.action {
-            CombatAction::PlayCard { target, .. } => target.map(MonsterId::get),
-            CombatAction::EndTurn => None,
-        }
-    }
-
-    fn __repr__(&self) -> PyResult<String> {
-        Ok(format!("ExactCombatAction({})", self.json()?))
-    }
-}
-
-#[pyclass(name = "DebugTransition")]
-#[derive(Clone)]
-pub struct PyDebugTransition {
-    #[pyo3(get)]
-    pub action_json: String,
-    #[pyo3(get)]
-    pub previous_hash: String,
-    #[pyo3(get)]
-    pub resulting_hash: String,
-    #[pyo3(get)]
-    pub events_json: String,
-    #[pyo3(get)]
-    pub rng_draws_json: String,
-    #[pyo3(get)]
-    pub simulator_error: Option<String>,
-}
-
-#[pyclass(name = "ExactStepResult")]
-#[derive(Clone)]
-pub struct PyExactStepResult {
-    #[pyo3(get)]
-    pub state_json: String,
-    #[pyo3(get)]
-    pub snapshot_json: String,
-    #[pyo3(get)]
-    pub snapshot_hash: String,
-    #[pyo3(get)]
-    pub phase: String,
-    #[pyo3(get)]
-    pub exact_legal_actions: Vec<PyExactCombatAction>,
-    #[pyo3(get)]
-    pub transition: PyDebugTransition,
-    #[pyo3(get)]
-    pub terminal: bool,
-    #[pyo3(get)]
-    pub terminal_reason: Option<String>,
-}
-
-type ExactRunActionKind = RunDecisionAction;
-
-#[pyclass(name = "ExactRunAction")]
-#[derive(Clone)]
-pub struct PyExactRunAction {
-    action: ExactRunActionKind,
-}
-
-#[pymethods]
-impl PyExactRunAction {
-    #[staticmethod]
-    pub fn skip_reward() -> Self {
-        Self {
-            action: ExactRunActionKind::Run(RunAction::SkipReward),
-        }
-    }
-
-    #[staticmethod]
-    pub fn take_gold_reward() -> Self {
-        Self {
-            action: ExactRunActionKind::Run(RunAction::TakeGoldReward),
-        }
-    }
-
-    #[staticmethod]
-    pub fn open_card_reward() -> Self {
-        Self {
-            action: ExactRunActionKind::Run(RunAction::OpenCardReward),
-        }
-    }
-
-    pub fn json(&self) -> PyResult<String> {
-        run_action_json(&self.action)
-    }
-
-    pub fn family(&self) -> &'static str {
-        run_action_family(&self.action)
-    }
-
-    pub fn kind(&self) -> String {
-        run_action_kind(&self.action).to_owned()
-    }
-
-    fn __repr__(&self) -> PyResult<String> {
-        Ok(format!("ExactRunAction({})", self.json()?))
-    }
-}
-
-#[pyclass(name = "ExactRunStepResult")]
-#[derive(Clone)]
-pub struct PyExactRunStepResult {
-    #[pyo3(get)]
-    pub state_json: String,
-    #[pyo3(get)]
-    pub snapshot_json: String,
-    #[pyo3(get)]
-    pub snapshot_hash: String,
-    #[pyo3(get)]
-    pub phase: String,
-    #[pyo3(get)]
-    pub current_decision: String,
-    #[pyo3(get)]
-    pub exact_legal_actions: Vec<PyExactRunAction>,
-    #[pyo3(get)]
-    pub transition: PyDebugTransition,
-    #[pyo3(get)]
-    pub unsupported_reason: Option<String>,
-}
-
-#[pyclass(name = "OmniCombatEnv")]
-#[derive(Clone)]
-pub struct PyOmniCombatEnv {
-    state: CombatState,
-}
-
-#[pymethods]
-impl PyOmniCombatEnv {
-    #[staticmethod]
-    pub fn initial_fixture() -> Self {
-        Self {
-            state: CombatState::initial_fixture(),
-        }
-    }
-
-    #[staticmethod]
-    pub fn from_state_json_for_debugging(json: &str) -> PyResult<Self> {
-        let state: CombatState = serde_json::from_str(json).map_err(|error| {
-            PyValueError::new_err(format!("invalid combat state JSON: {error}"))
-        })?;
-        state
-            .validate()
-            .map_err(|error| PyValueError::new_err(format!("invalid combat state: {error}")))?;
-        Ok(Self { state })
-    }
-
-    #[staticmethod]
-    pub fn from_snapshot_json(json: &str) -> PyResult<Self> {
-        let snapshot = restore_combat_snapshot_json(json).map_err(|error| {
-            PyValueError::new_err(format!("invalid combat snapshot JSON or state: {error}"))
-        })?;
-        Ok(Self {
-            state: snapshot.state,
-        })
-    }
-
-    #[pyo3(name = "clone")]
-    pub fn clone_env(&self) -> Self {
-        self.clone()
-    }
-
-    pub fn state_json(&self) -> PyResult<String> {
-        to_json(&self.state)
-    }
-
-    pub fn snapshot_json(&self) -> PyResult<String> {
-        self.state
-            .validate()
-            .map_err(|error| PyRuntimeError::new_err(format!("invalid combat state: {error}")))?;
-        self.state.snapshot().canonical_json().map_err(|error| {
-            PyRuntimeError::new_err(format!("snapshot serialization failed: {error:?}"))
-        })
-    }
-
-    pub fn snapshot_hash(&self) -> PyResult<String> {
-        snapshot_hash(&self.state)
-    }
-
-    pub fn phase(&self) -> String {
-        phase_name(self.state.phase).to_owned()
-    }
-
-    pub fn exact_legal_actions(&self) -> PyResult<Vec<PyExactCombatAction>> {
-        exact_legal_actions(&self.state)
-    }
-
-    pub fn step(&mut self, action: &PyExactCombatAction) -> PyResult<PyExactStepResult> {
-        if is_terminal(self.state.phase) {
-            return Err(PyValueError::new_err(format!(
-                "combat is terminal: {}",
-                phase_name(self.state.phase)
-            )));
-        }
-
-        let previous_hash = snapshot_hash(&self.state)?;
-        let action_json = to_json(&action.action)?;
-        let transition =
-            apply_combat_action_with_events(&self.state, action.action).map_err(|error| {
-                PyValueError::new_err(format!("illegal exact combat action: {error:?}"))
-            })?;
-        let resulting_hash = snapshot_hash(&transition.state)?;
-        let events_json = to_json(&transition.event_log)?;
-
-        self.state = transition.state;
-
-        let terminal_reason = terminal_reason(self.state.phase).map(str::to_owned);
-        Ok(PyExactStepResult {
-            state_json: self.state_json()?,
-            snapshot_json: self.snapshot_json()?,
-            snapshot_hash: resulting_hash.clone(),
-            phase: self.phase(),
-            exact_legal_actions: self.exact_legal_actions()?,
-            transition: PyDebugTransition {
-                action_json,
-                previous_hash,
-                resulting_hash,
-                events_json,
-                rng_draws_json: "[]".to_owned(),
-                simulator_error: None,
-            },
-            terminal: terminal_reason.is_some(),
-            terminal_reason,
-        })
-    }
-
-    fn __repr__(&self) -> PyResult<String> {
-        Ok(format!(
-            "OmniCombatEnv(phase={}, snapshot_hash={})",
-            self.phase(),
-            self.snapshot_hash()?
-        ))
-    }
-}
-
 #[pyclass(name = "OmniRunEnv")]
 #[derive(Clone)]
 pub struct PyOmniRunEnv {
@@ -579,19 +217,6 @@ impl PyOmniRunEnv {
         state
             .validate()
             .map_err(|error| PyValueError::new_err(format!("invalid seeded run: {error}")))?;
-        Ok(Self {
-            state,
-            revision: DecisionRevision::new(0),
-        })
-    }
-
-    #[staticmethod]
-    pub fn from_state_json_for_debugging(json: &str) -> PyResult<Self> {
-        let state: RunState = serde_json::from_str(json)
-            .map_err(|error| PyValueError::new_err(format!("invalid run state JSON: {error}")))?;
-        state
-            .validate()
-            .map_err(|error| PyValueError::new_err(format!("invalid run state: {error}")))?;
         Ok(Self {
             state,
             revision: DecisionRevision::new(0),
@@ -647,10 +272,6 @@ impl PyOmniRunEnv {
         run_unsupported_reason(&self.state).map(str::to_owned)
     }
 
-    pub fn exact_legal_actions(&self) -> PyResult<Vec<PyExactRunAction>> {
-        exact_run_legal_actions(&self.state)
-    }
-
     pub fn legal_actions(&self) -> PyResult<Vec<PyAction>> {
         public_run_actions(&self.state, self.revision)
     }
@@ -679,7 +300,10 @@ impl PyOmniRunEnv {
 
     /// Debug-only state mutation seam for Python experimentation.
     pub fn debug_add_relic(&mut self, name: &str) -> PyResult<()> {
-        let relic = Relic::from_trace_name(name)
+        let relic = ALL_RELICS
+            .iter()
+            .copied()
+            .find(|relic| relic.trace_name() == name)
             .ok_or_else(|| UnknownPublicContentError::new_err("unknown relic name"))?;
         let mut next = self.state.clone();
         next.gain_relic_key(relic)
@@ -725,40 +349,6 @@ impl PyOmniRunEnv {
         to_json(&PublicStepWire {
             combat_outcome,
             player_turn_advances,
-        })
-    }
-
-    pub fn step(&mut self, action: &PyExactRunAction) -> PyResult<PyExactRunStepResult> {
-        let previous_hash = run_snapshot_hash(&self.state)?;
-        let action_json = run_action_json(&action.action)?;
-        let next = apply_exact_run_action(&self.state, &action.action).map_err(|error| {
-            PyValueError::new_err(format!("illegal exact run action: {error:?}"))
-        })?;
-        let resulting_hash = run_snapshot_hash(&next)?;
-
-        let revision = self
-            .revision
-            .checked_next()
-            .ok_or_else(|| PyRuntimeError::new_err("public decision revision exhausted"))?;
-        self.state = next;
-        self.revision = revision;
-
-        Ok(PyExactRunStepResult {
-            state_json: self.state_json()?,
-            snapshot_json: self.snapshot_json()?,
-            snapshot_hash: resulting_hash.clone(),
-            phase: self.phase(),
-            current_decision: self.current_decision(),
-            exact_legal_actions: self.exact_legal_actions()?,
-            transition: PyDebugTransition {
-                action_json,
-                previous_hash,
-                resulting_hash,
-                events_json: "[]".to_owned(),
-                rng_draws_json: "[]".to_owned(),
-                simulator_error: None,
-            },
-            unsupported_reason: self.unsupported_reason(),
         })
     }
 
@@ -845,17 +435,6 @@ impl PyOmniRunEnv {
     }
 }
 
-fn fair_decision_wire(state: &RunState, revision: DecisionRevision) -> PyResult<FairDecisionWire> {
-    let observation = fair_combat_observation(state).map_err(fair_observation_error)?;
-    let choice_set = player_choices(state, revision).map_err(fair_choice_error)?;
-    Ok(FairDecisionWire {
-        schema_version: choice_set.schema_version,
-        decision_revision: choice_set.decision_revision.get(),
-        observation,
-        choices: choice_set.choices,
-    })
-}
-
 fn fair_observation_error(error: FairObservationError) -> PyErr {
     match error {
         FairObservationError::NoActiveCombat => NoActiveCombatError::new_err("no active combat"),
@@ -888,14 +467,6 @@ fn fair_choice_error(error: PlayerChoiceError) -> PyErr {
             InvalidChoiceError::new_err("public combat choice is invalid")
         }
     }
-}
-
-fn fair_combat_terminal(state: &RunState) -> bool {
-    state.phase != RunPhase::Combat
-        || state
-            .combat
-            .as_ref()
-            .is_none_or(|combat| matches!(combat.phase, CombatPhase::Won | CombatPhase::Lost))
 }
 
 #[pymodule]
@@ -932,14 +503,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
         "InvalidChoiceError",
         module.py().get_type::<InvalidChoiceError>(),
     )?;
-    module.add_class::<PyExactCombatAction>()?;
-    module.add_class::<PyExactRunAction>()?;
     module.add_class::<PyAction>()?;
-    module.add_class::<PyDebugTransition>()?;
-    module.add_class::<PyExactStepResult>()?;
-    module.add_class::<PyExactRunStepResult>()?;
-    module.add_class::<PyFairCombatEnv>()?;
-    module.add_class::<PyOmniCombatEnv>()?;
     module.add_class::<PyOmniRunEnv>()?;
     module.add_function(wrap_pyfunction!(sts_seed_long_to_string, module)?)?;
     module.add_function(wrap_pyfunction!(card_keys, module)?)?;
@@ -1031,22 +595,6 @@ fn potion_from_name(name: &str) -> Option<Potion> {
         .find(|potion| potion_name(*potion) == name)
 }
 
-fn exact_legal_actions(state: &CombatState) -> PyResult<Vec<PyExactCombatAction>> {
-    Ok(legal_combat_actions(state)
-        .map_err(|error| PyValueError::new_err(format!("invalid combat state: {error}")))?
-        .into_iter()
-        .map(|action| PyExactCombatAction { action })
-        .collect())
-}
-
-fn snapshot_hash(state: &CombatState) -> PyResult<String> {
-    state
-        .snapshot()
-        .hash()
-        .map(|hash| hash.to_string())
-        .map_err(|error| PyRuntimeError::new_err(format!("snapshot hashing failed: {error:?}")))
-}
-
 fn run_snapshot(state: &RunState) -> Snapshot<RunState> {
     Snapshot {
         schema_version: SNAPSHOT_SCHEMA_VERSION,
@@ -1075,11 +623,20 @@ fn to_json<T: serde::Serialize>(value: &T) -> PyResult<String> {
         .map_err(|error| PyRuntimeError::new_err(format!("JSON serialization failed: {error}")))
 }
 
-fn exact_run_legal_actions(state: &RunState) -> PyResult<Vec<PyExactRunAction>> {
-    Ok(exact_run_legal_action_kinds(state)?
-        .into_iter()
-        .map(|action| PyExactRunAction { action })
-        .collect())
+fn combat_choice_descriptor(choice: &PlayerChoice) -> Result<serde_json::Value, String> {
+    let mut value = serde_json::to_value(choice).map_err(|error| error.to_string())?;
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "combat choice descriptor must be an object".to_owned())?;
+    object.insert(
+        "family".to_owned(),
+        serde_json::Value::String("combat".to_owned()),
+    );
+    Ok(value)
+}
+
+fn combat_choice_descriptors(choices: &[PlayerChoice]) -> Result<Vec<serde_json::Value>, String> {
+    choices.iter().map(combat_choice_descriptor).collect()
 }
 
 fn public_run_actions(state: &RunState, revision: DecisionRevision) -> PyResult<Vec<PyAction>> {
@@ -1102,13 +659,16 @@ fn public_run_actions(state: &RunState, revision: DecisionRevision) -> PyResult<
                     action,
                     revision,
                     public_choice: Some(choice),
-                    public_action_json: to_json(&choice)?,
+                    public_action_json: to_json(
+                        &combat_choice_descriptor(&choice).map_err(PyRuntimeError::new_err)?,
+                    )?,
                 })
             })
             .collect();
     }
 
-    exact_run_legal_action_kinds(state)?
+    legal_run_decision_actions(state)
+        .map_err(|error| PyValueError::new_err(format!("invalid run decision state: {error:?}")))?
         .into_iter()
         .map(|action| {
             Ok(PyAction {
@@ -1123,6 +683,10 @@ fn public_run_actions(state: &RunState, revision: DecisionRevision) -> PyResult<
 
 fn public_run_action_json(state: &RunState, action: &RunDecisionAction) -> PyResult<String> {
     let mut descriptor = serde_json::Map::new();
+    descriptor.insert(
+        "family".to_owned(),
+        serde_json::Value::String(run_action_family(action).to_owned()),
+    );
     descriptor.insert(
         "kind".to_owned(),
         serde_json::Value::String(run_action_kind(action).to_owned()),
@@ -1196,12 +760,6 @@ fn public_run_action_json(state: &RunState, action: &RunDecisionAction) -> PyRes
         | RunDecisionAction::Rest(_) => {}
     }
     to_json(&serde_json::Value::Object(descriptor))
-}
-
-fn exact_run_legal_action_kinds(state: &RunState) -> PyResult<Vec<ExactRunActionKind>> {
-    legal_run_decision_actions(state).map_err(|error| {
-        PyValueError::new_err(format!("invalid exact run decision state: {error:?}"))
-    })
 }
 
 fn run_player_hp(state: &RunState) -> (i32, i32) {
@@ -1305,7 +863,8 @@ fn beam_clone_episode_json(
         visits[selected_index] = 1;
         steps.push(BeamCloneStepWire {
             observation,
-            choices: choice_set.choices,
+            choices: combat_choice_descriptors(&choice_set.choices)
+                .map_err(PyRuntimeError::new_err)?,
             selected_index,
             teacher_visit_counts: visits,
             search: BeamCloneSearchWire {
@@ -1379,13 +938,13 @@ struct PuctSearchWire {
     completed_simulations: usize,
     leaf_evaluations: usize,
     stop_reason: &'static str,
-    choices: Vec<PlayerChoice>,
+    choices: Vec<serde_json::Value>,
 }
 
 #[derive(serde::Serialize)]
 struct PuctCloneStepWire {
     observation: FairCombatObservation,
-    choices: Vec<PlayerChoice>,
+    choices: Vec<serde_json::Value>,
     selected_index: usize,
     visits: Vec<u64>,
     value: f64,
@@ -1437,7 +996,7 @@ impl FairLeafEvaluator for CallbackLeafEvaluator {
                 "schema": FAIR_LEAF_BATCH_SCHEMA,
                 "batch": [{
                     "observation": observation,
-                    "choices": choices,
+                    "choices": combat_choice_descriptors(choices)?,
                 }],
             });
             let request_json =
@@ -1498,8 +1057,9 @@ fn parse_reward_config(reward_config_json: Option<&str>) -> Result<CombatProxyCo
 
 fn parse_leaf_cache(leaf_cache: Option<&str>) -> Result<PuctLeafCache, String> {
     match leaf_cache {
-        None | Some("") | Some("off") => Ok(PuctLeafCache::Off),
+        None | Some("off") => Ok(PuctLeafCache::Off),
         Some("exact_state") => Ok(PuctLeafCache::ExactState),
+        Some("") => Err("leaf cache must be 'off' or 'exact_state', not empty".to_owned()),
         Some(other) => Err(format!(
             "leaf cache must be 'off' or 'exact_state', not {other}"
         )),
@@ -1553,7 +1113,7 @@ fn puct_search_json(
         completed_simulations: result.completed_simulations,
         leaf_evaluations: result.leaf_evaluations,
         stop_reason: result.stop_reason.as_str(),
-        choices: result.choices,
+        choices: combat_choice_descriptors(&result.choices).map_err(PyRuntimeError::new_err)?,
     })
 }
 
@@ -1605,18 +1165,21 @@ fn puct_clone_episode_json(
         steps: episode
             .steps
             .into_iter()
-            .map(|step| PuctCloneStepWire {
-                observation: step.observation,
-                choices: step.choices,
-                selected_index: step.selected_index,
-                visits: step.visits,
-                value: step.value,
-                transitions: step.transitions,
-                completed_simulations: step.completed_simulations,
-                leaf_evaluations: step.leaf_evaluations,
-                stop_reason: step.stop_reason.as_str(),
+            .map(|step| {
+                Ok::<_, String>(PuctCloneStepWire {
+                    observation: step.observation,
+                    choices: combat_choice_descriptors(&step.choices)?,
+                    selected_index: step.selected_index,
+                    visits: step.visits,
+                    value: step.value,
+                    transitions: step.transitions,
+                    completed_simulations: step.completed_simulations,
+                    leaf_evaluations: step.leaf_evaluations,
+                    stop_reason: step.stop_reason.as_str(),
+                })
             })
-            .collect(),
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(PyRuntimeError::new_err)?,
         outcome: CombatEpisodeOutcomeWire {
             status: episode.outcome.status,
             terminal_hp: episode.outcome.terminal_hp,
@@ -1663,7 +1226,7 @@ fn apply_public_run_action(
     if !is_currently_legal {
         return Err(InvalidChoiceError::new_err("public run action is invalid"));
     }
-    let next = apply_exact_run_action(&env.state, &action.action)
+    let next = apply_run_decision_action(&env.state, action.action)
         .map_err(|_| InvalidChoiceError::new_err("public run action is invalid"))?;
     let combat_outcome = if env.state.phase == RunPhase::Combat {
         classify_combat_episode_transition(&env.state, &action.action, &next)
@@ -1680,38 +1243,16 @@ fn apply_public_run_action(
     Ok((combat_outcome, player_turn_advances))
 }
 
-fn apply_exact_run_action(
-    state: &RunState,
-    action: &ExactRunActionKind,
-) -> sts_core::SimResult<RunState> {
-    apply_run_decision_action(state, *action)
-}
-
-fn run_action_json(action: &ExactRunActionKind) -> PyResult<String> {
+fn run_action_family(action: &RunDecisionAction) -> &'static str {
     match action {
-        ExactRunActionKind::Combat(action) => to_json(action),
-        ExactRunActionKind::Event(action) => to_json(action),
-        ExactRunActionKind::GridSelect { index } => {
-            to_json(&serde_json::json!({ "SelectGridCard": { "index": index } }))
-        }
-        ExactRunActionKind::GridConfirm => to_json(&serde_json::json!("ConfirmGrid")),
-        ExactRunActionKind::GridCancel => to_json(&serde_json::json!("CancelGrid")),
-        ExactRunActionKind::Map(action) => to_json(action),
-        ExactRunActionKind::Rest(action) => to_json(action),
-        ExactRunActionKind::Run(action) => to_json(action),
-    }
-}
-
-fn run_action_family(action: &ExactRunActionKind) -> &'static str {
-    match action {
-        ExactRunActionKind::Combat(_) => "combat",
-        ExactRunActionKind::Event(_) => "event",
-        ExactRunActionKind::GridSelect { .. }
-        | ExactRunActionKind::GridConfirm
-        | ExactRunActionKind::GridCancel => "grid",
-        ExactRunActionKind::Map(_) => "map",
-        ExactRunActionKind::Rest(_) => "rest",
-        ExactRunActionKind::Run(_) => "run",
+        RunDecisionAction::Combat(_) => "combat",
+        RunDecisionAction::Event(_) => "event",
+        RunDecisionAction::GridSelect { .. }
+        | RunDecisionAction::GridConfirm
+        | RunDecisionAction::GridCancel => "grid",
+        RunDecisionAction::Map(_) => "map",
+        RunDecisionAction::Rest(_) => "rest",
+        RunDecisionAction::Run(_) => "run",
     }
 }
 
@@ -1729,68 +1270,66 @@ fn player_choice_kind(choice: PlayerChoice) -> &'static str {
     }
 }
 
-fn run_action_kind(action: &ExactRunActionKind) -> &'static str {
+fn run_action_kind(action: &RunDecisionAction) -> &'static str {
     match action {
-        ExactRunActionKind::Combat(CombatAction::PlayCard { .. }) => "play_card",
-        ExactRunActionKind::Combat(CombatAction::EndTurn) => "end_turn",
-        ExactRunActionKind::Event(EventAction::Choose { .. }) => "event_choose",
-        ExactRunActionKind::GridSelect { .. } => "select_grid_card",
-        ExactRunActionKind::GridConfirm => "confirm_grid",
-        ExactRunActionKind::GridCancel => "cancel_grid",
-        ExactRunActionKind::Map(MapAction::ChooseNode { .. }) => "choose_map_node",
-        ExactRunActionKind::Rest(RestAction::Heal) => "rest_heal",
-        ExactRunActionKind::Rest(RestAction::OpenSmith) => "rest_open_smith",
-        ExactRunActionKind::Rest(RestAction::OpenRemove) => "rest_open_remove",
-        ExactRunActionKind::Rest(RestAction::Smith { .. }) => "rest_smith",
-        ExactRunActionKind::Rest(RestAction::RemoveCard { .. }) => "rest_remove_card",
-        ExactRunActionKind::Rest(RestAction::Lift) => "rest_lift",
-        ExactRunActionKind::Rest(RestAction::Dig) => "rest_dig",
-        ExactRunActionKind::Rest(RestAction::Recall) => "rest_recall",
-        ExactRunActionKind::Rest(RestAction::Proceed) => "rest_proceed",
-        ExactRunActionKind::Run(RunAction::SkipReward) => "skip_reward",
-        ExactRunActionKind::Run(RunAction::CloseCardReward) => "close_card_reward",
-        ExactRunActionKind::Run(RunAction::TakeCardReward { .. }) => "take_card_reward",
-        ExactRunActionKind::Run(RunAction::TakeSingingBowlReward) => "take_singing_bowl_reward",
-        ExactRunActionKind::Run(RunAction::TakeGoldReward) => "take_gold_reward",
-        ExactRunActionKind::Run(RunAction::TakeStolenGoldReward) => "take_stolen_gold_reward",
-        ExactRunActionKind::Run(RunAction::TakePotionReward { .. }) => "take_potion_reward",
-        ExactRunActionKind::Run(RunAction::TakeRelicReward) => "take_relic_reward",
-        ExactRunActionKind::Run(RunAction::TakeRelicRewardAt { .. }) => "take_relic_reward_at",
-        ExactRunActionKind::Run(RunAction::TakeSapphireKey) => "take_sapphire_key",
-        ExactRunActionKind::Run(RunAction::TakeEmeraldKey) => "take_emerald_key",
-        ExactRunActionKind::Run(RunAction::ChooseBossRelicReward { .. }) => {
+        RunDecisionAction::Combat(CombatAction::PlayCard { .. }) => "play_card",
+        RunDecisionAction::Combat(CombatAction::EndTurn) => "end_turn",
+        RunDecisionAction::Event(EventAction::Choose { .. }) => "event_choose",
+        RunDecisionAction::GridSelect { .. } => "select_grid_card",
+        RunDecisionAction::GridConfirm => "confirm_grid",
+        RunDecisionAction::GridCancel => "cancel_grid",
+        RunDecisionAction::Map(MapAction::ChooseNode { .. }) => "choose_map_node",
+        RunDecisionAction::Rest(RestAction::Heal) => "rest_heal",
+        RunDecisionAction::Rest(RestAction::OpenSmith) => "rest_open_smith",
+        RunDecisionAction::Rest(RestAction::OpenRemove) => "rest_open_remove",
+        RunDecisionAction::Rest(RestAction::Smith { .. }) => "rest_smith",
+        RunDecisionAction::Rest(RestAction::RemoveCard { .. }) => "rest_remove_card",
+        RunDecisionAction::Rest(RestAction::Lift) => "rest_lift",
+        RunDecisionAction::Rest(RestAction::Dig) => "rest_dig",
+        RunDecisionAction::Rest(RestAction::Recall) => "rest_recall",
+        RunDecisionAction::Rest(RestAction::Proceed) => "rest_proceed",
+        RunDecisionAction::Run(RunAction::SkipReward) => "skip_reward",
+        RunDecisionAction::Run(RunAction::CloseCardReward) => "close_card_reward",
+        RunDecisionAction::Run(RunAction::TakeCardReward { .. }) => "take_card_reward",
+        RunDecisionAction::Run(RunAction::TakeSingingBowlReward) => "take_singing_bowl_reward",
+        RunDecisionAction::Run(RunAction::TakeGoldReward) => "take_gold_reward",
+        RunDecisionAction::Run(RunAction::TakeStolenGoldReward) => "take_stolen_gold_reward",
+        RunDecisionAction::Run(RunAction::TakePotionReward { .. }) => "take_potion_reward",
+        RunDecisionAction::Run(RunAction::TakeRelicReward) => "take_relic_reward",
+        RunDecisionAction::Run(RunAction::TakeRelicRewardAt { .. }) => "take_relic_reward_at",
+        RunDecisionAction::Run(RunAction::TakeSapphireKey) => "take_sapphire_key",
+        RunDecisionAction::Run(RunAction::TakeEmeraldKey) => "take_emerald_key",
+        RunDecisionAction::Run(RunAction::ChooseBossRelicReward { .. }) => {
             "choose_boss_relic_reward"
         }
-        ExactRunActionKind::Run(RunAction::Proceed) => "proceed",
-        ExactRunActionKind::Run(RunAction::OpenChest) => "open_chest",
-        ExactRunActionKind::Run(RunAction::OpenCardReward) => "open_card_reward",
-        ExactRunActionKind::Run(RunAction::OpenQueuedCardReward { .. }) => {
-            "open_queued_card_reward"
-        }
-        ExactRunActionKind::Run(RunAction::SkipPotionReward) => "skip_potion_reward",
-        ExactRunActionKind::Run(RunAction::BuyShopCard { .. }) => "buy_shop_card",
-        ExactRunActionKind::Run(RunAction::BuyShopRelic { .. }) => "buy_shop_relic",
-        ExactRunActionKind::Run(RunAction::BuyShopPotion { .. }) => "buy_shop_potion",
-        ExactRunActionKind::Run(RunAction::UsePotion { .. }) => "use_potion",
-        ExactRunActionKind::Run(RunAction::DiscardPotion { .. }) => "discard_potion",
-        ExactRunActionKind::Run(RunAction::ChooseCombatCardReward { .. }) => {
+        RunDecisionAction::Run(RunAction::Proceed) => "proceed",
+        RunDecisionAction::Run(RunAction::OpenChest) => "open_chest",
+        RunDecisionAction::Run(RunAction::OpenCardReward) => "open_card_reward",
+        RunDecisionAction::Run(RunAction::OpenQueuedCardReward { .. }) => "open_queued_card_reward",
+        RunDecisionAction::Run(RunAction::SkipPotionReward) => "skip_potion_reward",
+        RunDecisionAction::Run(RunAction::BuyShopCard { .. }) => "buy_shop_card",
+        RunDecisionAction::Run(RunAction::BuyShopRelic { .. }) => "buy_shop_relic",
+        RunDecisionAction::Run(RunAction::BuyShopPotion { .. }) => "buy_shop_potion",
+        RunDecisionAction::Run(RunAction::UsePotion { .. }) => "use_potion",
+        RunDecisionAction::Run(RunAction::DiscardPotion { .. }) => "discard_potion",
+        RunDecisionAction::Run(RunAction::ChooseCombatCardReward { .. }) => {
             "choose_combat_card_reward"
         }
-        ExactRunActionKind::Run(RunAction::SkipCombatCardReward) => "skip_combat_card_reward",
-        ExactRunActionKind::Run(RunAction::ChooseHandSelect { .. }) => "choose_hand_select",
-        ExactRunActionKind::Run(RunAction::ConfirmHandSelect) => "confirm_hand_select",
-        ExactRunActionKind::Run(RunAction::ConfirmHandSelectWithoutRetrieval) => {
+        RunDecisionAction::Run(RunAction::SkipCombatCardReward) => "skip_combat_card_reward",
+        RunDecisionAction::Run(RunAction::ChooseHandSelect { .. }) => "choose_hand_select",
+        RunDecisionAction::Run(RunAction::ConfirmHandSelect) => "confirm_hand_select",
+        RunDecisionAction::Run(RunAction::ConfirmHandSelectWithoutRetrieval) => {
             "confirm_hand_select_without_retrieval"
         }
-        ExactRunActionKind::Run(RunAction::ChooseDrawSelect { .. }) => "choose_draw_select",
-        ExactRunActionKind::Run(RunAction::ConfirmDrawSelect) => "confirm_draw_select",
-        ExactRunActionKind::Run(RunAction::ChooseDiscardSelect { .. }) => "choose_discard_select",
-        ExactRunActionKind::Run(RunAction::ConfirmDiscardSelect) => "confirm_discard_select",
-        ExactRunActionKind::Run(RunAction::ChooseExhaustSelect { .. }) => "choose_exhaust_select",
-        ExactRunActionKind::Run(RunAction::ConfirmExhaustSelect) => "confirm_exhaust_select",
-        ExactRunActionKind::Run(RunAction::EnterShop) => "enter_shop",
-        ExactRunActionKind::Run(RunAction::LeaveShop) => "leave_shop",
-        ExactRunActionKind::Run(RunAction::OpenShopRemove) => "open_shop_remove",
+        RunDecisionAction::Run(RunAction::ChooseDrawSelect { .. }) => "choose_draw_select",
+        RunDecisionAction::Run(RunAction::ConfirmDrawSelect) => "confirm_draw_select",
+        RunDecisionAction::Run(RunAction::ChooseDiscardSelect { .. }) => "choose_discard_select",
+        RunDecisionAction::Run(RunAction::ConfirmDiscardSelect) => "confirm_discard_select",
+        RunDecisionAction::Run(RunAction::ChooseExhaustSelect { .. }) => "choose_exhaust_select",
+        RunDecisionAction::Run(RunAction::ConfirmExhaustSelect) => "confirm_exhaust_select",
+        RunDecisionAction::Run(RunAction::EnterShop) => "enter_shop",
+        RunDecisionAction::Run(RunAction::LeaveShop) => "leave_shop",
+        RunDecisionAction::Run(RunAction::OpenShopRemove) => "open_shop_remove",
     }
 }
 
@@ -1837,34 +1376,16 @@ fn run_phase_name(phase: RunPhase) -> &'static str {
     }
 }
 
-fn phase_name(phase: CombatPhase) -> &'static str {
-    match phase {
-        CombatPhase::WaitingForPlayer => "waiting_for_player",
-        CombatPhase::MonsterTurn => "monster_turn",
-        CombatPhase::Won => "won",
-        CombatPhase::Lost => "lost",
-    }
-}
-
-fn is_terminal(phase: CombatPhase) -> bool {
-    matches!(phase, CombatPhase::Won | CombatPhase::Lost)
-}
-
-fn terminal_reason(phase: CombatPhase) -> Option<&'static str> {
-    match phase {
-        CombatPhase::Won => Some("won"),
-        CombatPhase::Lost => Some("lost"),
-        CombatPhase::WaitingForPlayer | CombatPhase::MonsterTurn => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use sts_core::content::cards::{
         BASH_ID, CONCLUDE_ANY_COLOR_ID, DEFEND_R_ID, STRIKE_R_ID, THINKING_AHEAD_ID,
     };
-    use sts_core::{CardInstance, Potion};
+    use sts_core::{
+        restore_run_snapshot_json, CardId, CardInstance, CombatPhase, Potion, RunState,
+        SNAPSHOT_SCHEMA_VERSION,
+    };
 
     #[test]
     fn card_catalogue_is_complete_sorted_unique_and_public() {
@@ -1905,14 +1426,17 @@ mod tests {
 
     #[test]
     fn schema_one_combat_snapshot_is_rejected() {
-        let env = PyOmniCombatEnv::initial_fixture();
-        let mut snapshot: serde_json::Value =
-            serde_json::from_str(&env.snapshot_json().expect("snapshot JSON")).expect("valid JSON");
-        snapshot["schema_version"] = serde_json::Value::from(1);
+        let snapshot = Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: RunState::seeded_ironclad(1, 0),
+        };
+        let mut value: serde_json::Value =
+            serde_json::from_str(&snapshot.canonical_json().expect("run snapshot serializes"))
+                .expect("valid JSON");
+        value["schema_version"] = serde_json::Value::from(1);
 
-        let error = PyOmniCombatEnv::from_snapshot_json(&snapshot.to_string())
-            .err()
-            .expect("historical snapshot schemas are unsupported");
+        let error = restore_run_snapshot_json(&value.to_string())
+            .expect_err("historical snapshot schemas are unsupported");
         assert!(error
             .to_string()
             .contains("unsupported snapshot schema version"));
@@ -1921,32 +1445,34 @@ mod tests {
     #[test]
     fn snapshot_with_missing_combat_rng_is_rejected() {
         pyo3::Python::initialize();
-        let env = PyOmniCombatEnv::initial_fixture();
+        let env = PyOmniRunEnv::combat_fixture();
         let mut snapshot: serde_json::Value =
             serde_json::from_str(&env.snapshot_json().expect("snapshot JSON")).expect("valid JSON");
-        snapshot["state"]
+        snapshot["state"]["combat"]
             .as_object_mut()
             .expect("combat state object")
             .remove("card_random_rng");
 
-        let error = PyOmniCombatEnv::from_snapshot_json(&snapshot.to_string())
-            .err()
-            .expect("missing authoritative RNG must fail");
-
-        assert!(error.to_string().contains("invalid combat snapshot JSON"));
+        let error = restore_run_snapshot_json(&snapshot.to_string())
+            .expect_err("missing authoritative RNG must fail");
+        assert!(
+            error.to_string().contains("invalid snapshot")
+                || error.to_string().contains("missing field")
+                || error.to_string().contains("canonical")
+        );
     }
 
     #[test]
-    fn raw_run_state_with_contradictory_phase_is_rejected() {
+    fn run_snapshot_with_contradictory_phase_is_rejected() {
         pyo3::Python::initialize();
         let env = PyOmniRunEnv::combat_fixture();
-        let mut state: serde_json::Value =
-            serde_json::from_str(&env.state_json().expect("state JSON")).expect("valid JSON");
-        state["phase"] = serde_json::Value::String("Idle".to_owned());
+        let mut snapshot: serde_json::Value =
+            serde_json::from_str(&env.snapshot_json().expect("snapshot JSON")).expect("valid JSON");
+        snapshot["state"]["phase"] = serde_json::Value::String("Idle".to_owned());
 
-        let error = PyOmniRunEnv::from_state_json_for_debugging(&state.to_string())
-            .err()
-            .expect("contradictory run phase must fail");
+        let error = PyOmniRunEnv::from_snapshot_json(&snapshot.to_string())
+            .map(|_| ())
+            .expect_err("contradictory run phase must fail");
 
         assert!(error
             .to_string()
@@ -1954,12 +1480,12 @@ mod tests {
     }
 
     #[test]
-    fn exact_run_legal_actions_report_invalid_state() {
+    fn public_run_legal_actions_report_invalid_state() {
         let mut env = PyOmniRunEnv::map_fixture();
         env.state.phase = RunPhase::Shop;
         env.state.shop = None;
 
-        assert!(env.exact_legal_actions().is_err());
+        assert!(env.legal_actions().is_err());
     }
 
     #[test]
@@ -1972,8 +1498,8 @@ mod tests {
         snapshot["state"]["shop"] = serde_json::Value::Null;
 
         let error = PyOmniRunEnv::from_snapshot_json(&snapshot.to_string())
-            .err()
-            .expect("missing authoritative screen must fail");
+            .map(|_| ())
+            .expect_err("missing authoritative screen must fail");
 
         assert!(error.to_string().contains("shop phase has no shop screen"));
     }
@@ -1986,93 +1512,24 @@ mod tests {
         snapshot["schema_version"] = serde_json::Value::from(1);
 
         let error = PyOmniRunEnv::from_snapshot_json(&snapshot.to_string())
-            .err()
-            .expect("historical snapshot schemas are unsupported");
+            .map(|_| ())
+            .expect_err("historical snapshot schemas are unsupported");
         assert!(error
             .to_string()
             .contains("unsupported snapshot schema version"));
     }
 
     #[test]
-    fn initial_fixture_round_trips_through_snapshot_json() {
-        let env = PyOmniCombatEnv::initial_fixture();
+    fn run_combat_fixture_round_trips_through_snapshot_json() {
+        let env = PyOmniRunEnv::combat_fixture();
         let restored =
-            PyOmniCombatEnv::from_snapshot_json(&env.snapshot_json().expect("snapshot JSON"))
+            PyOmniRunEnv::from_snapshot_json(&env.snapshot_json().expect("snapshot JSON"))
                 .expect("snapshot restores");
 
         assert_eq!(
             restored.snapshot_hash().expect("restored hashes"),
             env.snapshot_hash().expect("fixture hashes")
         );
-    }
-
-    #[test]
-    fn fixture_exposes_exact_legal_actions() {
-        let env = PyOmniCombatEnv::initial_fixture();
-        let actions = env.exact_legal_actions().expect("valid combat fixture");
-
-        assert!(actions.iter().any(|action| action.kind() == "end_turn"));
-        assert!(actions.iter().any(|action| action.card_id() == Some(1)));
-    }
-
-    #[test]
-    fn stepping_updates_state_and_returns_transition() {
-        let mut env = PyOmniCombatEnv::initial_fixture();
-        let before = env.snapshot_hash().expect("hashes before");
-        let result = env
-            .step(&PyExactCombatAction::play_card(1, Some(1)))
-            .expect("strike is legal");
-
-        assert_ne!(result.snapshot_hash, before);
-        assert_eq!(result.transition.previous_hash, before);
-        assert_eq!(result.transition.resulting_hash, result.snapshot_hash);
-        assert!(!result.transition.events_json.is_empty());
-    }
-
-    #[test]
-    fn clone_branches_without_mutating_parent() {
-        let env = PyOmniCombatEnv::initial_fixture();
-        let parent_hash = env.snapshot_hash().expect("parent hashes");
-        let mut child = env.clone_env();
-
-        child
-            .step(&PyExactCombatAction::play_card(1, Some(1)))
-            .expect("child can step independently");
-
-        assert_eq!(
-            env.snapshot_hash().expect("parent still hashes"),
-            parent_hash
-        );
-        assert_ne!(child.snapshot_hash().expect("child hashes"), parent_hash);
-    }
-
-    #[test]
-    fn state_and_legal_action_inspection_do_not_mutate_hash() {
-        let env = PyOmniCombatEnv::initial_fixture();
-        let before = env.snapshot_hash().expect("hashes before");
-
-        let _ = env.state_json().expect("state serializes");
-        let _ = env.exact_legal_actions();
-
-        assert_eq!(env.snapshot_hash().expect("hashes after"), before);
-    }
-
-    #[test]
-    fn run_combat_fixture_exposes_combat_actions_and_steps() {
-        let mut env = PyOmniRunEnv::combat_fixture();
-        let before = env.snapshot_hash().expect("run hashes before");
-        let actions = env.exact_legal_actions().expect("run legal actions");
-        let strike = actions
-            .iter()
-            .find(|action| action.kind() == "play_card")
-            .expect("combat fixture has a play action")
-            .clone();
-
-        let result = env.step(&strike).expect("run combat action applies");
-
-        assert_eq!(result.transition.previous_hash, before);
-        assert_ne!(result.snapshot_hash, before);
-        assert_eq!(env.phase(), "combat");
     }
 
     #[test]
@@ -2165,31 +1622,32 @@ mod tests {
     }
 
     #[test]
-    fn run_combat_exact_actions_expose_exhaust_select_after_elixir() {
+    fn run_combat_public_actions_expose_exhaust_select_after_elixir() {
         let mut env = PyOmniRunEnv::combat_fixture();
         env.state.potions = vec![Potion::Elixir];
         let elixir = env
-            .exact_legal_actions()
+            .legal_actions()
             .expect("run legal actions")
             .into_iter()
-            .find(|action| action.kind() == "use_potion")
+            .find(|action| action.kind() == "use_potion_slot")
             .expect("elixir is usable")
             .clone();
 
-        env.step(&elixir).expect("elixir opens exhaust select");
-        let actions = env.exact_legal_actions().expect("run legal actions");
+        env.step_action(&elixir)
+            .expect("elixir opens exhaust select");
+        let actions = env.legal_actions().expect("run legal actions");
 
         assert!(actions
             .iter()
-            .any(|action| action.kind() == "choose_exhaust_select"));
+            .any(|action| action.kind() == "toggle_visible_card"));
         assert!(actions
             .iter()
-            .any(|action| action.kind() == "confirm_exhaust_select"));
+            .any(|action| action.kind() == "confirm_selection"));
         assert_eq!(env.unsupported_reason(), None);
     }
 
     #[test]
-    fn reward_exact_actions_expose_fruit_juice_without_combat_state() {
+    fn reward_public_actions_expose_fruit_juice_without_combat_state() {
         let mut env = PyOmniRunEnv::combat_fixture();
         let combat = env.state.combat.as_mut().expect("combat fixture");
         combat.phase = CombatPhase::Won;
@@ -2203,14 +1661,14 @@ mod tests {
         env.state.potions = vec![Potion::Attack, Potion::FruitJuice];
 
         let fruit_juice = env
-            .exact_legal_actions()
+            .legal_actions()
             .expect("run legal actions")
             .into_iter()
             .find(|action| action.kind() == "use_potion")
             .expect("Fruit Juice is usable from reward screen")
             .clone();
 
-        env.step(&fruit_juice)
+        env.step_action(&fruit_juice)
             .expect("reward-screen Fruit Juice applies");
 
         assert_eq!(env.state.player_hp, 80);
@@ -2240,14 +1698,14 @@ mod tests {
         env.state.potions.clear();
 
         let take_potion = env
-            .exact_legal_actions()
+            .legal_actions()
             .expect("run legal actions")
             .into_iter()
             .find(|action| action.kind() == "take_potion_reward")
             .expect("potion reward can be taken")
             .clone();
 
-        env.step(&take_potion)
+        env.step_action(&take_potion)
             .expect("reward-screen potion reward is collected");
 
         assert_eq!(env.state.potions, vec![Potion::Ancient]);
@@ -2273,7 +1731,7 @@ mod tests {
             env.snapshot_hash().expect("run hashes")
         );
         assert!(env
-            .exact_legal_actions()
+            .legal_actions()
             .expect("run legal actions")
             .iter()
             .any(|action| action.family() == "map"));
@@ -2290,7 +1748,7 @@ mod tests {
         assert_eq!(restored.phase(), "complete");
         assert_eq!(restored.current_decision(), "complete");
         assert!(restored
-            .exact_legal_actions()
+            .legal_actions()
             .expect("run legal actions")
             .is_empty());
         assert!(restored.unsupported_reason().is_none());
@@ -2317,7 +1775,7 @@ mod tests {
             other.snapshot_hash().expect("other hash")
         );
         assert!(first
-            .exact_legal_actions()
+            .legal_actions()
             .expect("run legal actions")
             .iter()
             .any(|action| action.family() == "event"));
@@ -2521,5 +1979,19 @@ mod tests {
             selected_kinds.contains(&"confirm_selection"),
             "Thinking Ahead beam clone never confirmed: {selected_kinds:?}"
         );
+    }
+
+    #[test]
+    fn parse_leaf_cache_rejects_empty_string() {
+        assert_eq!(parse_leaf_cache(None).unwrap(), PuctLeafCache::Off);
+        assert_eq!(parse_leaf_cache(Some("off")).unwrap(), PuctLeafCache::Off);
+        assert_eq!(
+            parse_leaf_cache(Some("exact_state")).unwrap(),
+            PuctLeafCache::ExactState
+        );
+        let error = parse_leaf_cache(Some("")).expect_err("empty leaf cache is rejected");
+        assert!(error.contains("empty"));
+        let error = parse_leaf_cache(Some("memo")).expect_err("unknown leaf cache is rejected");
+        assert!(error.contains("memo"));
     }
 }

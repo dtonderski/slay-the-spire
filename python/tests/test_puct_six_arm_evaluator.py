@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Literal, cast
@@ -26,6 +25,7 @@ from sts_sim.rl import (
     select_uniform_prior_constant_value_puct_action,
     select_uniform_prior_network_value_puct_action,
 )
+from sts_sim.rl.provenance import canonical_bytes, sha256_bytes
 from sts_sim.rl.puct import (
     constant_value_uniform_prior_leaf_evaluator,
     network_leaf_evaluator,
@@ -319,9 +319,8 @@ def test_six_arms_restore_identical_root_bytes_independently(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     env, model, vocabularies = _tiny_policy_net()
-    snapshot = env.snapshot()
-    snapshot_bytes = snapshot.json.encode()
-    root_id = hashlib.sha256(snapshot_bytes).hexdigest()
+    snapshot_bytes = canonical_bytes(json.loads(env.snapshot().json))
+    root_id = sha256_bytes(snapshot_bytes)
     restores: list[bytes] = []
     original = gameplay._restore_independently
 
@@ -347,9 +346,8 @@ def test_uniform_prior_arm_errors_stay_in_the_official_denominator(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     env, model, vocabularies = _tiny_policy_net()
-    snapshot = env.snapshot()
-    snapshot_bytes = snapshot.json.encode()
-    root_id = hashlib.sha256(snapshot_bytes).hexdigest()
+    snapshot_bytes = canonical_bytes(json.loads(env.snapshot().json))
+    root_id = sha256_bytes(snapshot_bytes)
 
     def boom(*_args: object, **_kwargs: object) -> None:
         raise OverflowError("injected uniform overflow")
@@ -380,9 +378,8 @@ def test_six_policy_gameplay_rejects_nonpositive_budgets() -> None:
 
 def test_search_arm_attestation_is_isolated_from_report_mutation() -> None:
     env, model, vocabularies = _tiny_policy_net()
-    snapshot = env.snapshot()
-    snapshot_bytes = snapshot.json.encode()
-    root_id = hashlib.sha256(snapshot_bytes).hexdigest()
+    snapshot_bytes = canonical_bytes(json.loads(env.snapshot().json))
+    root_id = sha256_bytes(snapshot_bytes)
     first = _evaluate_one_root(root_id, snapshot_bytes, model, vocabularies)
     report_arms = cast(dict[str, dict[str, object]], first["search_arms"])
     report_arms["uniform_prior_network_value_puct"]["role"] = "mutated"

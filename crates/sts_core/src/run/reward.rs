@@ -24,7 +24,7 @@ use crate::{
     map::{RoomKind, TargetMapAct},
     potion::{Potion, PotionRarity, FAIRY_HEAL_PERCENT, IRONCLAD_POTION_POOL},
     relic::{
-        Relic, RelicKey, RelicTier, BUSTED_CROWN_CARD_REWARD_REDUCTION, CAULDRON_POTIONS,
+        Relic, RelicTier, BUSTED_CROWN_CARD_REWARD_REDUCTION, CAULDRON_POTIONS,
         QUESTION_CARD_REWARD_BONUS, SINGING_BOWL_MAX_HP,
     },
     rng::StsRng,
@@ -281,7 +281,7 @@ fn queue_eager_card_reward_choices(run: &mut RunState, count: u8) -> SimResult<(
 
 /// Event paths that grant a relic without opening the combat reward screen use
 /// `AbstractDungeon.returnRandomScreenlessRelic` (skip bottled relics / Whetstone).
-pub fn roll_event_relic_reward(run: &mut RunState, act: i32) -> RelicKey {
+pub fn roll_event_relic_reward(run: &mut RunState, act: i32) -> Relic {
     run.ensure_ironclad_relic_pools();
     let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
     let tier = target_relic_tier(&mut relic_rng, act);
@@ -292,7 +292,7 @@ pub fn roll_event_relic_reward(run: &mut RunState, act: i32) -> RelicKey {
 /// Reward-screen relic offers (Dig / chests / elites) use
 /// `returnRandomRelicTier` + `returnRandomRelic`. Bottled relics are allowed
 /// because the combat reward screen can open their bottle grid on pickup.
-pub fn roll_reward_screen_relic(run: &mut RunState, act: i32) -> RelicKey {
+pub fn roll_reward_screen_relic(run: &mut RunState, act: i32) -> Relic {
     run.ensure_ironclad_relic_pools();
     let mut relic_rng = run.rng_for_stream(RunRngStream::Relic);
     let tier = target_relic_tier(&mut relic_rng, act);
@@ -300,7 +300,7 @@ pub fn roll_reward_screen_relic(run: &mut RunState, act: i32) -> RelicKey {
     roll_relic_reward(run, tier)
 }
 
-fn roll_screenless_relic_reward(run: &mut RunState, tier: RelicTier) -> RelicKey {
+fn roll_screenless_relic_reward(run: &mut RunState, tier: RelicTier) -> Relic {
     run.ensure_ironclad_relic_pools();
     let context = run.relic_spawn_context(run.current_floor, false);
     let pools = run.relic_pools.as_mut().expect("relic pools initialized");
@@ -1075,7 +1075,7 @@ pub fn target_potion_reward_offer(
     Ok(offer)
 }
 
-pub(crate) fn roll_relic_reward(run: &mut RunState, tier: RelicTier) -> RelicKey {
+pub(crate) fn roll_relic_reward(run: &mut RunState, tier: RelicTier) -> Relic {
     run.ensure_ironclad_relic_pools();
     let context = run.relic_spawn_context(run.current_floor, false);
     let pools = run.relic_pools.as_mut().expect("relic pools initialized");
@@ -2770,7 +2770,7 @@ fn apply_reward_action(run: &RunState, action: RunAction) -> SimResult<RunState>
                 key
             };
             next.pending_boss_relic_choices.clear();
-            if key == RelicKey::TinyHouse {
+            if key == Relic::TinyHouse {
                 // TinyHouse.onEquip adds its rewards to the current room and
                 // opens CombatRewardScreen before the boss chest screen closes.
                 // Keep the reward overlay alive while applying the relic so
@@ -3024,8 +3024,7 @@ mod tests {
             neow::{generate_neow_colorless_reward, NeowRewardType},
             RunState,
         },
-        CardId, CardInstance, CombatAction, CombatState, Event, MonsterId, Relic, RelicKey,
-        RoomKind,
+        CardId, CardInstance, CombatAction, CombatState, Event, MonsterId, Relic, RoomKind,
     };
 
     fn reward_choice_ids(run: &RunState) -> Vec<ContentId> {
@@ -3744,14 +3743,14 @@ mod tests {
         run.current_floor = 3;
         let act = run.current_act;
         let scrap_ooze_relic = roll_event_relic_reward(&mut run, act);
-        assert_eq!(scrap_ooze_relic, RelicKey::DreamCatcher);
+        assert_eq!(scrap_ooze_relic, Relic::DreamCatcher);
         run.gain_relic_key(scrap_ooze_relic)
             .expect("fixture relic pickup succeeds");
 
         run.current_floor = 4;
         let act = run.current_act;
         let event_relic = roll_event_relic_reward(&mut run, act);
-        assert_eq!(event_relic, RelicKey::ToxicEgg);
+        assert_eq!(event_relic, Relic::ToxicEgg);
     }
 
     #[test]
@@ -4106,7 +4105,7 @@ mod tests {
             .reward
             .as_mut()
             .expect("boss relic reward")
-            .boss_relic_choices = vec![RelicKey::TinyHouse, RelicKey::MarkOfPain];
+            .boss_relic_choices = vec![Relic::TinyHouse, Relic::MarkOfPain];
 
         let card_rng_counter_before = opened.card_rng_counter;
         let picked = apply_run_action(&opened, RunAction::ChooseBossRelicReward { index: 0 })
@@ -4156,7 +4155,7 @@ mod tests {
             .reward
             .as_mut()
             .expect("boss relic reward")
-            .boss_relic_choices = vec![RelicKey::TinyHouse, RelicKey::MarkOfPain];
+            .boss_relic_choices = vec![Relic::TinyHouse, Relic::MarkOfPain];
 
         let picked = apply_run_action(&opened, RunAction::ChooseBossRelicReward { index: 0 })
             .expect("Tiny House can be picked");

@@ -28,7 +28,16 @@ from sts_sim.rl.puct import (
     select_uniform_prior_constant_value_puct_action,
     select_uniform_prior_network_value_puct_action,
 )
+from sts_sim.rl.records import action_descriptor_from_payload, fair_observation_from_payload
 from sts_sim.run import Decision
+
+
+def _require_fair_leaf(item: dict[str, object]) -> None:
+    fair_observation_from_payload(item["observation"])
+    raw_choices = item["choices"]
+    assert isinstance(raw_choices, list) and raw_choices
+    for choice in raw_choices:
+        action_descriptor_from_payload(choice)
 
 
 def _tiny_policy_net() -> tuple[RunEnv, FairCombatPolicyValueNet, Vocabularies]:
@@ -55,11 +64,11 @@ def _uniform_evaluator(request_json: str) -> str:
     batch = request["batch"]
     assert isinstance(batch, list) and len(batch) == 1
     item = batch[0]
-    assert set(item) == {"observation", "choices"}
-    encoded = json.dumps(item)
-    for field in ("card_id", "monster_id", "content_id", "rng"):
-        assert field not in encoded
-    choices = item["choices"]
+    assert isinstance(item, dict)
+    leaf = cast(dict[str, object], item)
+    assert set(leaf) == {"observation", "choices"}
+    _require_fair_leaf(leaf)
+    choices = leaf["choices"]
     assert isinstance(choices, list) and choices
     return json.dumps(
         {
@@ -389,6 +398,17 @@ def test_rust_proxy_matches_python_combat_proxy_v1() -> None:
     assert current_root == pytest.approx(0.85)
     assert episode_root is not None and current_root is not None
     assert episode_root > current_root
+
+
+def test_empty_leaf_cache_is_rejected_by_native_search() -> None:
+    env = RunEnv.combat_fixture()
+    with pytest.raises(ValueError, match="empty"):
+        env.puct_search_payload(
+            _uniform_evaluator,
+            simulation_budget=1,
+            transition_budget=1,
+            leaf_cache="",
+        )
 
 
 def test_empty_reward_json_is_rejected() -> None:

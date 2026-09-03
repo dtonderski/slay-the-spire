@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from .provenance import canonical_bytes
+from .provenance import canonical_bytes, digest_payload, require_digest, sha256_bytes
 from .records import SymbolicTrainingRecord, action_descriptor_payload
 from .rewards import COMBAT_PROXY_V1
 
@@ -103,10 +103,6 @@ def teacher_conflict_report(
             )
         )
     return tuple(result)
-
-
-def _canonical_bytes(payload: object) -> bytes:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
 
 
 def _require_mapping(value: object, label: str) -> dict[str, object]:
@@ -607,13 +603,26 @@ def _json_object_from_bytes(raw: bytes, label: str) -> dict[str, object]:
         loaded = json.loads(raw)
     except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError(f"{label} is not valid JSON") from error
-    return _require_mapping(loaded, label)
+    source = _require_mapping(loaded, label)
+    if raw != canonical_bytes(source):
+        raise ValueError(f"{label} bytes are not canonical")
+    return source
 
 
 def _require_payload_matches_bytes(payload: Mapping[str, object], raw: bytes, label: str) -> None:
     parsed = _json_object_from_bytes(raw, label)
-    if parsed != dict(payload):
+    if parsed != dict(payload) or raw != canonical_bytes(dict(payload)):
         raise ValueError(f"{label} payload does not match the hashed bytes")
+
+
+def _self_report_digest(payload: Mapping[str, object], label: str) -> str | None:
+    if "report_digest" not in payload:
+        return None
+    digest = require_digest(payload["report_digest"], f"{label} report_digest")
+    expected = digest_payload(dict(payload), "report_digest")
+    if digest != expected:
+        raise ValueError(f"{label} report_digest does not match the canonical payload")
+    return digest
 
 
 def _input_report_identity(
@@ -630,14 +639,13 @@ def _input_report_identity(
         sha256 = hashlib.sha256(raw_bytes).hexdigest()
         path_text: str | None = str(path) if path is not None else None
     else:
-        sha256 = hashlib.sha256(_canonical_bytes(dict(payload))).hexdigest()
+        sha256 = sha256_bytes(canonical_bytes(dict(payload)))
         path_text = None
-    report_digest = payload.get("report_digest")
     return {
         "role": role,
         "path": path_text,
         "sha256": sha256,
-        "report_digest": report_digest if type(report_digest) is str else None,
+        "report_digest": _self_report_digest(payload, role),
     }
 
 
@@ -733,5 +741,5 @@ def calibrate_combat_proxy_win_loss(
         "labeled_decision": labeled_bundle,
         "gameplay_root": gameplay_bundle,
     }
-    report["report_digest"] = hashlib.sha256(_canonical_bytes(report)).hexdigest()
+    report["report_digest"] = sha256_bytes(canonical_bytes(report))
     return report

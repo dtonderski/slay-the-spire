@@ -33,15 +33,12 @@ pub const BLOCK_POTION_ID: ContentId = ContentId::new(201);
 pub const FEAR_POTION_ID: ContentId = ContentId::new(202);
 /// Content id for [Potion::GamblersBrew].
 pub const GAMBLERS_BREW_POTION_ID: ContentId = ContentId::new(203);
-/// Backward-compatible alias for the previous local name of [Potion::GamblersBrew].
-pub const GAMBLE_POTION_ID: ContentId = GAMBLERS_BREW_POTION_ID;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Potion {
     Fire,
     Block,
     Fear,
-    #[serde(alias = "Gamble")]
     GamblersBrew,
     Blood,
     Elixir,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -24,6 +25,13 @@ from sts_sim.rl import (
     select_greedy_action,
 )
 from sts_sim.rl.gameplay import canonical_public_action_descriptors
+from sts_sim.rl.provenance import canonical_bytes, sha256_bytes
+
+
+def _from_mutated_combat_snapshot(mutate_state: Callable[[dict[str, object]], None]) -> RunEnv:
+    payload = json.loads(RunEnv.combat_fixture().snapshot().json)
+    mutate_state(cast(dict[str, object], payload["state"]))
+    return RunEnv.from_snapshot(json.dumps(payload))
 
 
 def _end_turn(decision: Decision) -> Action:
@@ -34,21 +42,18 @@ def _end_turn(decision: Decision) -> Action:
 
 
 def _fixture_snapshot() -> tuple[str, bytes]:
-    snapshot = RunEnv.combat_fixture().snapshot()
-    snapshot_bytes = snapshot.json.encode()
-    return hashlib.sha256(snapshot_bytes).hexdigest(), snapshot_bytes
+    snapshot_bytes = canonical_bytes(json.loads(RunEnv.combat_fixture().snapshot().json))
+    return sha256_bytes(snapshot_bytes), snapshot_bytes
 
 
 def test_canonical_root_bytes_restore_by_state_hash_not_wire_byte_round_trip() -> None:
     snapshot = RunEnv.combat_fixture().snapshot()
-    canonical_bytes = json.dumps(
-        json.loads(snapshot.json), sort_keys=True, separators=(",", ":")
-    ).encode()
-    root_id = hashlib.sha256(canonical_bytes).hexdigest()
-    left = gameplay._restore_independently(canonical_bytes, root_id)
-    right = gameplay._restore_independently(canonical_bytes, root_id)
+    root_bytes = canonical_bytes(json.loads(snapshot.json))
+    root_id = sha256_bytes(root_bytes)
+    left = gameplay._restore_independently(root_bytes, root_id)
+    right = gameplay._restore_independently(root_bytes, root_id)
     assert left.snapshot().hash == right.snapshot().hash
-    assert left.snapshot().json.encode() != canonical_bytes
+    assert left.snapshot().json.encode() != root_bytes
 
 
 def _tiny_policy_net() -> tuple[RunEnv, FairCombatPolicyValueNet, Vocabularies]:
@@ -73,9 +78,7 @@ def test_random_policy_index_golden_descriptor_hash() -> None:
         (ActionDescriptor(family="combat", kind="end_turn"),)
     )
     payload = [7, "root-id", 0, descriptors]
-    digest = hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
-    )
+    digest = hashlib.sha256(canonical_bytes(payload))
     assert digest.hexdigest() == "bb9162d8fa97c14415e236e3c309761d76359f51718467f66afd9b94e6c67779"
     assert random_policy_index(
         evaluation_seed=7,
@@ -132,12 +135,13 @@ def test_public_caps_match_native_truncation_semantics() -> None:
 
 
 def test_initial_hp_zero_is_lost_like_native() -> None:
-    state = RunEnv.combat_fixture().full_state()
-    combat = cast(dict[str, object], state["combat"])
-    player = cast(dict[str, object], combat["player"])
-    player["hp"] = 0
-    state["player_hp"] = 0
-    env = RunEnv.from_state_json_for_debugging(json.dumps(state))
+    def mutate(state: dict[str, object]) -> None:
+        combat = cast(dict[str, object], state["combat"])
+        player = cast(dict[str, object], combat["player"])
+        player["hp"] = 0
+        state["player_hp"] = 0
+
+    env = _from_mutated_combat_snapshot(mutate)
     episode = gameplay.rollout_random_policy(
         env,
         evaluation_seed=0,
@@ -149,7 +153,7 @@ def test_initial_hp_zero_is_lost_like_native() -> None:
     assert episode.accepted_decisions == 0
     assert episode.player_turns == 1
     assert episode.terminal_hp == 0
-    native = RunEnv.from_state_json_for_debugging(json.dumps(state)).beam_clone_episode_payload(
+    native = _from_mutated_combat_snapshot(mutate).beam_clone_episode_payload(
         depth=2, width=4, transition_budget=100, max_decisions=1, max_player_turns=1
     )
     assert cast(dict[str, object], native["outcome"])["status"] == "lost"
@@ -288,8 +292,7 @@ def test_sealed_split_evaluation_fails_closed(
 ) -> None:
     seen: list[Path] = []
 
-    def fake_load(path: Path, *, verify_roots: bool = True) -> object:
-        del verify_roots
+    def fake_load(path: Path) -> object:
         seen.append(path)
         raise RuntimeError("stop-after-load")
 

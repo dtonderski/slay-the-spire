@@ -21,7 +21,7 @@ use crate::{
     potion::{Potion, MAX_POTIONS},
     relic::{
         apply_start_of_combat_relics, combat_healing_amount_with_relics,
-        initialize_ironclad_relic_pools, Relic, RelicKey, RelicPoolState, RelicSpawnContext,
+        initialize_ironclad_relic_pools, Relic, RelicPoolState, RelicSpawnContext,
         ANCIENT_TEA_SET_ENERGY, BLOODY_IDOL_HEAL, BUSTED_CROWN_ENERGY, CERAMIC_FISH_GOLD,
         COFFEE_DRIPPER_ENERGY, DARKSTONE_PERIAPT_MAX_HP, DU_VU_DOLL_STRENGTH_PER_CURSE,
         ECTOPLASM_ENERGY, ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS, FUSION_HAMMER_ENERGY,
@@ -69,18 +69,18 @@ fn checked_run_sub(value: i32, amount: i32) -> SimResult<i32> {
     ))
 }
 
-fn relic_pickup_energy(key: RelicKey) -> Option<i32> {
+fn relic_pickup_energy(key: Relic) -> Option<i32> {
     Some(match key {
-        RelicKey::VelvetChoker => VELVET_CHOKER_ENERGY,
-        RelicKey::CoffeeDripper => COFFEE_DRIPPER_ENERGY,
-        RelicKey::MarkOfPain => MARK_OF_PAIN_ENERGY,
-        RelicKey::FusionHammer => FUSION_HAMMER_ENERGY,
-        RelicKey::Sozu => SOZU_ENERGY,
-        RelicKey::BustedCrown => BUSTED_CROWN_ENERGY,
-        RelicKey::PhilosophersStone => PHILOSOPHERS_STONE_ENERGY,
-        RelicKey::CursedKey => 1,
-        RelicKey::Ectoplasm => ECTOPLASM_ENERGY,
-        RelicKey::RunicDome => RUNIC_DOME_ENERGY,
+        Relic::VelvetChoker => VELVET_CHOKER_ENERGY,
+        Relic::CoffeeDripper => COFFEE_DRIPPER_ENERGY,
+        Relic::MarkOfPain => MARK_OF_PAIN_ENERGY,
+        Relic::FusionHammer => FUSION_HAMMER_ENERGY,
+        Relic::Sozu => SOZU_ENERGY,
+        Relic::BustedCrown => BUSTED_CROWN_ENERGY,
+        Relic::PhilosophersStone => PHILOSOPHERS_STONE_ENERGY,
+        Relic::CursedKey => 1,
+        Relic::Ectoplasm => ECTOPLASM_ENERGY,
+        Relic::RunicDome => RUNIC_DOME_ENERGY,
         _ => return None,
     })
 }
@@ -88,6 +88,25 @@ fn relic_pickup_energy(key: RelicKey) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_obtain_omamori_metadata_must_match_pending_cards() {
+        let mut run = RunState::map_fixture();
+        run.pending_obtain_cards = vec![crate::content::cards::INJURY_ID];
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "pending obtain Omamori metadata does not match pending cards"
+            ))
+        );
+        run.pending_obtain_cards_bypass_omamori = vec![true, false];
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "pending obtain Omamori metadata does not match pending cards"
+            ))
+        );
+    }
 
     #[test]
     fn tiny_house_upgrades_the_target_starter_instance_on_session32_seed() {
@@ -98,7 +117,7 @@ mod tests {
 
         let reward = crate::run::neow::apply_neow_boss_swap(&mut run)
             .expect("seed-start fixture can allocate its boss relic reward");
-        assert_eq!(reward.relic, RelicKey::TinyHouse);
+        assert_eq!(reward.relic, Relic::TinyHouse);
 
         let upgraded = run
             .deck
@@ -1121,8 +1140,7 @@ pub struct RunState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_astrolabe_transform: Option<PendingAstrolabeTransform>,
     /// Whether each pending visual obtain already passed the target's
-    /// construction-time Omamori check. Empty for legacy states that predate
-    /// this parallel metadata; those entries retain the old flush behavior.
+    /// construction-time Omamori check. Parallel to `pending_obtain_cards`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_obtain_cards_bypass_omamori: Vec<bool>,
     /// AddCardToDeckAction effects queued by a combat action. The target can
@@ -1305,7 +1323,7 @@ pub struct RunState {
     pub boss_chest_opened: bool,
     /// Boss relic choices retained while the selection screen is closed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub pending_boss_relic_choices: Vec<RelicKey>,
+    pub pending_boss_relic_choices: Vec<Relic>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub rest_room_complete: bool,
 }
@@ -1466,7 +1484,7 @@ pub struct RewardScreen {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub queued_relic_offers: Vec<Relic>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub boss_relic_choices: Vec<RelicKey>,
+    pub boss_relic_choices: Vec<Relic>,
     /// State of the card-reward subflow. `remaining` includes an active screen.
     #[serde(default)]
     pub card_reward_flow: CardRewardFlow,
@@ -1884,9 +1902,7 @@ impl RunState {
                 return Err(SimError::UnknownContent(*content_id));
             }
         }
-        if !self.pending_obtain_cards_bypass_omamori.is_empty()
-            && self.pending_obtain_cards_bypass_omamori.len() != self.pending_obtain_cards.len()
-        {
+        if self.pending_obtain_cards_bypass_omamori.len() != self.pending_obtain_cards.len() {
             return Err(SimError::InvalidState(
                 "pending obtain Omamori metadata does not match pending cards",
             ));
@@ -3181,7 +3197,7 @@ impl RunState {
         );
         self.relic_pools = Some(initialize_ironclad_relic_pools(&mut rng));
         self.relic_rng_counter = rng.counter();
-        let owned_keys: Vec<_> = self.relics.iter().map(|relic| relic.key()).collect();
+        let owned_keys: Vec<_> = self.relics.clone();
         if let Some(pools) = self.relic_pools.as_mut() {
             for key in owned_keys {
                 pools.remove_relic(key);
@@ -3194,7 +3210,7 @@ impl RunState {
         RelicSpawnContext {
             floor_num,
             shop_room,
-            owned_relics: self.relics.iter().map(|relic| relic.key()).collect(),
+            owned_relics: self.relics.clone(),
             has_non_basic_attack: self.deck.iter().any(|card| {
                 card_type_and_rarity(card.content_id).is_some_and(|(card_type, _)| {
                     card_type == CardType::Attack && !is_basic_starter_card(card.content_id)
@@ -3301,11 +3317,16 @@ impl RunState {
         let mut next = self.clone();
         let pending = std::mem::take(&mut next.pending_obtain_cards);
         let bypass_omamori = std::mem::take(&mut next.pending_obtain_cards_bypass_omamori);
+        if bypass_omamori.len() != pending.len() {
+            return Err(SimError::InvalidState(
+                "pending obtain Omamori metadata does not match pending cards",
+            ));
+        }
         next.pending_obtain_provenance.clear();
         next.pending_event_transform = None;
         next.pending_astrolabe_transform = None;
-        for (index, content_id) in pending.into_iter().enumerate() {
-            if bypass_omamori.get(index).copied().unwrap_or(false) {
+        for (bypassed, content_id) in bypass_omamori.into_iter().zip(pending) {
+            if bypassed {
                 let id = CardId::new(next.next_card_instance_id()?);
                 next.add_deck_card_inner_with_omamori(
                     pending_obtain_card_instance(id, content_id),
@@ -3709,8 +3730,8 @@ impl RunState {
         }
     }
 
-    pub fn lose_relic_key(&mut self, key: RelicKey) -> SimResult<bool> {
-        let Some(index) = self.relics.iter().position(|relic| relic.key() == key) else {
+    pub fn lose_relic_key(&mut self, key: Relic) -> SimResult<bool> {
+        let Some(index) = self.relics.iter().position(|relic| *relic == key) else {
             return Ok(false);
         };
         self.relics.remove(index);
@@ -3721,7 +3742,7 @@ impl RunState {
         Ok(true)
     }
 
-    pub fn gain_relic_key(&mut self, key: RelicKey) -> SimResult<()> {
+    pub fn gain_relic_key(&mut self, key: Relic) -> SimResult<()> {
         let mut next = self.clone();
         next.ensure_ironclad_relic_pools();
         if let Some(pools) = next.relic_pools.as_mut() {
@@ -3741,7 +3762,7 @@ impl RunState {
 
     fn gain_relic_inner(&mut self, relic: Relic) -> SimResult<()> {
         if let Some(pools) = self.relic_pools.as_mut() {
-            pools.remove_relic(relic.key());
+            pools.remove_relic(relic);
         }
         let replaced_starter = self.replace_starter_relic_slot(relic);
         if !replaced_starter {
@@ -4358,17 +4379,5 @@ impl RunState {
             .iter()
             .filter(|card| card.content_id == content_id)
             .count()
-    }
-}
-
-impl Relic {
-    #[must_use]
-    pub const fn key(self) -> RelicKey {
-        self
-    }
-
-    #[must_use]
-    pub const fn from_key(key: RelicKey) -> Option<Self> {
-        Some(key)
     }
 }

@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import hashlib
-import json
+import io
 import math
-import os
 import platform
 import random
 import statistics
+import struct
 import sys
-import tempfile
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
@@ -20,21 +19,23 @@ from typing import Any, cast
 import numpy as np
 import torch
 
-from .. import _native
 from .authorization import require_held_out_evaluation
-from .data import DatasetManifest, load_dataset_manifest, load_root_manifest
+from .data import DatasetManifest, RootManifest, load_dataset_manifest
+from .experiment import _raise_if_symlink_ancestor, _read_regular_file_bytes, replace_file_bytes
 from .model import CombatModelConfig, FairCombatPolicyValueNet, policy_value_loss
-from .provenance import capture_repository_version
+from .provenance import canonical_bytes, capture_repository_version, sha256_bytes
 from .records import (
     RECORD_VERSION,
     SymbolicCombatDataset,
     SymbolicTrainingRecord,
     collate_training_examples,
-    read_jsonl,
 )
+from .source_epoch import loaded_native_bytes
 from .tensor import Vocabularies, VocabularyBuilder, encoder_contract_digest
 
-TRAINING_CHECKPOINT_FORMAT = 4
+TRAINING_CHECKPOINT_FORMAT = 5
+_MT19937_N = 624
+_UINT32_MAX = 0xFFFFFFFF
 _CHECKPOINT_KEYS = {
     "checkpoint_format",
     "config",
@@ -74,26 +75,174 @@ _TRAINING_TARGET_STATISTICS_KEYS = {
 }
 
 
-def _canonical_bytes(payload: object) -> bytes:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
-
-
 def _digest(payload: object) -> str:
-    return hashlib.sha256(_canonical_bytes(payload)).hexdigest()
+    return sha256_bytes(canonical_bytes(payload))
 
 
 def _atomic_torch_save(path: Path, payload: dict[str, object]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    os.close(descriptor)
+    buffer = io.BytesIO()
+    torch.save(payload, buffer)
+    replace_file_bytes(path, buffer.getvalue())
+
+
+def _require_int_sequence(values: object, label: str) -> list[int]:
+    if type(values) is list:
+        items: Sequence[object] = values
+    elif type(values) is tuple:
+        items = values
+    else:
+        raise TypeError(f"{label} must be a sequence of integers")
+    integers: list[int] = []
+    for value in items:
+        if type(value) is not int:
+            raise TypeError(f"{label} must be a sequence of integers")
+        integers.append(value)
+    return integers
+
+
+def _python_rng_payload(state: object) -> list[object]:
+    if type(state) is not tuple or len(state) != 3:
+        raise TypeError("python RNG state must be a 3-tuple")
+    version, mt_state, gauss = state
+    if type(version) is not int:
+        raise TypeError("python RNG state fields are invalid")
+    mt_values = _require_int_sequence(mt_state, "python RNG state")
+    if gauss is not None and type(gauss) not in {int, float}:
+        raise TypeError("python RNG gauss field is invalid")
+    return [version, mt_values, None if gauss is None else float(cast(int | float, gauss))]
+
+
+def _python_rng_from_payload(payload: object) -> tuple[int, tuple[int, ...], float | None]:
+    if type(payload) is not list or len(payload) != 3:
+        raise TypeError("training checkpoint python RNG state is invalid")
+    version, mt_state, gauss = payload
+    if type(version) is not int:
+        raise TypeError("training checkpoint python RNG state is invalid")
+    if version != 3:
+        raise ValueError("training checkpoint python RNG version is invalid")
+    mt_values = tuple(_require_int_sequence(mt_state, "training checkpoint python RNG state"))
+    if len(mt_values) != _MT19937_N + 1:
+        raise ValueError("training checkpoint python RNG state layout is invalid")
+    *words, index = mt_values
+    if any(word < 0 or word > _UINT32_MAX for word in words):
+        raise ValueError("training checkpoint python RNG words are out of range")
+    if not 0 <= index <= _MT19937_N:
+        raise ValueError("training checkpoint python RNG index is out of range")
+    if gauss is not None and type(gauss) not in {int, float}:
+        raise TypeError("training checkpoint python RNG state is invalid")
+    gauss_value = None if gauss is None else float(cast(int | float, gauss))
+    if gauss_value is not None and not math.isfinite(gauss_value):
+        raise ValueError("training checkpoint python RNG gaussian is not finite")
+    state = (version, mt_values, gauss_value)
+    probe = random.Random()
     try:
-        torch.save(payload, temporary)
-        with Path(temporary).open("rb") as source:
-            os.fsync(source.fileno())
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+        probe.setstate(state)
+    except (OverflowError, TypeError, ValueError) as error:
+        raise ValueError("training checkpoint python RNG state is not loadable") from error
+    return state
+
+
+def _numpy_mt19937_key(key: object, label: str) -> list[int]:
+    if isinstance(key, np.ndarray):
+        if key.dtype != np.dtype(np.uint32) or key.ndim != 1 or key.size != _MT19937_N:
+            raise TypeError(f"{label} must be a 624-length uint32 vector")
+        blob = np.ascontiguousarray(key, dtype=np.uint32).tobytes()
+        if len(blob) != _MT19937_N * 4:
+            raise TypeError(f"{label} must be a 624-length uint32 vector")
+        values = list(struct.unpack(f"{_MT19937_N}I", blob))
+    else:
+        values = _require_int_sequence(key, label)
+        if len(values) != _MT19937_N:
+            raise ValueError(f"{label} must contain 624 integers")
+    if any(value < 0 or value > _UINT32_MAX for value in values):
+        raise ValueError(f"{label} values must fit in uint32")
+    return values
+
+
+def _numpy_rng_payload(state: object) -> dict[str, object]:
+    if type(state) is not tuple or len(state) != 5:
+        raise TypeError("numpy RNG state must be a 5-tuple")
+    bit_generator, key, pos, has_gauss, cached_gaussian = cast(tuple[object, ...], state)
+    if type(bit_generator) is not str or not bit_generator:
+        raise TypeError("numpy RNG bit generator is invalid")
+    key_values = _numpy_mt19937_key(key, "numpy RNG key")
+    if type(pos) is not int or type(has_gauss) is not int:
+        raise TypeError("numpy RNG counters are invalid")
+    cached = float(cast(int | float, cached_gaussian))
+    return {
+        "bit_generator": bit_generator,
+        "key": key_values,
+        "pos": pos,
+        "has_gauss": has_gauss,
+        "cached_gaussian": cached,
+    }
+
+
+def _numpy_rng_from_payload(payload: object) -> tuple[str, np.ndarray, int, int, float]:
+    if type(payload) is not dict:
+        raise TypeError("training checkpoint numpy RNG state is invalid")
+    source = cast(dict[str, object], payload)
+    if set(source) != {"bit_generator", "key", "pos", "has_gauss", "cached_gaussian"}:
+        raise ValueError("training checkpoint numpy RNG state has missing or unknown fields")
+    bit_generator = source["bit_generator"]
+    key = source["key"]
+    pos = source["pos"]
+    has_gauss = source["has_gauss"]
+    cached_gaussian = source["cached_gaussian"]
+    if type(bit_generator) is not str or not bit_generator:
+        raise TypeError("training checkpoint numpy RNG bit generator is invalid")
+    if type(key) is not list or type(pos) is not int or type(has_gauss) is not int:
+        raise TypeError("training checkpoint numpy RNG state is invalid")
+    if type(cached_gaussian) not in {int, float}:
+        raise TypeError("training checkpoint numpy RNG cached gaussian is invalid")
+    key_values = _numpy_mt19937_key(key, "training checkpoint numpy RNG key")
+    if bit_generator != "MT19937":
+        raise ValueError("training checkpoint numpy RNG must be MT19937")
+    if not 0 <= pos <= _MT19937_N:
+        raise ValueError("training checkpoint numpy RNG position is out of range")
+    if has_gauss not in {0, 1}:
+        raise ValueError("training checkpoint numpy RNG has_gauss is invalid")
+    cached = float(cast(int | float, cached_gaussian))
+    if not math.isfinite(cached):
+        raise ValueError("training checkpoint numpy RNG cached gaussian is not finite")
+    key_array = np.empty(_MT19937_N, dtype=np.uint32)
+    key_array[:] = key_values
+    state = (bit_generator, key_array, pos, has_gauss, cached)
+    probe = np.random.RandomState()
+    try:
+        probe.set_state(state)
+    except (TypeError, ValueError) as error:
+        raise ValueError("training checkpoint numpy RNG state is not loadable") from error
+    return state
+
+
+def _torch_rng_from_payload(value: object) -> torch.Tensor:
+    if not isinstance(value, torch.Tensor):
+        raise TypeError("training checkpoint torch RNG state is invalid")
+    if value.device.type != "cpu":
+        raise ValueError("training checkpoint torch RNG state must be on CPU")
+    if value.ndim != 1:
+        raise ValueError("training checkpoint torch RNG state must be 1-D")
+    if not value.is_contiguous():
+        raise ValueError("training checkpoint torch RNG state must be contiguous")
+    if value.dtype != torch.uint8:
+        raise ValueError("training checkpoint torch RNG state must be uint8")
+    probe = torch.Generator(device="cpu")
+    try:
+        probe.set_state(value)
+    except (RuntimeError, TypeError, ValueError) as error:
+        raise ValueError("training checkpoint torch RNG state is not loadable") from error
+    return value
+
+
+def load_training_checkpoint(path: Path) -> tuple[dict[str, Any], TrainingConfig, str]:
+    """Load one checkpoint from a single nofollow read with weights-only unpickling."""
+
+    _raise_if_symlink_ancestor(path)
+    content = _read_regular_file_bytes(path)
+    raw = torch.load(io.BytesIO(content), map_location="cpu", weights_only=True)
+    payload, stored_config = _validate_checkpoint_envelope(raw)
+    return payload, stored_config, sha256_bytes(content)
 
 
 def _source_digest() -> str:
@@ -101,10 +250,9 @@ def _source_digest() -> str:
 
     repository_root = Path(__file__).resolve().parents[3]
     repository = capture_repository_version(repository_root)
-    native_path = Path(_native.__file__)
     payload = {
         "repository": repository.to_dict(),
-        "native_extension_digest": hashlib.sha256(native_path.read_bytes()).hexdigest(),
+        "native_extension_digest": sha256_bytes(loaded_native_bytes()),
     }
     return _digest(payload)
 
@@ -112,7 +260,7 @@ def _source_digest() -> str:
 def _runtime_identity() -> dict[str, object]:
     python_root = Path(__file__).resolve().parents[2]
     artifact_digests = {
-        name: hashlib.sha256((python_root / name).read_bytes()).hexdigest()
+        name: sha256_bytes(_read_regular_file_bytes(python_root / name))
         for name in ("pyproject.toml", "uv.lock")
     }
     return {
@@ -150,7 +298,7 @@ def _model_state_digest(state: object) -> str:
         digest.update(name.encode())
         digest.update(b"\0")
         digest.update(str(tensor.dtype).encode())
-        digest.update(_canonical_bytes(list(tensor.shape)))
+        digest.update(canonical_bytes(list(tensor.shape)))
         digest.update(tensor.numpy().tobytes())
     return digest.hexdigest()
 
@@ -362,8 +510,9 @@ def _validate_checkpoint_envelope(payload: object) -> tuple[dict[str, Any], Trai
     if checkpoint["encoder_contract_digest"] != encoder_contract_digest(vocabularies):
         raise ValueError("training checkpoint encoder contract mismatch")
     _model_state_digest(checkpoint["model_state"])
-    if not isinstance(checkpoint["torch_rng_state"], torch.Tensor):
-        raise TypeError("training checkpoint torch RNG state is invalid")
+    _python_rng_from_payload(checkpoint["python_rng_state"])
+    _numpy_rng_from_payload(checkpoint["numpy_rng_state"])
+    checkpoint["torch_rng_state"] = _torch_rng_from_payload(checkpoint["torch_rng_state"])
     return checkpoint, stored_config
 
 
@@ -448,9 +597,12 @@ def _load_records(
     split: str,
     minimum_roots: int,
     minimum_lineages: int,
-) -> tuple[DatasetManifest, tuple[SymbolicTrainingRecord, ...]]:
-    manifest = load_dataset_manifest(manifest_path, requested_split=split)
-    records = tuple(read_jsonl(manifest_path.parent / manifest.shard_path))
+) -> tuple[DatasetManifest, RootManifest, tuple[SymbolicTrainingRecord, ...]]:
+    manifest, named_root, records = load_dataset_manifest(
+        manifest_path, requested_split=split
+    )
+    if named_root.manifest_digest != manifest.root_manifest_digest:
+        raise ValueError("authenticated dataset root identity does not match the dataset manifest")
     if not records:
         raise ValueError("training dataset is empty")
     versions = {record.record_version for record in records}
@@ -463,7 +615,7 @@ def _load_records(
             "training corpus is below configured minimums: "
             f"roots {root_count}/{minimum_roots}, lineages {lineage_count}/{minimum_lineages}"
         )
-    return manifest, records
+    return manifest, named_root, records
 
 
 def _fit_vocabulary(records: tuple[SymbolicTrainingRecord, ...]) -> Vocabularies:
@@ -490,14 +642,11 @@ def train_beam_clone(
     """Train through ``config.total_steps`` and atomically checkpoint every batch."""
 
     _configure_cpu(config.torch_threads)
-    manifest, records = _load_records(
+    manifest, training_root, records = _load_records(
         dataset_manifest_path,
         "train",
         config.minimum_roots,
         config.minimum_lineages,
-    )
-    training_root = load_root_manifest(
-        dataset_manifest_path.parent / manifest.root_manifest_path,
     )
     source_epoch_bundle_digest = training_root.source_epoch_bundle_digest
     source_digest = _source_digest()
@@ -508,9 +657,7 @@ def train_beam_clone(
     torch.manual_seed(config.seed)
     metrics: list[dict[str, float | int]] = []
     if resume:
-        payload, stored_config = _validate_checkpoint_envelope(
-            torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-        )
+        payload, stored_config, _file_digest = load_training_checkpoint(checkpoint_path)
         checks = {
             "config_digest": config.digest,
             "dataset_manifest_digest": manifest.manifest_digest,
@@ -545,8 +692,8 @@ def train_beam_clone(
         order = tuple(cast(list[int], payload["order"]))
         if len(order) != len(records) or order != _training_order(len(records), config.seed):
             raise ValueError("training checkpoint sample order mismatch")
-        random.setstate(payload["python_rng_state"])
-        np.random.set_state(payload["numpy_rng_state"])
+        random.setstate(_python_rng_from_payload(payload["python_rng_state"]))
+        np.random.set_state(_numpy_rng_from_payload(payload["numpy_rng_state"]))
         torch.set_rng_state(payload["torch_rng_state"])
     else:
         vocabularies = _fit_vocabulary(records)
@@ -563,10 +710,7 @@ def train_beam_clone(
     training_target_statistics = _compute_training_target_statistics(records)
     target_step = config.total_steps
     if stop_after_steps is not None:
-        if (
-            type(stop_after_steps) is not int
-            or not global_step < stop_after_steps <= target_step
-        ):
+        if type(stop_after_steps) is not int or not global_step < stop_after_steps <= target_step:
             raise ValueError(
                 "stop_after_steps must be after the current step and within total_steps"
             )
@@ -622,8 +766,8 @@ def train_beam_clone(
             "global_step": global_step,
             "cursor": cursor,
             "order": list(order),
-            "python_rng_state": random.getstate(),
-            "numpy_rng_state": np.random.get_state(),
+            "python_rng_state": _python_rng_payload(random.getstate()),
+            "numpy_rng_state": _numpy_rng_payload(np.random.get_state()),
             "torch_rng_state": torch.get_rng_state(),
         }
         _atomic_torch_save(checkpoint_path, checkpoint)
@@ -646,16 +790,14 @@ def evaluate_beam_clone(
     authorization_path: Path | None = None,
     training_root_manifest_path: Path | None = None,
 ) -> dict[str, object]:
-    manifest = load_dataset_manifest(
+    manifest, evaluation_root, records = load_dataset_manifest(
         dataset_manifest_path,
         requested_split=split,
     )
+    if evaluation_root.manifest_digest != manifest.root_manifest_digest:
+        raise ValueError("authenticated dataset root identity does not match the dataset manifest")
     evaluation_root_manifest_path = dataset_manifest_path.parent / manifest.root_manifest_path
-    evaluation_root = load_root_manifest(evaluation_root_manifest_path)
-    checkpoint_bytes = checkpoint_path.read_bytes()
-    payload, stored_config = _validate_checkpoint_envelope(
-        torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    )
+    payload, stored_config, checkpoint_file_digest = load_training_checkpoint(checkpoint_path)
     _configure_cpu(stored_config.torch_threads)
     runtime_identity = _runtime_identity()
     runtime_identity_digest = _digest(runtime_identity)
@@ -687,7 +829,6 @@ def evaluate_beam_clone(
     model = FairCombatPolicyValueNet(vocabularies, config)
     model.load_state_dict(payload["model_state"], strict=True)
     model.eval()
-    records = tuple(read_jsonl(dataset_manifest_path.parent / manifest.shard_path))
     dataset = SymbolicCombatDataset(records, vocabularies)
     exact_numerator = 0
     any_max_numerator = 0
@@ -821,7 +962,7 @@ def evaluate_beam_clone(
         "report_version": 4,
         "split": split,
         "checkpoint_step": payload["global_step"],
-        "checkpoint_file_digest": hashlib.sha256(checkpoint_bytes).hexdigest(),
+        "checkpoint_file_digest": checkpoint_file_digest,
         "checkpoint_model_state_digest": _model_state_digest(payload["model_state"]),
         "checkpoint_config_digest": payload["config_digest"],
         "checkpoint_training_dataset_manifest_digest": payload["dataset_manifest_digest"],

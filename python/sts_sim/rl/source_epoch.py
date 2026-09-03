@@ -93,6 +93,9 @@ class SourceEpochBundle:
     cargo_version: str
     bundle_digest: str
 
+    def relative_members(self) -> frozenset[str]:
+        return _expected_relative_files(self)
+
     def to_dict(self) -> dict[str, object]:
         return {
             "kind": self.kind,
@@ -110,6 +113,29 @@ class SourceEpochBundle:
             "cargo_version": self.cargo_version,
             "bundle_digest": self.bundle_digest,
         }
+
+
+def _require_git_sha(value: object) -> str:
+    if (
+        type(value) is not str
+        or len(value) not in {40, 64}
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError("git SHA must be a lowercase object digest")
+    return value
+
+
+def _require_native_basename(value: object) -> str:
+    if type(value) is not str or not value:
+        raise TypeError("native extension name must be a nonempty string")
+    if (
+        value in {".", ".."}
+        or "/" in value
+        or "\\" in value
+        or "\x00" in value
+    ):
+        raise ValueError("native extension name must be a single safe basename")
+    return value
 
 
 def _parse_bundle(payload: object) -> SourceEpochBundle:
@@ -130,23 +156,24 @@ def _parse_bundle(payload: object) -> SourceEpochBundle:
         version_parts.append(part)
     if len(version_parts) != 4:
         raise TypeError("python version must be major, minor, micro, and serial")
+    major, minor, micro, serial = version_parts
+    if major <= 0 or minor < 0 or micro < 0 or serial < 0:
+        raise ValueError("python version components are invalid")
     platform_value = source["platform"]
     if type(platform_value) is not dict:
         raise TypeError("platform must be an object")
     platform_map = cast(dict[str, object], platform_value)
     if set(platform_map) != {"system", "release", "machine"}:
         raise ValueError("platform has missing or unknown fields")
-    platform_fields = {
-        key: value
-        for key, value in platform_map.items()
-        if type(key) is str and type(value) is str
-    }
+    platform_fields: dict[str, str] = {}
+    for key, value in platform_map.items():
+        if type(key) is not str or type(value) is not str or not value:
+            raise TypeError("platform fields must be nonempty strings")
+        platform_fields[key] = value
     if set(platform_fields) != {"system", "release", "machine"}:
         raise TypeError("platform fields must be strings")
-    native_name = source["native_extension_name"]
+    native_name = _require_native_basename(source["native_extension_name"])
     native_relative = source["native_relative_path"]
-    if type(native_name) is not str or not native_name:
-        raise TypeError("native extension name must be a nonempty string")
     if type(native_relative) is not str:
         raise TypeError("native relative path must be a string")
     if native_relative != f"native/{native_name}":
@@ -162,9 +189,13 @@ def _parse_bundle(payload: object) -> SourceEpochBundle:
             raise TypeError(f"{name.replace('_', ' ')} must be a nonempty string")
     if source["python_releaselevel"] not in {"alpha", "beta", "candidate", "final"}:
         raise ValueError("python releaselevel is unsupported")
-    git_sha = source["git_sha"]
-    if type(git_sha) is not str or not git_sha:
-        raise TypeError("git SHA must be a nonempty string")
+    rustc_version = cast(str, source["rustc_version"])
+    cargo_version = cast(str, source["cargo_version"])
+    if not rustc_version.startswith("rustc "):
+        raise ValueError("rustc version must carry the canonical rustc prefix")
+    if not cargo_version.startswith("cargo "):
+        raise ValueError("cargo version must carry the canonical cargo prefix")
+    git_sha = _require_git_sha(source["git_sha"])
     clean = source["clean"]
     if type(clean) is not bool:
         raise TypeError("clean flag must be boolean")
@@ -223,8 +254,12 @@ def _nofollow_relative_files(bundle_dir: Path) -> tuple[str, ...]:
     if bundle_dir.is_symlink() or not bundle_dir.is_dir():
         raise ValueError("source-epoch-bundle must be a directory")
     found: list[str] = []
+    found_dirs: set[str] = set()
     for dirpath, dirnames, filenames in os.walk(bundle_dir, followlinks=False, topdown=True):
         directory = Path(dirpath)
+        rel_dir = directory.relative_to(bundle_dir).as_posix()
+        if rel_dir != ".":
+            found_dirs.add(rel_dir)
         for name in (*dirnames, *filenames):
             child = directory / name
             if child.is_symlink():
@@ -234,6 +269,9 @@ def _nofollow_relative_files(bundle_dir: Path) -> tuple[str, ...]:
             if not child.is_file():
                 raise ValueError("source-epoch-bundle members must be regular files")
             found.append(child.relative_to(bundle_dir).as_posix())
+    expected_dirs = frozenset({"native", "source", "toolchain"})
+    if found_dirs != expected_dirs:
+        raise ValueError("source-epoch-bundle members are not the exact allowlisted set")
     return tuple(sorted(found))
 
 

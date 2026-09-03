@@ -10,11 +10,12 @@ legacy schema.
 
 ## Debugging-only raw import
 
-`from_state_json_for_debugging()` remains available for diagnostics that need
-to inspect current in-memory JSON. It is deliberately named as a debugging
-surface, carries no schema-compatibility guarantee, and still validates every
-imported state. Callers that persist or resume environments must use versioned
-snapshot JSON instead.
+Raw unversioned `full_state()` JSON is a detached diagnostic dictionary. It is
+not a restoration API. Tests and callers that need a mutated combat must edit
+current schema-8 snapshot JSON and restore it through
+`RunEnv.from_snapshot()`, which rejects unknown fields, aliases, and
+noncanonical skipped defaults.
 
-The former ambiguous `from_state_json()` name is not retained: unversioned
-state must never look like a supported persistence format.
+The former ambiguous `from_state_json()` / `from_state_json_for_debugging()`
+names are not retained: unversioned state must never look like a supported
+persistence format.

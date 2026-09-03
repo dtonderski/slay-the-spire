@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -11,7 +12,13 @@ from typing import Any, cast
 from .._native import UnknownPublicContentError, UnmodeledPublicContentError
 from ..fair import FairCombatObservation
 from ..run import Action, Decision, RunEnv
-from .experiment import _read_regular_file_bytes, write_scientific_artifact
+from .experiment import (
+    _raise_if_symlink_ancestor,
+    _read_contained_regular_file_bytes,
+    _read_regular_file_bytes,
+    resolve_inventory_path,
+    write_scientific_artifact,
+)
 from .provenance import (
     RepositoryVersion,
     canonical_bytes,
@@ -33,13 +40,14 @@ from .records import (
     fair_observation_digest,
     fair_observation_from_payload,
     first_argmax_visits,
-    read_jsonl,
+    parse_jsonl_records,
     validate_beam_search_config,
     validate_search_config,
 )
 from .rewards import COMBAT_PROXY_V1, CombatRewardConfig
 from .source_epoch import (
     SOURCE_EPOCH_DIRNAME,
+    SourceEpochBundle,
     copy_source_epoch_bundle,
     load_source_epoch_bundle,
     verify_loaded_native_bytes,
@@ -51,6 +59,19 @@ DATASET_MANIFEST_VERSION = 7
 _SPLIT_SALT = "combat-agent-phase2-v1"
 _GENERATOR_NAME = "legal_run_policy"
 _GENERATOR_VERSION = "sha256_action_policy_v4"
+_LINEAGE_PREFIX = "sim-seed:"
+_ALLOWED_ROOT_EXCLUSION_REASONS = frozenset(
+    {
+        "step_limit",
+        "terminal_run",
+        "terminal_combat",
+        "hp_zero_player_turn",
+        "unmodeled_public_content",
+        "duplicate_root",
+        "withheld_audited_split",
+        "generation_error",
+    }
+)
 _ROOT_MANIFEST_KEYS = frozenset(
     {
         "manifest_version",
@@ -77,10 +98,19 @@ _SOURCE_KIND = "simulator_legal_v1"
 _DATASET_ROOT_MANIFEST_PATH = "provenance/root-manifest.json"
 _NATIVE_EPISODE_ERROR = "native_episode_error"
 
-_canonical_bytes = canonical_bytes
-_sha256_bytes = sha256_bytes
-_require_digest = require_digest
-_digest_payload = digest_payload
+
+def _package_repository_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def _lineage_for_seed(seed: str) -> str:
+    return f"{_LINEAGE_PREFIX}{seed}"
+
+
+def _require_nonempty_string(value: object, label: str) -> str:
+    if type(value) is not str or not value:
+        raise TypeError(f"{label} must be a nonempty string")
+    return value
 
 
 def _require_nonempty_strings(value: object, label: str) -> tuple[str, ...]:
@@ -140,8 +170,8 @@ def _cohort_digest(
     max_run_steps: int,
     combat_depth: int,
 ) -> str:
-    return _sha256_bytes(
-        _canonical_bytes(
+    return sha256_bytes(
+        canonical_bytes(
             _cohort_contract(
                 requested_seeds=requested_seeds,
                 generator_name=generator_name,
@@ -159,8 +189,8 @@ def _cohort_digest(
 def _teacher_search_contract_digest(
     teacher_name: str, teacher_version: str, search_config: dict[str, object]
 ) -> str:
-    return _sha256_bytes(
-        _canonical_bytes(
+    return sha256_bytes(
+        canonical_bytes(
             {
                 "teacher_name": teacher_name,
                 "teacher_version": teacher_version,
@@ -171,7 +201,7 @@ def _teacher_search_contract_digest(
 
 
 def _split_group_id(lineages: tuple[str, ...]) -> str:
-    return _sha256_bytes(_canonical_bytes(list(lineages)))
+    return sha256_bytes(canonical_bytes(list(lineages)))
 
 
 def _split_for_lineage(lineage: str) -> str:
@@ -287,10 +317,10 @@ class RootManifest:
             source_seeds = _require_nonempty_strings(item["source_seeds"], "root source seeds")
             roots.append(
                 RootEntry(
-                    cast(str, item["root_id"]),
-                    cast(str, item["split"]),
-                    cast(str, item["split_group_id"]),
-                    cast(str, item["relative_path"]),
+                    require_digest(item["root_id"], "root ID"),
+                    _require_nonempty_string(item["split"], "root split"),
+                    require_digest(item["split_group_id"], "split group ID"),
+                    _require_nonempty_string(item["relative_path"], "root path"),
                     lineages,
                     source_seeds,
                 )
@@ -304,27 +334,27 @@ class RootManifest:
             item = cast(dict[str, object], raw)
             exclusions.append(
                 RootExclusion(
-                    cast(str, item["source_seed"]),
-                    cast(str, item["reason"]),
-                    cast(str, item["detail"]),
+                    _require_nonempty_string(item["source_seed"], "exclusion source seed"),
+                    _require_nonempty_string(item["reason"], "exclusion reason"),
+                    _require_nonempty_string(item["detail"], "exclusion detail"),
                 )
             )
         manifest = cls(
             ROOT_MANIFEST_VERSION,
             cast(str, source["generator_name"]),
             cast(str, source["generator_version"]),
-            _require_digest(source["generator_source_digest"], "generator source digest"),
+            require_digest(source["generator_source_digest"], "generator source digest"),
             RepositoryVersion.from_dict(source["repository"]),
             cast(int, source["ascension"]),
             cast(int, source["max_run_steps"]),
             raw_depth,
             cast(str, source["split_salt"]),
             requested_seeds,
-            _require_digest(source["cohort_digest"], "root cohort digest"),
-            _require_digest(source["source_epoch_bundle_digest"], "source-epoch-bundle digest"),
+            require_digest(source["cohort_digest"], "root cohort digest"),
+            require_digest(source["source_epoch_bundle_digest"], "source-epoch-bundle digest"),
             tuple(roots),
             tuple(exclusions),
-            _require_digest(source["manifest_digest"], "root manifest digest"),
+            require_digest(source["manifest_digest"], "root manifest digest"),
         )
         if type(manifest.ascension) is not int or not 0 <= manifest.ascension <= 20:
             raise ValueError("root manifest ascension is invalid")
@@ -338,8 +368,8 @@ class RootManifest:
             raise TypeError("requested seeds must be nonempty strings")
         if manifest.requested_seeds != tuple(sorted(set(manifest.requested_seeds))):
             raise ValueError("requested seeds are not canonical")
-        if manifest.generator_source_digest != _sha256_bytes(
-            _canonical_bytes(manifest.repository.to_dict())
+        if manifest.generator_source_digest != sha256_bytes(
+            canonical_bytes(manifest.repository.to_dict())
         ):
             raise ValueError("generator source digest does not match repository")
         if manifest.cohort_digest != _cohort_digest(
@@ -353,42 +383,77 @@ class RootManifest:
             combat_depth=manifest.combat_depth,
         ):
             raise ValueError("root cohort digest is invalid")
-        if manifest.manifest_digest != _digest_payload(manifest.to_dict(), "manifest_digest"):
+        if manifest.manifest_digest != digest_payload(manifest.to_dict(), "manifest_digest"):
             raise ValueError("root manifest digest is invalid")
         if tuple(roots) != tuple(sorted(roots, key=lambda root: root.root_id)):
             raise ValueError("root entries are not canonically ordered")
+        if not manifest.repository.clean:
+            raise ValueError("root manifest requires a clean repository")
         requested_set = set(manifest.requested_seeds)
-        seen: set[str] = set()
+        seen_root_ids: set[str] = set()
+        seen_paths: set[str] = set()
+        owned_seeds: set[str] = set()
+        owned_lineages: set[str] = set()
         for root in roots:
-            _require_digest(root.root_id, "root ID")
-            _require_digest(root.split_group_id, "split group ID")
-            if root.root_id in seen:
+            if root.root_id in seen_root_ids:
                 raise ValueError("duplicate root ID")
-            seen.add(root.root_id)
+            seen_root_ids.add(root.root_id)
+            if root.relative_path in seen_paths:
+                raise ValueError("duplicate root path")
+            seen_paths.add(root.relative_path)
             if root.split not in _LOADABLE_SPLITS:
                 raise ValueError("root manifest contains a sealed or unknown split")
             if root.relative_path != f"{root.split}/roots/{root.root_id}.json":
                 raise ValueError("root path is not split-isolated and canonical")
-            if not root.lineages or root.lineages != tuple(sorted(set(root.lineages))):
-                raise ValueError("root lineages are not canonical")
-            if not root.source_seeds or root.source_seeds != tuple(sorted(set(root.source_seeds))):
-                raise ValueError("root source seeds are not canonical")
-            if any(seed not in requested_set for seed in root.source_seeds):
+            if len(root.source_seeds) != 1 or len(root.lineages) != 1:
+                raise ValueError("root must have exactly one source seed and lineage")
+            owner_seed = root.source_seeds[0]
+            lineage = root.lineages[0]
+            if lineage != _lineage_for_seed(owner_seed):
+                raise ValueError("root lineage does not match its source seed")
+            if owner_seed not in requested_set:
                 raise ValueError("root source seed is outside the requested cohort")
-            expected_group = _split_group_id(root.lineages)
-            if root.split_group_id != expected_group:
+            if owner_seed in owned_seeds:
+                raise ValueError("duplicate root source seed")
+            if lineage in owned_lineages:
+                raise ValueError("duplicate root lineage")
+            owned_seeds.add(owner_seed)
+            owned_lineages.add(lineage)
+            if root.split_group_id != _split_group_id(root.lineages):
                 raise ValueError("split group does not match canonical lineages")
-            assigned = {_split_for_lineage(lineage) for lineage in root.lineages}
-            if assigned != {root.split}:
+            if _split_for_lineage(lineage) != root.split:
                 raise ValueError("root provenance crosses splits")
-        accounted: set[str] = set()
-        for root in roots:
-            accounted.update(root.source_seeds)
+        if tuple(exclusions) != tuple(
+            sorted(
+                exclusions,
+                key=lambda exclusion: (exclusion.source_seed, exclusion.reason, exclusion.detail),
+            )
+        ):
+            raise ValueError("root exclusions are not canonically ordered")
+        exclusion_seeds: set[str] = set()
+        published_root_ids = {root.root_id for root in roots}
+        owner_by_root = {root.root_id: root.source_seeds[0] for root in roots}
         for exclusion in exclusions:
             if exclusion.source_seed not in requested_set:
                 raise ValueError("exclusion source seed is outside the requested cohort")
-            accounted.add(exclusion.source_seed)
-        if accounted != requested_set:
+            if exclusion.source_seed in owned_seeds:
+                raise ValueError("source seed has both a root and an exclusion")
+            if exclusion.source_seed in exclusion_seeds:
+                raise ValueError("duplicate exclusion source seed")
+            if exclusion.reason not in _ALLOWED_ROOT_EXCLUSION_REASONS:
+                raise ValueError("root exclusion reason is unsupported")
+            exclusion_seeds.add(exclusion.source_seed)
+            if exclusion.reason == "duplicate_root":
+                prefix = "duplicate of "
+                if not exclusion.detail.startswith(prefix):
+                    raise ValueError("duplicate_root exclusion is malformed")
+                named_root = exclusion.detail[len(prefix) :]
+                require_digest(named_root, "duplicate root ID")
+                if named_root not in published_root_ids:
+                    raise ValueError("duplicate_root exclusion does not name a published root")
+                if not owner_by_root[named_root] < exclusion.source_seed:
+                    raise ValueError("duplicate_root owner is not the canonical first seed")
+        if owned_seeds | exclusion_seeds != requested_set:
             raise ValueError("requested seed accounting is incomplete")
         return manifest
 
@@ -401,7 +466,7 @@ def parse_root_manifest(content: bytes) -> RootManifest:
     except json.JSONDecodeError as error:
         raise ValueError("root manifest is not JSON") from error
     manifest = RootManifest.from_dict(payload)
-    if content != _canonical_bytes(manifest.to_dict()):
+    if content != canonical_bytes(manifest.to_dict()):
         raise ValueError("root manifest is not canonical")
     return manifest
 
@@ -411,46 +476,136 @@ def _require_canonical_root_snapshot(content: bytes, root_id: str) -> bytes:
         snapshot = json.loads(content)
     except json.JSONDecodeError as error:
         raise ValueError(f"root {root_id} is not JSON") from error
-    canonical = _canonical_bytes(snapshot)
-    if content != canonical or _sha256_bytes(canonical) != root_id:
+    canonical = canonical_bytes(snapshot)
+    if content != canonical or sha256_bytes(canonical) != root_id:
         raise ValueError(f"root {root_id} is not canonical")
     return canonical
 
 
+def _restore_labeled_root(container: Path, root: RootEntry) -> RunEnv:
+    snapshot_bytes = _require_canonical_root_snapshot(
+        _read_contained_regular_file_bytes(container, root.relative_path),
+        root.root_id,
+    )
+    return RunEnv.from_snapshot(snapshot_bytes.decode())
+
+
+def _dataset_declared_relative_files(
+    manifest_name: str,
+    manifest: DatasetManifest,
+    named_root: RootManifest,
+    bundle: SourceEpochBundle,
+) -> frozenset[str]:
+    provenance = Path(manifest.root_manifest_path).parent.as_posix()
+    declared = {
+        manifest_name,
+        manifest.shard_path,
+        manifest.root_manifest_path,
+    }
+    for root in named_root.roots:
+        declared.add(f"{provenance}/{root.relative_path}")
+    bundle_dir = f"{provenance}/{SOURCE_EPOCH_DIRNAME}"
+    declared.update(f"{bundle_dir}/{relative}" for relative in bundle.relative_members())
+    return frozenset(declared)
+
+
+def _reject_undeclared_dataset_inputs(dataset_root: Path, declared_files: frozenset[str]) -> None:
+    if dataset_root.is_symlink():
+        raise ValueError("dataset directory must not be a symlink")
+    allowed_directories = {""}
+    for relative in declared_files:
+        parent = Path(relative).parent
+        while parent.as_posix() not in {".", ""}:
+            allowed_directories.add(parent.as_posix())
+            parent = parent.parent
+    for dirpath, dirnames, filenames in os.walk(dataset_root, followlinks=False):
+        current = Path(dirpath)
+        if current.is_symlink():
+            raise ValueError("dataset directory contains a symlink")
+        relative_dir = current.relative_to(dataset_root).as_posix()
+        if relative_dir == ".":
+            relative_dir = ""
+        for name in dirnames:
+            child = current / name
+            relative = name if relative_dir == "" else f"{relative_dir}/{name}"
+            if child.is_symlink():
+                raise ValueError(f"dataset directory contains a symlink: {relative}")
+            if relative not in allowed_directories:
+                raise ValueError(f"undeclared dataset input: {relative}")
+        for name in filenames:
+            child = current / name
+            relative = name if relative_dir == "" else f"{relative_dir}/{name}"
+            if child.is_symlink():
+                raise ValueError(f"dataset directory contains a symlink: {relative}")
+            if relative not in declared_files:
+                raise ValueError(f"undeclared dataset input: {relative}")
+
+
 def _verify_source_epoch_bundle(manifest: RootManifest, bundle_dir: Path) -> None:
+    if not manifest.repository.clean:
+        raise ValueError("root manifest requires a clean repository")
     bundle = load_source_epoch_bundle(bundle_dir)
     if bundle.bundle_digest != manifest.source_epoch_bundle_digest:
         raise ValueError("source-epoch-bundle digest does not match the root manifest")
+    if bundle.git_sha != manifest.repository.git_sha:
+        raise ValueError("root manifest repository does not match source-epoch-bundle git identity")
+    if bundle.clean != manifest.repository.clean:
+        raise ValueError("root manifest repository cleanliness does not match source-epoch-bundle")
     verify_loaded_native_bytes(bundle)
 
 
-def load_root_manifest(path: Path, *, verify_roots: bool = True) -> RootManifest:
-    manifest = parse_root_manifest(path.read_bytes())
-    _verify_source_epoch_bundle(manifest, path.parent / SOURCE_EPOCH_DIRNAME)
-    if verify_roots:
-        for root in manifest.roots:
-            root_path = path.parent / root.relative_path
-            canonical = _require_canonical_root_snapshot(root_path.read_bytes(), root.root_id)
-            restored = RunEnv.from_snapshot(canonical.decode())
-            decision = restored.decision()
-            if (
-                not isinstance(decision.observation, FairCombatObservation)
-                or decision.observation.phase != "waiting_for_player"
-                or not decision.actions
-                or all(action.kind == "proceed" for action in decision.actions)
-            ):
-                raise ValueError(
-                    f"root {root.root_id} is not an actionable ongoing combat decision"
-                )
+def _verify_loaded_root_manifest(manifest: RootManifest, parent: Path) -> None:
+    _verify_source_epoch_bundle(manifest, resolve_inventory_path(parent, SOURCE_EPOCH_DIRNAME))
+    for root in manifest.roots:
+        canonical = _require_canonical_root_snapshot(
+            _read_contained_regular_file_bytes(parent, root.relative_path),
+            root.root_id,
+        )
+        restored = RunEnv.from_snapshot(canonical.decode())
+        decision = restored.decision()
+        if not _is_capturable_combat_decision(decision):
+            raise ValueError(f"root {root.root_id} is not an actionable ongoing combat decision")
+    _verify_duplicate_root_exclusions(manifest)
+
+
+def _verify_duplicate_root_exclusions(manifest: RootManifest) -> None:
+    for exclusion in manifest.exclusions:
+        if exclusion.reason != "duplicate_root":
+            continue
+        named_root = exclusion.detail[len("duplicate of ") :]
+        try:
+            env = RunEnv.new_ironclad(exclusion.source_seed, manifest.ascension)
+            snapshot, capture_exclusion = _capture_combat_root(
+                env,
+                exclusion.source_seed,
+                combat_depth=manifest.combat_depth,
+                max_run_steps=manifest.max_run_steps,
+            )
+        except (
+            UnmodeledPublicContentError,
+            UnknownPublicContentError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as error:
+            raise ValueError("duplicate_root exclusion did not reproduce the named root") from error
+        if capture_exclusion is not None or snapshot is None:
+            raise ValueError("duplicate_root exclusion did not reproduce the named root")
+        if sha256_bytes(canonical_bytes(snapshot)) != named_root:
+            raise ValueError("duplicate_root exclusion does not match named root")
+
+
+def load_root_manifest(path: Path) -> RootManifest:
+    _raise_if_symlink_ancestor(path)
+    manifest = parse_root_manifest(_read_regular_file_bytes(path))
+    _verify_loaded_root_manifest(manifest, path.parent)
     return manifest
 
 
 def _policy_index(seed: str, step: int, actions: tuple[Action, ...]) -> int:
-    payload = json.dumps(
-        [seed, step, [asdict(action.descriptor()) for action in actions]],
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode()
+    payload = canonical_bytes(
+        [seed, step, [asdict(action.descriptor()) for action in actions]]
+    )
     return int.from_bytes(hashlib.sha256(payload).digest()[:8], "big") % len(actions)
 
 
@@ -593,7 +748,6 @@ def generate_legal_roots(
     ascension: int = 0,
     max_run_steps: int = 256,
     combat_depth: int = 1,
-    repository_root: Path | None = None,
 ) -> RootManifest:
     """Advance seeded runs only through accepted public legal transitions."""
 
@@ -603,14 +757,13 @@ def generate_legal_roots(
     if type(combat_depth) is not int or combat_depth <= 0:
         raise ValueError("combat depth must be a positive integer")
     _require_empty_output_dir(output_dir)
-    if repository_root is None:
-        repository_root = Path(__file__).resolve().parents[3]
-    repository = capture_repository_version(repository_root)
-    source_digest = _sha256_bytes(_canonical_bytes(repository.to_dict()))
+    repository = capture_repository_version(_package_repository_root())
+    source_digest = sha256_bytes(canonical_bytes(repository.to_dict()))
     output_dir.mkdir(parents=True, exist_ok=True)
     bundle = write_source_epoch_bundle(output_dir / SOURCE_EPOCH_DIRNAME, repository)
-    root_payloads: dict[str, tuple[dict[str, object], list[str], list[str]]] = {}
+    root_payloads: dict[str, tuple[dict[str, object], str]] = {}
     exclusions: list[RootExclusion] = []
+    duplicate_candidates: list[tuple[str, str]] = []
     for seed in requested_seeds:
         env = RunEnv.new_ironclad(seed, ascension)
         try:
@@ -621,16 +774,12 @@ def generate_legal_roots(
                 exclusions.append(exclusion)
                 continue
             assert snapshot is not None
-            canonical = _canonical_bytes(snapshot)
-            root_id = _sha256_bytes(canonical)
-            lineage = f"sim-seed:{seed}"
-            existing = root_payloads.get(root_id)
-            if existing is None:
-                root_payloads[root_id] = (snapshot, [lineage], [seed])
-            else:
-                existing[1].append(lineage)
-                existing[2].append(seed)
-                exclusions.append(RootExclusion(seed, "duplicate_root", f"duplicate of {root_id}"))
+            canonical = canonical_bytes(snapshot)
+            root_id = sha256_bytes(canonical)
+            if root_id in root_payloads:
+                duplicate_candidates.append((seed, root_id))
+                continue
+            root_payloads[root_id] = (snapshot, seed)
         except UnmodeledPublicContentError as error:
             exclusions.append(_unmodeled_public_content_exclusion(seed, error))
         except UnknownPublicContentError as error:
@@ -639,33 +788,33 @@ def generate_legal_roots(
             exclusions.append(RootExclusion(seed, "generation_error", str(error)))
 
     entries: list[RootEntry] = []
-    for root_id, (snapshot, raw_lineages, raw_seeds) in sorted(root_payloads.items()):
-        lineages = tuple(sorted(set(raw_lineages)))
-        source_seeds = tuple(sorted(set(raw_seeds)))
-        splits = {_split_for_lineage(lineage) for lineage in lineages}
-        if len(splits) != 1:
-            exclusions.extend(
-                RootExclusion(seed, "cross_split_provenance", root_id) for seed in source_seeds
-            )
-            continue
-        split = next(iter(splits))
+    published: dict[str, str] = {}
+    for root_id, (snapshot, owner_seed) in sorted(root_payloads.items()):
+        lineage = _lineage_for_seed(owner_seed)
+        split = _split_for_lineage(lineage)
         if split not in _LOADABLE_SPLITS:
-            exclusions.extend(
-                RootExclusion(seed, "withheld_audited_split", split) for seed in source_seeds
-            )
+            exclusions.append(RootExclusion(owner_seed, "withheld_audited_split", split))
             continue
         relative_path = f"{split}/roots/{root_id}.json"
-        _atomic_write(output_dir / relative_path, _canonical_bytes(snapshot))
+        _atomic_write(output_dir / relative_path, canonical_bytes(snapshot))
         entries.append(
             RootEntry(
                 root_id,
                 split,
-                _split_group_id(lineages),
+                _split_group_id((lineage,)),
                 relative_path,
-                lineages,
-                source_seeds,
+                (lineage,),
+                (owner_seed,),
             )
         )
+        published[root_id] = owner_seed
+    for seed, root_id in duplicate_candidates:
+        if root_id in published:
+            exclusions.append(RootExclusion(seed, "duplicate_root", f"duplicate of {root_id}"))
+            continue
+        owner_seed = root_payloads[root_id][1]
+        owner_split = _split_for_lineage(_lineage_for_seed(owner_seed))
+        exclusions.append(RootExclusion(seed, "withheld_audited_split", owner_split))
     exclusions.sort(key=lambda item: (item.source_seed, item.reason, item.detail))
     cohort_digest = _cohort_digest(
         requested_seeds=requested_seeds,
@@ -715,9 +864,9 @@ def generate_legal_roots(
         bundle.bundle_digest,
         tuple(entries),
         tuple(exclusions),
-        _sha256_bytes(_canonical_bytes(unsigned)),
+        sha256_bytes(canonical_bytes(unsigned)),
     )
-    _atomic_write(output_dir / "root-manifest.json", _canonical_bytes(manifest.to_dict()))
+    _atomic_write(output_dir / "root-manifest.json", canonical_bytes(manifest.to_dict()))
     return load_root_manifest(output_dir / "root-manifest.json")
 
 
@@ -792,8 +941,11 @@ def _require_loadable_split(split: str) -> str:
     return split
 
 
-def load_dataset_manifest(path: Path, *, requested_split: str) -> DatasetManifest:
-    content = path.read_bytes()
+def load_dataset_manifest(
+    path: Path, *, requested_split: str
+) -> tuple[DatasetManifest, RootManifest, tuple[SymbolicTrainingRecord, ...]]:
+    _raise_if_symlink_ancestor(path)
+    content = _read_regular_file_bytes(path)
     try:
         raw = json.loads(content)
     except json.JSONDecodeError as error:
@@ -848,28 +1000,30 @@ def load_dataset_manifest(path: Path, *, requested_split: str) -> DatasetManifes
     manifest = DatasetManifest(
         DATASET_MANIFEST_VERSION,
         cast(str, source["root_manifest_path"]),
-        _require_digest(source["root_manifest_file_digest"], "root manifest file digest"),
-        _require_digest(source["root_manifest_digest"], "root manifest digest"),
-        _require_digest(source["cohort_digest"], "dataset cohort digest"),
+        require_digest(source["root_manifest_file_digest"], "root manifest file digest"),
+        require_digest(source["root_manifest_digest"], "root manifest digest"),
+        require_digest(source["cohort_digest"], "dataset cohort digest"),
         tuple(roots),
         tuple(exclusions),
         cast(str, source["split"]),
         cast(dict[str, object], source["reward_config"]),
-        _require_digest(source["reward_config_digest"], "reward config digest"),
+        require_digest(source["reward_config_digest"], "reward config digest"),
         cast(str, source["teacher_name"]),
         cast(str, source["teacher_version"]),
-        _require_digest(source["teacher_search_contract_digest"], "teacher/search contract digest"),
+        require_digest(source["teacher_search_contract_digest"], "teacher/search contract digest"),
         cast(str, source["source_kind"]),
         cast(dict[str, object], source["search_config"]),
         RepositoryVersion.from_dict(source["repository"]),
         cast(str, source["shard_path"]),
-        _require_digest(source["shard_digest"], "shard digest"),
+        require_digest(source["shard_digest"], "shard digest"),
         cast(int, source["record_count"]),
         tuple(cast(list[str], source["record_ids"])),
-        _require_digest(source["manifest_digest"], "dataset manifest digest"),
+        require_digest(source["manifest_digest"], "dataset manifest digest"),
     )
     if manifest.split != requested_split or manifest.split not in _LOADABLE_SPLITS:
         raise ValueError("dataset split does not match requested split")
+    if not manifest.repository.clean:
+        raise ValueError("dataset manifest requires a clean repository")
     if manifest.source_kind != _SOURCE_KIND:
         raise ValueError("dataset source kind is unsupported")
     if (
@@ -891,14 +1045,14 @@ def load_dataset_manifest(path: Path, *, requested_split: str) -> DatasetManifes
     ):
         raise ValueError("dataset record IDs are not unique and complete")
     for record_id in manifest.record_ids:
-        _require_digest(record_id, "record ID")
+        require_digest(record_id, "record ID")
     if tuple(roots) != tuple(sorted(roots, key=lambda root: root.root_id)) or len(
         {root.root_id for root in roots}
     ) != len(roots):
         raise ValueError("dataset root membership is not canonical")
     for root in roots:
-        _require_digest(root.root_id, "root ID")
-        _require_digest(root.split_group_id, "split group ID")
+        require_digest(root.root_id, "root ID")
+        require_digest(root.split_group_id, "split group ID")
         if root.split != manifest.split:
             raise ValueError("dataset root belongs to another split")
         if not root.lineages or root.lineages != tuple(sorted(set(root.lineages))):
@@ -913,7 +1067,7 @@ def load_dataset_manifest(path: Path, *, requested_split: str) -> DatasetManifes
     ) or len({exclusion.root_id for exclusion in exclusions}) != len(exclusions):
         raise ValueError("dataset exclusions are not canonical")
     for exclusion in exclusions:
-        _require_digest(exclusion.root_id, "excluded root ID")
+        require_digest(exclusion.root_id, "excluded root ID")
         if exclusion.reason != _NATIVE_EPISODE_ERROR:
             raise ValueError("dataset exclusion reason is unsupported")
         if type(exclusion.detail) is not str or not exclusion.detail:
@@ -925,15 +1079,23 @@ def load_dataset_manifest(path: Path, *, requested_split: str) -> DatasetManifes
         manifest.teacher_name, manifest.teacher_version, manifest.search_config
     ):
         raise ValueError("dataset teacher/search contract digest is invalid")
-    if manifest.manifest_digest != _digest_payload(manifest.to_dict(), "manifest_digest"):
+    if manifest.manifest_digest != digest_payload(manifest.to_dict(), "manifest_digest"):
         raise ValueError("dataset manifest digest is invalid")
-    if content != _canonical_bytes(manifest.to_dict()):
+    if content != canonical_bytes(manifest.to_dict()):
         raise ValueError("dataset manifest is not canonical")
-    named_root_path = path.parent / manifest.root_manifest_path
-    named_root_bytes = named_root_path.read_bytes()
-    if _sha256_bytes(named_root_bytes) != manifest.root_manifest_file_digest:
+    named_root_bytes = _read_contained_regular_file_bytes(path.parent, manifest.root_manifest_path)
+    if sha256_bytes(named_root_bytes) != manifest.root_manifest_file_digest:
         raise ValueError("dataset root manifest file digest is invalid")
-    named_root_manifest = load_root_manifest(named_root_path)
+    named_root_manifest = parse_root_manifest(named_root_bytes)
+    named_root_parent = resolve_inventory_path(path.parent, manifest.root_manifest_path).parent
+    _verify_loaded_root_manifest(named_root_manifest, named_root_parent)
+    copied_bundle = load_source_epoch_bundle(
+        resolve_inventory_path(path.parent, f"provenance/{SOURCE_EPOCH_DIRNAME}")
+    )
+    if copied_bundle.bundle_digest != named_root_manifest.source_epoch_bundle_digest:
+        raise ValueError("copied source-epoch-bundle does not match the named root manifest")
+    if copied_bundle.git_sha != manifest.repository.git_sha:
+        raise ValueError("dataset repository does not match copied source-epoch-bundle git identity")
     if named_root_manifest.manifest_digest != manifest.root_manifest_digest:
         raise ValueError("dataset root manifest digest is invalid")
     if named_root_manifest.cohort_digest != manifest.cohort_digest:
@@ -957,13 +1119,13 @@ def load_dataset_manifest(path: Path, *, requested_split: str) -> DatasetManifes
         raise ValueError("dataset exclusion disagrees with named root manifest")
     if successful_root_ids | excluded_root_ids != set(canonical_root_memberships):
         raise ValueError("dataset root accounting is incomplete for named root manifest")
-    shard = path.parent / manifest.shard_path
-    if _sha256_bytes(shard.read_bytes()) != manifest.shard_digest:
+    shard_bytes = _read_contained_regular_file_bytes(path.parent, manifest.shard_path)
+    if sha256_bytes(shard_bytes) != manifest.shard_digest:
         raise ValueError("dataset shard digest is invalid")
-    records = tuple(read_jsonl(shard))
+    records = parse_jsonl_records(shard_bytes)
     if (
         len(records) != manifest.record_count
-        or tuple(cast(str, record.record_id) for record in records) != manifest.record_ids
+        or tuple(record.record_id for record in records) != manifest.record_ids
     ):
         raise ValueError("dataset record order or count is invalid")
     memberships = {root.root_id: root for root in roots}
@@ -1043,7 +1205,13 @@ def load_dataset_manifest(path: Path, *, requested_split: str) -> DatasetManifes
             raise ValueError("episode terminal z/mask is not identical across decisions")
     if seen_memberships != set(memberships):
         raise ValueError("dataset root membership contains no records")
-    return manifest
+    _reject_undeclared_dataset_inputs(
+        path.parent,
+        _dataset_declared_relative_files(
+            path.name, manifest, named_root_manifest, copied_bundle
+        ),
+    )
+    return manifest, named_root_manifest, records
 
 
 def _publish_dataset(
@@ -1060,10 +1228,14 @@ def _publish_dataset(
     reward_config: CombatRewardConfig,
     repository: RepositoryVersion,
 ) -> DatasetManifest:
-    lines = b"".join(_canonical_bytes(record.to_dict()) + b"\n" for record in records)
+    if repository != root_manifest.repository:
+        raise ValueError(
+            "package repository identity does not match the authenticated root manifest"
+        )
+    lines = b"".join(canonical_bytes(record.to_dict()) + b"\n" for record in records)
     shard_name = f"{split}/{split}.jsonl"
     _atomic_write(output_dir / shard_name, lines)
-    shard_digest = _sha256_bytes(lines)
+    shard_digest = sha256_bytes(lines)
     memberships = tuple(sorted(used_roots, key=lambda root: root.root_id))
     dataset_exclusions = tuple(
         sorted(
@@ -1071,15 +1243,15 @@ def _publish_dataset(
             key=lambda exclusion: (exclusion.root_id, exclusion.reason, exclusion.detail),
         )
     )
-    root_manifest_bytes = _canonical_bytes(root_manifest.to_dict())
-    root_manifest_file_digest = _sha256_bytes(root_manifest_bytes)
+    root_manifest_bytes = canonical_bytes(root_manifest.to_dict())
+    root_manifest_file_digest = sha256_bytes(root_manifest_bytes)
     _atomic_write(output_dir / _DATASET_ROOT_MANIFEST_PATH, root_manifest_bytes)
     provenance_dir = (output_dir / _DATASET_ROOT_MANIFEST_PATH).parent
     source_root_dir = root_manifest_path.parent
     for root in root_manifest.roots:
         _atomic_write(
             provenance_dir / root.relative_path,
-            _read_regular_file_bytes(source_root_dir / root.relative_path),
+            _read_contained_regular_file_bytes(source_root_dir, root.relative_path),
         )
     copy_source_epoch_bundle(
         root_manifest_path.parent / SOURCE_EPOCH_DIRNAME,
@@ -1130,11 +1302,14 @@ def _publish_dataset(
         shard_name,
         shard_digest,
         len(records),
-        tuple(cast(str, record.record_id) for record in records),
-        _sha256_bytes(_canonical_bytes(unsigned)),
+        tuple(record.record_id for record in records),
+        sha256_bytes(canonical_bytes(unsigned)),
     )
-    _atomic_write(output_dir / "dataset-manifest.json", _canonical_bytes(manifest.to_dict()))
-    return load_dataset_manifest(output_dir / "dataset-manifest.json", requested_split=split)
+    _atomic_write(output_dir / "dataset-manifest.json", canonical_bytes(manifest.to_dict()))
+    loaded, _named_root, _records = load_dataset_manifest(
+        output_dir / "dataset-manifest.json", requested_split=split
+    )
+    return loaded
 
 
 def generate_beam_dataset(
@@ -1149,7 +1324,6 @@ def generate_beam_dataset(
     max_player_turns: int = 100,
     deduplicate_search_states: bool = True,
     reward_config: CombatRewardConfig = COMBAT_PROXY_V1,
-    repository_root: Path | None = None,
 ) -> DatasetManifest:
     split = _require_loadable_split(split)
     _require_empty_output_dir(output_dir)
@@ -1157,9 +1331,11 @@ def generate_beam_dataset(
     roots = [root for root in root_manifest.roots if root.split == split]
     if not roots:
         raise ValueError(f"root manifest contains no {split} roots")
-    if repository_root is None:
-        repository_root = Path(__file__).resolve().parents[3]
-    repository = capture_repository_version(repository_root)
+    repository = capture_repository_version(_package_repository_root())
+    if repository != root_manifest.repository:
+        raise ValueError(
+            "package repository identity does not match the authenticated root manifest"
+        )
     search_config: dict[str, object] = {
         "depth": depth,
         "width": width,
@@ -1177,7 +1353,7 @@ def generate_beam_dataset(
     exclusions: list[DatasetExclusion] = []
     for root in roots:
         try:
-            env = RunEnv.from_snapshot((root_manifest_path.parent / root.relative_path).read_text())
+            env = _restore_labeled_root(root_manifest_path.parent, root)
             payload = env.beam_clone_episode_payload(
                 depth=depth,
                 width=width,
@@ -1206,15 +1382,13 @@ def generate_beam_dataset(
             for decision_index, step in enumerate(steps):
                 observation = fair_observation_from_payload(step["observation"])
                 actions = tuple(
-                    action_descriptor_from_payload(
-                        {"family": "combat", **cast(dict[str, object], choice)}
-                    )
+                    action_descriptor_from_payload(choice)
                     for choice in cast(list[object], step["choices"])
                 )
                 selected = cast(int, step["selected_index"])
                 counts = tuple(cast(list[int], step["teacher_visit_counts"]))
                 root_records.append(
-                    SymbolicTrainingRecord(
+                    SymbolicTrainingRecord.create(
                         observation,
                         actions,
                         selected,
@@ -1238,7 +1412,6 @@ def generate_beam_dataset(
                         episode_id,
                         decision_index,
                         target is not None,
-                        None,
                         None,
                     )
                 )

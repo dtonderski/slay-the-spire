@@ -13,7 +13,8 @@ from ..fair import FairCombatObservation
 from ..run import Action, ActionDescriptor, Decision, RunEnv
 from .gameplay import PolicyEpisode, _capped_public_episode
 from .model import FairCombatPolicyValueNet
-from .records import fair_observation_from_payload
+from .provenance import canonical_bytes
+from .records import action_descriptor_from_payload, fair_observation_from_payload
 from .rewards import COMBAT_PROXY_V1, CombatRewardConfig
 from .tensor import Vocabularies, collate_combat_tensors, tensorize_combat
 
@@ -23,16 +24,6 @@ PUCT_TEACHER_VERSION = "synchronous_batch1_v3"
 # fair_leaf_batch_v1 is intentionally batch-size 1 and not an extensible request
 # protocol. Request/response correlation ids are deferred until batched search.
 
-_FORBIDDEN_LEAF_FIELDS = (
-    "card_id",
-    "monster_id",
-    "content_id",
-    "rng",
-    "move_history",
-    "queued_decisions",
-    "pending_actions",
-)
-
 
 def _mapping(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
@@ -40,34 +31,8 @@ def _mapping(value: object) -> dict[str, object]:
     return cast(dict[str, object], value)
 
 
-def _optional_int(choice: Mapping[str, object], name: str) -> int | None:
-    value = choice.get(name)
-    if value is None:
-        return None
-    if type(value) is not int:
-        raise TypeError(f"public choice {name} must be an int")
-    return value
-
-
-def _descriptor_from_choice(choice: Mapping[str, object]) -> ActionDescriptor:
-    kind = choice.get("kind")
-    if type(kind) is not str:
-        raise TypeError("public choice kind must be a string")
-    return ActionDescriptor(
-        family="combat",
-        kind=kind,
-        hand_slot=_optional_int(choice, "hand_slot"),
-        potion_slot=_optional_int(choice, "potion_slot"),
-        option_slot=_optional_int(choice, "option_slot"),
-        target_slot=_optional_int(choice, "target_slot"),
-    )
-
-
-def _reject_hidden_fields(payload: object) -> None:
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    for field in _FORBIDDEN_LEAF_FIELDS:
-        if field in encoded:
-            raise ValueError(f"hidden field {field} reached the PUCT evaluator")
+def _public_choice_descriptor(choice: object) -> ActionDescriptor:
+    return action_descriptor_from_payload(choice)
 
 
 def _positive_budget(value: int, label: str) -> int:
@@ -101,7 +66,7 @@ def _require_aligned_public_rows(decision: Decision, payload: Mapping[str, objec
     if not isinstance(raw_choices, list) or len(raw_choices) != len(decision.actions):
         raise ValueError("PUCT choice rows are not aligned with the public Decision")
     for action, raw_choice in zip(decision.actions, raw_choices, strict=True):
-        if action.descriptor() != _descriptor_from_choice(_mapping(raw_choice)):
+        if action.descriptor() != _public_choice_descriptor(raw_choice):
             raise ValueError("PUCT choice rows are not aligned with the public Decision")
 
 
@@ -121,12 +86,11 @@ def _parse_fair_leaf_request(
     extra_item = set(item) - {"observation", "choices"}
     if extra_item:
         raise ValueError(f"PUCT leaf has unknown fields: {sorted(extra_item)}")
-    _reject_hidden_fields(item)
     observation = fair_observation_from_payload(item["observation"])
     raw_choices = item["choices"]
     if not isinstance(raw_choices, list) or not raw_choices:
         raise ValueError("PUCT leaf requires a nonempty public choice list")
-    descriptors = tuple(_descriptor_from_choice(_mapping(choice)) for choice in raw_choices)
+    descriptors = tuple(_public_choice_descriptor(choice) for choice in raw_choices)
     return observation, descriptors
 
 
@@ -143,7 +107,7 @@ def _encode_leaf_evaluation(priors: Sequence[float], value: float) -> str:
             raise ValueError("PUCT network priors are not finite and nonnegative")
     if type(value) not in {int, float} or not math.isfinite(float(value)) or abs(float(value)) > 1:
         raise ValueError("PUCT network value must be finite and in [-1, 1]")
-    return json.dumps(
+    return canonical_bytes(
         {
             "schema": FAIR_LEAF_BATCH_SCHEMA,
             "batch": [
@@ -152,11 +116,8 @@ def _encode_leaf_evaluation(priors: Sequence[float], value: float) -> str:
                     "value": float(value),
                 }
             ],
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    )
+        }
+    ).decode()
 
 
 def _eval_network_leaf(
@@ -269,7 +230,7 @@ def puct_search_payload(
         c_puct=c_puct,
         simulation_budget=simulation_budget,
         transition_budget=transition_budget,
-        reward_config_json=json.dumps(config.to_dict(), sort_keys=True, separators=(",", ":")),
+        reward_config_json=canonical_bytes(config.to_dict()).decode(),
         episode_root_max_hp=episode_root_max_hp,
         episode_root_gold=episode_root_gold,
         leaf_cache=leaf_cache,
@@ -315,7 +276,7 @@ def puct_clone_episode_payload(
         transition_budget=transition_budget,
         max_decisions=max_decisions,
         max_player_turns=max_player_turns,
-        reward_config_json=json.dumps(config.to_dict(), sort_keys=True, separators=(",", ":")),
+        reward_config_json=canonical_bytes(config.to_dict()).decode(),
         leaf_cache=leaf_cache,
     )
     if payload.get("teacher_name") != PUCT_TEACHER_NAME:

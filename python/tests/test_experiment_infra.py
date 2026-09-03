@@ -25,6 +25,7 @@ from sts_sim.rl.experiment import (
     ArtifactIntegrityError,
     ExperimentReproductionError,
     is_mutable_synchronization_path,
+    json_content_identities,
     load_experiment_predeclaration,
     normalize_inventory_relative_path,
     parse_sha256sum_inventory,
@@ -33,6 +34,7 @@ from sts_sim.rl.experiment import (
     write_artifact_inventory,
     write_scientific_artifact,
 )
+from sts_sim.rl.provenance import canonical_bytes, digest_payload
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "experiment_infra"
 
@@ -96,10 +98,7 @@ def _v1_predeclaration(
 
 def _write_json(path: Path, payload: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False),
-        encoding="utf-8",
-    )
+    path.write_bytes(canonical_bytes(payload))
 
 
 def _seed_predeclaration(experiment: Path) -> None:
@@ -179,7 +178,18 @@ def test_inventory_path_normalization_rejects_escape_and_duplicates() -> None:
     with pytest.raises(ValueError, match="posix separators"):
         normalize_inventory_relative_path("dir\\kept.json")
     with pytest.raises(ValueError, match="more than once"):
-        parse_sha256sum_inventory(f"{'a' * 64}  ./kept.json\n{'b' * 64}  kept.json\n")
+        parse_sha256sum_inventory(f"{'a' * 64}  ./kept.json\n{'b' * 64}  kept.json\n".encode())
+    with pytest.raises(ValueError, match="blank or noncanonical"):
+        parse_sha256sum_inventory(f"{'a' * 64}  ./kept.json\n\n{'b' * 64}  ./other.json\n".encode())
+    with pytest.raises(ValueError, match="not canonical"):
+        parse_sha256sum_inventory(f"{'a' * 64}  kept.json\n".encode())
+    later = "b" * 64
+    with pytest.raises(ValueError, match="not canonical"):
+        parse_sha256sum_inventory(f"{later}  ./z.json\n{'a' * 64}  ./a.json\n".encode())
+    assert parse_sha256sum_inventory(b"") == ()
+    digest = "a" * 64
+    canonical = f"{digest}  ./kept.json\n".encode()
+    assert parse_sha256sum_inventory(canonical) == (("kept.json", digest),)
 
 
 def test_verify_rejects_absolute_and_traversal_inventory_paths(tmp_path: Path) -> None:
@@ -239,7 +249,10 @@ def test_inventory_rejects_missing_declared_scientific_file(tmp_path: Path) -> N
     _write_json(gone, {"gone": True})
     inventory = experiment / ARTIFACT_INVENTORY_NAME
     digest = "d" * 64
-    inventory.write_text(inventory.read_text(encoding="utf-8") + f"{digest}  ./gone.json\n")
+    lines = [line for line in inventory.read_text(encoding="utf-8").splitlines(True) if line]
+    lines.append(f"{digest}  ./gone.json\n")
+    lines.sort(key=lambda line: line.split("  ./", 1)[1])
+    inventory.write_text("".join(lines), encoding="utf-8")
     gone.unlink()
     with pytest.raises(ArtifactIntegrityError, match="gone.json") as error:
         verify_artifact_integrity(experiment)
@@ -328,8 +341,21 @@ def test_predeclaration_v1_rejects_unknown_fields_and_promotion(tmp_path: Path) 
     payload["consumed_evidence_policy"] = {
         "sealed_test": False,
         "real_trace_audit": False,
+        "development_only_for_assessment": False,
+    }
+    _write_json(path, payload)
+    with pytest.raises(ValueError, match="development_only_for_assessment"):
+        load_experiment_predeclaration(path)
+    payload["consumed_evidence_policy"] = {
+        "sealed_test": False,
+        "real_trace_audit": False,
         "development_only_for_assessment": True,
     }
+    payload["source_worktree_must_be_clean"] = False
+    _write_json(path, payload)
+    with pytest.raises(ValueError, match="source_worktree_must_be_clean"):
+        load_experiment_predeclaration(path)
+    payload["source_worktree_must_be_clean"] = True
     payload["schema_version"] = True
     _write_json(path, payload)
     with pytest.raises(TypeError, match="schema version"):
@@ -348,7 +374,9 @@ def test_reproduce_experiment_records_identities_and_rejects_commit_mismatch(
     checkpoint.parent.mkdir(parents=True)
     checkpoint.write_bytes(b"ckpt")
     root_manifest = experiment / "roots" / "root-manifest.json"
-    _write_json(root_manifest, {"manifest_digest": "e" * 64, "cohort_digest": "f" * 64})
+    manifest_payload: dict[str, object] = {"cohort_digest": "f" * 64}
+    manifest_payload["manifest_digest"] = digest_payload(manifest_payload, "manifest_digest")
+    _write_json(root_manifest, manifest_payload)
     declared = _v1_predeclaration(
         sha,
         inputs=[
@@ -366,13 +394,14 @@ def test_reproduce_experiment_records_identities_and_rejects_commit_mismatch(
         environment={
             **_empty_environment(),
             "checkpoint_file_digest": hashlib.sha256(b"ckpt").hexdigest(),
-            "root_manifest_digest": "e" * 64,
+            "root_manifest_digest": manifest_payload["manifest_digest"],
             "cohort_digest": "f" * 64,
         },
     )
     predeclaration = experiment / "predeclaration.json"
     _write_json(predeclaration, declared)
-    report = reproduce_experiment(predeclaration, repository=repo, experiment_dir=experiment)
+    write_artifact_inventory(experiment)
+    report = reproduce_experiment(experiment, repository=repo)
     assert report["ok"] is True
     assert report["source_commit"] == sha
     assert report["consumed_sealed_or_audit_evidence"] is False
@@ -385,16 +414,16 @@ def test_reproduce_experiment_records_identities_and_rejects_commit_mismatch(
     assert fields["source_digest"]["status"] == "not_declared"
     identities = cast(list[dict[str, object]], report["input_identities"])
     declared_digests = cast(dict[str, object], identities[1]["declared_digests"])
-    assert declared_digests["manifest_digest"] == "e" * 64
+    assert declared_digests["manifest_digest"] == manifest_payload["manifest_digest"]
     declared["source_commit"] = "0" * 40
     _write_json(predeclaration, declared)
     with pytest.raises(ExperimentReproductionError, match="source commit mismatch"):
-        reproduce_experiment(predeclaration, repository=repo, experiment_dir=experiment)
+        reproduce_experiment(experiment, repository=repo)
     (repo / "tracked.txt").write_text("dirty", encoding="utf-8")
     declared["source_commit"] = sha
     _write_json(predeclaration, declared)
     with pytest.raises(ExperimentReproductionError, match="dirty"):
-        reproduce_experiment(predeclaration, repository=repo, experiment_dir=experiment)
+        reproduce_experiment(experiment, repository=repo)
 
 
 def test_reproduce_experiment_rejects_input_digest_mismatch(tmp_path: Path) -> None:
@@ -404,7 +433,7 @@ def test_reproduce_experiment_rejects_input_digest_mismatch(tmp_path: Path) -> N
     (repo / "tracked.txt").write_text("source", encoding="utf-8")
     sha = _commit_fixture(repo)
     artifact = experiment / "roots" / "root-manifest.json"
-    _write_json(artifact, {"manifest_digest": "1" * 64})
+    _write_json(artifact, {"ok": True})
     declared = _v1_predeclaration(
         sha,
         inputs=[
@@ -415,10 +444,10 @@ def test_reproduce_experiment_rejects_input_digest_mismatch(tmp_path: Path) -> N
             }
         ],
     )
-    predeclaration = experiment / "predeclaration.json"
-    _write_json(predeclaration, declared)
+    _write_json(experiment / "predeclaration.json", declared)
+    write_artifact_inventory(experiment)
     with pytest.raises(ExperimentReproductionError, match="digest mismatch"):
-        reproduce_experiment(predeclaration, repository=repo, experiment_dir=experiment)
+        reproduce_experiment(experiment, repository=repo)
 
 
 def test_reproduce_experiment_rejects_fabricated_environment_identities(tmp_path: Path) -> None:
@@ -441,15 +470,13 @@ def test_reproduce_experiment_rejects_fabricated_environment_identities(tmp_path
         ],
         environment=fabricated,
     )
-    predeclaration = experiment / "predeclaration.json"
-    _write_json(predeclaration, declared)
+    _write_json(experiment / "predeclaration.json", declared)
+    write_artifact_inventory(experiment)
     with pytest.raises(ExperimentReproductionError, match="environment identity"):
-        reproduce_experiment(predeclaration, repository=repo, experiment_dir=experiment)
+        reproduce_experiment(experiment, repository=repo)
 
 
 def test_reproduce_rejects_self_attested_source_digest(tmp_path: Path) -> None:
-    from sts_sim.rl.training import _source_digest
-
     repo = tmp_path / "repo"
     experiment = tmp_path / "exp"
     _init_git_fixture(repo)
@@ -469,13 +496,37 @@ def test_reproduce_rejects_self_attested_source_digest(tmp_path: Path) -> None:
         ],
         environment={**_empty_environment(), "source_digest": fabricated},
     )
-    predeclaration = experiment / "predeclaration.json"
-    _write_json(predeclaration, declared)
+    _write_json(experiment / "predeclaration.json", declared)
+    write_artifact_inventory(experiment)
     with pytest.raises(ExperimentReproductionError, match="environment identity"):
-        reproduce_experiment(predeclaration, repository=repo, experiment_dir=experiment)
-    declared["environment"] = {**_empty_environment(), "source_digest": _source_digest()}
-    _write_json(predeclaration, declared)
-    report = reproduce_experiment(predeclaration, repository=repo, experiment_dir=experiment)
+        reproduce_experiment(experiment, repository=repo)
+
+
+def test_reproduce_matches_live_source_digest(tmp_path: Path) -> None:
+    from sts_sim.rl.training import _source_digest
+
+    repo = tmp_path / "repo"
+    experiment = tmp_path / "exp"
+    _init_git_fixture(repo)
+    (repo / "tracked.txt").write_text("source", encoding="utf-8")
+    sha = _commit_fixture(repo)
+    fabricated = "f" * 64
+    artifact = experiment / "report.json"
+    _write_json(artifact, {"source_digest": fabricated, "runtime_identity_digest": fabricated})
+    declared = _v1_predeclaration(
+        sha,
+        inputs=[
+            {
+                "role": "evaluation_report",
+                "path": "report.json",
+                "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+            }
+        ],
+        environment={**_empty_environment(), "source_digest": _source_digest()},
+    )
+    _write_json(experiment / "predeclaration.json", declared)
+    write_artifact_inventory(experiment)
+    report = reproduce_experiment(experiment, repository=repo)
     environment = cast(dict[str, object], report["environment"])
     validation = cast(dict[str, object], environment["validation"])
     fields = cast(dict[str, dict[str, object]], validation["fields"])
@@ -489,10 +540,9 @@ def test_unknown_predeclaration_kind_fails_closed(tmp_path: Path) -> None:
     _init_git_fixture(repo)
     (repo / "tracked.txt").write_text("source", encoding="utf-8")
     sha = _commit_fixture(repo)
-    predeclaration = experiment / "predeclaration.json"
-    _write_json(predeclaration, {"name": "legacy-run", "source_commit": sha})
+    _write_json(experiment / "predeclaration.json", {"name": "legacy-run", "source_commit": sha})
     with pytest.raises(ValueError, match="unsupported experiment predeclaration"):
-        reproduce_experiment(predeclaration, repository=repo, experiment_dir=experiment)
+        reproduce_experiment(experiment, repository=repo)
 
 
 def test_affine_win_probability_and_exact_brier() -> None:
@@ -689,26 +739,99 @@ def test_parent_directory_symlink_is_a_violation(tmp_path: Path) -> None:
         verify_artifact_integrity(experiment)
 
 
-def test_verify_rejects_inventory_outside_experiment(tmp_path: Path) -> None:
+def test_reproduce_requires_canonical_inventory(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
     experiment = tmp_path / "exp"
-    _write_json(experiment / "kept.json", {"ok": True})
-    _seed_predeclaration(experiment)
+    _init_git_fixture(repo)
+    (repo / "tracked.txt").write_text("source", encoding="utf-8")
+    sha = _commit_fixture(repo)
+    kept = experiment / "kept.json"
+    _write_json(kept, {"ok": True})
+    declared = _v1_predeclaration(
+        sha,
+        outputs=[
+            {
+                "role": "report",
+                "path": "kept.json",
+                "sha256": hashlib.sha256(kept.read_bytes()).hexdigest(),
+            }
+        ],
+    )
+    _write_json(experiment / "predeclaration.json", declared)
+    with pytest.raises(ExperimentReproductionError, match="artifact-inventory.sha256"):
+        reproduce_experiment(experiment, repository=repo)
     write_artifact_inventory(experiment)
-    outside = tmp_path / "outside.sha256"
-    outside.write_text((experiment / ARTIFACT_INVENTORY_NAME).read_text(encoding="utf-8"))
-    with pytest.raises(ValueError, match="under the experiment"):
-        verify_artifact_integrity(experiment, inventory_path=outside)
+    report = reproduce_experiment(experiment, repository=repo)
+    assert report["ok"] is True
+    assert report["artifact_integrity"] is not None
 
 
-def test_verify_rejects_lexically_escaped_inventory(tmp_path: Path) -> None:
+def test_reproduce_rejects_duplicate_and_non_inventory_outputs(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
     experiment = tmp_path / "exp"
-    _write_json(experiment / "kept.json", {"ok": True})
-    _seed_predeclaration(experiment)
+    _init_git_fixture(repo)
+    (repo / "tracked.txt").write_text("source", encoding="utf-8")
+    sha = _commit_fixture(repo)
+    kept = experiment / "kept.json"
+    _write_json(kept, {"ok": True})
+    digest = hashlib.sha256(kept.read_bytes()).hexdigest()
+    declared = _v1_predeclaration(
+        sha,
+        inputs=[{"role": "checkpoint", "path": "kept.json", "sha256": digest}],
+        outputs=[{"role": "report", "path": "kept.json", "sha256": digest}],
+    )
+    _write_json(experiment / "predeclaration.json", declared)
     write_artifact_inventory(experiment)
-    outside = tmp_path / "outside"
-    outside.write_text((experiment / ARTIFACT_INVENTORY_NAME).read_text(encoding="utf-8"))
-    with pytest.raises(ValueError, match="under the experiment"):
-        verify_artifact_integrity(experiment, inventory_path=experiment / ".." / "outside")
+    with pytest.raises(ExperimentReproductionError, match="duplicate artifact path"):
+        reproduce_experiment(experiment, repository=repo)
+    absolute = _v1_predeclaration(
+        sha,
+        outputs=[{"role": "report", "path": str(kept), "sha256": digest}],
+    )
+    _write_json(experiment / "predeclaration.json", absolute)
+    (experiment / ARTIFACT_INVENTORY_NAME).unlink()
+    write_artifact_inventory(experiment)
+    with pytest.raises(ExperimentReproductionError, match="inventory-relative"):
+        reproduce_experiment(experiment, repository=repo)
+
+    duplicate_spellings = _v1_predeclaration(
+        sha,
+        inputs=[{"role": "checkpoint", "path": str(kept), "sha256": digest}],
+        outputs=[{"role": "report", "path": "kept.json", "sha256": digest}],
+    )
+    _write_json(experiment / "predeclaration.json", duplicate_spellings)
+    (experiment / ARTIFACT_INVENTORY_NAME).unlink()
+    write_artifact_inventory(experiment)
+    with pytest.raises(ExperimentReproductionError, match="duplicate artifact path"):
+        reproduce_experiment(experiment, repository=repo)
+
+
+def test_reproduce_requires_exact_predeclared_inventory_membership(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    experiment = tmp_path / "exp"
+    _init_git_fixture(repo)
+    (repo / "tracked.txt").write_text("source", encoding="utf-8")
+    sha = _commit_fixture(repo)
+    declared = experiment / "declared.json"
+    extra = experiment / "extra.json"
+    _write_json(declared, {"declared": True})
+    _write_json(extra, {"extra": True})
+    _write_json(
+        experiment / "predeclaration.json",
+        _v1_predeclaration(
+            sha,
+            outputs=[
+                {
+                    "role": "report",
+                    "path": "declared.json",
+                    "sha256": hashlib.sha256(declared.read_bytes()).hexdigest(),
+                }
+            ],
+        ),
+    )
+    write_artifact_inventory(experiment)
+    with pytest.raises(ExperimentReproductionError, match="membership mismatch"):
+        reproduce_experiment(experiment, repository=repo)
 
 
 def test_malformed_v1_predeclaration_does_not_downgrade_to_legacy(tmp_path: Path) -> None:
@@ -848,3 +971,247 @@ def test_calibration_rejects_payload_path_byte_disagreement(tmp_path: Path) -> N
     inputs = cast(list[dict[str, object]], report["inputs"])
     assert inputs[0]["sha256"] == hashlib.sha256(raw).hexdigest()
     assert inputs[0]["path"] == str(static_path)
+
+
+def test_load_experiment_predeclaration_is_one_nofollow_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "predeclaration.json"
+    _write_json(path, _v1_predeclaration("a" * 40))
+
+    def boom(*args: object, **kwargs: object) -> str:
+        raise AssertionError("reopened predeclaration")
+
+    monkeypatch.setattr(Path, "read_text", boom)
+    loaded = load_experiment_predeclaration(path)
+    assert loaded.kind == PREDECLARATION_KIND
+
+
+def test_load_experiment_predeclaration_refuses_symlink_and_symlink_parent(
+    tmp_path: Path,
+) -> None:
+    real = tmp_path / "real.json"
+    _write_json(real, _v1_predeclaration("a" * 40))
+    linked = tmp_path / "predeclaration.json"
+    linked.symlink_to(real)
+    with pytest.raises(ValueError, match="non-regular file"):
+        load_experiment_predeclaration(linked)
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    nested = outside / "predeclaration.json"
+    _write_json(nested, _v1_predeclaration("a" * 40))
+    parent = tmp_path / "linked-dir"
+    parent.symlink_to(outside)
+    with pytest.raises(ValueError, match="non-regular file"):
+        load_experiment_predeclaration(parent / "predeclaration.json")
+
+
+def test_json_content_identities_uses_one_nofollow_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "report.json"
+    digest = "a" * 64
+    path.write_bytes(canonical_bytes({"other": 1, "source_digest": digest}))
+    expected = hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def boom(*args: object, **kwargs: object) -> str:
+        raise AssertionError("reopened json identity file")
+
+    monkeypatch.setattr(Path, "read_text", boom)
+    identities = json_content_identities(path)
+    assert identities["sha256"] == expected
+    assert identities["declared_digests"] == {"source_digest": digest}
+
+
+def test_json_content_identities_refuses_symlink_and_symlink_parent(tmp_path: Path) -> None:
+    real = tmp_path / "real.json"
+    real.write_text("{}", encoding="utf-8")
+    linked = tmp_path / "report.json"
+    linked.symlink_to(real)
+    with pytest.raises(ValueError, match="non-regular file"):
+        json_content_identities(linked)
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    nested = outside / "report.json"
+    nested.write_text("{}", encoding="utf-8")
+    parent = tmp_path / "linked-dir"
+    parent.symlink_to(outside)
+    with pytest.raises(ValueError, match="non-regular file"):
+        json_content_identities(parent / "report.json")
+
+
+def test_inventory_load_rejects_symlink_parent(tmp_path: Path) -> None:
+    from sts_sim.rl.experiment import _load_inventory_entries
+
+    experiment = tmp_path / "exp"
+    _write_json(experiment / "kept.json", {"ok": True})
+    _seed_predeclaration(experiment)
+    write_artifact_inventory(experiment)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / ARTIFACT_INVENTORY_NAME).write_bytes(
+        (experiment / ARTIFACT_INVENTORY_NAME).read_bytes()
+    )
+    linked = tmp_path / "linked"
+    linked.symlink_to(outside)
+    with pytest.raises(ValueError, match="non-regular file"):
+        _load_inventory_entries(linked / ARTIFACT_INVENTORY_NAME)
+
+
+def test_read_regular_file_bytes_rejects_intermediate_symlink(tmp_path: Path) -> None:
+    from sts_sim.rl.provenance import read_regular_file_bytes
+
+    real = tmp_path / "real"
+    real.mkdir()
+    target = real / "file.json"
+    target.write_bytes(b'{"ok":true}\n')
+    linked = tmp_path / "linked"
+    linked.symlink_to(real)
+    with pytest.raises(ValueError, match="non-regular file"):
+        read_regular_file_bytes(linked / "file.json")
+    assert read_regular_file_bytes(target) == b'{"ok":true}\n'
+
+
+def test_source_epoch_bundle_rejects_noncanonical_identity_fields() -> None:
+    from sts_sim.rl.provenance import digest_payload
+    from sts_sim.rl.source_epoch import SOURCE_EPOCH_BUNDLE_KIND, _parse_bundle
+
+    def payload(**overrides: object) -> dict[str, object]:
+        body: dict[str, object] = {
+            "kind": SOURCE_EPOCH_BUNDLE_KIND,
+            "git_sha": "a" * 40,
+            "clean": True,
+            "dirty_diff_digest": None,
+            "native_extension_name": "py_sts.abi3.so",
+            "native_extension_digest": "b" * 64,
+            "native_relative_path": "native/py_sts.abi3.so",
+            "python_implementation": "CPython",
+            "python_version": [3, 12, 0, 0],
+            "python_releaselevel": "final",
+            "platform": {"system": "Linux", "release": "6.6", "machine": "x86_64"},
+            "rustc_version": "rustc 1.80.0",
+            "cargo_version": "cargo 1.80.0",
+        }
+        body.update(overrides)
+        body["bundle_digest"] = digest_payload(body, "bundle_digest")
+        return body
+
+    with pytest.raises(ValueError, match="lowercase"):
+        _parse_bundle(payload(git_sha="A" * 40))
+    with pytest.raises(ValueError, match="basename"):
+        _parse_bundle(
+            payload(
+                native_extension_name="subdir/py_sts.abi3.so",
+                native_relative_path="native/subdir/py_sts.abi3.so",
+            )
+        )
+    with pytest.raises(ValueError, match="basename"):
+        _parse_bundle(payload(native_extension_name="..", native_relative_path="native/.."))
+    with pytest.raises(ValueError, match="canonical"):
+        _parse_bundle(payload(native_relative_path="other/py_sts.abi3.so"))
+    with pytest.raises(TypeError, match="nonempty"):
+        _parse_bundle(payload(platform={"system": "Linux", "release": "", "machine": "x86_64"}))
+    with pytest.raises(TypeError, match="nonempty"):
+        _parse_bundle(payload(python_implementation=""))
+    with pytest.raises(TypeError, match="nonempty"):
+        _parse_bundle(payload(native_extension_name="", native_relative_path="native/"))
+    with pytest.raises(ValueError, match="basename"):
+        _parse_bundle(payload(native_extension_name=".", native_relative_path="native/."))
+    with pytest.raises(ValueError, match="basename"):
+        _parse_bundle(
+            payload(
+                native_extension_name="py_sts.abi3.so\\x",
+                native_relative_path="native/py_sts.abi3.so\\x",
+            )
+        )
+    with pytest.raises(TypeError, match="nonempty"):
+        _parse_bundle(payload(rustc_version=""))
+    with pytest.raises(TypeError, match="nonempty"):
+        _parse_bundle(payload(cargo_version=""))
+    with pytest.raises(ValueError, match="lowercase"):
+        _parse_bundle(payload(git_sha="B" * 64))
+    with pytest.raises(ValueError, match="python version components"):
+        _parse_bundle(payload(python_version=[0, 12, 0, 0]))
+    with pytest.raises(ValueError, match="python version components"):
+        _parse_bundle(payload(python_version=[3, -1, 0, 0]))
+    with pytest.raises(ValueError, match="rustc prefix"):
+        _parse_bundle(payload(rustc_version="1.80.0"))
+    with pytest.raises(ValueError, match="cargo prefix"):
+        _parse_bundle(payload(cargo_version="1.80.0"))
+
+
+def test_predeclaration_rejects_noncanonical_bytes(tmp_path: Path) -> None:
+    path = tmp_path / "predeclaration.json"
+    payload = _v1_predeclaration("a" * 40)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    with pytest.raises(ValueError, match="not canonical"):
+        load_experiment_predeclaration(path)
+    reordered = json.dumps(payload, separators=(",", ":"))
+    path.write_text(reordered, encoding="utf-8")
+    if reordered.encode() != canonical_bytes(payload):
+        with pytest.raises(ValueError, match="not canonical"):
+            load_experiment_predeclaration(path)
+
+
+def test_json_content_identities_reject_noncanonical_and_echoed_digests(tmp_path: Path) -> None:
+    path = tmp_path / "report.json"
+    path.write_text('{ "ok": true }', encoding="utf-8")
+    with pytest.raises(ValueError, match="not canonical"):
+        json_content_identities(path)
+    path.write_bytes(canonical_bytes({"report_digest": None}))
+    with pytest.raises(ValueError, match="report_digest"):
+        json_content_identities(path)
+    echoed = {"ok": True, "report_digest": "a" * 64}
+    path.write_bytes(canonical_bytes(echoed))
+    with pytest.raises(ValueError, match="canonical payload digest"):
+        json_content_identities(path)
+    valid: dict[str, object] = {"ok": True}
+    valid["report_digest"] = digest_payload(valid, "report_digest")
+    path.write_bytes(canonical_bytes(valid))
+    identities = json_content_identities(path)
+    assert identities["declared_digests"] == {"report_digest": valid["report_digest"]}
+    checkpoint = tmp_path / "checkpoint.pt"
+    checkpoint.write_bytes(b"\x80\x04ckpt")
+    raw = json_content_identities(checkpoint)
+    assert raw["sha256"] == hashlib.sha256(b"\x80\x04ckpt").hexdigest()
+    assert "declared_digests" not in raw
+
+
+def test_write_scientific_artifact_refuses_swapped_intermediate_parent(tmp_path: Path) -> None:
+    real = tmp_path / "real"
+    (real / "nested").mkdir(parents=True)
+    write_scientific_artifact(real / "nested" / "kept.json", b"kept")
+    moved = tmp_path / "moved"
+    real.rename(moved)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    real.symlink_to(outside)
+    with pytest.raises(ValueError, match="symlink parent"):
+        write_scientific_artifact(real / "nested" / "other.json", b"leaked")
+    assert not (outside / "nested" / "other.json").exists()
+    assert (moved / "nested" / "kept.json").read_bytes() == b"kept"
+
+
+def test_calibration_rejects_null_and_echoed_report_digest() -> None:
+    static: dict[str, object] = {
+        "per_record": [
+            {
+                "record_id": "r1",
+                "root_id": "root-a",
+                "status": "won",
+                "truncated": False,
+                "predicted_value": 0.9,
+            }
+        ],
+        "report_digest": None,
+    }
+    with pytest.raises(ValueError, match="report_digest"):
+        calibrate_combat_proxy_win_loss(static_report=static)
+    echoed: dict[str, object] = {
+        "per_record": static["per_record"],
+        "report_digest": "a" * 64,
+    }
+    with pytest.raises(ValueError, match="canonical payload"):
+        calibrate_combat_proxy_win_loss(static_report=echoed)

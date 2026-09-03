@@ -511,7 +511,7 @@ Use PyO3/maturin after the Rust API stabilizes.
 The eventual compiled Python package should expose both fair and explicitly
 privileged types from one module. Bindings should expose:
 
-- `FairCombatEnv` / later `FairRunEnv`
+- `RunEnv`
 - visibly named privileged planning/debug environments
 - `Snapshot`
 - `Action`

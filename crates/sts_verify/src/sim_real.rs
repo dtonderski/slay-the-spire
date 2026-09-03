@@ -21,9 +21,8 @@ use sts_core::{
     affordable_shop_picks, apply_run_decision_action, legal_run_decision_actions,
     try_sts_seed_string_to_long, CardGridScreen, CardId, CardInstance, CombatAction,
     CombatDecisionState, CombatPhase, CombatState, ContentId, Event, EventScreen, GridPurpose,
-    MapAction, MonsterId, MonsterIntent, MonsterState, Relic, RelicKey, RestAction,
-    RewardContinuation, RewardScreen, RoomKind, RunAction, RunDecisionAction, RunPhase, RunState,
-    ShopPick,
+    MapAction, MonsterId, MonsterIntent, MonsterState, Relic, RestAction, RewardContinuation,
+    RewardScreen, RoomKind, RunAction, RunDecisionAction, RunPhase, RunState, ShopPick,
 };
 use sts_core::{Snapshot, SNAPSHOT_SCHEMA_VERSION};
 
@@ -135,7 +134,7 @@ pub struct ReplayCheckpoint {
     pub state_hash: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ReplayCheckpointState {
     pub action_step: u32,
     pub command: String,
@@ -386,7 +385,11 @@ pub(crate) fn encode_root_snapshot(snapshot: &Snapshot<RunState>) -> Result<Vec<
             snapshot.schema_version
         ));
     }
-    let value = serde_json::to_value(snapshot).map_err(|error| error.to_string())?;
+    let json = snapshot
+        .canonical_json()
+        .map_err(|error| error.to_string())?;
+    let value: serde_json::Value =
+        serde_json::from_str(&json).map_err(|error| error.to_string())?;
     Ok(canonical_json_bytes(&value))
 }
 
@@ -2071,7 +2074,7 @@ fn shop_card_display_key(run: &RunState, content_id: ContentId) -> &'static str 
     if let Some(name) = shop_pool_trace_name(content_id) {
         return name;
     }
-    if run_has_relic_key(run, RelicKey::FrozenEgg) && content_id == INFLAME_ID {
+    if run_has_relic_key(run, Relic::FrozenEgg) && content_id == INFLAME_ID {
         return "Inflame+";
     }
     content_key(content_id)
@@ -2543,11 +2546,11 @@ fn choice_list_from_value(value: Option<&Value>) -> Vec<String> {
         .collect()
 }
 
-fn relic_key_trace_name(key: RelicKey) -> &'static str {
+fn relic_key_trace_name(key: Relic) -> &'static str {
     key.trace_name()
 }
 
-fn relic_key_from_trace_name(name: &str) -> Option<RelicKey> {
+fn relic_key_from_trace_name(name: &str) -> Option<Relic> {
     Relic::from_trace_name(name)
 }
 
@@ -2622,13 +2625,13 @@ fn potion_key_from_value(potion: &Value) -> Option<String> {
 fn relic_ids_for_simulated_subset(run: &RunState) -> Vec<String> {
     run.relics
         .iter()
-        .map(|relic| relic_key_trace_name(relic.key()).to_owned())
+        .map(|relic| relic_key_trace_name(*relic).to_owned())
         .filter(|name| name != "Unknown Relic")
         .collect()
 }
 
-fn run_has_relic_key(run: &RunState, key: RelicKey) -> bool {
-    run.relics.iter().any(|relic| relic.key() == key)
+fn run_has_relic_key(run: &RunState, key: Relic) -> bool {
+    run.relics.contains(&key)
 }
 
 fn seed_start_event_observed_subset(message: &Value) -> Value {
@@ -2966,7 +2969,7 @@ fn seed_start_simulated_combat_subset(run: &RunState) -> Value {
     };
     let screen_type = seed_start_simulated_combat_screen_type(combat);
     let monster_intents_visible =
-        screen_type != "GAME_OVER" && !run_has_relic_key(run, RelicKey::RunicDome);
+        screen_type != "GAME_OVER" && !run_has_relic_key(run, Relic::RunicDome);
     let combat_player_energy = combat.player.energy;
     let mut subset = json!({
         "screen_type": screen_type,
@@ -3377,7 +3380,7 @@ fn seed_start_reward_simulated_subset(run: &RunState) -> Value {
                 .chain(reward.pending_relic_offer.iter())
                 .chain(reward.queued_relic_offers.iter())
         })
-        .map(|relic| relic_key_trace_name(relic.key()))
+        .map(|relic| relic_key_trace_name(*relic))
         .collect::<Vec<_>>();
     let reward_types: Vec<String> = combat_choices
         .iter()
@@ -4169,9 +4172,9 @@ fn egg_preview_upgrade(run: &RunState, content_id: ContentId) -> Option<ContentI
     })?;
     let (card_type, _) = card_type_and_rarity(content_id)?;
     let has_matching_egg = match card_type {
-        CardType::Attack => run_has_relic_key(run, RelicKey::MoltenEgg),
-        CardType::Skill => run_has_relic_key(run, RelicKey::ToxicEgg),
-        CardType::Power => run_has_relic_key(run, RelicKey::FrozenEgg),
+        CardType::Attack => run_has_relic_key(run, Relic::MoltenEgg),
+        CardType::Skill => run_has_relic_key(run, Relic::ToxicEgg),
+        CardType::Power => run_has_relic_key(run, Relic::FrozenEgg),
         CardType::Status => false,
     };
     has_matching_egg.then_some(upgraded)

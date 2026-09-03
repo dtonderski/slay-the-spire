@@ -30,15 +30,9 @@ leakage-proof public representation of the same legal choices.
 
 ## Public Decision Contract
 
-The legacy combat-only boundary remains available for compatibility:
-
-```text
-FairDecision
-  schema_version
-  decision_revision
-  observation: FairCombatObservation
-  choices: [PlayerChoice]
-```
+The public Python boundary is `RunEnv.decision()` / `RunEnv.step(Action)`.
+Combat still projects `FairCombatObservation` together with public
+decision-local action slots:
 
 `decision_revision` prevents a choice from an old state from being resolved
 against a new state. It must not encode a seed, internal ID, state hash, or
@@ -133,7 +127,7 @@ V2 adds the zero-field `Proceed` run-control choice for directly restored lost
 combat states and projects Secret Weapon/Secret Technique now that draw-pile
 membership is represented by the public multiset. Combat episodes classify a
 terminal accepted transition before requesting another model decision, so
-`Proceed` is never a combat training target. Stored V1 choices remain readable.
+`Proceed` is never a combat training target. Current producers emit V2 only.
 
 Implementation status: the combat-only symbolic projection, resolution,
 revision token, and stable public errors are implemented in `sts_core`. See
@@ -216,8 +210,7 @@ The run-level projection follows the active decision screen (`combat`, `map`,
 assembled atomically with public decision-local action slots. Raw map/card
 instance IDs and pre-rolled future outcomes remain private.
 
-The compatibility `Omni*`, `Exact*`, and `FairCombatEnv` bindings are not the
-target public architecture. See `design_unified_python_run_environment.md`.
+See `design_unified_python_run_environment.md`.
 
 ## Deferred Work
 

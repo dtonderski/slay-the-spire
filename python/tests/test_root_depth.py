@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -8,11 +9,18 @@ import pytest
 
 import sts_sim.rl.data as data_module
 from sts_sim import FairCombatObservation, RunEnv
-from sts_sim.fair import FairContext, FairRunObservation
+from sts_sim.fair import FairRunContext, FairRunObservation
 from sts_sim.rl import generate_legal_roots, load_root_manifest
 from sts_sim.rl.cli import data_main
 from sts_sim.rl.data import ROOT_MANIFEST_VERSION, RootManifest
+from sts_sim.rl.provenance import canonical_bytes, digest_payload, sha256_bytes
 from sts_sim.run import Action, Decision
+
+
+def _from_mutated_combat_snapshot(mutate_state: Callable[[dict[str, object]], None]) -> RunEnv:
+    payload = json.loads(RunEnv.combat_fixture().snapshot().json)
+    mutate_state(cast(dict[str, object], payload["state"]))
+    return RunEnv.from_snapshot(json.dumps(payload))
 
 
 def _resign_root_manifest(payload: dict[str, object]) -> None:
@@ -28,7 +36,7 @@ def _resign_root_manifest(payload: dict[str, object]) -> None:
             max_run_steps=cast(int, payload["max_run_steps"]),
             combat_depth=combat_depth,
         )
-    payload["manifest_digest"] = data_module._digest_payload(payload, "manifest_digest")
+    payload["manifest_digest"] = digest_payload(payload, "manifest_digest")
 
 
 def test_combat_depth_bounds_are_positive_integers(tmp_path: Path) -> None:
@@ -69,7 +77,6 @@ def test_depth_two_generation_is_byte_identical_and_actionable(tmp_path: Path) -
         "hp_zero_player_turn",
         "unmodeled_public_content",
         "duplicate_root",
-        "cross_split_provenance",
         "withheld_audited_split",
         "generation_error",
     }
@@ -117,7 +124,7 @@ def test_root_manifest_rejects_unknown_fields_and_missing_combat_depth(tmp_path:
     guessed = dict(original)
     guessed["manifest_version"] = 5
     _resign_root_manifest(guessed)
-    path.write_bytes(data_module._canonical_bytes(guessed))
+    path.write_bytes(canonical_bytes(guessed))
     with pytest.raises(ValueError, match="unsupported or malformed"):
         load_root_manifest(path)
 
@@ -217,14 +224,14 @@ def test_root_manifest_rejects_non_int_versions_and_cross_schema_generators(
         payload = dict(original)
         payload["manifest_version"] = version
         _resign_root_manifest(payload)
-        path.write_bytes(data_module._canonical_bytes(payload))
+        path.write_bytes(canonical_bytes(payload))
         with pytest.raises(ValueError, match="unsupported or malformed"):
             load_root_manifest(path)
 
     wrong_version = dict(original)
     wrong_version["generator_version"] = "sha256_action_policy_v3"
     _resign_root_manifest(wrong_version)
-    path.write_bytes(data_module._canonical_bytes(wrong_version))
+    path.write_bytes(canonical_bytes(wrong_version))
     with pytest.raises(ValueError, match="generator identity does not match schema version"):
         load_root_manifest(path)
 
@@ -237,10 +244,20 @@ def test_root_manifest_rejects_non_int_versions_and_cross_schema_generators(
 
 
 def _run_kind_combat_decision(actions: tuple[Action, ...]) -> Decision:
-    context = FairContext(ascension=0, act=1, floor=1, gold=99)
+    context = FairRunContext(
+        ascension=0,
+        act=1,
+        floor=1,
+        gold=99,
+        player_hp=80,
+        player_max_hp=80,
+        deck=(),
+        relics=(),
+        potion_slots=(),
+    )
     observation = FairRunObservation(
         schema_version=1,
-        phase="combat",
+        phase="idle",
         kind="map",
         context=context,
         screen={},
@@ -298,12 +315,13 @@ def test_earlier_non_capturable_combat_with_actions_is_not_aborted() -> None:
 
 
 def test_zero_hp_waiting_for_player_is_not_a_capturable_root() -> None:
-    state = RunEnv.combat_fixture().full_state()
-    combat = cast(dict[str, object], state["combat"])
-    player = cast(dict[str, object], combat["player"])
-    player["hp"] = 0
-    state["player_hp"] = 0
-    env = RunEnv.from_state_json_for_debugging(json.dumps(state))
+    def mutate(state: dict[str, object]) -> None:
+        combat = cast(dict[str, object], state["combat"])
+        player = cast(dict[str, object], combat["player"])
+        player["hp"] = 0
+        state["player_hp"] = 0
+
+    env = _from_mutated_combat_snapshot(mutate)
     decision = env.decision()
     assert isinstance(decision.observation, FairCombatObservation)
     assert decision.observation.phase == "waiting_for_player"
@@ -320,7 +338,7 @@ def test_zero_hp_waiting_for_player_is_not_a_capturable_root() -> None:
     )
 
 
-def test_load_root_manifest_accepts_historical_zero_hp_root(tmp_path: Path) -> None:
+def test_load_root_manifest_rejects_zero_hp_waiting_for_player_root(tmp_path: Path) -> None:
     generate_legal_roots(tmp_path / "roots", ["BEAMCLONE0"], max_run_steps=128)
     manifest_path = tmp_path / "roots/root-manifest.json"
     payload = json.loads(manifest_path.read_text())
@@ -332,8 +350,8 @@ def test_load_root_manifest_accepts_historical_zero_hp_root(tmp_path: Path) -> N
     player = cast(dict[str, object], combat["player"])
     player["hp"] = 0
     state["player_hp"] = 0
-    encoded = data_module._canonical_bytes(snapshot)
-    new_id = data_module._sha256_bytes(encoded)
+    encoded = canonical_bytes(snapshot)
+    new_id = sha256_bytes(encoded)
     relative_path = f"{root['split']}/roots/{new_id}.json"
     new_path = tmp_path / "roots" / relative_path
     new_path.write_bytes(encoded)
@@ -342,10 +360,6 @@ def test_load_root_manifest_accepts_historical_zero_hp_root(tmp_path: Path) -> N
     root["root_id"] = new_id
     root["relative_path"] = relative_path
     _resign_root_manifest(payload)
-    manifest_path.write_bytes(data_module._canonical_bytes(payload))
-    loaded = load_root_manifest(manifest_path)
-    assert loaded.roots[0].root_id == new_id
-    restored = RunEnv.from_snapshot(new_path.read_text())
-    decision = restored.decision()
-    assert isinstance(decision.observation, FairCombatObservation)
-    assert decision.observation.player.hp == 0
+    manifest_path.write_bytes(canonical_bytes(payload))
+    with pytest.raises(ValueError, match="actionable ongoing combat"):
+        load_root_manifest(manifest_path)

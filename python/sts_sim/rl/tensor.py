@@ -6,8 +6,6 @@ representation and are deliberately not a serialized simulator contract.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import math
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
@@ -21,8 +19,8 @@ from ..content import CARD_CATALOGUE, CARD_DEFINITIONS
 from ..fair import (
     FairCard,
     FairCardDynamicValues,
+    FairCombatContext,
     FairCombatObservation,
-    FairContext,
     FairCounter,
     FairHandCard,
     FairMonster,
@@ -38,6 +36,7 @@ from ..fair import (
     FairSelectionOption,
 )
 from ..run import ActionDescriptor
+from .provenance import canonical_bytes, sha256_bytes
 
 PAD: Final = "<pad>"
 UNK: Final = "<unk>"
@@ -157,16 +156,11 @@ _FIELD_COVERAGE_DATA: dict[type[object], dict[str, tuple[Disposition, str]]] = {
         "selection": ("encoded", "selection and option tokens"),
         "public_counters": ("encoded", "global counter features"),
     },
-    FairContext: {
+    FairCombatContext: {
         "ascension": ("encoded", "global scalar"),
         "act": ("encoded", "global scalar"),
         "floor": ("encoded", "global scalar"),
         "gold": ("encoded", "global scalar"),
-        "player_hp": ("ignored", "run-screen compatibility field absent in combat context"),
-        "player_max_hp": ("ignored", "run-screen compatibility field absent in combat context"),
-        "deck": ("ignored", "run-screen compatibility field absent in combat context"),
-        "relics": ("ignored", "run-screen compatibility field absent in combat context"),
-        "potion_slots": ("ignored", "run-screen compatibility field absent in combat context"),
     },
     FairPlayer: {
         "hp": ("encoded", "scalar"),
@@ -324,13 +318,8 @@ class Vocabularies:
             raise ValueError(f"invalid vocabulary namespaces: missing={missing}, extra={extra}")
         frozen = MappingProxyType(dict(self.namespaces))
         object.__setattr__(self, "namespaces", frozen)
-        payload = json.dumps(
-            {key: vocab.to_list() for key, vocab in sorted(frozen.items())},
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        ).encode("utf-8")
-        object.__setattr__(self, "_fingerprint", hashlib.sha256(payload).hexdigest())
+        payload = canonical_bytes({key: vocab.to_list() for key, vocab in sorted(frozen.items())})
+        object.__setattr__(self, "_fingerprint", sha256_bytes(payload))
 
     def encode(self, namespace: str, value: str | None) -> tuple[int, bool]:
         return self.namespaces[namespace].encode(value)
@@ -675,8 +664,7 @@ def encoder_contract_digest(vocabularies: Vocabularies) -> str:
         "action_specs": {key: list(value) for key, value in sorted(_ACTION_SPECS.items())},
         "vocabulary_fingerprint": vocabularies.fingerprint,
     }
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(canonical).hexdigest()
+    return sha256_bytes(canonical_bytes(payload))
 
 
 def _validate_actions(actions: Sequence[ActionDescriptor]) -> None:
@@ -732,16 +720,6 @@ def tensorize_combat(
     _validate_actions(actions)
     if observation.schema_version not in KNOWN_OBSERVATION_SCHEMA_VERSIONS:
         raise ValueError(f"unsupported fair observation schema: {observation.schema_version}")
-    if any(
-        (
-            observation.context.player_hp is not None,
-            observation.context.player_max_hp is not None,
-            observation.context.deck,
-            observation.context.relics,
-            observation.context.potion_slots,
-        )
-    ):
-        raise ValueError("combat context contains run-screen compatibility fields")
     encoder = _Encoder(vocabularies)
     global_index = encoder.add_entity(
         "global",

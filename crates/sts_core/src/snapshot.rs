@@ -1,14 +1,20 @@
-use crate::{CombatState, RunState, SimError, SimResult};
-use serde::{Deserialize, Serialize};
+use crate::{RunState, SimError, SimResult};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use std::{error::Error, fmt};
 
 pub const SNAPSHOT_SCHEMA_VERSION: u32 = 8;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Snapshot<T> {
     pub schema_version: u32,
     pub state: T,
+}
+
+#[derive(Deserialize)]
+struct SnapshotDocument<T> {
+    schema_version: u32,
+    state: T,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -98,76 +104,47 @@ fn require_current_schema(version: u32) -> Result<(), SnapshotRestoreError> {
     }
 }
 
-const RETIRED_COMBAT_DECISION_FIELDS: [&str; 10] = [
-    "potion_card_reward",
-    "potion_card_reward_kind",
-    "toolbox_card_reward",
-    "discovery_card_reward",
-    "discovery_source_card",
-    "hand_select",
-    "pending_after_hand_select_actions",
-    "draw_select",
-    "discard_select",
-    "exhaust_select",
-];
-
-fn reject_retired_combat_decision_fields(combat: &Value) -> Result<(), SnapshotRestoreError> {
-    let object = combat
-        .as_object()
-        .ok_or(SnapshotRestoreError::InvalidDocument(
-            "combat state must be an object",
-        ))?;
-    if RETIRED_COMBAT_DECISION_FIELDS
-        .iter()
-        .any(|field| object.contains_key(*field))
-    {
+fn require_canonical_encoded_snapshot<T: Serialize>(
+    original: &Value,
+    snapshot: &Snapshot<T>,
+) -> Result<(), SnapshotRestoreError> {
+    // Compare JSON documents, not `to_value`: serde_json widens f32 to f64 in
+    // `Value`, which disagrees with the decimal text the serializer emits for
+    // current `EventRoomChance` snapshots.
+    let encoded: Value = serde_json::from_str(&serde_json::to_string(snapshot)?)?;
+    if &encoded != original {
         return Err(SnapshotRestoreError::InvalidDocument(
-            "current snapshot contains retired combat decision fields",
+            "snapshot is not canonical for the current schema",
         ));
     }
     Ok(())
 }
 
-pub fn restore_combat_snapshot_json(
-    json: &str,
-) -> Result<Snapshot<CombatState>, SnapshotRestoreError> {
-    let value: Value = serde_json::from_str(json)?;
-    require_current_schema(schema_version(&value)?)?;
-    if let Some(state) = value.get("state") {
-        reject_retired_combat_decision_fields(state)?;
-    }
-    let snapshot: Snapshot<CombatState> = serde_json::from_value(value)?;
-    snapshot
-        .state
-        .validate()
-        .map_err(SnapshotRestoreError::InvalidState)?;
-    if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION {
-        return Err(SnapshotRestoreError::UnsupportedSchemaVersion(
-            snapshot.schema_version,
-        ));
-    }
-    Ok(snapshot)
+pub fn restore_run_snapshot_json(json: &str) -> Result<Snapshot<RunState>, SnapshotRestoreError> {
+    restore_snapshot_document(json, RunState::validate)
 }
 
-pub fn restore_run_snapshot_json(json: &str) -> Result<Snapshot<RunState>, SnapshotRestoreError> {
-    let value: Value = serde_json::from_str(json)?;
-    require_current_schema(schema_version(&value)?)?;
-    if let Some(combat) = value
-        .pointer("/state/combat")
-        .filter(|combat| !combat.is_null())
-    {
-        reject_retired_combat_decision_fields(combat)?;
-    }
-    let snapshot: Snapshot<RunState> = serde_json::from_value(value)?;
-    snapshot
-        .state
-        .validate()
-        .map_err(SnapshotRestoreError::InvalidState)?;
-    if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION {
+fn restore_snapshot_document<T>(
+    json: &str,
+    validate: impl FnOnce(&T) -> SimResult<()>,
+) -> Result<Snapshot<T>, SnapshotRestoreError>
+where
+    T: Serialize + DeserializeOwned,
+{
+    let original: Value = serde_json::from_str(json)?;
+    require_current_schema(schema_version(&original)?)?;
+    let document: SnapshotDocument<T> = serde_json::from_value(original.clone())?;
+    validate(&document.state).map_err(SnapshotRestoreError::InvalidState)?;
+    if document.schema_version != SNAPSHOT_SCHEMA_VERSION {
         return Err(SnapshotRestoreError::UnsupportedSchemaVersion(
-            snapshot.schema_version,
+            document.schema_version,
         ));
     }
+    let snapshot = Snapshot {
+        schema_version: document.schema_version,
+        state: document.state,
+    };
+    require_canonical_encoded_snapshot(&original, &snapshot)?;
     Ok(snapshot)
 }
 
@@ -186,8 +163,16 @@ fn stable_hash64(bytes: &[u8]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CardRewardFlow, Relic, RewardContinuation, RewardScreen, RoomKind, RunPhase};
+    use crate::{
+        CardRewardFlow, CombatState, Relic, RewardContinuation, RewardScreen, RoomKind, RunPhase,
+    };
     use serde_json::{json, Value};
+
+    fn restore_combat_snapshot_json(
+        json: &str,
+    ) -> Result<Snapshot<CombatState>, SnapshotRestoreError> {
+        restore_snapshot_document(json, CombatState::validate)
+    }
 
     #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     struct EmptySnapshotState {}
@@ -257,7 +242,7 @@ mod tests {
         let before = snapshot.hash().expect("snapshot hashes");
         let json = snapshot.canonical_json().expect("snapshot serializes");
         let restored: Snapshot<EmptySnapshotState> =
-            serde_json::from_str(&json).expect("snapshot deserializes");
+            restore_snapshot_document(&json, |_| Ok(())).expect("snapshot deserializes");
 
         assert_eq!(restored, snapshot);
         assert_eq!(restored.hash().expect("restored hashes"), before);
@@ -418,6 +403,99 @@ mod tests {
         .expect_err("current snapshots reject retired decision fields");
 
         assert!(matches!(error, SnapshotRestoreError::InvalidDocument(_)));
+    }
+
+    #[test]
+    fn current_snapshot_rejects_unknown_nested_fields() {
+        let combat = CombatState::initial_fixture();
+        let mut value = serde_json::to_value(Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: combat,
+        })
+        .expect("combat snapshot serializes");
+        value["state"]["future_hidden_field"] = json!(1);
+
+        let error = restore_combat_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect_err("unknown nested snapshot fields are rejected");
+        assert!(matches!(
+            error,
+            SnapshotRestoreError::InvalidDocument(_) | SnapshotRestoreError::Json(_)
+        ));
+    }
+
+    #[test]
+    fn current_snapshot_rejects_explicit_skipped_defaults() {
+        let combat = CombatState::initial_fixture();
+        let mut value = serde_json::to_value(Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: combat,
+        })
+        .expect("combat snapshot serializes");
+        value["state"]["mark_of_bloom"] = json!(false);
+
+        let error = restore_combat_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect_err("explicit skipped defaults are noncanonical");
+        assert!(matches!(error, SnapshotRestoreError::InvalidDocument(_)));
+    }
+
+    #[test]
+    fn current_snapshot_rejects_potion_name_aliases() {
+        let run = RunState::seeded_ironclad(7, 0);
+        let mut value = serde_json::to_value(Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: run,
+        })
+        .expect("run snapshot serializes");
+        value["state"]["potions"] = json!(["Gamble"]);
+
+        let error = restore_run_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect_err("potion aliases are not current schema");
+        assert!(matches!(
+            error,
+            SnapshotRestoreError::InvalidDocument(_) | SnapshotRestoreError::Json(_)
+        ));
+    }
+
+    #[test]
+    fn current_snapshot_rejects_retired_elixir_fields() {
+        let combat = CombatState::initial_fixture();
+        let mut value = serde_json::to_value(Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: combat,
+        })
+        .expect("combat snapshot serializes");
+        value["state"]["pending_elixir_exhaust_card_ids"] = json!([1]);
+        value["state"]["pending_elixir_exhaust_turns_remaining"] = json!(1);
+
+        let error = restore_combat_snapshot_json(
+            &serde_json::to_string(&value).expect("snapshot value serializes"),
+        )
+        .expect_err("retired elixir snapshot fields are rejected");
+        assert!(matches!(
+            error,
+            SnapshotRestoreError::InvalidDocument(_) | SnapshotRestoreError::Json(_)
+        ));
+    }
+
+    #[test]
+    fn combat_fixture_snapshot_is_canonical_for_current_schema() {
+        let combat = CombatState::initial_fixture();
+        let snapshot = Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: combat,
+        };
+        let json = snapshot
+            .canonical_json()
+            .expect("combat fixture snapshot serializes");
+        let restored =
+            restore_combat_snapshot_json(&json).expect("canonical combat fixture restores");
+        assert_eq!(restored, snapshot);
     }
 
     #[test]
@@ -593,16 +671,16 @@ mod tests {
             crate::EventAction::Choose { choice_index: 0 },
         )
         .expect("Falling intro opens card-type choices");
-        let value = serde_json::to_value(Snapshot {
+        let snapshot = Snapshot {
             schema_version: SNAPSHOT_SCHEMA_VERSION,
             state: intro.clone(),
-        })
-        .expect("run snapshot serializes");
+        };
+        let json = snapshot
+            .canonical_json()
+            .expect("Falling snapshot serializes");
 
-        let restored = restore_run_snapshot_json(
-            &serde_json::to_string(&value).expect("snapshot value serializes"),
-        )
-        .expect("Falling preselection snapshot restores");
+        let restored =
+            restore_run_snapshot_json(&json).expect("Falling preselection snapshot restores");
         assert_eq!(restored.state, intro);
     }
 

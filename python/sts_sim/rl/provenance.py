@@ -125,7 +125,7 @@ def _current_manifest(repo: Path, paths: bytes) -> bytes:
             content = os.fsencode(os.readlink(path))
         elif stat.S_ISREG(metadata.st_mode):
             mode = b"100755" if metadata.st_mode & 0o111 else b"100644"
-            content = path.read_bytes()
+            content = read_regular_file_bytes(path)
         else:
             raise ValueError(f"cannot attest unsupported file type: {relative}")
         payload.extend(mode)
@@ -187,5 +187,58 @@ def capture_repository_version(
     return RepositoryVersion(sha, False, digest)
 
 
+def read_regular_file_bytes(path: Path) -> bytes:
+    """Read one regular file without following any path component."""
+
+    parts = path.parts
+    if not parts:
+        raise ValueError("refusing to read scientific artifact through a non-regular file: empty path")
+    directory_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY | os.O_CLOEXEC
+    file_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+    if path.is_absolute():
+        try:
+            current = os.open("/", directory_flags)
+        except OSError as error:
+            raise ValueError(
+                f"refusing to read scientific artifact through a non-regular file: {path}"
+            ) from error
+        components = parts[1:]
+    else:
+        try:
+            current = os.open(".", directory_flags)
+        except OSError as error:
+            raise ValueError(
+                f"refusing to read scientific artifact through a non-regular file: {path}"
+            ) from error
+        components = parts
+    if not components:
+        os.close(current)
+        raise ValueError(
+            f"refusing to read scientific artifact through a non-regular file: {path}"
+        )
+    try:
+        for index, component in enumerate(components):
+            flags = file_flags if index == len(components) - 1 else directory_flags
+            try:
+                nxt = os.open(os.fsencode(component), flags, dir_fd=current)
+            except OSError as error:
+                raise ValueError(
+                    f"refusing to read scientific artifact through a non-regular file: {path}"
+                ) from error
+            os.close(current)
+            current = nxt
+        info = os.fstat(current)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError(
+                f"refusing to read scientific artifact through a non-regular file: {path}"
+            )
+        with os.fdopen(current, "rb") as handle:
+            current = -1
+            return handle.read()
+    finally:
+        if current >= 0:
+            os.close(current)
+
+
 def file_digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return sha256_bytes(read_regular_file_bytes(path))

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
-from collections.abc import Sequence
+import math
+import random
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
+import numpy as np
 import pytest
 import torch
 
@@ -37,7 +41,15 @@ from sts_sim.rl import (
     read_jsonl,
     train_beam_clone,
 )
+from sts_sim.rl.provenance import canonical_bytes, digest_payload
 from sts_sim.rl.records import BEAM_TEACHER_NAME, RECORD_VERSION, canonical_episode_id
+from sts_sim.rl.training import load_training_checkpoint
+
+
+def _from_mutated_combat_snapshot(mutate_state: Callable[[dict[str, object]], None]) -> RunEnv:
+    payload = json.loads(RunEnv.combat_fixture().snapshot().json)
+    mutate_state(cast(dict[str, object], payload["state"]))
+    return RunEnv.from_snapshot(json.dumps(payload))
 
 
 def test_reward_is_bounded_survival_dominant_and_masks_truncation() -> None:
@@ -59,12 +71,12 @@ def test_reward_is_bounded_survival_dominant_and_masks_truncation() -> None:
 
 
 def test_native_episode_classifies_terminal_before_next_model_decision() -> None:
-    env = RunEnv.combat_fixture()
-    state = env.full_state()
-    combat = cast(dict[str, object], state["combat"])
-    monsters = cast(list[dict[str, object]], combat["monsters"])
-    monsters[0]["hp"] = 1
-    terminal = RunEnv.from_state_json_for_debugging(__import__("json").dumps(state))
+    def mutate(state: dict[str, object]) -> None:
+        combat = cast(dict[str, object], state["combat"])
+        monsters = cast(list[dict[str, object]], combat["monsters"])
+        monsters[0]["hp"] = 1
+
+    terminal = _from_mutated_combat_snapshot(mutate)
     payload = terminal.beam_clone_episode_payload(
         depth=2, width=4, transition_budget=100, max_decisions=1, max_player_turns=1
     )
@@ -80,13 +92,14 @@ def test_native_episode_classifies_terminal_before_next_model_decision() -> None
 def test_native_episode_classifies_restored_terminal_roots_before_search_and_not_cleanup_as_win() -> (
     None
 ):
-    state = RunEnv.combat_fixture().full_state()
-    combat = cast(dict[str, object], state["combat"])
-    player = cast(dict[str, object], combat["player"])
-    combat["phase"] = "Lost"
-    player["hp"] = 0
-    state["player_hp"] = 0
-    lost = RunEnv.from_state_json_for_debugging(json.dumps(state))
+    def mutate_lost(state: dict[str, object]) -> None:
+        combat = cast(dict[str, object], state["combat"])
+        player = cast(dict[str, object], combat["player"])
+        combat["phase"] = "Lost"
+        player["hp"] = 0
+        state["player_hp"] = 0
+
+    lost = _from_mutated_combat_snapshot(mutate_lost)
     payload = lost.beam_clone_episode_payload(
         depth=2, width=4, transition_budget=100, max_decisions=1, max_player_turns=1
     )
@@ -97,13 +110,14 @@ def test_native_episode_classifies_restored_terminal_roots_before_search_and_not
     assert cast(list[object], payload["steps"]) == []
     assert lost.step(lost.decision().actions[0]).combat_outcome is None
 
-    won_state = RunEnv.combat_fixture().full_state()
-    won_combat = cast(dict[str, object], won_state["combat"])
-    won_monsters = cast(list[dict[str, object]], won_combat["monsters"])
-    won_combat["phase"] = "Won"
-    won_monsters[0]["hp"] = 0
-    won_monsters[0]["alive"] = False
-    won = RunEnv.from_state_json_for_debugging(json.dumps(won_state))
+    def mutate_won(state: dict[str, object]) -> None:
+        combat = cast(dict[str, object], state["combat"])
+        monsters = cast(list[dict[str, object]], combat["monsters"])
+        combat["phase"] = "Won"
+        monsters[0]["hp"] = 0
+        monsters[0]["alive"] = False
+
+    won = _from_mutated_combat_snapshot(mutate_won)
     won_payload = won.beam_clone_episode_payload(
         depth=2, width=4, transition_budget=100, max_decisions=1, max_player_turns=1
     )
@@ -126,24 +140,25 @@ def test_native_episode_uses_explicit_truncation_outcome() -> None:
 
 
 def test_native_episode_counts_conclude_as_a_forced_turn_source() -> None:
-    state = RunEnv.combat_fixture().full_state()
-    combat = cast(dict[str, object], state["combat"])
-    player = cast(dict[str, object], combat["player"])
-    player["energy"] = 3
-    monsters = cast(list[dict[str, object]], combat["monsters"])
-    monsters[0]["hp"] = 100
-    monsters[0]["max_hp"] = 100
-    monsters[0]["intent"] = "Stun"
-    piles = cast(dict[str, object], combat["piles"])
-    piles["hand"] = [
-        {
-            "id": 100,
-            "content_id": 1_915_755_234_499,
-            "temp_cost": None,
-            "combat_only": False,
-        }
-    ]
-    env = RunEnv.from_state_json_for_debugging(json.dumps(state))
+    def mutate(state: dict[str, object]) -> None:
+        combat = cast(dict[str, object], state["combat"])
+        player = cast(dict[str, object], combat["player"])
+        player["energy"] = 3
+        monsters = cast(list[dict[str, object]], combat["monsters"])
+        monsters[0]["hp"] = 100
+        monsters[0]["max_hp"] = 100
+        monsters[0]["intent"] = "Stun"
+        piles = cast(dict[str, object], combat["piles"])
+        piles["hand"] = [
+            {
+                "id": 100,
+                "content_id": 1_915_755_234_499,
+                "temp_cost": None,
+                "combat_only": False,
+            }
+        ]
+
+    env = _from_mutated_combat_snapshot(mutate)
     payload = env.beam_clone_episode_payload(
         depth=2, width=4, transition_budget=100, max_decisions=1, max_player_turns=100
     )
@@ -197,7 +212,7 @@ def _fail_native_episodes(monkeypatch: pytest.MonkeyPatch, failing_root_ids: set
 
 
 def _resign_dataset_manifest(payload: dict[str, object]) -> None:
-    payload["manifest_digest"] = data_module._digest_payload(payload, "manifest_digest")
+    payload["manifest_digest"] = digest_payload(payload, "manifest_digest")
 
 
 def _resign_root_manifest(payload: dict[str, object]) -> None:
@@ -384,7 +399,7 @@ def test_truncated_value_rows_are_masked_from_loss() -> None:
     }
     root_id = hashlib.sha256(b"truncated-root").hexdigest()
     reward_digest = COMBAT_PROXY_V1.digest
-    masked = SymbolicTrainingRecord(
+    masked = SymbolicTrainingRecord.create(
         observation=observation,
         actions=actions,
         chosen_action_index=0,
@@ -408,7 +423,6 @@ def test_truncated_value_rows_are_masked_from_loss() -> None:
         episode_id=canonical_episode_id(root_id, search_config, reward_digest),
         decision_index=0,
         value_target_mask=False,
-        record_id=None,
         search_root_mean_value=None,
     )
     builder = VocabularyBuilder()
@@ -492,7 +506,9 @@ def _assert_nested_equal(left: object, right: object) -> None:
         assert left == right
 
 
-def test_training_resume_and_development_report_are_deterministic(tmp_path: Path) -> None:
+def test_training_resume_and_development_report_are_deterministic(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     roots = generate_legal_roots(
         tmp_path / "roots", ["BEAMCLONE0", "BEAMCLONE12"], max_run_steps=128
     )
@@ -538,8 +554,19 @@ def test_training_resume_and_development_report_are_deterministic(tmp_path: Path
         stop_after_steps=2,
     )
     train_beam_clone(tmp_path / "train/dataset-manifest.json", resumed, config, resume=True)
-    left = torch.load(uninterrupted, map_location="cpu", weights_only=False)
-    right = torch.load(resumed, map_location="cpu", weights_only=False)
+    original_read = training_module._read_regular_file_bytes
+    reads: list[Path] = []
+
+    def counting_read(path: Path) -> bytes:
+        reads.append(path)
+        return original_read(path)
+
+    monkeypatch.setattr(training_module, "_read_regular_file_bytes", counting_read)
+    left, _, left_digest = load_training_checkpoint(uninterrupted)
+    assert reads == [uninterrupted]
+    right, _, right_digest = load_training_checkpoint(resumed)
+    assert left_digest == hashlib.sha256(uninterrupted.read_bytes()).hexdigest()
+    assert right_digest == hashlib.sha256(resumed.read_bytes()).hexdigest()
     for key in (
         "model_state",
         "optimizer_state",
@@ -947,12 +974,12 @@ def test_dataset_loader_rejects_policy_chosen_action_contradiction(tmp_path: Pat
     )
     shard = tmp_path / "data/train/train.jsonl"
     payloads = [json.loads(line) for line in shard.read_text().splitlines()]
-    first = payloads[0]
-    chosen = cast(int, first["chosen_action_index"])
-    first["teacher_visit_counts"] = [0] * len(first["actions"])
-    first["teacher_visit_counts"][chosen] = 2
-    first["record_id"] = None
-    changed = SymbolicTrainingRecord.from_dict(first)
+    original = SymbolicTrainingRecord.from_dict(payloads[0])
+    counts = [0] * len(original.actions)
+    counts[original.chosen_action_index] = 2
+    changed = SymbolicTrainingRecord.create_from(
+        original, teacher_visit_counts=tuple(counts)
+    )
     payloads[0] = changed.to_dict()
     content = b"".join(
         json.dumps(item, sort_keys=True, separators=(",", ":")).encode() + b"\n"
@@ -1009,11 +1036,10 @@ def test_dataset_loader_recomputes_value_targets_and_record_identity_is_substant
     )
     shard = tmp_path / "data/train/train.jsonl"
     payloads = [json.loads(line) for line in shard.read_text().splitlines()]
-    original_id = payloads[0]["record_id"]
-    assert payloads[0]["value_target_mask"] is True
-    payloads[0]["target_value"] = 0.0
-    payloads[0]["record_id"] = None
-    changed = SymbolicTrainingRecord.from_dict(payloads[0])
+    original = SymbolicTrainingRecord.from_dict(payloads[0])
+    original_id = original.record_id
+    assert original.value_target_mask is True
+    changed = SymbolicTrainingRecord.create_from(original, target_value=0.0)
     assert changed.record_id != original_id
     payloads[0] = changed.to_dict()
     content = b"".join(
@@ -1052,3 +1078,170 @@ def test_record_rejects_forbidden_search_state_keys(tmp_path: Path) -> None:
     payload["search_config"]["snapshot"] = {"rng_state": "private"}
     with pytest.raises(ValueError, match="search config"):
         SymbolicTrainingRecord.from_dict(payload)
+
+
+def test_numpy_rng_payload_round_trips_mt19937_get_state_and_draws() -> None:
+    np.random.seed(12345)
+    original = np.random.get_state()
+    payload = training_module._numpy_rng_payload(original)
+    restored = training_module._numpy_rng_from_payload(payload)
+    assert restored[0] == original[0]
+    assert restored[1].dtype == np.dtype(np.uint32)
+    assert restored[1].shape == (624,)
+    assert np.array_equal(restored[1], original[1])
+    np.random.set_state(original)
+    first = np.random.random(16)
+    np.random.set_state(restored)
+    second = np.random.random(16)
+    assert np.array_equal(first, second)
+
+
+def test_numpy_rng_payload_rejects_non_uint32_key() -> None:
+    np.random.seed(1)
+    state = np.random.get_state()
+    signed = (state[0], state[1].astype(np.int32), state[2], state[3], state[4])
+    with pytest.raises(TypeError, match="uint32"):
+        training_module._numpy_rng_payload(signed)
+
+
+def test_train_and_eval_reuse_authenticated_named_root() -> None:
+    assert "load_root_manifest(" not in inspect.getsource(train_beam_clone)
+    assert "load_root_manifest(" not in inspect.getsource(evaluate_beam_clone)
+
+
+def test_atomic_torch_save_refuses_symlink_parents_and_replaces_regular_files(
+    tmp_path: Path,
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked = tmp_path / "linked"
+    linked.symlink_to(outside)
+    payload: dict[str, object] = {"checkpoint_format": 5, "step": 1}
+    with pytest.raises(ValueError, match="symlink parent"):
+        training_module._atomic_torch_save(linked / "checkpoint.pt", payload)
+    assert not (outside / "checkpoint.pt").exists()
+
+    path = tmp_path / "checkpoint.pt"
+    training_module._atomic_torch_save(path, payload)
+    first = path.read_bytes()
+    updated: dict[str, object] = {"checkpoint_format": 5, "step": 2}
+    training_module._atomic_torch_save(path, updated)
+    assert path.is_file() and not path.is_symlink()
+    assert path.read_bytes() != first
+
+    alias = tmp_path / "alias.pt"
+    alias.symlink_to(path)
+    with pytest.raises(ValueError, match="through a symlink"):
+        training_module._atomic_torch_save(alias, payload)
+
+
+def test_atomic_torch_save_refuses_swapped_intermediate_parent(tmp_path: Path) -> None:
+    real = tmp_path / "real"
+    (real / "nested").mkdir(parents=True)
+    payload: dict[str, object] = {"checkpoint_format": 5, "step": 1}
+    training_module._atomic_torch_save(real / "nested" / "checkpoint.pt", payload)
+    moved = tmp_path / "moved"
+    real.rename(moved)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    real.symlink_to(outside)
+    with pytest.raises(ValueError, match="symlink parent"):
+        training_module._atomic_torch_save(real / "nested" / "other.pt", payload)
+    assert not (outside / "nested" / "other.pt").exists()
+
+
+def test_checkpoint_rng_payloads_round_trip_and_reject_malformed() -> None:
+    rng = random.Random(7)
+    python_payload = training_module._python_rng_payload(rng.getstate())
+    restored_python = training_module._python_rng_from_payload(python_payload)
+    probe = random.Random()
+    probe.setstate(restored_python)
+    assert probe.random() == rng.random()
+
+    malformed_python = list(python_payload)
+    malformed_python[0] = 2
+    with pytest.raises(ValueError, match="python RNG version"):
+        training_module._python_rng_from_payload(malformed_python)
+    mt_state = python_payload[1]
+    assert type(mt_state) is list
+    truncated = [3, mt_state[:-1], None]
+    with pytest.raises(ValueError, match="layout"):
+        training_module._python_rng_from_payload(truncated)
+    inf_gauss = [3, python_payload[1], math.inf]
+    with pytest.raises(ValueError, match="finite"):
+        training_module._python_rng_from_payload(inf_gauss)
+
+    np.random.seed(11)
+    original_numpy = np.random.get_state()
+    numpy_payload = training_module._numpy_rng_payload(original_numpy)
+    restored_numpy = training_module._numpy_rng_from_payload(numpy_payload)
+    first = np.random.RandomState()
+    first.set_state(original_numpy)
+    second = np.random.RandomState()
+    second.set_state(restored_numpy)
+    assert np.array_equal(first.random(8), second.random(8))
+    pcg = dict(numpy_payload)
+    pcg["bit_generator"] = "PCG64"
+    with pytest.raises(ValueError, match="MT19937"):
+        training_module._numpy_rng_from_payload(pcg)
+    bad_pos = dict(numpy_payload)
+    bad_pos["pos"] = 625
+    with pytest.raises(ValueError, match="position"):
+        training_module._numpy_rng_from_payload(bad_pos)
+    bad_gauss = dict(numpy_payload)
+    bad_gauss["has_gauss"] = 2
+    with pytest.raises(ValueError, match="has_gauss"):
+        training_module._numpy_rng_from_payload(bad_gauss)
+    inf_cached = dict(numpy_payload)
+    inf_cached["cached_gaussian"] = math.inf
+    with pytest.raises(ValueError, match="finite"):
+        training_module._numpy_rng_from_payload(inf_cached)
+
+    torch.manual_seed(13)
+    torch_state = torch.get_rng_state()
+    restored_torch = training_module._torch_rng_from_payload(torch_state)
+    left = torch.Generator(device="cpu")
+    left.set_state(torch_state)
+    right = torch.Generator(device="cpu")
+    right.set_state(restored_torch)
+    assert torch.equal(
+        torch.randint(0, 10_000, (8,), generator=left),
+        torch.randint(0, 10_000, (8,), generator=right),
+    )
+    with pytest.raises(ValueError, match="1-D"):
+        training_module._torch_rng_from_payload(torch_state.reshape(1, -1))
+    with pytest.raises(ValueError, match="uint8"):
+        training_module._torch_rng_from_payload(torch_state.to(torch.int16))
+    with pytest.raises(ValueError, match="contiguous"):
+        training_module._torch_rng_from_payload(torch_state[::2])
+
+
+def test_restore_labeled_root_revalidates_contained_snapshot_bytes(tmp_path: Path) -> None:
+    snapshot = json.loads(RunEnv.combat_fixture().snapshot().json)
+    canonical = canonical_bytes(snapshot)
+    root_id = hashlib.sha256(canonical).hexdigest()
+    relative = f"train/roots/{root_id}.json"
+    (tmp_path / relative).parent.mkdir(parents=True)
+    (tmp_path / relative).write_bytes(canonical)
+    root = data_module.RootEntry(
+        root_id,
+        "train",
+        "0" * 64,
+        relative,
+        ("sim-seed:x",),
+        ("x",),
+    )
+    restored = data_module._restore_labeled_root(tmp_path, root)
+    assert isinstance(restored.decision().observation, FairCombatObservation)
+    (tmp_path / relative).write_bytes(canonical + b"\n")
+    with pytest.raises(ValueError, match="not canonical"):
+        data_module._restore_labeled_root(tmp_path, root)
+
+
+def test_dataset_inventory_rejects_undeclared_files(tmp_path: Path) -> None:
+    (tmp_path / "dataset-manifest.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "extra.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="undeclared dataset input"):
+        data_module._reject_undeclared_dataset_inputs(
+            tmp_path, frozenset({"dataset-manifest.json"})
+        )

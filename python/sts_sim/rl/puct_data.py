@@ -2,23 +2,21 @@
 
 from __future__ import annotations
 
-import hashlib
 import math
 from pathlib import Path
 from typing import Any, cast
 
-import torch
-
-from ..run import RunEnv
 from .data import (
     _NATIVE_EPISODE_ERROR,
     _SOURCE_KIND,
     DatasetExclusion,
     DatasetManifest,
     DatasetRootMembership,
+    _package_repository_root,
     _publish_dataset,
     _require_empty_output_dir,
     _require_loadable_split,
+    _restore_labeled_root,
     load_root_manifest,
 )
 from .model import CombatModelConfig, FairCombatPolicyValueNet
@@ -48,7 +46,7 @@ from .training import (
     _model_state_digest,
     _runtime_identity,
     _source_digest,
-    _validate_checkpoint_envelope,
+    load_training_checkpoint,
 )
 
 
@@ -98,9 +96,7 @@ def _puct_search_config(
 def _load_teacher_checkpoint(
     checkpoint_path: Path,
 ) -> tuple[FairCombatPolicyValueNet, Vocabularies, dict[str, Any]]:
-    payload, stored_config = _validate_checkpoint_envelope(
-        torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    )
+    payload, stored_config, file_digest = load_training_checkpoint(checkpoint_path)
     _configure_cpu(stored_config.torch_threads)
     source_digest = _source_digest()
     runtime_identity_digest = _digest(_runtime_identity())
@@ -117,7 +113,7 @@ def _load_teacher_checkpoint(
     model.load_state_dict(payload["model_state"], strict=True)
     model.eval()
     payload = dict(payload)
-    payload["checkpoint_file_digest"] = hashlib.sha256(checkpoint_path.read_bytes()).hexdigest()
+    payload["checkpoint_file_digest"] = file_digest
     return model, vocabularies, payload
 
 
@@ -133,7 +129,6 @@ def generate_puct_dataset(
     max_decisions: int = 512,
     max_player_turns: int = 100,
     reward_config: CombatRewardConfig = COMBAT_PROXY_V1,
-    repository_root: Path | None = None,
 ) -> DatasetManifest:
     split = _require_loadable_split(split)
     if type(c_puct) not in {int, float} or not math.isfinite(float(c_puct)) or float(c_puct) <= 0:
@@ -151,9 +146,11 @@ def generate_puct_dataset(
     roots = [root for root in root_manifest.roots if root.split == split]
     if not roots:
         raise ValueError(f"root manifest contains no {split} roots")
-    if repository_root is None:
-        repository_root = Path(__file__).resolve().parents[3]
-    repository = capture_repository_version(repository_root)
+    repository = capture_repository_version(_package_repository_root())
+    if repository != root_manifest.repository:
+        raise ValueError(
+            "package repository identity does not match the authenticated root manifest"
+        )
     model, vocabularies, checkpoint_payload = _load_teacher_checkpoint(checkpoint_path)
     if checkpoint_payload["source_epoch_bundle_digest"] != root_manifest.source_epoch_bundle_digest:
         raise ValueError("PUCT teacher checkpoint source-epoch-bundle digest mismatch")
@@ -172,8 +169,7 @@ def generate_puct_dataset(
     exclusions: list[DatasetExclusion] = []
     for root in roots:
         try:
-            snapshot_text = (root_manifest_path.parent / root.relative_path).read_text()
-            env = RunEnv.from_snapshot(snapshot_text)
+            env = _restore_labeled_root(root_manifest_path.parent, root)
             before_hash = env.snapshot().hash
             payload = puct_clone_episode_payload(
                 env,
@@ -207,9 +203,7 @@ def generate_puct_dataset(
             for decision_index, step in enumerate(steps):
                 observation = fair_observation_from_payload(step["observation"])
                 actions = tuple(
-                    action_descriptor_from_payload(
-                        {"family": "combat", **cast(dict[str, object], choice)}
-                    )
+                    action_descriptor_from_payload(choice)
                     for choice in cast(list[object], step["choices"])
                 )
                 selected = _require_int(step["selected_index"], "selected index")
@@ -240,7 +234,7 @@ def generate_puct_dataset(
                     raise ValueError("PUCT root value must be finite and in [-1, 1]")
                 terminal_target = reward_config.value(outcome)
                 root_records.append(
-                    SymbolicTrainingRecord(
+                    SymbolicTrainingRecord.create(
                         observation,
                         actions,
                         selected,
@@ -264,7 +258,6 @@ def generate_puct_dataset(
                         episode_id,
                         decision_index,
                         terminal_target is not None,
-                        None,
                         root_mean,
                     )
                 )

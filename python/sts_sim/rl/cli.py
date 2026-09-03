@@ -12,6 +12,7 @@ from .diagnostics import calibrate_combat_proxy_win_loss
 from .experiment import (
     ArtifactIntegrityError,
     ExperimentReproductionError,
+    _read_regular_file_bytes,
     reproduce_experiment,
     verify_artifact_integrity,
     write_scientific_artifact,
@@ -21,6 +22,7 @@ from .gameplay import (
     DEFAULT_MATCHED_PUCT_MAX_PLAYER_TURNS,
     evaluate_matched_puct_gameplay,
 )
+from .provenance import canonical_bytes
 from .puct_data import generate_puct_dataset
 from .training import TrainingConfig, evaluate_beam_clone, train_beam_clone
 
@@ -194,11 +196,9 @@ def evaluate_main(argv: Sequence[str] | None = None) -> int:
         authorization_path=args.authorization,
         training_root_manifest_path=args.training_roots,
     )
-    content = json.dumps(report, sort_keys=True, separators=(",", ":"), allow_nan=False)
     if args.output is not None:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(content, encoding="utf-8")
-    print(content)
+        write_scientific_artifact(args.output, canonical_bytes(report))
+    print(json.dumps(report, sort_keys=True, separators=(",", ":"), allow_nan=False))
     return 0
 
 
@@ -216,7 +216,9 @@ def puct_rollout_main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--beam-depth", type=int, default=8)
     parser.add_argument("--beam-width", type=int, default=24)
     parser.add_argument("--max-decisions", type=int, default=DEFAULT_MATCHED_PUCT_MAX_DECISIONS)
-    parser.add_argument("--max-player-turns", type=int, default=DEFAULT_MATCHED_PUCT_MAX_PLAYER_TURNS)
+    parser.add_argument(
+        "--max-player-turns", type=int, default=DEFAULT_MATCHED_PUCT_MAX_PLAYER_TURNS
+    )
     parser.add_argument(
         "--deduplicate-search-states", action=argparse.BooleanOptionalAction, default=True
     )
@@ -238,11 +240,9 @@ def puct_rollout_main(argv: Sequence[str] | None = None) -> int:
         max_player_turns=args.max_player_turns,
         deduplicate_search_states=args.deduplicate_search_states,
     )
-    content = json.dumps(report, sort_keys=True, separators=(",", ":"), allow_nan=False)
     if args.output is not None:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(content, encoding="utf-8")
-    print(content)
+        write_scientific_artifact(args.output, canonical_bytes(report))
+    print(json.dumps(report, sort_keys=True, separators=(",", ":"), allow_nan=False))
     return 0
 
 
@@ -251,11 +251,9 @@ def experiment_main(argv: Sequence[str] | None = None) -> int:
     subcommands = parser.add_subparsers(dest="command", required=True)
     verify = subcommands.add_parser("verify")
     verify.add_argument("--experiment-dir", type=Path, required=True)
-    verify.add_argument("--inventory", type=Path, default=None)
     reproduce = subcommands.add_parser("reproduce")
-    reproduce.add_argument("--predeclaration", type=Path, required=True)
+    reproduce.add_argument("--experiment-dir", type=Path, required=True)
     reproduce.add_argument("--repository", type=Path, required=True)
-    reproduce.add_argument("--experiment-dir", type=Path, default=None)
     calibrate = subcommands.add_parser("calibrate")
     calibrate.add_argument("--static", type=Path, required=True)
     calibrate.add_argument("--gameplay", type=Path, default=None)
@@ -264,21 +262,20 @@ def experiment_main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "verify":
-            report = verify_artifact_integrity(args.experiment_dir, inventory_path=args.inventory)
+            report = verify_artifact_integrity(args.experiment_dir)
             payload: dict[str, object] = report.to_dict()
         elif args.command == "reproduce":
             payload = reproduce_experiment(
-                args.predeclaration,
+                args.experiment_dir,
                 repository=args.repository,
-                experiment_dir=args.experiment_dir,
             )
         else:
-            static_bytes = args.static.read_bytes()
+            static_bytes = _read_regular_file_bytes(args.static)
             static_report = json.loads(static_bytes)
             gameplay_report = None
             gameplay_bytes = None
             if args.gameplay is not None:
-                gameplay_bytes = args.gameplay.read_bytes()
+                gameplay_bytes = _read_regular_file_bytes(args.gameplay)
                 gameplay_report = json.loads(gameplay_bytes)
             payload = calibrate_combat_proxy_win_loss(
                 static_report=static_report,
@@ -290,10 +287,7 @@ def experiment_main(argv: Sequence[str] | None = None) -> int:
                 gameplay_bytes=gameplay_bytes,
             )
             if args.output is not None:
-                content = json.dumps(
-                    payload, sort_keys=True, separators=(",", ":"), allow_nan=False
-                )
-                write_scientific_artifact(args.output, content.encode())
+                write_scientific_artifact(args.output, canonical_bytes(payload))
     except ArtifactIntegrityError as error:
         print(json.dumps(error.report.to_dict(), sort_keys=True, allow_nan=False))
         return 1

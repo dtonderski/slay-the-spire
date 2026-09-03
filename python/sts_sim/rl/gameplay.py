@@ -7,7 +7,6 @@ promote a candidate.
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
@@ -23,9 +22,12 @@ from ..run import Action, ActionDescriptor, Decision, RunEnv
 from .authorization import require_held_out_evaluation
 from .data import (
     _LOADABLE_SPLITS,
+    _require_canonical_root_snapshot,
     load_root_manifest,
 )
+from .experiment import _read_contained_regular_file_bytes
 from .model import CombatModelConfig, FairCombatPolicyValueNet
+from .provenance import canonical_bytes, sha256_bytes
 from .records import validate_beam_search_config
 from .tensor import Vocabularies, collate_combat_tensors, tensorize_combat
 from .training import (
@@ -34,7 +36,7 @@ from .training import (
     _model_state_digest,
     _runtime_identity,
     _source_digest,
-    _validate_checkpoint_envelope,
+    load_training_checkpoint,
 )
 
 EpisodeStatus = Literal["won", "lost", "escaped", "truncated", "error"]
@@ -120,10 +122,6 @@ def matched_puct_search_arms() -> dict[str, dict[str, object]]:
     return deepcopy(_MATCHED_PUCT_SEARCH_ARMS)
 
 
-def _canonical_bytes(payload: object) -> bytes:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
-
-
 def _require_positive_int(value: object, label: str) -> int:
     if type(value) is not int or value <= 0:
         raise ValueError(f"{label} must be a positive integer")
@@ -161,7 +159,7 @@ def random_policy_index(
         accepted_decision_index,
         list(descriptors),
     ]
-    digest = hashlib.sha256(_canonical_bytes(payload)).digest()
+    digest = hashlib.sha256(canonical_bytes(payload)).digest()
     return int.from_bytes(digest[:8], "big") % len(descriptors)
 
 
@@ -506,9 +504,8 @@ def aggregate_paired_differences(
 
 
 def _restore_independently(snapshot_bytes: bytes, root_id: str) -> RunEnv:
-    if hashlib.sha256(snapshot_bytes).hexdigest() != root_id:
-        raise ValueError(f"root {root_id} bytes do not match root ID")
-    return RunEnv.from_snapshot(snapshot_bytes.decode())
+    canonical = _require_canonical_root_snapshot(snapshot_bytes, root_id)
+    return RunEnv.from_snapshot(canonical.decode())
 
 
 def _run_restored_policy(
@@ -659,7 +656,7 @@ def evaluate_matched_puct_roots(
         per_root.append(
             {
                 "root_id": root_id,
-                "snapshot_sha256": hashlib.sha256(snapshot_bytes).hexdigest(),
+                "snapshot_sha256": sha256_bytes(snapshot_bytes),
                 "restore_hash": hashes[0],
                 "policies": {
                     "random": _episode_row(random_episode),
@@ -760,10 +757,7 @@ def evaluate_matched_puct_gameplay(
     split_entries = tuple(root for root in manifest.roots if root.split == split)
     if not split_entries:
         raise ValueError(f"root manifest contains no {split} roots")
-    checkpoint_bytes = checkpoint_path.read_bytes()
-    payload, stored_config = _validate_checkpoint_envelope(
-        torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    )
+    payload, stored_config, checkpoint_file_digest = load_training_checkpoint(checkpoint_path)
     _configure_cpu(stored_config.torch_threads)
     runtime_identity = _runtime_identity()
     runtime_identity_digest = _digest(runtime_identity)
@@ -793,12 +787,17 @@ def evaluate_matched_puct_gameplay(
     model.load_state_dict(payload["model_state"], strict=True)
     model.eval()
     split_roots = tuple(
-        (root.root_id, (root_manifest_path.parent / root.relative_path).read_bytes())
+        (
+            root.root_id,
+            _require_canonical_root_snapshot(
+                _read_contained_regular_file_bytes(
+                    root_manifest_path.parent, root.relative_path
+                ),
+                root.root_id,
+            ),
+        )
         for root in split_entries
     )
-    for root_id, snapshot_bytes in split_roots:
-        if hashlib.sha256(snapshot_bytes).hexdigest() != root_id:
-            raise ValueError(f"root {root_id} bytes do not match root ID")
     matched = evaluate_matched_puct_roots(
         split_roots=split_roots,
         evaluation_seed=evaluation_seed,
@@ -831,7 +830,7 @@ def evaluate_matched_puct_gameplay(
         "materialized_split_root_count": len(split_entries),
         "root_ids": [root.root_id for root in split_entries],
         "checkpoint_step": payload["global_step"],
-        "checkpoint_file_digest": hashlib.sha256(checkpoint_bytes).hexdigest(),
+        "checkpoint_file_digest": checkpoint_file_digest,
         "checkpoint_model_state_digest": _model_state_digest(payload["model_state"]),
         "checkpoint_config_digest": payload["config_digest"],
         "source_digest": payload["source_digest"],

@@ -30,7 +30,7 @@ from .experiment import (
     resolve_inventory_path,
     write_scientific_artifact,
 )
-from .provenance import canonical_bytes, require_digest, sha256_bytes
+from .provenance import canonical_bytes, digest_payload, require_digest, sha256_bytes
 from .source_epoch import SOURCE_EPOCH_DIRNAME, load_source_epoch_bundle, verify_loaded_native_bytes
 
 AUTHORIZATION_KIND = "train-to-evaluation-authorization-v1"
@@ -64,14 +64,6 @@ _AUTHORIZATION_KEYS = frozenset(
 )
 
 
-def _canonical_bytes(payload: object) -> bytes:
-    return canonical_bytes(payload)
-
-
-def _sha256_bytes(payload: bytes) -> str:
-    return sha256_bytes(payload)
-
-
 def _require_mapping(value: object, label: str) -> dict[str, object]:
     if type(value) is not dict:
         raise TypeError(f"{label} must be an object")
@@ -79,10 +71,6 @@ def _require_mapping(value: object, label: str) -> dict[str, object]:
     if any(type(key) is not str for key in result):
         raise TypeError(f"{label} keys must be strings")
     return result
-
-
-def _require_digest(value: object, label: str) -> str:
-    return require_digest(value, label)
 
 
 def _require_int(value: object, label: str) -> int:
@@ -109,12 +97,6 @@ def _require_string_list(value: object, label: str) -> tuple[str, ...]:
     if tuple(names) != tuple(sorted(names)):
         raise ValueError(f"{label} are not canonically ordered")
     return tuple(names)
-
-
-def _digest_payload(payload: dict[str, object], digest_key: str) -> str:
-    unsigned = dict(payload)
-    unsigned.pop(digest_key, None)
-    return _sha256_bytes(_canonical_bytes(unsigned))
 
 
 def _reject_symlink(path: Path, label: str) -> None:
@@ -195,14 +177,14 @@ def parse_authorization(payload: object) -> TrainToEvaluationAuthorization:
     )
     if dimensions != MANDATORY_DISJOINTNESS_DIMENSIONS:
         raise ValueError("mandatory disjointness dimensions must be root_ids, seeds, and lineages")
-    training_manifest = _require_digest(
+    training_manifest = require_digest(
         source["training_root_manifest_digest"], "training root-manifest digest"
     )
-    evaluation_manifest = _require_digest(
+    evaluation_manifest = require_digest(
         source["evaluation_root_manifest_digest"], "evaluation root-manifest digest"
     )
-    training_cohort = _require_digest(source["training_cohort_digest"], "training cohort digest")
-    evaluation_cohort = _require_digest(
+    training_cohort = require_digest(source["training_cohort_digest"], "training cohort digest")
+    evaluation_cohort = require_digest(
         source["evaluation_cohort_digest"], "evaluation cohort digest"
     )
     if training_manifest == evaluation_manifest:
@@ -214,13 +196,13 @@ def parse_authorization(payload: object) -> TrainToEvaluationAuthorization:
         training_cohort,
         evaluation_manifest,
         evaluation_cohort,
-        _require_digest(source["source_epoch_bundle_digest"], "source-epoch-bundle digest"),
+        require_digest(source["source_epoch_bundle_digest"], "source-epoch-bundle digest"),
         _require_int(source["evaluation_seed"], "evaluation seed"),
         names,
         dimensions,
-        _require_digest(source["authorization_digest"], "authorization digest"),
+        require_digest(source["authorization_digest"], "authorization digest"),
     )
-    expected_digest = _digest_payload(authorization.to_dict(), "authorization_digest")
+    expected_digest = digest_payload(authorization.to_dict(), "authorization_digest")
     if authorization.authorization_digest != expected_digest:
         raise ValueError("authorization digest is invalid")
     return authorization
@@ -249,7 +231,7 @@ def authorization_from_bindings(
         "mandatory_disjointness_dimensions": list(MANDATORY_DISJOINTNESS_DIMENSIONS),
         "authorization_digest": "0" * 64,
     }
-    payload["authorization_digest"] = _digest_payload(payload, "authorization_digest")
+    payload["authorization_digest"] = digest_payload(payload, "authorization_digest")
     return parse_authorization(payload)
 
 
@@ -261,20 +243,20 @@ def load_authorization(path: Path) -> TrainToEvaluationAuthorization:
     except json.JSONDecodeError as error:
         raise ValueError("authorization is not JSON") from error
     authorization = parse_authorization(payload)
-    if content != _canonical_bytes(authorization.to_dict()):
+    if content != canonical_bytes(authorization.to_dict()):
         raise ValueError("authorization is not canonical")
     return authorization
 
 
 def write_authorization(path: Path, authorization: TrainToEvaluationAuthorization) -> str:
     parsed = parse_authorization(authorization.to_dict())
-    return write_scientific_artifact(path, _canonical_bytes(parsed.to_dict()))
+    return write_scientific_artifact(path, canonical_bytes(parsed.to_dict()))
 
 
 def _load_cohort_manifest(path: Path, label: str) -> tuple[RootManifest, str]:
     _reject_symlink(path, f"{label} root manifest")
     content = _read_regular_file_bytes(path)
-    file_digest = _sha256_bytes(content)
+    file_digest = sha256_bytes(content)
     manifest = parse_root_manifest(content)
     if not manifest.roots:
         raise ValueError(f"{label} cohort is empty")
@@ -344,7 +326,7 @@ def verify_train_to_evaluation_authorization(
         raise TypeError("evaluation seed must be an integer")
     if type(requested_evaluator_name) is not str or not requested_evaluator_name:
         raise TypeError("requested evaluator name must be a nonempty string")
-    expected_bundle = _require_digest(
+    expected_bundle = require_digest(
         expected_source_epoch_bundle_digest, "expected source-epoch-bundle digest"
     )
     authorization = load_authorization(authorization_path)
@@ -442,6 +424,14 @@ def require_held_out_evaluation(
         evaluation_seed=evaluation_seed,
         requested_evaluator_name=requested_evaluator_names[0],
     )
+    if proof.authorization.evaluation_root_manifest_digest != evaluation_manifest.manifest_digest:
+        raise ValueError(
+            "authorized evaluation root does not match the authenticated dataset root"
+        )
+    if proof.authorization.evaluation_cohort_digest != evaluation_manifest.cohort_digest:
+        raise ValueError(
+            "authorized evaluation cohort does not match the authenticated dataset cohort"
+        )
     authorized = frozenset(proof.authorization.authorized_evaluator_names)
     missing = [name for name in requested_evaluator_names if name not in authorized]
     if missing:
@@ -450,4 +440,4 @@ def require_held_out_evaluation(
 
 
 def canonical_authorization_bytes(authorization: TrainToEvaluationAuthorization) -> bytes:
-    return _canonical_bytes(parse_authorization(authorization.to_dict()).to_dict())
+    return canonical_bytes(parse_authorization(authorization.to_dict()).to_dict())

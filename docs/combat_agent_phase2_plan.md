@@ -102,8 +102,8 @@ choice family.
 
 The V2 change updates the Rust schema and kind inventory, PyO3 mappings, Python
 literal/action descriptors, tensor action specification, field-coverage and
-cross-language schema tests, documentation, and checkpoint compatibility.
-Stored V1 decisions remain readable; new producers emit V2. Do **not** relax the
+cross-language schema tests, documentation, and checkpoint identity.
+Current producers emit V2 only. Do **not** relax the
 catch-all to `Ok(None)`: every action reachable while `RunPhase::Combat` gets an
 explicit projection or a documented fail-closed omission.
 
@@ -365,7 +365,7 @@ The loader validates file and manifest digests and re-resolves every root,
 split group, split, and canonical lineage membership without embedding root
 snapshots. The current root manifest stores the requested seed cohort, combat
 depth, source-epoch-bundle digest, and a cohort contract digest. Dataset
-manifest 7 and training checkpoint format 4 bind that cohort digest plus a
+manifest 7 and training checkpoint format 5 bind that cohort digest plus a
 teacher/search contract digest covering teacher name, version, and the full
 search config. Resume validates those digests. Held-out evaluation on a
 different realized root manifest requires an explicit train-to-evaluation
@@ -423,7 +423,7 @@ corpus is 433/433.
 **Stage 1 — Fair episode boundary.** D1 and D2. Gate: zero fair-boundary failures
 across 1,000 committed deterministic seed/policy episodes; explicit won, lost,
 escaped, restored-terminal, and Proceed tests; both Secret cards projected with
-hidden-permutation invariants; V1/V2 compatibility and cross-language action
+hidden-permutation invariants; current V2 and cross-language action
 schema tests green.
 
 **Stage 2 — Episode contract.** D3. Gate: targeted tests reconcile all fields and

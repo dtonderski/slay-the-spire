@@ -20,10 +20,10 @@ from sts_sim.rl import (
     load_dataset_manifest,
     read_jsonl,
     train_beam_clone,
-    write_jsonl,
 )
 from sts_sim.rl.data import DATASET_MANIFEST_VERSION
 from sts_sim.rl.model import FairCombatPolicyValueNet, PolicyValueOutput
+from sts_sim.rl.provenance import canonical_bytes
 from sts_sim.rl.records import (
     COMBAT_PROXY_VALUE_TARGET_NAME,
     PUCT_SEARCH_ROOT_MEAN_NAME,
@@ -42,6 +42,7 @@ from sts_sim.rl.training import (
     _mean_absolute_deviation,
     _pearson_correlation,
     _validate_checkpoint_envelope,
+    load_training_checkpoint,
 )
 from tests.test_puct_distill import _beam_train_checkpoint, _smoke_training_config
 
@@ -71,9 +72,8 @@ def _tiny_puct_dataset(tmp_path: Path) -> tuple[Path, Path]:
 
 def test_v4_record_round_trip_and_terminal_z_identity(tmp_path: Path) -> None:
     manifest_path, _checkpoint = _tiny_puct_dataset(tmp_path)
-    manifest = load_dataset_manifest(manifest_path, requested_split="train")
+    manifest, _named_root, records = load_dataset_manifest(manifest_path, requested_split="train")
     assert manifest.manifest_version == DATASET_MANIFEST_VERSION
-    records = tuple(read_jsonl(manifest_path.parent / manifest.shard_path))
     assert records
     assert all(record.record_version == 4 for record in records)
     terminal = [record for record in records if not record.outcome.truncated]
@@ -164,7 +164,7 @@ def test_checkpoint_v4_stores_stats_and_rejects_v3(tmp_path: Path) -> None:
     manifest_path, _teacher = _tiny_puct_dataset(tmp_path)
     student = tmp_path / "student.pt"
     train_beam_clone(manifest_path, student, _smoke_training_config())
-    payload = torch.load(student, map_location="cpu", weights_only=False)
+    payload, _config, _digest = load_training_checkpoint(student)
     assert payload["checkpoint_format"] == TRAINING_CHECKPOINT_FORMAT
     records = tuple(read_jsonl(manifest_path.parent / "train/train.jsonl"))
     stats = _compute_training_target_statistics(records)
@@ -180,7 +180,7 @@ def test_checkpoint_v4_stores_stats_and_rejects_v3(tmp_path: Path) -> None:
     v3_path = tmp_path / "student-v3.pt"
     torch.save(v3, v3_path)
     with pytest.raises(ValueError, match="unsupported or malformed"):
-        _validate_checkpoint_envelope(torch.load(v3_path, map_location="cpu", weights_only=False))
+        load_training_checkpoint(v3_path)
     mixed = dict(payload)
     mixed["checkpoint_format"] = 3
     with pytest.raises(ValueError, match="unsupported or malformed"):
@@ -218,8 +218,8 @@ def test_resume_preserves_v4_stats_and_rng(tmp_path: Path) -> None:
     train_beam_clone(manifest_path, resumed, config, resume=True)
     direct = tmp_path / "direct.pt"
     train_beam_clone(manifest_path, direct, config)
-    left = torch.load(resumed, map_location="cpu", weights_only=False)
-    right = torch.load(direct, map_location="cpu", weights_only=False)
+    left, _left_config, _left_digest = load_training_checkpoint(resumed)
+    right, _right_config, _right_digest = load_training_checkpoint(direct)
     assert left["training_target_statistics"] == right["training_target_statistics"]
     assert left["global_step"] == right["global_step"] == 2
     for name in left["model_state"]:
@@ -260,7 +260,7 @@ def test_static_v4_metrics_match_formulas(tmp_path: Path) -> None:
     assert report["root_count"] == len({record.root_id for record in records})
     sizes = tuple(Counter(record.root_id for record in records).values())
     assert report["kish_cluster_ess"] == _kish_ess(sizes)
-    payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    payload, _config, _digest = load_training_checkpoint(checkpoint)
     training_mean = payload["training_target_statistics"]["mean"]
     assert report["training_target_mean"] == training_mean
     assert report["training_target_mean_undefined_reason"] is None
@@ -397,20 +397,19 @@ def test_v4_dataset_rejects_mixed_episode_outcome(tmp_path: Path) -> None:
     terminal_hp = cast(int, outcome["terminal_hp"])
     outcome["terminal_hp"] = 1 if terminal_hp != 1 else 2
     mutated_outcome = CombatOutcome.from_dict(outcome)
-    payload["outcome"] = mutated_outcome.to_dict()
-    payload["target_value"] = COMBAT_PROXY_V1.value(mutated_outcome)
-    payload["record_id"] = None
-    records[index] = SymbolicTrainingRecord.from_dict(payload)
+    records[index] = SymbolicTrainingRecord.create_from(
+        records[index],
+        outcome=mutated_outcome,
+        target_value=COMBAT_PROXY_V1.value(mutated_outcome),
+    )
     shard = manifest_path.parent / "train/train.jsonl"
-    write_jsonl(shard, records)
+    shard.write_bytes(b"".join(canonical_bytes(record.to_dict()) + b"\n" for record in records))
     manifest_payload = json.loads(manifest_path.read_text())
     manifest_payload["shard_digest"] = hashlib.sha256(shard.read_bytes()).hexdigest()
-    manifest_payload["record_ids"] = [cast(str, record.record_id) for record in records]
+    manifest_payload["record_ids"] = [record.record_id for record in records]
     _resign_dataset_manifest(manifest_payload)
     manifest_path.write_text(json.dumps(manifest_payload, sort_keys=True, separators=(",", ":")))
-    with pytest.raises(
-        ValueError, match="^episode outcome is not identical across decisions$"
-    ):
+    with pytest.raises(ValueError, match="^episode outcome is not identical across decisions$"):
         load_dataset_manifest(manifest_path, requested_split="train")
 
 
@@ -420,9 +419,10 @@ def test_v4_rejects_noncanonical_episode_ids(tmp_path: Path) -> None:
     payload = records[0].to_dict()
     wrong = dict(payload)
     wrong["episode_id"] = "0" * 64
-    wrong["record_id"] = None
+    with pytest.raises(TypeError, match="record id"):
+        SymbolicTrainingRecord.from_dict({**wrong, "record_id": None})
     with pytest.raises(ValueError, match="does not match canonical root/search/reward identity"):
-        SymbolicTrainingRecord.from_dict(wrong)
+        SymbolicTrainingRecord.create_from(records[0], episode_id="0" * 64)
     expected = canonical_episode_id(
         records[0].root_id,
         records[0].search_config,

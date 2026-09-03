@@ -27,9 +27,9 @@ snapshot = env.snapshot()
 restored = RunEnv.from_snapshot(snapshot)
 ```
 
-For controlled projection experiments, `RunEnv.from_state_json_for_debugging`
-accepts a validated privileged state JSON. It is a debugging seam, not a fair
-observation input.
+For controlled projection experiments, mutate current schema-8 snapshot JSON
+and restore it with `RunEnv.from_snapshot()`. That path is the only supported
+restoration seam; raw `full_state()` dictionaries are not restorable.
 
 `observation()` is visibility-safe and tagged by the active decision screen;
 combat, map, event, reward, treasure, rest, shop, card-grid, and complete
@@ -61,10 +61,8 @@ env.add_potion(Potion.FIRE)
 the native content definitions; arbitrary strings are not accepted by these
 helpers.
 
-The old split environment and exact-action bindings remain in private native or
-compatibility implementation modules during migration, but are not exported by
-the package root. Every legal non-combat action now has a public decision-local
-slot descriptor while its authoritative command remains private. The target contract is documented in
+Every legal non-combat action has a public decision-local slot descriptor while
+its authoritative command remains private. The target contract is documented in
 `design_unified_python_run_environment.md`.
 
 Every Python source file and test is checked by `ty` and Ruff's annotation
