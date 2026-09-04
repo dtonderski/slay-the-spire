@@ -1,144 +1,78 @@
 # Agent Rules
 
-These rules apply to any coding agent working in this repository, including
-Rust code under `crates/`, bindings under `bindings/`, live tooling under
-`apps/`, Python under `python/`, and verification under `verification/`.
-
-`PROJECT_OVERVIEW.md` has the project purpose, phase roadmap, and the
-fair/hidden/omniscient state boundary.
+These rules apply across Rust, Python, bindings, collection tools, mods, and
+verification. `PROJECT_OVERVIEW.md` defines the project objective and fair-state
+boundary.
 
 ## Never
 
-- Never anchor, re-anchor, synchronize, restore, repair, hydrate, or otherwise
-  mutate simulator state from observed trace/game state during replay or
-  verification. A trace observation is expected output only. The simulator must
-  advance solely from the initial seed/state plus accepted actions and
-  implemented game rules. If simulated state diverges from observed state, stop
-  at the first divergence and fix the simulator bug.
+- Never hydrate, synchronize, repair, re-anchor, or otherwise mutate simulator
+  state from observed trace/game state. Replay advances only from initial state,
+  accepted actions, explicit environmental inputs, and implemented rules.
 - Never edit, truncate, or regenerate a captured trace to make replay pass.
-  Captured payloads are unreproducible real-game evidence; a corrupted one
-  reports green forever. Repair simulator behavior and replay the unchanged
-  payload.
-- Never add seed-specific behavior to implementation code: no `if seed == ...`,
-  trace identity tables, hardcoded RNG counters or content identities, or
-  per-trace allowlists. This applies to core, verifier/replay, live, and Python
-  orchestration code. Fixed seeds are allowed only as ordinary deterministic
-  fixtures in tests, documentation, and corpus metadata. Diagnostics may report
-  observed identities and inferred counters but must never use them to alter
-  authoritative replay behavior.
-- Never make a diff pass by excluding gameplay-affecting state, and never claim
-  real-game parity without a real-game trace.
-- Never implement a successful gameplay transition by applying effects in the
-  wrong order and then copying/restoring selected fields from a pre-transition
-  snapshot to match the observed result. Model action ordering, queued effects,
-  cancellation, and conditional execution directly. Whole-state transactional
-  rollback on a rejected/error transition is still allowed; post-hoc gameplay
-  correction on an accepted transition is not.
+- Never add seed-, trace-, or corpus-specific behavior to implementation code.
+- Never hide gameplay-affecting differences or claim parity without a real-game
+  trace.
+- Never apply effects in the wrong order and then restore selected fields to
+  match an observation. Whole-state rollback for rejected transitions is fine;
+  post-hoc correction of accepted gameplay is not.
 
 ## Testing
 
-Traces are the primary regression mechanism. A gameplay unit test encodes your
-interpretation of the game; a trace encodes the game. Keep unit tests for
-simulator mechanics small and rare, and reach for trace coverage first.
+Traces are the primary gameplay regression. Unit tests are appropriate for
+infrastructure, deterministic invariants, and source-backed rules that no trace
+can pin.
 
-Unit tests earn their place for infrastructure (parsers, importers, CLI, HTTP,
-FFI, serialization round-trips), for deterministic invariants, and for a
-source-backed rule no trace can pin.
+Run from the repository root:
 
-For a bug fix, the regression is the payload: a trace that stays green. Write a
-unit test instead only when no trace can pin the rule.
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace -- --test-threads=1
+cargo run -p sts_verify --bin sts_verify -- <trace.jsonl|trace-directory>
+```
 
-The inner loop is the Rust verifier, not the UI:
-`uv run -- cargo run -p sts_verify --bin sts_verify -- parity <trace.jsonl>`
-(also `status`, `replay`, `minimize`, `diff`, `rng-trace`, `corpus`).
+`sts_verify` accepts exactly one file or directory and caps directory replay at
+24 workers. It reports divergence, incomplete traces, and invalid input as
+failures.
+
+Python and PyO3 commands go through `uv`; there is no required system
+`python`/`pip`.
 
 ## Determinism
 
 - No untracked global RNG.
-- No RNG during legal action generation, serialization, hashing, observation
+- No RNG during legal-action generation, serialization, hashing, observation
   extraction, or display.
-- Every RNG draw names its stream and its call site.
-- Snapshot/restore preserves replay behavior exactly, and state hashes are
-  deterministic.
+- Every RNG draw names its stream and call site.
+- Snapshot/restore preserves replay behavior exactly.
 
-## Environment
+## Corpus and collection
 
-- Cargo runs from the repository root. Gate work on `cargo fmt`,
-  `cargo clippy`, `cargo test`, and don't start new work with tests failing.
-  Use `cargo check -p sts_core --lib` and `cargo check -p sts_verify --lib` for
-  fast feedback. `sts_verify status` defaults to
-  `verification/corpus/permanent_traces/` and caps at 24 workers, bounded by
-  available CPUs.
-- Python and PyO3 go through `uv`, e.g.
-  `uv run --python 3.12 cargo test --workspace`. There is no system
-  `python`/`pip`, and its absence is not a blocker.
-- The live backend must bind `127.0.0.1:8800`
-  (`live-trace serve --addr 127.0.0.1:8800`), *not* the binary default `8799`,
-  because the Vite UI on `:5173` proxies to `8800`. If direct `/health` works but
-  the UI says disconnected, check the proxy port before touching backend code.
-- Real-game control from WSL or a sandbox goes through the Linux `live-trace` CLI
-  with host-network permission and `STS_LIVE_BRIDGE_SESSION_DIR` set to the
-  active CommunicationMod `tools/communication/session`. Not PowerShell, not
-  handcrafted TCP. A sandboxed port check cannot prove the Windows game is
-  stopped; use `live-trace bridges list`.
-- `verification/corpus/permanent_traces/` is the gitignored active
-  authoritative corpus. The private `dtonderski/sts-permanent-traces` Hugging
-  Face dataset mirrors the current reviewed cohort. The 602 pre-collection.2
-  payloads remain a local legacy archive and must not be copied back into the
-  active gate. Details are in `docs/verification.md`.
-- Keep searches targeted. `tmp/decompiled-sts/`, when extracted, is a huge
-  uncommitted decompiled-source corpus: search one package path such as
-  `com/megacrit/cardcrawl/monsters/`, never the whole tree.
+`simulator/verification/corpus/permanent_traces/` holds the reviewed schema-6
+corpus. The verifier accepts schemas 6 and 7; schema 7 adds stronger
+command-settlement fences for new captures. Never rewrite old payloads.
 
-### Cursor Cloud
+`simulator/tools/communication/random_fidelity_collector.js` only collects
+immutable traces. Verification and promotion are separate manual operations.
 
-- Cloud agents download the current reviewed permanent corpus from the private
-  `dtonderski/sts-permanent-traces` Hugging Face dataset at boot. `HF_TOKEN`
-  must be a read token supplied through Cursor secrets, never committed.
-- Cloud agents may read and replay the downloaded traces but must never edit
-  them or upload corpus changes. Corpus replacement is an explicit audited
-  local operation.
+Real-game control uses the CommunicationMod bridge documented in
+`simulator/tools/communication/README.md`, not handcrafted socket commands.
 
-## Trace Collection
+## Working practice
 
-`tools/communication/random_fidelity_collector.js` only collects: it plays
-random actions against the real game and writes one immutable trace per run.
-It does not verify, minimize, or promote. Verification is a separate manual step
-through `sts_verify`. Keep it that way.
+- Keep searches under `tmp/decompiled-sts/` targeted to one package path.
+- If a missing dependency materially improves correctness, stop and report it
+  rather than building an inferior workaround.
+- Read `simulator/docs/research.md` before changing RNG, action queues, save
+  loading, or map/reward/shop generation.
+- Update `docs/project_history.md` only for major assumptions, rejected
+  approaches, or settled experiments. Git and commit messages hold routine
+  implementation history; do not create per-fix design documents.
 
-## Dependencies
+## Cursor Cloud
 
-If a missing dependency or tool would materially simplify the task, improve
-correctness, or avoid a substantially worse workaround, stop and tell the user.
-Do not quietly build an inferior workaround around a missing crucial dependency.
-
-## Docs
-
-`docs/project_history.md` explains why the project has its current shape. Update
-it when a change alters a large assumption, rejects an approach, or settles an
-experiment — not for routine work. Keep it curated and under roughly 3,000
-words, revising existing sections rather than appending. Everything else belongs
-in the commit message; do not open a new document for ordinary supporting
-evidence.
-
-Read `docs/research.md` before touching RNG, action queue, save loading, or
-map/reward/shop generation.
-
-## Cursor Cloud specific instructions
-
-Environment setup lives in `.cursor/`: `install.sh` (via `environment.json`
-`install`) installs newest stable Rust plus `uv`/`libpython3.12-dev` and builds
-`py_sts` on Cursor's default image — no custom Dockerfile, so it works for
-just-in-time agents too. `start.sh` creates the active corpus directory but does
-not restore the legacy archive. Edit those files, not a dashboard snapshot.
-Supported Cloud scope is `sts_verify` and `py_sts`; the `sts_live` live UI needs
-a real game/CommunicationMod bridge that cannot run here. Exercise the verifier
-without active traces using the committed fixture:
-`cargo run -p sts_verify --bin sts_verify -- corpus manual/milestone1.jsonl`
-plus the `milestone*` tests.
-- `cargo test --workspace` has one parallelism-sensitive test,
-  `rng::tests::rng_trace_capture_restores_disabled_fast_path_after_panic` (it
-  asserts on the process-global `RNG_TRACE_ACTIVE` counter). Run it in isolation
-  or with `-- --test-threads=1`; it is a harness race, not a simulator bug.
-- A Ruff `F401` in `python/notebooks/fair_combat_playground.ipynb` is
-  pre-existing in a clean checkout. `ty check` and pytest otherwise pass.
+`.cursor/install.sh` installs Rust, `uv`, and Python build dependencies;
+`.cursor/start.sh` creates/downloads the active corpus when `HF_TOKEN` is
+available. Supported cloud scope is `sts_verify` and `py_sts`; real-game bridge
+work requires the local game.

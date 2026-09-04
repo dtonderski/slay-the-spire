@@ -1,0 +1,1328 @@
+use crate::{
+    action::{CombatAction, EventAction, RestAction},
+    combat::{
+        legal::legal_combat_actions_after_validation, validate_combat_action, CombatDecisionState,
+        CombatState, ExhaustSelectPurpose,
+    },
+    map::MapAction,
+    potion::Potion,
+    RunPhase, SimError, SimResult,
+};
+use serde::{Deserialize, Serialize};
+
+use super::{
+    event::{apply_validated_event_action, legal_event_actions_after_validation},
+    grid::{
+        apply_validated_grid_cancel, apply_validated_grid_confirmation,
+        apply_validated_grid_select, validate_grid_cancel, validate_grid_cancel_after_validation,
+        validate_grid_confirm, validate_grid_confirm_after_validation, validate_grid_select,
+        validate_grid_select_after_validation,
+    },
+    map::{
+        apply_validated_map_action_on_run, legal_map_actions_on_run_after_validation,
+        validate_map_action_on_run,
+    },
+    potion::validate_potion_action_after_validation,
+    rest::{apply_validated_rest_action, legal_rest_actions_after_validation},
+    reward::{
+        apply_validated_combat_action_on_owned_run, apply_validated_run_action_owned,
+        validate_treasure_action_after_validation,
+    },
+    shop::legal_shop_actions_after_validation,
+};
+use super::{
+    validate_event_action, validate_potion_action, validate_rest_action, validate_shop_action,
+    RunAction, RunState,
+};
+
+/// One authoritative decision at any supported run boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RunDecisionAction {
+    Combat(CombatAction),
+    Event(EventAction),
+    GridSelect { index: usize },
+    GridConfirm,
+    GridCancel,
+    Map(MapAction),
+    Rest(RestAction),
+    Run(RunAction),
+}
+
+/// Validates one top-level run decision without executing simulator mechanics.
+pub fn validate_run_decision_action(run: &RunState, action: RunDecisionAction) -> SimResult<()> {
+    run.validate()?;
+    match action {
+        RunDecisionAction::Combat(action) => {
+            if run.phase != RunPhase::Combat {
+                return Err(SimError::IllegalAction(
+                    "combat actions require combat phase",
+                ));
+            }
+            let combat = run
+                .combat
+                .as_ref()
+                .ok_or(SimError::InvalidState("combat state is missing"))?;
+            validate_combat_action(combat, action)
+        }
+        RunDecisionAction::Event(action) => validate_event_action(run, action),
+        RunDecisionAction::GridSelect { index } => validate_grid_select(run, index),
+        RunDecisionAction::GridConfirm => validate_grid_confirm(run),
+        RunDecisionAction::GridCancel => validate_grid_cancel(run),
+        RunDecisionAction::Map(action) => validate_map_action_on_run(run, action),
+        RunDecisionAction::Rest(action) => validate_rest_action(run, action),
+        RunDecisionAction::Run(action) => validate_run_action_after_run_validation(run, action),
+    }
+}
+
+/// Enumerates the complete supported decision boundary without executing transitions or RNG.
+pub fn legal_run_decision_actions(run: &RunState) -> SimResult<Vec<RunDecisionAction>> {
+    run.validate()?;
+    let mut actions = Vec::new();
+
+    if let Some(grid) = run.card_grid.as_ref() {
+        for index in 0..grid.cards.len() {
+            if validate_grid_select_after_validation(run, index).is_ok() {
+                actions.push(RunDecisionAction::GridSelect { index });
+            }
+        }
+        if validate_grid_confirm_after_validation(run).is_ok() {
+            actions.push(RunDecisionAction::GridConfirm);
+        }
+        if validate_grid_cancel_after_validation(run).is_ok() {
+            actions.push(RunDecisionAction::GridCancel);
+        }
+        return Ok(actions);
+    }
+
+    match run.phase {
+        RunPhase::Combat => {
+            let combat = run
+                .combat
+                .as_ref()
+                .ok_or(SimError::InvalidState("combat state is missing"))?;
+            if combat.phase == crate::combat::CombatPhase::Lost {
+                // CommunicationMod exposes PROCEED on the death GAME_OVER screen.
+                actions.push(RunDecisionAction::Run(RunAction::Proceed));
+            } else {
+                let select_actions = legal_combat_select_actions_on_run(run, combat)?;
+                if !select_actions.is_empty() {
+                    actions.extend(select_actions.into_iter().map(RunDecisionAction::Run));
+                } else {
+                    actions.extend(
+                        legal_combat_actions_after_validation(combat)?
+                            .into_iter()
+                            .map(RunDecisionAction::Combat),
+                    );
+                }
+                actions.extend(
+                    legal_potion_actions_on_run(run)?
+                        .into_iter()
+                        .map(RunDecisionAction::Run),
+                );
+            }
+        }
+        RunPhase::Reward => {
+            actions.extend(
+                legal_reward_actions(run)?
+                    .into_iter()
+                    .map(RunDecisionAction::Run),
+            );
+            actions.extend(
+                legal_potion_actions_on_run(run)?
+                    .into_iter()
+                    .map(RunDecisionAction::Run),
+            );
+        }
+        RunPhase::Treasure => {
+            actions.extend(
+                [RunAction::OpenChest, RunAction::Proceed]
+                    .into_iter()
+                    .filter(|action| {
+                        validate_treasure_action_after_validation(run, *action).is_ok()
+                    })
+                    .map(RunDecisionAction::Run),
+            );
+        }
+        RunPhase::Idle => actions.extend(
+            legal_map_actions_on_run_after_validation(run)?
+                .into_iter()
+                .map(RunDecisionAction::Map),
+        ),
+        RunPhase::Rest => actions.extend(
+            legal_rest_actions_after_validation(run)?
+                .into_iter()
+                .map(RunDecisionAction::Rest),
+        ),
+        RunPhase::Event => actions.extend(
+            legal_event_actions_after_validation(run)?
+                .into_iter()
+                .map(RunDecisionAction::Event),
+        ),
+        RunPhase::Shop => actions.extend(
+            legal_shop_actions_after_validation(run)?
+                .into_iter()
+                .map(RunDecisionAction::Run),
+        ),
+        RunPhase::Victory => actions.push(RunDecisionAction::Run(RunAction::Proceed)),
+        RunPhase::Complete => {}
+    }
+
+    Ok(actions)
+}
+
+thread_local! {
+    static OUTER_RUN_TRANSACTION_DEPTH: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+pub(crate) fn outer_run_transaction_active() -> bool {
+    OUTER_RUN_TRANSACTION_DEPTH.with(|depth| depth.get() > 0)
+}
+
+fn within_outer_run_transaction<T>(operation: impl FnOnce() -> SimResult<T>) -> SimResult<T> {
+    struct Guard;
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            OUTER_RUN_TRANSACTION_DEPTH.with(|depth| depth.set(depth.get() - 1));
+        }
+    }
+    OUTER_RUN_TRANSACTION_DEPTH.with(|depth| depth.set(depth.get() + 1));
+    let _guard = Guard;
+    operation()
+}
+
+/// Applies one top-level run decision and validates both sides of the boundary.
+pub fn apply_run_decision_action(run: &RunState, action: RunDecisionAction) -> SimResult<RunState> {
+    validate_run_decision_action(run, action)?;
+    let working = run.clone();
+    within_outer_run_transaction(|| {
+        let mut next = match action {
+            RunDecisionAction::Combat(action) => {
+                apply_validated_combat_action_on_owned_run(working, action)
+            }
+            RunDecisionAction::Event(action) => apply_validated_event_action(working, action),
+            RunDecisionAction::GridSelect { index } => apply_validated_grid_select(working, index),
+            RunDecisionAction::GridConfirm => apply_validated_grid_confirmation(working),
+            RunDecisionAction::GridCancel => Ok(apply_validated_grid_cancel(working)),
+            RunDecisionAction::Map(action) => apply_validated_map_action_on_run(working, action),
+            RunDecisionAction::Rest(action) => apply_validated_rest_action(working, action),
+            RunDecisionAction::Run(action) => apply_validated_run_action_owned(working, action),
+        }?;
+        // Boundary schema 6 waits for gameplay-mutating dungeon effects before
+        // publishing. Settle ShowCardAndObtainEffect once no grid decision owns it;
+        // this is simulator queue processing, not observation-driven correction.
+        if next.card_grid.is_none() && !next.pending_obtain_provenance.is_empty() {
+            next.flush_pending_obtain_cards()?;
+        }
+        if !next.pending_combat_obtain_cards.is_empty() {
+            next.flush_pending_combat_obtain_cards()?;
+        }
+        next.validate()?;
+        Ok(next)
+    })
+}
+
+pub(crate) fn validate_run_action_after_run_validation(
+    run: &RunState,
+    action: RunAction,
+) -> SimResult<()> {
+    match action {
+        RunAction::OpenChest => super::reward::validate_treasure_action(run, action),
+        RunAction::Proceed if run.phase == RunPhase::Reward => run.validate_reward_action(action),
+        RunAction::Proceed if run.phase == RunPhase::Shop => validate_shop_action(run, action),
+        RunAction::Proceed if run.phase == RunPhase::Combat => {
+            if run
+                .combat
+                .as_ref()
+                .is_some_and(|combat| combat.phase == crate::combat::CombatPhase::Lost)
+            {
+                Ok(())
+            } else {
+                Err(SimError::IllegalAction(
+                    "proceed from combat requires a lost combat",
+                ))
+            }
+        }
+        RunAction::Proceed if run.phase == RunPhase::Victory => {
+            run.validate_final_boss_victory_action(action)
+        }
+        RunAction::Proceed => super::reward::validate_treasure_action(run, action),
+        RunAction::BuyShopCard { .. }
+        | RunAction::BuyShopRelic { .. }
+        | RunAction::BuyShopPotion { .. }
+        | RunAction::EnterShop
+        | RunAction::LeaveShop
+        | RunAction::OpenShopRemove => validate_shop_action(run, action),
+        RunAction::UsePotion { .. }
+        | RunAction::DiscardPotion { .. }
+        | RunAction::ChooseCombatCardReward { .. }
+        | RunAction::SkipCombatCardReward
+        | RunAction::ChooseHandSelect { .. }
+        | RunAction::ConfirmHandSelect
+        | RunAction::ConfirmHandSelectWithoutRetrieval
+        | RunAction::ChooseDrawSelect { .. }
+        | RunAction::ConfirmDrawSelect
+        | RunAction::ChooseDiscardSelect { .. }
+        | RunAction::ConfirmDiscardSelect
+        | RunAction::ChooseExhaustSelect { .. }
+        | RunAction::ConfirmExhaustSelect => validate_potion_action(run, action),
+        _ => run.validate_reward_action(action),
+    }
+}
+
+fn locally_valid_run_action_candidates(
+    candidates: impl IntoIterator<Item = RunAction>,
+    validate: impl Fn(RunAction) -> SimResult<()>,
+) -> SimResult<Vec<RunAction>> {
+    let mut legal = Vec::new();
+    for action in candidates {
+        match validate(action) {
+            Ok(()) => legal.push(action),
+            Err(SimError::IllegalAction(_)) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(legal)
+}
+
+fn legal_combat_select_actions_on_run(
+    run: &RunState,
+    combat: &CombatState,
+) -> SimResult<Vec<RunAction>> {
+    let mut candidates = Vec::new();
+    match combat.decision.as_ref() {
+        Some(CombatDecisionState::PotionCardReward { choices, .. }) => {
+            candidates.extend(
+                (0..choices.len()).map(|index| RunAction::ChooseCombatCardReward { index }),
+            );
+            candidates.push(RunAction::SkipCombatCardReward);
+        }
+        Some(CombatDecisionState::ToolboxCardReward { choices })
+        | Some(CombatDecisionState::DiscoveryCardReward { choices, .. }) => {
+            candidates.extend(
+                (0..choices.len()).map(|index| RunAction::ChooseCombatCardReward { index }),
+            );
+        }
+        Some(CombatDecisionState::NilrysCodexCardReward { choices }) => {
+            candidates.extend(
+                (0..choices.len()).map(|index| RunAction::ChooseCombatCardReward { index }),
+            );
+            candidates.push(RunAction::SkipCombatCardReward);
+        }
+        Some(CombatDecisionState::HandSelect { .. }) => {
+            candidates.extend(
+                (0..combat.piles.hand.len()).map(|index| RunAction::ChooseHandSelect { index }),
+            );
+            candidates.push(RunAction::ConfirmHandSelect);
+        }
+        Some(CombatDecisionState::DrawSelect { .. }) => {
+            candidates.extend(
+                (0..combat.piles.draw_pile.len())
+                    .map(|index| RunAction::ChooseDrawSelect { index }),
+            );
+            candidates.push(RunAction::ConfirmDrawSelect);
+        }
+        Some(CombatDecisionState::DiscardSelect { .. }) => {
+            candidates.extend(
+                (0..combat.piles.discard_pile.len())
+                    .map(|index| RunAction::ChooseDiscardSelect { index }),
+            );
+            candidates.push(RunAction::ConfirmDiscardSelect);
+        }
+        Some(CombatDecisionState::ExhaustSelect { state: select }) => {
+            let choice_count = if select.purpose == ExhaustSelectPurpose::ExhumeReturnToHand {
+                combat.piles.exhaust_pile.len()
+            } else {
+                combat.piles.hand.len()
+            };
+            candidates
+                .extend((0..choice_count).map(|index| RunAction::ChooseExhaustSelect { index }));
+            candidates.push(RunAction::ConfirmExhaustSelect);
+        }
+        None => {}
+    }
+    locally_valid_run_action_candidates(candidates, |action| {
+        validate_potion_action_after_validation(run, action)
+    })
+}
+
+fn legal_reward_actions(run: &RunState) -> SimResult<Vec<RunAction>> {
+    let mut candidates = vec![
+        RunAction::SkipReward,
+        RunAction::CloseCardReward,
+        RunAction::TakeGoldReward,
+        RunAction::TakeStolenGoldReward,
+        RunAction::TakeRelicReward,
+        RunAction::TakeSapphireKey,
+        RunAction::TakeEmeraldKey,
+        RunAction::Proceed,
+        RunAction::OpenCardReward,
+        RunAction::SkipPotionReward,
+        RunAction::TakeSingingBowlReward,
+    ];
+    if let Some(reward) = run.reward.as_ref() {
+        let potion_offer_count = reward
+            .potion_offers
+            .len()
+            .max(usize::from(reward.potion_offer.is_some()));
+        candidates
+            .extend((0..potion_offer_count).map(|index| RunAction::TakePotionReward { index }));
+        candidates.extend(
+            (0..reward.boss_relic_choices.len())
+                .map(|index| RunAction::ChooseBossRelicReward { index }),
+        );
+        let relic_offer_count = usize::from(reward.relic_offer.is_some())
+            + usize::from(reward.pending_relic_offer.is_some())
+            + reward.queued_relic_offers.len();
+        candidates
+            .extend((0..relic_offer_count).map(|index| RunAction::TakeRelicRewardAt { index }));
+        candidates.extend(
+            (0..reward.queued_card_rewards.len())
+                .map(|index| RunAction::OpenQueuedCardReward { index }),
+        );
+        candidates.extend(
+            reward
+                .choices
+                .iter()
+                .map(|choice| RunAction::TakeCardReward { card_id: choice.id }),
+        );
+    }
+    locally_valid_run_action_candidates(candidates, |action| run.validate_reward_action(action))
+}
+
+fn legal_potion_actions_on_run(run: &RunState) -> SimResult<Vec<RunAction>> {
+    let candidates = run
+        .occupied_potion_slots()
+        .into_iter()
+        .flat_map(|(slot, potion)| {
+            potion_use_candidates(slot, potion, run.combat.as_ref())
+                .into_iter()
+                .chain(std::iter::once(RunAction::DiscardPotion { slot }))
+        })
+        .collect::<Vec<_>>();
+    locally_valid_run_action_candidates(candidates, |action| {
+        validate_potion_action_after_validation(run, action)
+    })
+}
+
+fn potion_use_candidates(
+    slot: usize,
+    potion: Potion,
+    combat: Option<&CombatState>,
+) -> Vec<RunAction> {
+    if potion.requires_target() {
+        let Some(combat) = combat else {
+            return Vec::new();
+        };
+        return combat
+            .monsters
+            .iter()
+            .filter(|monster| monster.alive)
+            .map(|monster| RunAction::UsePotion {
+                slot,
+                target: Some(monster.id),
+            })
+            .collect();
+    }
+    vec![RunAction::UsePotion { slot, target: None }]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::run::apply_map_action_on_run;
+    use crate::{
+        combat::{
+            CombatPhase, DrawSelectPurpose, DrawSelectState, ExhaustSelectPurpose,
+            ExhaustSelectState, HandSelectPurpose, HandSelectState,
+        },
+        content::cards::{
+            ARMAMENTS_ID, BASH_ID, BURNING_PACT_ID, DEFEND_R_ID, DEFEND_R_PLUS_ID, EXHUME_ID,
+            PURITY_ID, RECYCLE_ANY_COLOR_ID, SECRET_WEAPON_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
+            THINKING_AHEAD_ID, TRUE_GRIT_PLUS_ID,
+        },
+        legal_map_actions_on_run,
+        snapshot::{restore_run_snapshot_json, Snapshot, SNAPSHOT_SCHEMA_VERSION},
+        CardGridScreen, CardId, CardInstance, GridPurpose, Relic,
+    };
+
+    #[test]
+    fn top_level_boundary_clones_the_whole_run_once_for_every_action_family() {
+        fn assert_one_clone(name: &str, run: &RunState, action: RunDecisionAction) {
+            crate::run::state::reset_whole_run_clone_count();
+            apply_run_decision_action(run, action)
+                .unwrap_or_else(|error| panic!("{name} representative action failed: {error}"));
+            assert_eq!(crate::run::state::whole_run_clone_count(), 1, "{action:?}");
+        }
+
+        let map = RunState::map_fixture();
+        let map_action = legal_map_actions_on_run(&map).expect("map actions")[0];
+        assert_one_clone("map", &map, RunDecisionAction::Map(map_action));
+
+        let combat = RunState::combat_fixture();
+        let combat_action = legal_run_decision_actions(&combat)
+            .expect("combat actions")
+            .into_iter()
+            .find(|action| matches!(action, RunDecisionAction::Combat(_)))
+            .expect("combat action");
+        assert_one_clone("combat", &combat, combat_action);
+
+        let mut potion = RunState::combat_fixture();
+        potion.potions = vec![Potion::Energy];
+        potion.empty_potion_slots = vec![1, 2];
+        assert_one_clone(
+            "run/potion",
+            &potion,
+            RunDecisionAction::Run(RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            }),
+        );
+
+        let event = RunState::seeded_ironclad(1, 0);
+        let event_action = legal_run_decision_actions(&event).expect("event actions")[0];
+        assert_one_clone("event", &event, event_action);
+
+        let mut shrine = RunState::seeded_ironclad(1, 0);
+        shrine.phase = RunPhase::Event;
+        shrine.event = Some(crate::run::event::event_screen_for_run(
+            &shrine,
+            crate::Event::GoldenShrine,
+        ));
+        assert_one_clone(
+            "event with deferred obtain settlement",
+            &shrine,
+            RunDecisionAction::Event(crate::EventAction::Choose { choice_index: 1 }),
+        );
+
+        let mut rest = RunState::map_fixture();
+        rest.phase = RunPhase::Rest;
+        rest.current_room_override = Some(crate::RoomKind::Rest);
+        rest.event = None;
+        let rest_action = legal_run_decision_actions(&rest).expect("rest actions")[0];
+        assert_one_clone("rest", &rest, rest_action);
+
+        let mut grid = RunState::map_fixture();
+        grid.phase = RunPhase::Rest;
+        grid.current_room_override = Some(crate::RoomKind::Rest);
+        grid.event = None;
+        grid.card_grid = Some(CardGridScreen {
+            cards: grid.deck.clone(),
+            purpose: GridPurpose::RestSmith,
+            selected: None,
+            selected_indices: Vec::new(),
+        });
+        assert_one_clone("grid", &grid, RunDecisionAction::GridSelect { index: 0 });
+    }
+
+    #[test]
+    fn rejected_top_level_action_preserves_caller_queues_and_rng_without_cloning() {
+        let run = RunState::combat_fixture();
+        let before = run.clone();
+        crate::run::state::reset_whole_run_clone_count();
+        assert!(apply_run_decision_action(
+            &run,
+            RunDecisionAction::GridSelect { index: usize::MAX }
+        )
+        .is_err());
+        assert_eq!(crate::run::state::whole_run_clone_count(), 0);
+        assert_eq!(run, before);
+    }
+
+    #[test]
+    fn top_level_map_step_matches_the_specialized_transition() {
+        let run = RunState::map_fixture();
+        let action = legal_map_actions_on_run(&run).expect("valid map fixture")[0];
+
+        assert_eq!(
+            apply_run_decision_action(&run, RunDecisionAction::Map(action)),
+            apply_map_action_on_run(&run, action)
+        );
+    }
+
+    #[test]
+    fn top_level_step_rejects_malformed_pre_state_before_routing() {
+        let mut run = RunState::seeded_ironclad(22_079_335_079, 0);
+        run.phase = RunPhase::Shop;
+        run.event = None;
+        run.shop = None;
+
+        assert_eq!(
+            apply_run_decision_action(&run, RunDecisionAction::Run(RunAction::Proceed)),
+            Err(SimError::InvalidState("shop phase has no shop screen"))
+        );
+    }
+
+    #[test]
+    fn top_level_legal_actions_are_validator_backed() {
+        let run = RunState::map_fixture();
+        let actions = legal_run_decision_actions(&run).expect("valid map fixture");
+
+        assert!(!actions.is_empty());
+        assert!(actions
+            .iter()
+            .all(|action| validate_run_decision_action(&run, *action).is_ok()));
+        assert_eq!(
+            actions,
+            legal_map_actions_on_run(&run)
+                .expect("valid map fixture")
+                .into_iter()
+                .map(RunDecisionAction::Map)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn legal_query_performs_one_full_run_validation() {
+        for run in [RunState::map_fixture(), RunState::combat_fixture()] {
+            crate::run::state::reset_full_validation_count();
+            let actions = legal_run_decision_actions(&run).expect("fixture is valid");
+            assert!(!actions.is_empty());
+            assert_eq!(crate::run::state::full_validation_count(), 1);
+        }
+    }
+
+    #[test]
+    fn top_level_legal_actions_reject_malformed_state() {
+        let mut run = RunState::seeded_ironclad(22_079_335_079, 0);
+        run.phase = RunPhase::Shop;
+        run.event = None;
+        run.shop = None;
+
+        assert_eq!(
+            legal_run_decision_actions(&run),
+            Err(SimError::InvalidState("shop phase has no shop screen"))
+        );
+    }
+
+    #[test]
+    fn top_level_legal_actions_do_not_hide_invalid_candidate_state() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Shop;
+        run.card_grid = Some(CardGridScreen {
+            cards: vec![run.deck[0]],
+            purpose: GridPurpose::ShopRemove,
+            selected: Some(0),
+            selected_indices: Vec::new(),
+        });
+
+        assert_eq!(
+            legal_run_decision_actions(&run),
+            Err(SimError::InvalidState("shop phase has no shop screen"))
+        );
+    }
+
+    #[test]
+    fn top_level_legal_actions_reject_duplicate_grid_selections() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Treasure;
+        run.current_room_override = Some(crate::RoomKind::Boss);
+        run.boss_chest_opened = true;
+        run.relics.push(crate::Relic::Astrolabe);
+        run.card_grid = Some(CardGridScreen {
+            cards: vec![run.deck[0]],
+            purpose: GridPurpose::Astrolabe,
+            selected: None,
+            selected_indices: vec![0, 0, 0],
+        });
+
+        assert_eq!(
+            legal_run_decision_actions(&run),
+            Err(SimError::InvalidState(
+                "card grid selection indices contain duplicates"
+            ))
+        );
+    }
+
+    #[test]
+    fn top_level_legal_actions_respect_mandatory_confirmation_grids() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(crate::run::event::event_screen_for_run(
+            &run,
+            crate::Event::Neow,
+        ));
+        run.gain_relic(crate::Relic::CallingBell)
+            .expect("Calling Bell opens its confirmation grid");
+
+        assert_eq!(
+            legal_run_decision_actions(&run),
+            Ok(vec![RunDecisionAction::GridConfirm])
+        );
+    }
+
+    #[test]
+    fn top_level_legal_actions_reject_fabricated_grid_counts() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Treasure;
+        run.current_room_override = Some(crate::RoomKind::Boss);
+        run.boss_chest_opened = true;
+        run.relics.push(crate::Relic::EmptyCage);
+        run.card_grid = Some(CardGridScreen {
+            cards: run.deck.clone(),
+            purpose: GridPurpose::EmptyCage { remaining: 3 },
+            selected: None,
+            selected_indices: Vec::new(),
+        });
+
+        assert_eq!(
+            legal_run_decision_actions(&run),
+            Err(SimError::InvalidState(
+                "card grid removal count is outside its authoritative range"
+            ))
+        );
+    }
+
+    #[test]
+    fn top_level_legal_actions_omit_single_select_noops() {
+        let mut run = RunState::combat_fixture();
+        run.potions = vec![Potion::Energy];
+        run.empty_potion_slots = vec![1, 2];
+        let combat = run.combat.as_mut().expect("combat fixture");
+        let source_card_id = combat.piles.hand[0].id;
+        combat.decision = Some(CombatDecisionState::HandSelect {
+            state: HandSelectState {
+                purpose: HandSelectPurpose::WarcryPutOnDraw,
+                source_card_id,
+                selected_hand_index: None,
+                selected_hand_indices: Vec::new(),
+                dual_wield_restore_on_confirm: Vec::new(),
+                dual_wield_force_exhaust: false,
+            },
+            pending_actions: Default::default(),
+        });
+
+        let selected = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Run(RunAction::ChooseHandSelect { index: 0 }),
+        )
+        .expect("valid hand selection");
+        let actions = legal_run_decision_actions(&selected).expect("valid selected state");
+
+        assert!(
+            !actions.contains(&RunDecisionAction::Run(RunAction::ChooseHandSelect {
+                index: 0,
+            }))
+        );
+        assert!(actions.contains(&RunDecisionAction::Run(RunAction::ConfirmHandSelect)));
+        let use_energy_potion = RunDecisionAction::Run(RunAction::UsePotion {
+            slot: 0,
+            target: None,
+        });
+        assert!(actions.contains(&use_energy_potion));
+
+        let after_potion = apply_run_decision_action(&selected, use_energy_potion)
+            .expect("potion use remains legal during hand selection");
+        assert!(matches!(
+            after_potion
+                .combat
+                .as_ref()
+                .expect("combat remains active")
+                .decision,
+            Some(CombatDecisionState::HandSelect { .. })
+        ));
+        assert_eq!(after_potion.potion_at_slot(0), None);
+    }
+
+    #[test]
+    fn armaments_selection_settles_after_blessing_upgrades_the_selected_card() {
+        let mut run = RunState::combat_fixture();
+        run.potions = vec![Potion::BlessingOfTheForge];
+        run.empty_potion_slots = vec![1, 2];
+        let combat = run.combat.as_mut().expect("combat fixture");
+        combat.player.energy = 3;
+        combat.piles.hand = vec![
+            CardInstance::new(CardId::new(1), ARMAMENTS_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+            CardInstance::new(CardId::new(99), STRIKE_R_PLUS_ID),
+        ];
+
+        let selecting = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            }),
+        )
+        .expect("Armaments opens its selection");
+        let blessed_before_choice = apply_run_decision_action(
+            &selecting,
+            RunDecisionAction::Run(RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            }),
+        )
+        .expect("Blessing remains legal before selection");
+        let choices = legal_run_decision_actions(&blessed_before_choice)
+            .expect("Blessing must not empty the open Armaments decision");
+        assert!(choices.iter().any(|action| matches!(
+            action,
+            RunDecisionAction::Run(RunAction::ChooseHandSelect { .. })
+        )));
+        for action in choices {
+            apply_run_decision_action(&blessed_before_choice, action).unwrap_or_else(|error| {
+                panic!("post-Blessing legal action {action:?} failed to apply: {error}")
+            });
+        }
+
+        let selected = apply_run_decision_action(
+            &selecting,
+            RunDecisionAction::Run(RunAction::ChooseHandSelect { index: 0 }),
+        )
+        .expect("Strike is selected");
+        let blessed = apply_run_decision_action(
+            &selected,
+            RunDecisionAction::Run(RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            }),
+        )
+        .expect("Blessing remains legal during selection");
+        let blessed_combat = blessed.combat.as_ref().expect("combat remains active");
+        assert_eq!(blessed_combat.piles.hand[0].content_id, ARMAMENTS_ID);
+        assert_eq!(blessed_combat.piles.hand[1].content_id, STRIKE_R_PLUS_ID);
+        assert_eq!(blessed_combat.piles.hand[2].content_id, DEFEND_R_PLUS_ID);
+
+        let snapshot_json = Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: blessed.clone(),
+        }
+        .canonical_json()
+        .expect("open selection snapshot serializes");
+        let blessed = restore_run_snapshot_json(&snapshot_json)
+            .expect("open selection snapshot restores")
+            .state;
+
+        let mut invalid = blessed.clone();
+        invalid
+            .combat
+            .as_mut()
+            .expect("combat remains active")
+            .hand_select_mut()
+            .expect("selection remains open")
+            .selected_hand_index = Some(usize::MAX);
+        assert_eq!(
+            invalid.validate(),
+            Err(SimError::InvalidState(
+                "hand selection index is out of range"
+            ))
+        );
+
+        let skipped_confirm = RunDecisionAction::Run(RunAction::ConfirmHandSelectWithoutRetrieval);
+        assert_eq!(
+            validate_run_decision_action(&blessed, skipped_confirm),
+            Err(SimError::IllegalAction(
+                "skipped Armaments retrieval requires force-played or settled source"
+            ))
+        );
+
+        let mut skipped_input = blessed.clone();
+        {
+            let combat = skipped_input
+                .combat
+                .as_mut()
+                .expect("combat remains active");
+            combat.play_top_force_exhaust_active = true;
+            combat.relics.push(Relic::DeadBranch);
+            combat.player.powers.dark_embrace = 1;
+            combat.piles.draw_pile = vec![CardInstance::new(CardId::new(200), DEFEND_R_ID)];
+        }
+        assert_eq!(
+            validate_run_decision_action(&skipped_input, skipped_confirm),
+            Ok(())
+        );
+        let skipped = apply_run_decision_action(&skipped_input, skipped_confirm)
+            .expect("force-played skipped retrieval settles after Blessing");
+        let skipped_combat = skipped.combat.as_ref().expect("combat remains active");
+        assert_eq!(
+            skipped_combat
+                .pending_hidden_hand_card_until_end_turn
+                .iter()
+                .map(|card| card.id)
+                .collect::<Vec<_>>(),
+            vec![CardId::new(2)]
+        );
+        assert_eq!(skipped_combat.piles.hand.len(), 3);
+        assert_eq!(skipped_combat.piles.hand[0].id, CardId::new(3));
+        assert_eq!(skipped_combat.piles.hand[0].content_id, DEFEND_R_PLUS_ID);
+        assert!(
+            skipped_combat.piles.hand[1].combat_only,
+            "Dead Branch generation must precede the Dark Embrace draw"
+        );
+        assert_eq!(skipped_combat.piles.hand[2].id, CardId::new(200));
+        assert!(!skipped_combat
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(99)));
+        assert!(skipped_combat
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(1) && card.content_id == ARMAMENTS_ID));
+
+        let confirm = RunDecisionAction::Run(RunAction::ConfirmHandSelect);
+        assert!(legal_run_decision_actions(&blessed)
+            .expect("blessed selection has legal actions")
+            .contains(&confirm));
+        let settled = apply_run_decision_action(&blessed, confirm)
+            .expect("already-upgraded Armaments target settles as a no-op upgrade");
+        let settled_combat = settled.combat.as_ref().expect("combat remains active");
+        assert!(settled_combat.hand_select().is_none());
+        assert_eq!(
+            settled_combat
+                .piles
+                .hand
+                .iter()
+                .map(|card| (card.id, card.content_id))
+                .collect::<Vec<_>>(),
+            vec![
+                (CardId::new(3), DEFEND_R_PLUS_ID),
+                (CardId::new(2), STRIKE_R_PLUS_ID),
+                (CardId::new(99), STRIKE_R_PLUS_ID),
+            ],
+            "selected card returns before the initially unupgradeable card"
+        );
+        assert!(settled_combat
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(1) && card.content_id == ARMAMENTS_ID));
+    }
+
+    #[test]
+    fn secret_weapon_draw_choice_settles_source_and_closes_search() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().expect("combat fixture");
+        let source_card_id = combat.piles.hand[0].id;
+        combat.piles.hand[0].content_id = SECRET_WEAPON_ID;
+        combat.piles.draw_pile = vec![
+            CardInstance::new(CardId::new(900), DEFEND_R_ID),
+            CardInstance::new(CardId::new(901), STRIKE_R_ID),
+            CardInstance::new(CardId::new(902), BASH_ID),
+        ];
+        combat.decision = Some(CombatDecisionState::DrawSelect {
+            state: DrawSelectState {
+                purpose: DrawSelectPurpose::SecretWeaponAttackToHand,
+                source_card_id,
+                selectable_card_ids: Vec::new(),
+                selected_draw_index: None,
+                selected_draw_indices: Vec::new(),
+                pending_actions: Default::default(),
+            },
+        });
+
+        let selected = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Run(RunAction::ChooseDrawSelect { index: 1 }),
+        )
+        .expect("valid Secret Weapon draw selection");
+        let combat = selected.combat.as_ref().expect("combat remains active");
+
+        assert!(combat.draw_select().is_none());
+        assert!(combat
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == BASH_ID));
+        assert_eq!(
+            combat
+                .piles
+                .draw_pile
+                .iter()
+                .map(|card| card.content_id)
+                .collect::<Vec<_>>(),
+            vec![DEFEND_R_ID, STRIKE_R_ID]
+        );
+        assert!(combat
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.content_id == SECRET_WEAPON_ID));
+        assert!(!legal_run_decision_actions(&selected)
+            .expect("settled state is legal")
+            .contains(&RunDecisionAction::Run(RunAction::ConfirmDrawSelect)));
+    }
+
+    #[test]
+    fn top_level_legal_actions_omit_potions_outside_player_combat_phase() {
+        let use_potion = RunDecisionAction::Run(RunAction::UsePotion {
+            slot: 0,
+            target: None,
+        });
+        let discard_potion = RunDecisionAction::Run(RunAction::DiscardPotion { slot: 0 });
+        let phases = [
+            (CombatPhase::WaitingForPlayer, true),
+            (CombatPhase::MonsterTurn, false),
+            (CombatPhase::Won, false),
+            (CombatPhase::Lost, false),
+        ];
+
+        for (phase, player_can_act) in phases {
+            let mut run = RunState::combat_fixture();
+            run.potions = vec![Potion::Energy];
+            run.empty_potion_slots = vec![1, 2];
+            run.combat.as_mut().expect("combat fixture").phase = phase;
+            let actions = legal_run_decision_actions(&run).expect("legal actions enumerate");
+
+            assert_eq!(
+                actions.contains(&use_potion),
+                player_can_act,
+                "use-potion legality for {phase:?}"
+            );
+            assert_eq!(
+                actions.contains(&discard_potion),
+                player_can_act,
+                "discard-potion legality for {phase:?}"
+            );
+
+            if player_can_act {
+                assert_eq!(validate_run_decision_action(&run, use_potion), Ok(()));
+                assert_eq!(validate_run_decision_action(&run, discard_potion), Ok(()));
+                continue;
+            }
+
+            for action in [use_potion, discard_potion] {
+                assert_eq!(
+                    validate_run_decision_action(&run, action),
+                    Err(SimError::IllegalAction(
+                        "combat is not waiting for player input"
+                    )),
+                    "validation for {action:?} in {phase:?}"
+                );
+                let before = run.clone();
+                assert_eq!(
+                    apply_run_decision_action(&run, action),
+                    Err(SimError::IllegalAction(
+                        "combat is not waiting for player input"
+                    )),
+                    "application for {action:?} in {phase:?}"
+                );
+                assert_eq!(run, before, "failed {action:?} mutated {phase:?}");
+            }
+        }
+
+        let mut selecting = RunState::combat_fixture();
+        selecting.potions = vec![Potion::Energy];
+        selecting.empty_potion_slots = vec![1, 2];
+        let source_card_id = selecting
+            .combat
+            .as_ref()
+            .expect("combat fixture")
+            .piles
+            .hand[0]
+            .id;
+        selecting.combat.as_mut().expect("combat fixture").decision =
+            Some(CombatDecisionState::HandSelect {
+                state: HandSelectState {
+                    purpose: HandSelectPurpose::WarcryPutOnDraw,
+                    source_card_id,
+                    selected_hand_index: None,
+                    selected_hand_indices: Vec::new(),
+                    dual_wield_restore_on_confirm: Vec::new(),
+                    dual_wield_force_exhaust: false,
+                },
+                pending_actions: Default::default(),
+            });
+        let selecting_actions = legal_run_decision_actions(&selecting).expect("selection actions");
+        assert!(
+            selecting_actions.contains(&RunDecisionAction::Run(RunAction::ChooseHandSelect {
+                index: 0
+            }))
+        );
+        assert!(selecting_actions.contains(&use_potion));
+        assert!(selecting_actions.contains(&discard_potion));
+
+        let selected = apply_run_decision_action(
+            &selecting,
+            RunDecisionAction::Run(RunAction::ChooseHandSelect { index: 0 }),
+        )
+        .expect("hand selection applies");
+        let selected_actions =
+            legal_run_decision_actions(&selected).expect("selected actions enumerate");
+        assert!(selected_actions.contains(&RunDecisionAction::Run(RunAction::ConfirmHandSelect)));
+        assert!(selected_actions.contains(&use_potion));
+        assert!(selected_actions.contains(&discard_potion));
+    }
+
+    fn confirm_exhaust() -> RunDecisionAction {
+        RunDecisionAction::Run(RunAction::ConfirmExhaustSelect)
+    }
+
+    fn choose_exhaust(index: usize) -> RunDecisionAction {
+        RunDecisionAction::Run(RunAction::ChooseExhaustSelect { index })
+    }
+
+    fn confirm_hand() -> RunDecisionAction {
+        RunDecisionAction::Run(RunAction::ConfirmHandSelect)
+    }
+
+    fn choose_hand(index: usize) -> RunDecisionAction {
+        RunDecisionAction::Run(RunAction::ChooseHandSelect { index })
+    }
+
+    fn play_card(run: &RunState, card_id: u64) -> RunState {
+        apply_run_decision_action(
+            run,
+            RunDecisionAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(card_id),
+                target: None,
+            }),
+        )
+        .expect("card plays")
+    }
+
+    fn assert_every_legal_action_applies(run: &RunState) {
+        let actions = legal_run_decision_actions(run).expect("legal actions enumerate");
+        for action in actions {
+            apply_run_decision_action(run, action)
+                .unwrap_or_else(|error| panic!("{action:?} is legal but failed to apply: {error}"));
+        }
+    }
+
+    fn combat_with_hand(cards: Vec<CardInstance>) -> RunState {
+        let mut run = RunState::combat_fixture();
+        {
+            let combat = run.combat.as_mut().expect("combat fixture");
+            combat.player.energy = 3;
+            combat.piles.hand = cards;
+            combat.piles.draw_pile.clear();
+            combat.piles.discard_pile.clear();
+            combat.piles.exhaust_pile.clear();
+        }
+        run
+    }
+
+    #[test]
+    fn exact_one_exhaust_confirm_is_illegal_until_one_card_is_chosen() {
+        for (source, extra) in [
+            (TRUE_GRIT_PLUS_ID, STRIKE_R_ID),
+            (BURNING_PACT_ID, STRIKE_R_ID),
+            (RECYCLE_ANY_COLOR_ID, STRIKE_R_ID),
+        ] {
+            let run = combat_with_hand(vec![
+                CardInstance::new(CardId::new(1), source),
+                CardInstance::new(CardId::new(2), extra),
+                CardInstance::new(CardId::new(3), DEFEND_R_ID),
+                CardInstance::new(CardId::new(4), BASH_ID),
+            ]);
+            let opened = play_card(&run, 1);
+            assert!(
+                opened
+                    .combat
+                    .as_ref()
+                    .and_then(|combat| combat.exhaust_select())
+                    .is_some(),
+                "{source:?} should open exhaust select"
+            );
+            let empty_actions = legal_run_decision_actions(&opened).expect("empty select");
+            assert!(
+                !empty_actions.contains(&confirm_exhaust()),
+                "empty {source:?} confirm must be illegal"
+            );
+            assert_every_legal_action_applies(&opened);
+
+            let selected = apply_run_decision_action(&opened, choose_exhaust(0))
+                .expect("first exhaust choice applies");
+            let selected_actions =
+                legal_run_decision_actions(&selected).expect("selected exhaust actions");
+            assert!(
+                selected_actions.contains(&confirm_exhaust()),
+                "{source:?} confirm must be legal after one choice"
+            );
+            assert!(
+                selected_actions.iter().any(|action| {
+                    matches!(
+                        action,
+                        RunDecisionAction::Run(RunAction::ChooseExhaustSelect { .. })
+                    )
+                }),
+                "player legality still exposes exhaust retargets"
+            );
+            assert_every_legal_action_applies(&selected);
+        }
+    }
+
+    #[test]
+    fn empty_optional_exhaust_confirm_stays_legal() {
+        let mut gambling = RunState::combat_fixture();
+        crate::combat::open_gambling_chip_select(gambling.combat.as_mut().expect("combat fixture"))
+            .expect("Gambling Chip opens");
+        let gambling_actions = legal_run_decision_actions(&gambling).expect("Gambling Chip legal");
+        assert!(gambling_actions.contains(&confirm_exhaust()));
+        assert_every_legal_action_applies(&gambling);
+
+        let purity = play_card(
+            &combat_with_hand(vec![
+                CardInstance::new(CardId::new(1), PURITY_ID),
+                CardInstance::new(CardId::new(2), STRIKE_R_ID),
+                CardInstance::new(CardId::new(3), DEFEND_R_ID),
+                CardInstance::new(CardId::new(4), BASH_ID),
+            ]),
+            1,
+        );
+        let purity_actions = legal_run_decision_actions(&purity).expect("Purity legal");
+        assert!(purity_actions.contains(&confirm_exhaust()));
+        assert_every_legal_action_applies(&purity);
+
+        let mut elixir = RunState::combat_fixture();
+        elixir.combat.as_mut().expect("combat fixture").decision =
+            Some(CombatDecisionState::ExhaustSelect {
+                state: ExhaustSelectState {
+                    purpose: ExhaustSelectPurpose::Exhaust,
+                    source_card_id: None,
+                    source_card: None,
+                    source_card_force_exhaust: false,
+                    selected_hand_indices: Vec::new(),
+                    interrupted_by_cultist_potion: false,
+                    pending_actions: Default::default(),
+                },
+            });
+        let elixir_actions = legal_run_decision_actions(&elixir).expect("Exhaust legal");
+        assert!(elixir_actions.contains(&confirm_exhaust()));
+        assert_every_legal_action_applies(&elixir);
+    }
+
+    #[test]
+    fn empty_exhume_confirm_is_illegal_until_one_card_is_chosen() {
+        let mut run = combat_with_hand(vec![
+            CardInstance::new(CardId::new(1), EXHUME_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+        ]);
+        {
+            let combat = run.combat.as_mut().expect("combat fixture");
+            combat.piles.exhaust_pile = vec![
+                CardInstance::new(CardId::new(10), DEFEND_R_ID),
+                CardInstance::new(CardId::new(11), BASH_ID),
+            ];
+        }
+        let opened = play_card(&run, 1);
+        assert!(opened
+            .combat
+            .as_ref()
+            .and_then(|combat| combat.exhaust_select())
+            .is_some());
+        let empty_actions = legal_run_decision_actions(&opened).expect("empty Exhume");
+        assert!(!empty_actions.contains(&confirm_exhaust()));
+        assert_every_legal_action_applies(&opened);
+
+        let selected =
+            apply_run_decision_action(&opened, choose_exhaust(0)).expect("Exhume choice applies");
+        assert!(
+            selected
+                .combat
+                .as_ref()
+                .and_then(|combat| combat.exhaust_select())
+                .is_none(),
+            "Exhume choose auto-closes the exhaust select"
+        );
+        assert_every_legal_action_applies(&selected);
+    }
+
+    #[test]
+    fn thinking_ahead_confirm_is_illegal_until_a_card_is_chosen() {
+        let mut run = combat_with_hand(vec![
+            CardInstance::new(CardId::new(1), THINKING_AHEAD_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            CardInstance::new(CardId::new(3), DEFEND_R_ID),
+            CardInstance::new(CardId::new(4), BASH_ID),
+            CardInstance::new(CardId::new(5), STRIKE_R_ID),
+        ]);
+        {
+            let combat = run.combat.as_mut().expect("combat fixture");
+            combat.piles.draw_pile = vec![
+                CardInstance::new(CardId::new(6), STRIKE_R_ID),
+                CardInstance::new(CardId::new(7), DEFEND_R_ID),
+            ];
+        }
+        let opened = play_card(&run, 1);
+        assert!(opened
+            .combat
+            .as_ref()
+            .and_then(|combat| combat.hand_select())
+            .is_some());
+        let empty_actions = legal_run_decision_actions(&opened).expect("empty Thinking Ahead");
+        assert!(!empty_actions.contains(&confirm_hand()));
+        assert_every_legal_action_applies(&opened);
+
+        let selected =
+            apply_run_decision_action(&opened, choose_hand(0)).expect("Thinking Ahead choice");
+        let selected_actions =
+            legal_run_decision_actions(&selected).expect("selected Thinking Ahead");
+        assert!(selected_actions.contains(&confirm_hand()));
+        assert!(!selected_actions.contains(&choose_hand(0)));
+        assert!(selected_actions.contains(&choose_hand(1)));
+        assert_every_legal_action_applies(&selected);
+    }
+
+    #[test]
+    fn burning_pact_second_choice_replaces_the_selected_card() {
+        let opened = play_card(
+            &combat_with_hand(vec![
+                CardInstance::new(CardId::new(1), BURNING_PACT_ID),
+                CardInstance::new(CardId::new(2), STRIKE_R_ID),
+                CardInstance::new(CardId::new(3), DEFEND_R_ID),
+                CardInstance::new(CardId::new(4), BASH_ID),
+            ]),
+            1,
+        );
+        let first = apply_run_decision_action(&opened, choose_exhaust(0))
+            .expect("first Burning Pact choice");
+        let first_selected = first
+            .combat
+            .as_ref()
+            .and_then(|combat| combat.exhaust_select())
+            .expect("select remains open")
+            .selected_hand_indices
+            .clone();
+        assert_eq!(first_selected.len(), 1);
+
+        let second = apply_run_decision_action(&first, choose_exhaust(0))
+            .expect("second Burning Pact choice swaps");
+        let second_select = second
+            .combat
+            .as_ref()
+            .and_then(|combat| combat.exhaust_select())
+            .expect("select remains open");
+        assert_eq!(second_select.selected_hand_indices.len(), 1);
+        assert_ne!(second_select.selected_hand_indices, first_selected);
+        assert!(legal_run_decision_actions(&second)
+            .expect("swapped Burning Pact")
+            .contains(&confirm_exhaust()));
+        assert_every_legal_action_applies(&second);
+    }
+
+    #[test]
+    fn constructed_empty_exact_one_exhaust_confirm_is_rejected() {
+        for purpose in [
+            ExhaustSelectPurpose::TrueGritExhaustOne,
+            ExhaustSelectPurpose::RecycleExhaustOne,
+            ExhaustSelectPurpose::BurningPactDraw2,
+            ExhaustSelectPurpose::BurningPactDraw3,
+            ExhaustSelectPurpose::ExhumeReturnToHand,
+        ] {
+            let mut run = RunState::combat_fixture();
+            {
+                let combat = run.combat.as_mut().expect("combat fixture");
+                combat.piles.exhaust_pile = vec![CardInstance::new(CardId::new(20), STRIKE_R_ID)];
+                combat.decision = Some(CombatDecisionState::ExhaustSelect {
+                    state: ExhaustSelectState {
+                        purpose,
+                        source_card_id: Some(combat.piles.hand[0].id),
+                        source_card: None,
+                        source_card_force_exhaust: false,
+                        selected_hand_indices: Vec::new(),
+                        interrupted_by_cultist_potion: false,
+                        pending_actions: Default::default(),
+                    },
+                });
+            }
+            assert!(
+                !legal_run_decision_actions(&run)
+                    .expect("constructed empty select enumerates")
+                    .contains(&confirm_exhaust()),
+                "empty {purpose:?} confirm must be dropped"
+            );
+        }
+    }
+}

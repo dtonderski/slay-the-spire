@@ -1,10 +1,11 @@
 target/
 target-*/
-Cargo.lock
 
 # Local Python / build outputs
 .tmp/
 .venv/
+.ruff_cache/
+dist/
 __pycache__/
 *.py[cod]
 *.pyd
@@ -16,18 +17,15 @@ sendToDevs/
 HANDOFF.md
 *.log
 
-# Live trace UI frontend dependencies/build output
-apps/sts_live/node_modules/
-apps/sts_live/ui/node_modules/
-apps/sts_live/ui/dist/
+# Live trace and collection outputs
 live_traces/
 live_traces_active/
 SLAYTHEDATA_*_COLLECTION_LOG.jsonl
 latest-repair.json
-tools/communication/session/
-mods/abandon-run-control/build/
-mods/verification-bootstrap/build/
-mods/superfastmode-collection/build/
+simulator/tools/communication/session/
+simulator/mods/abandon-run-control/build/
+simulator/mods/verification-bootstrap/build/
+simulator/mods/superfastmode-collection/build/
 
 # Decompiled/vendor reference corpora are local-only.
 tmp/decompiled-sts/
@@ -40,26 +38,26 @@ data/slaythedata/
 *.db
 
 # Random fidelity campaign working state (local only)
-random_traces_loop/active-*.jsonl
-random_traces_loop/traces/
-random_traces_loop/minimized/
-random_traces_loop/pipeline_logs/
-random_traces_loop/pipeline_status.json
-random_traces_loop/campaign_status.json
-random_traces_loop/campaign_failures.jsonl
-random_traces_loop/ledger.jsonl
-random_traces_loop/verification_*.jsonl
-random_traces_loop/promotion_checkpoints.jsonl
-random_traces_loop/skipped_policy_seeds.jsonl
-random_traces_loop/serial_*/
-random_traces_loop/repair_*/
-random_traces_loop/repair_integration/
-random_traces_loop/complete_pass_overnight/inventory/inventory.pid
-random_traces_loop/complete_pass_overnight/inventory/INVENTORY_*
-random_traces_loop/*.pid
-random_traces_loop/schema_v1_smoke/
+simulator/tools/random_traces_loop/active-*.jsonl
+simulator/tools/random_traces_loop/traces/
+simulator/tools/random_traces_loop/minimized/
+simulator/tools/random_traces_loop/pipeline_logs/
+simulator/tools/random_traces_loop/pipeline_status.json
+simulator/tools/random_traces_loop/campaign_status.json
+simulator/tools/random_traces_loop/campaign_failures.jsonl
+simulator/tools/random_traces_loop/ledger.jsonl
+simulator/tools/random_traces_loop/verification_*.jsonl
+simulator/tools/random_traces_loop/promotion_checkpoints.jsonl
+simulator/tools/random_traces_loop/skipped_policy_seeds.jsonl
+simulator/tools/random_traces_loop/serial_*/
+simulator/tools/random_traces_loop/repair_*/
+simulator/tools/random_traces_loop/repair_integration/
+simulator/tools/random_traces_loop/complete_pass_overnight/inventory/inventory.pid
+simulator/tools/random_traces_loop/complete_pass_overnight/inventory/INVENTORY_*
+simulator/tools/random_traces_loop/*.pid
+simulator/tools/random_traces_loop/schema_v1_smoke/
 # Generated frozen patch payload; the small manifests and hashes remain durable.
-random_traces_loop/schema_v1_strict_inventory_2026-08-07/source.patch
+simulator/tools/random_traces_loop/schema_v1_strict_inventory_2026-08-07/source.patch
 
 # Local live captures / agent scratch
 live_traces/
@@ -67,30 +65,38 @@ live_traces_codex/
 .codex/
 
 # Full verification payloads and generated corpus bookkeeping are external.
-verification/corpus/permanent_traces/
-verification/corpus/legacy_pre_collection_2/*
-!verification/corpus/legacy_pre_collection_2/quarantine.txt
-verification/corpus/legacy_schema5_pilot/
-verification/corpus/legacy_schema6_initial_pilot/
-verification/corpus/.hf_download_cache/
-verification/corpus/open_failures/
-verification/corpus/quarantined_traces/
-verification/corpus/live_trace_fixtures/
-verification/corpus/communication_mod/
-verification/schema_*_archive_*/
+simulator/verification/corpus/permanent_traces/
+simulator/verification/corpus/legacy_pre_collection_2/*
+!simulator/verification/corpus/legacy_pre_collection_2/quarantine.txt
+simulator/verification/corpus/legacy_schema5_pilot/
+simulator/verification/corpus/legacy_schema6_initial_pilot/
+simulator/verification/corpus/.hf_download_cache/
+simulator/verification/corpus/open_failures/
+simulator/verification/corpus/quarantined_traces/
+simulator/verification/corpus/live_trace_fixtures/
+simulator/verification/corpus/communication_mod/
+simulator/verification/schema_*_archive_*/
 agent_logs/
-random_traces_loop/
+simulator/tools/random_traces_loop/
 
 # Native extension build product
-python/sts_sim/*.so
-python/sts_sim/__pycache__/
+simulator/python/sts_sim/*.so
+simulator/python/sts_sim/__pycache__/
 
 # Local mod build symlinks / launcher
-mods/lib/
+simulator/mods/lib/
 ModTheSpire.json
-!mods/CommunicationMod/src/main/resources/ModTheSpire.json
+!simulator/mods/CommunicationMod/src/main/resources/ModTheSpire.json
 sts
 
 .ipynb_checkpoints/
 **/Untitled.ipynb
 .muxel/
+
+# Generated outputs intentionally left in their pre-restructure locations.
+mods/CommunicationMod/dependency-reduced-pom.xml
+python/sts_sim/*.so
+python/sts_sim/__pycache__/
+mods/abandon-run-control/build/
+mods/verification-bootstrap/build/
+mods/superfastmode-collection/build/

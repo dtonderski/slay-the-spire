@@ -1,0 +1,42 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "sts-sim"
+version = "0.1.0"
+description = "Typed Python bindings for the Slay the Spire simulator"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "maturin>=1.7,<2",
+    "ruff>=0.12",
+    "ty>=0.0.1",
+]
+
+[tool.maturin]
+manifest-path = "../bindings/py_sts/Cargo.toml"
+python-source = "."
+module-name = "sts_sim._native"
+features = ["extension-module"]
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.src]
+include = ["sts_sim", "examples"]
+
+[tool.ty.rules]
+missing-type-argument = "error"
+possibly-unresolved-reference = "warn"
+blanket-ignore-comment = "error"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+extend-select = ["ANN", "PYI", "PGH003"]
+preview = true

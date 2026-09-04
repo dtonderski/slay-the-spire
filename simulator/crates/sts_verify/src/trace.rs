@@ -1,0 +1,1093 @@
+//! Current CommunicationMod trace schema.
+
+use serde::de::Error as _;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sts_core::adapter_internals::content::encounters::BossUnlockState;
+use sts_core::adapter_internals::ExternalRngInput;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum TraceLine {
+    Metadata(TraceMetadata),
+    Action(TraceAction),
+    ExternalRng(TraceExternalRng),
+    State(TraceState),
+    Error(TraceError),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceExternalRng {
+    pub step: u32,
+    pub draws: Vec<ExternalRngInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraceError {
+    pub step: u32,
+    pub message: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraceMetadata {
+    pub schema: u32,
+    pub source: String,
+    pub boundary_schema: Option<u32>,
+    #[serde(default)]
+    pub boss_unlocks: Option<BossUnlockState>,
+    pub run_config: Option<TraceRunConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraceRunConfig {
+    pub profile: Option<TraceProfile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceProfile {
+    pub note_card: Option<String>,
+    pub note_upgrades: u8,
+    pub final_act_available: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraceState {
+    pub step: u32,
+    pub message: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraceAction {
+    pub step: u32,
+    pub command: String,
+    pub command_meta: Option<Value>,
+    pub playtime_seconds: Option<u32>,
+}
+
+pub fn parse_trace_jsonl_line(line: &str) -> Result<Option<TraceLine>, serde_json::Error> {
+    let line = line.trim();
+    if line.is_empty() {
+        return Ok(None);
+    }
+    let value: Value = serde_json::from_str(line)?;
+    let parsed = match value.get("type").and_then(Value::as_str) {
+        Some("metadata") => TraceLine::Metadata(parse_metadata(value)?),
+        Some("action") => TraceLine::Action(parse_action(value)?),
+        Some("external_rng") => TraceLine::ExternalRng(serde_json::from_value(value)?),
+        Some("state") => TraceLine::State(parse_state(value)?),
+        Some("error") => TraceLine::Error(serde_json::from_value(value)?),
+        Some(kind) => {
+            return Err(serde_json::Error::custom(format!(
+                "unsupported trace record {kind:?}"
+            )))
+        }
+        None => return Err(serde_json::Error::custom("trace record requires type")),
+    };
+    Ok(Some(parsed))
+}
+
+fn parse_metadata(value: Value) -> Result<TraceMetadata, serde_json::Error> {
+    let metadata: TraceMetadata = serde_json::from_value(value)?;
+    if let Some(profile) = metadata
+        .run_config
+        .as_ref()
+        .and_then(|config| config.profile.as_ref())
+    {
+        if profile
+            .note_card
+            .as_deref()
+            .is_some_and(|card| card.trim().is_empty())
+        {
+            return Err(serde_json::Error::custom(
+                "profile note_card must not be empty",
+            ));
+        }
+        if profile.note_card.is_none() && profile.note_upgrades != 0 {
+            return Err(serde_json::Error::custom(
+                "profile without note_card must have note_upgrades=0",
+            ));
+        }
+    }
+    Ok(metadata)
+}
+
+fn parse_action(value: Value) -> Result<TraceAction, serde_json::Error> {
+    let action: TraceAction = serde_json::from_value(value)?;
+    if action.command.trim().is_empty() {
+        return Err(serde_json::Error::custom(
+            "action command must not be empty",
+        ));
+    }
+    Ok(action)
+}
+
+fn parse_state(value: Value) -> Result<TraceState, serde_json::Error> {
+    let state: TraceState = serde_json::from_value(value)?;
+    if !state.message.is_object() {
+        return Err(serde_json::Error::custom("state message must be an object"));
+    }
+    validate_game_state_schema(state.step, &state.message)?;
+    Ok(state)
+}
+
+fn validate_game_state_schema(step: u32, message: &Value) -> Result<(), serde_json::Error> {
+    let Some(game_value) = message.get("game_state") else {
+        return Ok(());
+    };
+    let game = game_value.as_object().ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} game_state must be a JSON object"
+        ))
+    })?;
+    let screen_type = game
+        .get("screen_type")
+        .and_then(Value::as_str)
+        .filter(|screen_type| !screen_type.trim().is_empty())
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.screen_type must be a string"
+            ))
+        })?;
+    if screen_type.eq_ignore_ascii_case("MENU") {
+        return Ok(());
+    }
+
+    let ascension = required_unsigned_game_field(step, game, "ascension_level")?;
+    if u8::try_from(ascension).is_err() {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.ascension_level is out of range"
+        )));
+    }
+    let floor = required_unsigned_game_field(step, game, "floor")?;
+    if u32::try_from(floor).is_err() {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.floor is out of range"
+        )));
+    }
+    for field in ["gold", "current_hp", "max_hp"] {
+        let Some(value) = game.get(field).and_then(Value::as_i64) else {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.{field} must be an integer"
+            )));
+        };
+        if i32::try_from(value).is_err() {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.{field} is out of range"
+            )));
+        }
+    }
+    validate_card_array(
+        step,
+        "game_state.deck",
+        game.get("deck").unwrap_or(&Value::Null),
+    )?;
+    for field in ["relics", "potions"] {
+        let entries = game.get(field).and_then(Value::as_array).ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.{field} must be an array"
+            ))
+        })?;
+        if entries.iter().any(|entry| {
+            !entry.as_object().is_some_and(|entry| {
+                entry
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .or_else(|| entry.get("name").and_then(Value::as_str))
+                    .is_some_and(|identity| !identity.trim().is_empty())
+            })
+        }) {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.{field} entries must name an id or name"
+            )));
+        }
+    }
+    if game.get("choice_list").is_some_and(|choices| {
+        choices
+            .as_array()
+            .is_none_or(|choices| choices.iter().any(|choice| !choice.is_string()))
+    }) {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.choice_list must be an array of strings"
+        )));
+    }
+    validate_optional_combat_state(step, game)?;
+    let command_ready = message.get("ready_for_command").and_then(Value::as_bool);
+    validate_visible_screen_schema(step, screen_type, game, command_ready)?;
+    Ok(())
+}
+
+fn validate_optional_combat_state(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let Some(value) = game.get("combat_state").filter(|value| !value.is_null()) else {
+        return Ok(());
+    };
+    let combat = value.as_object().ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.combat_state must be a JSON object"
+        ))
+    })?;
+    let player = combat
+        .get("player")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.combat_state.player must be a JSON object"
+            ))
+        })?;
+    for field in ["current_hp", "block", "energy"] {
+        validate_i32_field(step, "game_state.combat_state.player", player, field)?;
+    }
+    for pile in ["hand", "draw_pile", "discard_pile"] {
+        validate_combat_card_array(step, combat, pile)?;
+    }
+    validate_combat_monsters(step, combat)
+}
+
+fn validate_combat_card_array(
+    step: u32,
+    combat: &serde_json::Map<String, Value>,
+    pile: &str,
+) -> Result<(), serde_json::Error> {
+    let path = format!("game_state.combat_state.{pile}");
+    validate_card_array(step, &path, combat.get(pile).unwrap_or(&Value::Null))
+}
+
+fn validate_card_array(step: u32, path: &str, value: &Value) -> Result<(), serde_json::Error> {
+    let cards = value.as_array().ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} {path} must be an array"
+        ))
+    })?;
+    for card in cards {
+        let card = card.as_object().ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} {path} entries must be objects"
+            ))
+        })?;
+        if card
+            .get("id")
+            .and_then(Value::as_str)
+            .is_none_or(|id| id.trim().is_empty())
+        {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} {path} entries require a string id"
+            )));
+        }
+        if card
+            .get("upgrades")
+            .and_then(Value::as_u64)
+            .and_then(|upgrades| u8::try_from(upgrades).ok())
+            .is_none()
+        {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} {path} entry upgrades must be a non-negative u8"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_combat_monsters(
+    step: u32,
+    combat: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    const PATH: &str = "game_state.combat_state.monsters";
+    let monsters = combat
+        .get("monsters")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} {PATH} must be an array"
+            ))
+        })?;
+    for monster in monsters {
+        let monster = monster.as_object().ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} {PATH} entries must be objects"
+            ))
+        })?;
+        if monster
+            .get("id")
+            .and_then(Value::as_str)
+            .or_else(|| monster.get("name").and_then(Value::as_str))
+            .is_none_or(|identity| identity.trim().is_empty())
+        {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} {PATH} entries require an id or name"
+            )));
+        }
+        for field in ["current_hp", "max_hp", "block"] {
+            validate_i32_field(step, PATH, monster, field)?;
+        }
+        if monster
+            .get("intent")
+            .and_then(Value::as_str)
+            .is_none_or(|intent| intent.trim().is_empty())
+        {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} {PATH} entries require a string intent"
+            )));
+        }
+        validate_combat_powers(step, monster)?;
+    }
+    Ok(())
+}
+
+fn validate_combat_powers(
+    step: u32,
+    monster: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    const PATH: &str = "game_state.combat_state.monsters[].powers";
+    let powers = monster
+        .get("powers")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} {PATH} must be an array"
+            ))
+        })?;
+    for power in powers {
+        let power = power.as_object().ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} {PATH} entries must be objects"
+            ))
+        })?;
+        if power
+            .get("id")
+            .and_then(Value::as_str)
+            .or_else(|| power.get("name").and_then(Value::as_str))
+            .is_none_or(|identity| identity.trim().is_empty())
+        {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} {PATH} entries require an id or name"
+            )));
+        }
+        validate_i32_field(step, PATH, power, "amount")?;
+    }
+    Ok(())
+}
+
+fn validate_i32_field(
+    step: u32,
+    path: &str,
+    object: &serde_json::Map<String, Value>,
+    field: &str,
+) -> Result<(), serde_json::Error> {
+    let value = object.get(field).and_then(Value::as_i64).ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} {path}.{field} must be an integer"
+        ))
+    })?;
+    if i32::try_from(value).is_err() {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} {path}.{field} is out of range"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_visible_screen_schema(
+    step: u32,
+    screen_type: &str,
+    game: &serde_json::Map<String, Value>,
+    command_ready: Option<bool>,
+) -> Result<(), serde_json::Error> {
+    let required_collection = match screen_type {
+        "CARD_REWARD" => return validate_card_reward_screen_schema(step, game),
+        "BOSS_REWARD" => return validate_boss_reward_screen_schema(step, game),
+        "CHEST" => return validate_chest_screen_schema(step, game),
+        "COMBAT_REWARD" => Some("rewards"),
+        "EVENT" => return validate_event_screen_schema(step, game, command_ready),
+        "MAP" => return validate_map_screen_schema(step, game, command_ready),
+        "GRID" => return validate_grid_screen_schema(step, game),
+        "HAND_SELECT" => return validate_hand_select_screen_schema(step, game),
+        "REST" => return validate_rest_screen_schema(step, game),
+        "SHOP_ROOM" => return validate_shop_room_schema(step, game),
+        "SHOP_SCREEN" => return validate_shop_screen_schema(step, game),
+        _ => return validate_optional_screen_state(step, game),
+    };
+    let screen = game
+        .get("screen_state")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} {screen_type} screen requires an object game_state.screen_state"
+            ))
+        })?;
+    if let Some(field) = required_collection {
+        if screen.get(field).and_then(Value::as_array).is_none() {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} {screen_type} screen requires an array game_state.screen_state.{field}"
+            )));
+        }
+    }
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_card_reward_screen_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let screen = required_screen_state(step, "CARD_REWARD", game)?;
+    let cards = screen.get("cards").and_then(Value::as_array).ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} CARD_REWARD screen requires an array game_state.screen_state.cards"
+        ))
+    })?;
+    for card in cards {
+        let card = card.as_object().ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} CARD_REWARD cards must be objects"
+            ))
+        })?;
+        if card
+            .get("id")
+            .and_then(Value::as_str)
+            .is_none_or(|id| id.trim().is_empty())
+        {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} CARD_REWARD cards require a string id"
+            )));
+        }
+        if card
+            .get("upgrades")
+            .and_then(Value::as_u64)
+            .and_then(|upgrades| u8::try_from(upgrades).ok())
+            .is_none()
+        {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} CARD_REWARD card upgrades must be a non-negative u8"
+            )));
+        }
+    }
+    validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_boss_reward_screen_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let screen = required_screen_state(step, "BOSS_REWARD", game)?;
+    validate_identity_array(
+        step,
+        "game_state.screen_state.relics",
+        screen.get("relics").unwrap_or(&Value::Null),
+    )?;
+    validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_chest_screen_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let screen = required_screen_state(step, "CHEST", game)?;
+    let chest_open = screen
+        .get("chest_open")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.screen_state.chest_open must be a boolean"
+            ))
+        })?;
+    if screen
+        .get("chest_type")
+        .and_then(Value::as_str)
+        .is_none_or(|chest_type| chest_type.trim().is_empty())
+    {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.screen_state.chest_type must be a nonblank string"
+        )));
+    }
+    if !chest_open || game.get("choice_list").is_some() {
+        validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+    }
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_rest_screen_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let screen = required_screen_state(step, "REST", game)?;
+    let has_rested = screen
+        .get("has_rested")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.screen_state.has_rested must be a boolean"
+            ))
+        })?;
+    validate_nonblank_string_array(
+        step,
+        screen,
+        "rest_options",
+        "game_state.screen_state.rest_options",
+    )?;
+    let rest_options = screen
+        .get("rest_options")
+        .and_then(Value::as_array)
+        .expect("validated rest options are an array");
+    if has_rested {
+        if !rest_options.is_empty() {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} completed REST screen must not expose rest_options"
+            )));
+        }
+        if game.get("choice_list").is_some() {
+            validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+            if game
+                .get("choice_list")
+                .and_then(Value::as_array)
+                .is_some_and(|choices| !choices.is_empty())
+            {
+                return Err(serde_json::Error::custom(format!(
+                    "trace state at step {step} completed REST screen must not expose choices"
+                )));
+            }
+        }
+    } else {
+        validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+        if game.get("choice_list") != screen.get("rest_options") {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} REST choice_list must match screen_state.rest_options"
+            )));
+        }
+    }
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_shop_room_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let screen = required_screen_state(step, "SHOP_ROOM", game)?;
+    validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_shop_screen_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let screen = required_screen_state(step, "SHOP_SCREEN", game)?;
+    let missing_offers = Value::Null;
+    for field in ["cards", "relics", "potions"] {
+        let path = format!("game_state.screen_state.{field}");
+        let offers = screen.get(field).unwrap_or(&missing_offers);
+        validate_identity_array(step, &path, offers)?;
+        for offer in offers
+            .as_array()
+            .expect("validated shop offers are an array")
+        {
+            let offer = offer
+                .as_object()
+                .expect("validated shop offer is an object");
+            if offer
+                .get("price")
+                .and_then(Value::as_u64)
+                .and_then(|price| u32::try_from(price).ok())
+                .is_none()
+            {
+                return Err(serde_json::Error::custom(format!(
+                    "trace state at step {step} {path} entries require a non-negative u32 price"
+                )));
+            }
+            if field == "cards"
+                && offer
+                    .get("upgrades")
+                    .and_then(Value::as_u64)
+                    .and_then(|upgrades| u8::try_from(upgrades).ok())
+                    .is_none()
+            {
+                return Err(serde_json::Error::custom(format!(
+                    "trace state at step {step} {path} entry upgrades must be a non-negative u8"
+                )));
+            }
+        }
+    }
+    if screen
+        .get("purge_available")
+        .and_then(Value::as_bool)
+        .is_none()
+    {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.screen_state.purge_available must be a boolean"
+        )));
+    }
+    if screen
+        .get("purge_cost")
+        .and_then(Value::as_u64)
+        .and_then(|cost| u32::try_from(cost).ok())
+        .is_none()
+    {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.screen_state.purge_cost must be a non-negative u32"
+        )));
+    }
+    if game.get("choice_list").is_some() {
+        validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+    }
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_hand_select_screen_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let screen = required_screen_state(step, "HAND_SELECT", game)?;
+    let max_cards = screen
+        .get("max_cards")
+        .and_then(Value::as_u64)
+        .filter(|max_cards| *max_cards > 0)
+        .and_then(|max_cards| u32::try_from(max_cards).ok())
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.screen_state.max_cards must be a positive u32"
+            ))
+        })?;
+    if screen
+        .get("can_pick_zero")
+        .and_then(Value::as_bool)
+        .is_none()
+    {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.screen_state.can_pick_zero must be a boolean"
+        )));
+    }
+    let missing_cards = Value::Null;
+    for field in ["hand", "selected"] {
+        let path = format!("game_state.screen_state.{field}");
+        let cards = screen.get(field).unwrap_or(&missing_cards);
+        validate_identity_array(step, &path, cards)?;
+        for card in cards
+            .as_array()
+            .expect("validated hand-select cards are an array")
+        {
+            if card
+                .get("upgrades")
+                .and_then(Value::as_u64)
+                .and_then(|upgrades| u8::try_from(upgrades).ok())
+                .is_none()
+            {
+                return Err(serde_json::Error::custom(format!(
+                    "trace state at step {step} {path} entry upgrades must be a non-negative u8"
+                )));
+            }
+        }
+    }
+    let selected_count = screen
+        .get("selected")
+        .and_then(Value::as_array)
+        .expect("validated selected cards are an array")
+        .len();
+    if selected_count > max_cards as usize {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} HAND_SELECT selected card count exceeds max_cards"
+        )));
+    }
+    if game.get("choice_list").is_some() {
+        validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+    }
+    validate_screen_state_collections(step, screen)
+}
+
+fn required_screen_state<'a>(
+    step: u32,
+    screen_type: &str,
+    game: &'a serde_json::Map<String, Value>,
+) -> Result<&'a serde_json::Map<String, Value>, serde_json::Error> {
+    game.get("screen_state")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} {screen_type} screen requires an object game_state.screen_state"
+            ))
+        })
+}
+
+fn validate_grid_screen_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let screen = game
+        .get("screen_state")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} GRID screen requires an object game_state.screen_state"
+            ))
+        })?;
+    validate_identity_array(
+        step,
+        "game_state.screen_state.cards",
+        screen.get("cards").unwrap_or(&Value::Null),
+    )?;
+    validate_identity_array(
+        step,
+        "game_state.screen_state.selected_cards",
+        screen.get("selected_cards").unwrap_or(&Value::Null),
+    )?;
+    for field in [
+        "confirm_up",
+        "for_purge",
+        "for_transform",
+        "for_upgrade",
+        "any_number",
+    ] {
+        if screen.get(field).and_then(Value::as_bool).is_none() {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.screen_state.{field} must be a boolean"
+            )));
+        }
+    }
+    let purpose_count = ["for_purge", "for_transform", "for_upgrade"]
+        .iter()
+        .filter(|field| screen.get(**field).and_then(Value::as_bool) == Some(true))
+        .count();
+    if purpose_count > 1 {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} GRID screen declares multiple selection purposes"
+        )));
+    }
+    let confirm_up = screen
+        .get("confirm_up")
+        .and_then(Value::as_bool)
+        .expect("validated GRID screen confirmation flag");
+    // CommunicationMod exposes both GridCardSelectScreen.confirmScreenUp and
+    // isJustForConfirming as `confirm_up`. Vanilla's confirmation-only grid
+    // leaves numCards at zero; ordinary selection grids still require a
+    // positive count.
+    let num_cards = screen
+        .get("num_cards")
+        .and_then(Value::as_u64)
+        .and_then(|count| u32::try_from(count).ok())
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.screen_state.num_cards must be a positive u32, or zero when confirm_up is true"
+            ))
+        })?;
+    if num_cards == 0 && !confirm_up {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.screen_state.num_cards must be a positive u32, or zero when confirm_up is true"
+        )));
+    }
+    if screen.get("confirm_up").and_then(Value::as_bool) == Some(false)
+        || game.get("choice_list").is_some()
+    {
+        validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+    }
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_map_screen_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+    command_ready: Option<bool>,
+) -> Result<(), serde_json::Error> {
+    let screen = game
+        .get("screen_state")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} MAP screen requires an object game_state.screen_state"
+            ))
+        })?;
+    let first_node_chosen = screen
+        .get("first_node_chosen")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} MAP screen requires boolean game_state.screen_state.first_node_chosen"
+            ))
+        })?;
+    let current_node = screen
+        .get("current_node")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} MAP screen requires object game_state.screen_state.current_node"
+            ))
+        })?;
+    for field in ["x", "y"] {
+        if current_node.get(field).and_then(Value::as_i64).is_none() {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} MAP current_node.{field} must be an integer"
+            )));
+        }
+    }
+    let symbol = current_node.get("symbol");
+    if first_node_chosen && command_ready != Some(false) {
+        if symbol
+            .and_then(Value::as_str)
+            .is_none_or(|symbol| symbol.trim().is_empty())
+        {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} MAP chosen current_node requires a string symbol"
+            )));
+        }
+    } else if symbol.is_some_and(|symbol| {
+        symbol
+            .as_str()
+            .is_none_or(|symbol| !symbol.trim().is_empty())
+    }) {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} MAP unchosen current_node must omit symbol"
+        )));
+    }
+    if command_ready != Some(false) {
+        validate_nonblank_string_array(step, game, "choice_list", "game_state.choice_list")?;
+    }
+    if screen.get("next_nodes").and_then(Value::as_array).is_none() {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} MAP screen requires an array game_state.screen_state.next_nodes"
+        )));
+    }
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_nonblank_string_array(
+    step: u32,
+    object: &serde_json::Map<String, Value>,
+    field: &str,
+    path: &str,
+) -> Result<(), serde_json::Error> {
+    let entries = object.get(field).and_then(Value::as_array).ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} {path} must be an array"
+        ))
+    })?;
+    if entries
+        .iter()
+        .any(|entry| entry.as_str().is_none_or(|entry| entry.trim().is_empty()))
+    {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} {path} entries must be nonblank strings"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_event_screen_schema(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+    command_ready: Option<bool>,
+) -> Result<(), serde_json::Error> {
+    let screen = game
+        .get("screen_state")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} EVENT screen requires an object game_state.screen_state"
+            ))
+        })?;
+    if screen
+        .get("event_id")
+        .and_then(Value::as_str)
+        .or_else(|| screen.get("event_name").and_then(Value::as_str))
+        .is_none_or(|identity| identity.trim().is_empty())
+    {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} EVENT screen requires an event_id or event_name"
+        )));
+    }
+    match game.get("choice_list") {
+        Some(Value::Array(choices)) => {
+            if choices.iter().any(|choice| {
+                choice
+                    .as_str()
+                    .is_none_or(|choice| choice.trim().is_empty())
+            }) {
+                return Err(serde_json::Error::custom(format!(
+                    "trace state at step {step} EVENT game_state.choice_list entries must be nonblank strings"
+                )));
+            }
+        }
+        None if command_ready == Some(false) => {}
+        _ => {
+            return Err(serde_json::Error::custom(format!(
+                "trace state at step {step} EVENT screen requires an array game_state.choice_list"
+            )));
+        }
+    }
+    if screen.get("options").and_then(Value::as_array).is_none() {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} EVENT screen requires an array game_state.screen_state.options"
+        )));
+    }
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_optional_screen_state(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    let Some(value) = game.get("screen_state") else {
+        return Ok(());
+    };
+    let screen = value.as_object().ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.screen_state must be a JSON object"
+        ))
+    })?;
+    validate_screen_state_collections(step, screen)
+}
+
+fn validate_screen_state_collections(
+    step: u32,
+    screen: &serde_json::Map<String, Value>,
+) -> Result<(), serde_json::Error> {
+    if let Some(cards) = screen.get("cards") {
+        validate_identity_array(step, "game_state.screen_state.cards", cards)?;
+    }
+    if let Some(rewards) = screen.get("rewards") {
+        validate_object_array_field(
+            step,
+            "game_state.screen_state.rewards",
+            rewards,
+            "reward_type",
+        )?;
+        validate_reward_payloads(step, rewards)?;
+    }
+    if let Some(options) = screen.get("options") {
+        validate_object_array_field(step, "game_state.screen_state.options", options, "text")?;
+    }
+    if let Some(nodes) = screen.get("next_nodes") {
+        let nodes = nodes.as_array().ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} game_state.screen_state.next_nodes must be an array"
+            ))
+        })?;
+        for node in nodes {
+            let node = node.as_object().ok_or_else(|| {
+                serde_json::Error::custom(format!(
+                    "trace state at step {step} game_state.screen_state.next_nodes entries must be objects"
+                ))
+            })?;
+            if node
+                .get("symbol")
+                .and_then(Value::as_str)
+                .filter(|symbol| !symbol.trim().is_empty())
+                .is_none()
+                || node.get("x").and_then(Value::as_i64).is_none()
+                || node.get("y").and_then(Value::as_i64).is_none()
+            {
+                return Err(serde_json::Error::custom(format!(
+                    "trace state at step {step} game_state.screen_state.next_nodes entries require symbol, x, and y"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_reward_payloads(step: u32, value: &Value) -> Result<(), serde_json::Error> {
+    let rewards = value
+        .as_array()
+        .expect("reward collection was validated as an array");
+    for reward in rewards {
+        let reward = reward
+            .as_object()
+            .expect("reward entry was validated as an object");
+        match reward
+            .get("reward_type")
+            .and_then(Value::as_str)
+            .expect("reward type was validated as a string")
+        {
+            "GOLD" | "STOLEN_GOLD" => {
+                validate_i32_field(step, "game_state.screen_state.rewards[]", reward, "gold")?;
+            }
+            "POTION" => validate_reward_identity_payload(step, reward, "potion")?,
+            "RELIC" => validate_reward_identity_payload(step, reward, "relic")?,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn validate_reward_identity_payload(
+    step: u32,
+    reward: &serde_json::Map<String, Value>,
+    field: &str,
+) -> Result<(), serde_json::Error> {
+    let payload = reward
+        .get(field)
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            serde_json::Error::custom(format!(
+                "trace state at step {step} {field} reward requires an object {field} payload"
+            ))
+        })?;
+    if payload
+        .get("id")
+        .and_then(Value::as_str)
+        .or_else(|| payload.get("name").and_then(Value::as_str))
+        .is_none_or(|identity| identity.trim().is_empty())
+    {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} {field} reward payload requires an id or name"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_identity_array(step: u32, path: &str, value: &Value) -> Result<(), serde_json::Error> {
+    let entries = value.as_array().ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} {path} must be an array"
+        ))
+    })?;
+    if entries.iter().any(|entry| {
+        !entry.as_object().is_some_and(|entry| {
+            entry
+                .get("id")
+                .and_then(Value::as_str)
+                .or_else(|| entry.get("name").and_then(Value::as_str))
+                .is_some_and(|identity| !identity.trim().is_empty())
+        })
+    }) {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} {path} entries must name an id or name"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_object_array_field(
+    step: u32,
+    path: &str,
+    value: &Value,
+    required_field: &str,
+) -> Result<(), serde_json::Error> {
+    let entries = value.as_array().ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} {path} must be an array"
+        ))
+    })?;
+    if entries.iter().any(|entry| {
+        entry
+            .get(required_field)
+            .and_then(Value::as_str)
+            .is_none_or(|field| field.trim().is_empty())
+    }) {
+        return Err(serde_json::Error::custom(format!(
+            "trace state at step {step} {path} entries require string field {required_field}"
+        )));
+    }
+    Ok(())
+}
+
+fn required_unsigned_game_field(
+    step: u32,
+    game: &serde_json::Map<String, Value>,
+    field: &str,
+) -> Result<u64, serde_json::Error> {
+    game.get(field).and_then(Value::as_u64).ok_or_else(|| {
+        serde_json::Error::custom(format!(
+            "trace state at step {step} game_state.{field} must be a non-negative integer"
+        ))
+    })
+}

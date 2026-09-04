@@ -1,15 +1,12 @@
 [workspace]
 members = [
-    "crates/sts_core",
-    "crates/sts_verify",
-    "crates/sts_search",
-    "bindings/py_sts",
-    "apps/sts_live",
+    "simulator/crates/sts_core",
+    "simulator/crates/sts_verify",
+    "simulator/crates/sts_env",
+    "simulator/bindings/py_sts",
 ]
 default-members = [
-    "crates/sts_core",
-    "crates/sts_verify",
-    "crates/sts_search",
-    "apps/sts_live",
+    "simulator/crates/sts_core",
+    "simulator/crates/sts_verify",
 ]
 resolver = "2"
