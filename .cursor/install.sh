@@ -4,8 +4,8 @@
 # don't build an environment image. Must stay idempotent.
 set -euo pipefail
 
-# Newest stable Rust. The repo commits no Cargo.lock and resolves edition2024
-# transitive deps, so the image's default 1.83 toolchain is too old.
+# Newest stable Rust. Edition-2024 dependencies require a newer toolchain than
+# the image's default 1.83.
 rustup toolchain install stable --profile minimal --no-self-update
 rustup default stable
 rustup component add rustfmt clippy
