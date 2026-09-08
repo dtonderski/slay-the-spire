@@ -4,6 +4,7 @@
 mod action;
 mod combat_observation;
 mod environment;
+mod fair_catalog;
 #[cfg(test)]
 mod fair_json_allowlist;
 mod run_observation;
@@ -17,6 +18,7 @@ pub use combat_observation::{
     FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION,
 };
 pub use environment::{FairDecision, FairEnvironment, FAIR_ENV_SCHEMA_VERSION};
+pub use fair_catalog::{fair_content_catalog, FairContentCatalog};
 pub use run_observation::{
     FairCardSlot, FairEventChoice, FairEventObservation, FairGridObservation, FairMapNode,
     FairMapObservation, FairMatchAndKeepCard, FairQueuedCardReward, FairRestObservation,

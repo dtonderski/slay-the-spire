@@ -13,6 +13,9 @@ must not consume privileged serialized state as a policy observation.
 
 ## Layout
 
+- `examples/fair_simulator.py`: runnable fair API walkthrough; start with
+  [`examples/README.md`](examples/README.md).
+
 - `docs/fair_combat_api_design.md`: fair observation and choice boundary.
 - `docs/fair_observation_hidden_state_audit.md`: hidden-state exposure audit.
 - `notebooks/combat_rl_playground.ipynb`: surviving RL experiment notebook.

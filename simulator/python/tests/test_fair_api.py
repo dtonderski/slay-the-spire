@@ -15,6 +15,7 @@ class FairApiTest(unittest.TestCase):
         self.assertEqual(decision.schema_version, 1)
         self.assertEqual(decision.revision, state.revision)
         self.assertEqual(decision.observation.schema_version, 3)
+        self.assertIsInstance(decision.actions, tuple)
         self.assertEqual(len(decision.actions), len(state.legal_actions()))
 
     def test_clone_and_step_preserve_revision_contract(self) -> None:

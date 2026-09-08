@@ -1,6 +1,6 @@
 use pyo3::exceptions::{PyAttributeError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyTuple;
+use pyo3::types::{PyDict, PyTuple};
 use pyo3::IntoPyObjectExt;
 use serde_json::{Map, Value};
 use sts_env::{
@@ -27,6 +27,10 @@ impl PyRecord {
     fn __repr__(&self) -> String {
         let names = self.fields.keys().cloned().collect::<Vec<_>>().join(", ");
         format!("Record({names})")
+    }
+
+    fn _to_mapping(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        json_to_mapping(py, Value::Object(self.fields.clone()))
     }
 }
 
@@ -61,6 +65,27 @@ impl PyObservation {
     #[getter]
     fn screen(&self) -> Option<PyRecord> {
         self.screen.clone()
+    }
+
+    fn _to_mapping(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let dict = PyDict::new(py);
+        dict.set_item("schema_version", self.schema_version)?;
+        dict.set_item("phase", self.phase.as_str())?;
+        dict.set_item("kind", self.kind.as_str())?;
+        dict.set_item(
+            "context",
+            json_to_mapping(py, Value::Object(self.context.fields.clone()))?,
+        )?;
+        match &self.screen {
+            Some(screen) => {
+                dict.set_item(
+                    "screen",
+                    json_to_mapping(py, Value::Object(screen.fields.clone()))?,
+                )?;
+            }
+            None => dict.set_item("screen", py.None())?,
+        }
+        Ok(dict.into_any().unbind())
     }
 }
 
@@ -372,17 +397,7 @@ fn value_to_python(py: Python<'_>, value: Value) -> PyResult<Py<PyAny>> {
     match value {
         Value::Null => Ok(py.None()),
         Value::Bool(value) => value.into_py_any(py),
-        Value::Number(value) => {
-            if let Some(value) = value.as_i64() {
-                value.into_py_any(py)
-            } else if let Some(value) = value.as_u64() {
-                value.into_py_any(py)
-            } else if let Some(value) = value.as_f64() {
-                value.into_py_any(py)
-            } else {
-                Err(PyRuntimeError::new_err("invalid numeric value"))
-            }
-        }
+        Value::Number(value) => number_to_python(py, value),
         Value::String(value) => value.into_py_any(py),
         Value::Array(values) => {
             let values = values
@@ -392,5 +407,40 @@ fn value_to_python(py: Python<'_>, value: Value) -> PyResult<Py<PyAny>> {
             Ok(PyTuple::new(py, values)?.into_any().unbind())
         }
         Value::Object(fields) => Py::new(py, PyRecord { fields }).map(|value| value.into_any()),
+    }
+}
+
+fn json_to_mapping(py: Python<'_>, value: Value) -> PyResult<Py<PyAny>> {
+    match value {
+        Value::Null => Ok(py.None()),
+        Value::Bool(value) => value.into_py_any(py),
+        Value::Number(value) => number_to_python(py, value),
+        Value::String(value) => value.into_py_any(py),
+        Value::Array(values) => {
+            let values = values
+                .into_iter()
+                .map(|value| json_to_mapping(py, value))
+                .collect::<PyResult<Vec<_>>>()?;
+            Ok(PyTuple::new(py, values)?.into_any().unbind())
+        }
+        Value::Object(fields) => {
+            let dict = PyDict::new(py);
+            for (key, child) in fields {
+                dict.set_item(key, json_to_mapping(py, child)?)?;
+            }
+            Ok(dict.into_any().unbind())
+        }
+    }
+}
+
+fn number_to_python(py: Python<'_>, value: serde_json::Number) -> PyResult<Py<PyAny>> {
+    if let Some(value) = value.as_i64() {
+        value.into_py_any(py)
+    } else if let Some(value) = value.as_u64() {
+        value.into_py_any(py)
+    } else if let Some(value) = value.as_f64() {
+        value.into_py_any(py)
+    } else {
+        Err(PyRuntimeError::new_err("invalid numeric value"))
     }
 }

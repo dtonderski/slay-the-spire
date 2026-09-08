@@ -1,6 +1,6 @@
 """Small interactive example for the native simulator API."""
 
-from sts_sim import Action, State
+from sts_sim import Action, Observation, State
 
 
 def action_text(action: Action) -> str:
@@ -22,6 +22,20 @@ def action_text(action: Action) -> str:
     return f"{action.family}.{action.kind}{suffix}"
 
 
+def describe_observation(observation: Observation) -> str:
+    summary = f"phase={observation.phase} decision={observation.kind}"
+    context = observation.context
+    summary += (
+        f" hp={context.player_hp}/{context.player_max_hp} gold={context.gold}"
+    )
+    if observation.kind == "combat":
+        player = observation.screen.player
+        summary += f" energy={player.energy} hand={len(observation.screen.hand)}"
+    elif observation.kind == "map":
+        summary += f" reachable={len(observation.screen.reachable_nodes)}"
+    return summary
+
+
 def main() -> None:
     state = State.new("HUMAN1")
     print("Enter an action number or 'q'.")
@@ -29,7 +43,7 @@ def main() -> None:
     while True:
         actions = state.legal_actions()
         observation = state.observation()
-        print(f"\nphase={observation.phase} decision={observation.kind}")
+        print(f"\n{describe_observation(observation)}")
         for index, action in enumerate(actions):
             print(f"  [{index}] {action_text(action)}")
 

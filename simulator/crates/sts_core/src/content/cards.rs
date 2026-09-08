@@ -6643,82 +6643,87 @@ pub static CRUSH_JOINTS_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static EXTRA_PUBLIC_CARD_DEFINITIONS: &[CardDefinition] = &[
+    CHARGE_BATTERY_ANY_COLOR,
+    EQUILIBRIUM_ANY_COLOR,
+    SNEAKY_STRIKE_ANY_COLOR,
+    DAGGER_SPRAY_ANY_COLOR,
+    FLURRY_OF_BLOWS_ANY_COLOR,
+    SLICE_ANY_COLOR,
+    HALT_ANY_COLOR,
+    SCRAPE_ANY_COLOR,
+    FLYING_SLEEVES_ANY_COLOR,
+    WINDMILL_STRIKE_ANY_COLOR,
+    MALAISE_ANY_COLOR,
+    STORM_ANY_COLOR,
+    COOLHEADED_ANY_COLOR,
+    CALTROPS_ANY_COLOR,
+    CAPACITOR_ANY_COLOR,
+    RECURSION_ANY_COLOR,
+    AFTER_IMAGE_ANY_COLOR,
+    PRAY_ANY_COLOR,
+    INSIGHT,
+    CRESCENDO_ANY_COLOR,
+    PROSTRATE_ANY_COLOR,
+    PROTECT_ANY_COLOR,
+    CLOAK_AND_DAGGER_ANY_COLOR,
+    SHIV_ANY_COLOR,
+    BACKFLIP_ANY_COLOR,
+    LESSON_LEARNED_ANY_COLOR,
+    RECYCLE_ANY_COLOR,
+    BIASED_COGNITION_ANY_COLOR,
+    PRESSURE_POINTS_ANY_COLOR,
+    EMPTY_MIND_ANY_COLOR,
+    TRANQUILITY_ANY_COLOR,
+    SKIM_ANY_COLOR,
+    DOPPELGANGER_ANY_COLOR,
+    GO_FOR_THE_EYES_ANY_COLOR,
+    BEAM_CELL_ANY_COLOR,
+    FASTING_ANY_COLOR,
+    LIKE_WATER_ANY_COLOR,
+    BOWLING_BASH_ANY_COLOR,
+    COMPILE_DRIVER_ANY_COLOR,
+    POISONED_STAB_ANY_COLOR,
+    CRIPPLING_CLOUD_ANY_COLOR,
+    RIP_AND_TEAR_ANY_COLOR,
+    QUICK_SLASH_ANY_COLOR,
+    NIRVANA_ANY_COLOR,
+    DEADLY_POISON_ANY_COLOR,
+    UNLOAD_ANY_COLOR,
+    THIRD_EYE_ANY_COLOR,
+    PREPARED_ANY_COLOR,
+    HOLOGRAM_ANY_COLOR,
+    JUST_LUCKY_ANY_COLOR,
+    EMPTY_BODY_ANY_COLOR,
+    CRUSH_JOINTS_ANY_COLOR,
+    EVALUATE_ANY_COLOR,
+    BOOT_SEQUENCE_ANY_COLOR,
+    SWEEPING_BEAM_ANY_COLOR,
+    DARKNESS_ANY_COLOR,
+    STATIC_DISCHARGE_ANY_COLOR,
+    CONCLUDE_ANY_COLOR,
+    LEAP_ANY_COLOR,
+    LEG_SWEEP_ANY_COLOR,
+    FEAR_NO_EVIL_ANY_COLOR,
+    BANE_ANY_COLOR,
+    JUDGEMENT_ANY_COLOR,
+    CREATIVE_AI_ANY_COLOR,
+    EVISCERATE_ANY_COLOR,
+    SKEWER_ANY_COLOR,
+    STORM_OF_STEEL_ANY_COLOR,
+    WALLOP_ANY_COLOR,
+    STREAMLINE_ANY_COLOR,
+    FOLLOW_UP_ANY_COLOR,
+    STEAM_BARRIER_ANY_COLOR,
+];
+
+pub fn public_card_definitions() -> impl Iterator<Item = &'static CardDefinition> {
+    ALL_CARDS.iter().chain(EXTRA_PUBLIC_CARD_DEFINITIONS.iter())
+}
+
 #[must_use]
 pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
-    ALL_CARDS
-        .iter()
-        .find(|definition| definition.id == id)
-        .or_else(|| (id == CHARGE_BATTERY_ANY_COLOR_ID).then_some(&CHARGE_BATTERY_ANY_COLOR))
-        .or_else(|| (id == EQUILIBRIUM_ANY_COLOR_ID).then_some(&EQUILIBRIUM_ANY_COLOR))
-        .or_else(|| (id == SNEAKY_STRIKE_ANY_COLOR_ID).then_some(&SNEAKY_STRIKE_ANY_COLOR))
-        .or_else(|| (id == DAGGER_SPRAY_ANY_COLOR_ID).then_some(&DAGGER_SPRAY_ANY_COLOR))
-        .or_else(|| (id == FLURRY_OF_BLOWS_ANY_COLOR_ID).then_some(&FLURRY_OF_BLOWS_ANY_COLOR))
-        .or_else(|| (id == SLICE_ANY_COLOR_ID).then_some(&SLICE_ANY_COLOR))
-        .or_else(|| (id == HALT_ANY_COLOR_ID).then_some(&HALT_ANY_COLOR))
-        .or_else(|| (id == SCRAPE_ANY_COLOR_ID).then_some(&SCRAPE_ANY_COLOR))
-        .or_else(|| (id == FLYING_SLEEVES_ANY_COLOR_ID).then_some(&FLYING_SLEEVES_ANY_COLOR))
-        .or_else(|| (id == WINDMILL_STRIKE_ANY_COLOR_ID).then_some(&WINDMILL_STRIKE_ANY_COLOR))
-        .or_else(|| (id == MALAISE_ANY_COLOR_ID).then_some(&MALAISE_ANY_COLOR))
-        .or_else(|| (id == STORM_ANY_COLOR_ID).then_some(&STORM_ANY_COLOR))
-        .or_else(|| (id == COOLHEADED_ANY_COLOR_ID).then_some(&COOLHEADED_ANY_COLOR))
-        .or_else(|| (id == CALTROPS_ANY_COLOR_ID).then_some(&CALTROPS_ANY_COLOR))
-        .or_else(|| (id == CAPACITOR_ANY_COLOR_ID).then_some(&CAPACITOR_ANY_COLOR))
-        .or_else(|| (id == RECURSION_ANY_COLOR_ID).then_some(&RECURSION_ANY_COLOR))
-        .or_else(|| (id == AFTER_IMAGE_ANY_COLOR_ID).then_some(&AFTER_IMAGE_ANY_COLOR))
-        .or_else(|| (id == PRAY_ANY_COLOR_ID).then_some(&PRAY_ANY_COLOR))
-        .or_else(|| (id == INSIGHT_ID).then_some(&INSIGHT))
-        .or_else(|| (id == CRESCENDO_ANY_COLOR_ID).then_some(&CRESCENDO_ANY_COLOR))
-        .or_else(|| (id == PROSTRATE_ANY_COLOR_ID).then_some(&PROSTRATE_ANY_COLOR))
-        .or_else(|| (id == PROTECT_ANY_COLOR_ID).then_some(&PROTECT_ANY_COLOR))
-        .or_else(|| (id == CLOAK_AND_DAGGER_ANY_COLOR_ID).then_some(&CLOAK_AND_DAGGER_ANY_COLOR))
-        .or_else(|| (id == SHIV_ANY_COLOR_ID).then_some(&SHIV_ANY_COLOR))
-        .or_else(|| (id == BACKFLIP_ANY_COLOR_ID).then_some(&BACKFLIP_ANY_COLOR))
-        .or_else(|| (id == LESSON_LEARNED_ANY_COLOR_ID).then_some(&LESSON_LEARNED_ANY_COLOR))
-        .or_else(|| (id == RECYCLE_ANY_COLOR_ID).then_some(&RECYCLE_ANY_COLOR))
-        .or_else(|| (id == BIASED_COGNITION_ANY_COLOR_ID).then_some(&BIASED_COGNITION_ANY_COLOR))
-        .or_else(|| (id == PRESSURE_POINTS_ANY_COLOR_ID).then_some(&PRESSURE_POINTS_ANY_COLOR))
-        .or_else(|| (id == EMPTY_MIND_ANY_COLOR_ID).then_some(&EMPTY_MIND_ANY_COLOR))
-        .or_else(|| (id == TRANQUILITY_ANY_COLOR_ID).then_some(&TRANQUILITY_ANY_COLOR))
-        .or_else(|| (id == SKIM_ANY_COLOR_ID).then_some(&SKIM_ANY_COLOR))
-        .or_else(|| (id == DOPPELGANGER_ANY_COLOR_ID).then_some(&DOPPELGANGER_ANY_COLOR))
-        .or_else(|| (id == GO_FOR_THE_EYES_ANY_COLOR_ID).then_some(&GO_FOR_THE_EYES_ANY_COLOR))
-        .or_else(|| (id == BEAM_CELL_ANY_COLOR_ID).then_some(&BEAM_CELL_ANY_COLOR))
-        .or_else(|| (id == FASTING_ANY_COLOR_ID).then_some(&FASTING_ANY_COLOR))
-        .or_else(|| (id == LIKE_WATER_ANY_COLOR_ID).then_some(&LIKE_WATER_ANY_COLOR))
-        .or_else(|| (id == BOWLING_BASH_ANY_COLOR_ID).then_some(&BOWLING_BASH_ANY_COLOR))
-        .or_else(|| (id == COMPILE_DRIVER_ANY_COLOR_ID).then_some(&COMPILE_DRIVER_ANY_COLOR))
-        .or_else(|| (id == POISONED_STAB_ANY_COLOR_ID).then_some(&POISONED_STAB_ANY_COLOR))
-        .or_else(|| (id == CRIPPLING_CLOUD_ANY_COLOR_ID).then_some(&CRIPPLING_CLOUD_ANY_COLOR))
-        .or_else(|| (id == RIP_AND_TEAR_ANY_COLOR_ID).then_some(&RIP_AND_TEAR_ANY_COLOR))
-        .or_else(|| (id == QUICK_SLASH_ANY_COLOR_ID).then_some(&QUICK_SLASH_ANY_COLOR))
-        .or_else(|| (id == NIRVANA_ANY_COLOR_ID).then_some(&NIRVANA_ANY_COLOR))
-        .or_else(|| (id == DEADLY_POISON_ANY_COLOR_ID).then_some(&DEADLY_POISON_ANY_COLOR))
-        .or_else(|| (id == UNLOAD_ANY_COLOR_ID).then_some(&UNLOAD_ANY_COLOR))
-        .or_else(|| (id == THIRD_EYE_ANY_COLOR_ID).then_some(&THIRD_EYE_ANY_COLOR))
-        .or_else(|| (id == PREPARED_ANY_COLOR_ID).then_some(&PREPARED_ANY_COLOR))
-        .or_else(|| (id == HOLOGRAM_ANY_COLOR_ID).then_some(&HOLOGRAM_ANY_COLOR))
-        .or_else(|| (id == JUST_LUCKY_ANY_COLOR_ID).then_some(&JUST_LUCKY_ANY_COLOR))
-        .or_else(|| (id == EMPTY_BODY_ANY_COLOR_ID).then_some(&EMPTY_BODY_ANY_COLOR))
-        .or_else(|| (id == CRUSH_JOINTS_ANY_COLOR_ID).then_some(&CRUSH_JOINTS_ANY_COLOR))
-        .or_else(|| (id == EVALUATE_ANY_COLOR_ID).then_some(&EVALUATE_ANY_COLOR))
-        .or_else(|| (id == BOOT_SEQUENCE_ANY_COLOR_ID).then_some(&BOOT_SEQUENCE_ANY_COLOR))
-        .or_else(|| (id == SWEEPING_BEAM_ANY_COLOR_ID).then_some(&SWEEPING_BEAM_ANY_COLOR))
-        .or_else(|| (id == DARKNESS_ANY_COLOR_ID).then_some(&DARKNESS_ANY_COLOR))
-        .or_else(|| (id == STATIC_DISCHARGE_ANY_COLOR_ID).then_some(&STATIC_DISCHARGE_ANY_COLOR))
-        .or_else(|| (id == CONCLUDE_ANY_COLOR_ID).then_some(&CONCLUDE_ANY_COLOR))
-        .or_else(|| (id == LEAP_ANY_COLOR_ID).then_some(&LEAP_ANY_COLOR))
-        .or_else(|| (id == LEG_SWEEP_ANY_COLOR_ID).then_some(&LEG_SWEEP_ANY_COLOR))
-        .or_else(|| (id == FEAR_NO_EVIL_ANY_COLOR_ID).then_some(&FEAR_NO_EVIL_ANY_COLOR))
-        .or_else(|| (id == BANE_ANY_COLOR_ID).then_some(&BANE_ANY_COLOR))
-        .or_else(|| (id == JUDGEMENT_ANY_COLOR_ID).then_some(&JUDGEMENT_ANY_COLOR))
-        .or_else(|| (id == CREATIVE_AI_ANY_COLOR_ID).then_some(&CREATIVE_AI_ANY_COLOR))
-        .or_else(|| (id == EVISCERATE_ANY_COLOR_ID).then_some(&EVISCERATE_ANY_COLOR))
-        .or_else(|| (id == SKEWER_ANY_COLOR_ID).then_some(&SKEWER_ANY_COLOR))
-        .or_else(|| (id == STORM_OF_STEEL_ANY_COLOR_ID).then_some(&STORM_OF_STEEL_ANY_COLOR))
-        .or_else(|| (id == WALLOP_ANY_COLOR_ID).then_some(&WALLOP_ANY_COLOR))
-        .or_else(|| (id == STREAMLINE_ANY_COLOR_ID).then_some(&STREAMLINE_ANY_COLOR))
-        .or_else(|| (id == FOLLOW_UP_ANY_COLOR_ID).then_some(&FOLLOW_UP_ANY_COLOR))
-        .or_else(|| (id == STEAM_BARRIER_ANY_COLOR_ID).then_some(&STEAM_BARRIER_ANY_COLOR))
+    public_card_definitions().find(|definition| definition.id == id)
 }
 
 /// Returns the vanilla `AbstractCard.cardID` spelling for a modeled card.

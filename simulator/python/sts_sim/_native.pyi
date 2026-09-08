@@ -2,26 +2,62 @@ from typing import Literal
 
 type ActionFamily = Literal["combat", "event", "grid", "map", "rest", "run"]
 type ActionKind = Literal[
-    "play_hand_slot", "end_turn", "choose_event_option", "toggle_grid_card",
-    "confirm_grid", "cancel_grid", "choose_map_node", "rest_heal",
-    "rest_open_smith", "rest_open_remove", "rest_smith", "rest_remove_card",
-    "rest_lift", "rest_dig", "rest_recall", "rest_proceed", "skip_reward",
-    "close_card_reward", "take_card_reward", "take_singing_bowl_reward",
-    "take_gold_reward", "take_stolen_gold_reward", "take_potion_reward",
-    "take_relic_reward", "take_relic_reward_at", "take_sapphire_key",
-    "take_emerald_key", "choose_boss_relic_reward", "proceed", "open_chest",
-    "open_card_reward", "open_queued_card_reward", "skip_potion_reward",
-    "buy_shop_card", "buy_shop_relic", "buy_shop_potion", "use_potion_slot",
-    "discard_potion_slot", "toggle_visible_card", "choose_visible_option",
-    "confirm_selection", "confirm_selection_without_retrieval", "skip_selection",
-    "enter_shop", "leave_shop", "open_shop_remove",
+    "play_hand_slot",
+    "end_turn",
+    "choose_event_option",
+    "toggle_grid_card",
+    "confirm_grid",
+    "cancel_grid",
+    "choose_map_node",
+    "rest_heal",
+    "rest_open_smith",
+    "rest_open_remove",
+    "rest_smith",
+    "rest_remove_card",
+    "rest_lift",
+    "rest_dig",
+    "rest_recall",
+    "rest_proceed",
+    "skip_reward",
+    "close_card_reward",
+    "take_card_reward",
+    "take_singing_bowl_reward",
+    "take_gold_reward",
+    "take_stolen_gold_reward",
+    "take_potion_reward",
+    "take_relic_reward",
+    "take_relic_reward_at",
+    "take_sapphire_key",
+    "take_emerald_key",
+    "choose_boss_relic_reward",
+    "proceed",
+    "open_chest",
+    "open_card_reward",
+    "open_queued_card_reward",
+    "skip_potion_reward",
+    "buy_shop_card",
+    "buy_shop_relic",
+    "buy_shop_potion",
+    "use_potion_slot",
+    "discard_potion_slot",
+    "toggle_visible_card",
+    "choose_visible_option",
+    "confirm_selection",
+    "confirm_selection_without_retrieval",
+    "skip_selection",
+    "enter_shop",
+    "leave_shop",
+    "open_shop_remove",
 ]
 type Phase = Literal["combat", "reward", "treasure", "rest", "event", "shop", "idle", "complete"]
-type ObservationKind = Literal["combat", "map", "event", "reward", "treasure", "rest", "shop", "grid", "idle", "complete"]
+type ObservationKind = Literal[
+    "combat", "map", "event", "reward", "treasure", "rest", "shop", "grid", "idle", "complete"
+]
 type Value = None | bool | int | float | str | tuple[Value, ...] | Record
 
 class Record:
     def __getattr__(self, name: str) -> Value: ...
+    def _to_mapping(self) -> dict[str, object]: ...
 
 class Observation:
     @property
@@ -34,6 +70,7 @@ class Observation:
     def context(self) -> Record: ...
     @property
     def screen(self) -> Record | None: ...
+    def _to_mapping(self) -> dict[str, object]: ...
 
 class Action:
     @property
