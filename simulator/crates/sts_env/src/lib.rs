@@ -11,11 +11,10 @@ mod run_observation;
 
 pub use action::{DecisionRevision, FairError, PublicChoice, PublicChoiceRequest};
 pub use combat_observation::{
-    FairCard, FairCardDynamicValues, FairCombatContext, FairCombatObservation, FairCombatPhase,
-    FairCounter, FairHandCard, FairIntentCategory, FairMonster, FairMonsterIntent,
-    FairObservationError, FairOrb, FairOrbSlot, FairPile, FairPlayer, FairPotionSlot, FairPower,
-    FairRelic, FairSelection, FairSelectionKind, FairSelectionOption,
-    FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION,
+    FairCard, FairCardDynamicValues, FairCombatObservation, FairCombatPhase, FairCounter,
+    FairHandCard, FairIntentCategory, FairMonster, FairMonsterIntent, FairObservationError,
+    FairOrb, FairOrbSlot, FairPile, FairPlayer, FairPotionSlot, FairPower, FairRelic,
+    FairSelection, FairSelectionKind, FairSelectionOption, FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION,
 };
 pub use environment::{FairDecision, FairEnvironment, FAIR_ENV_SCHEMA_VERSION};
 pub use fair_catalog::{fair_content_catalog, FairContentCatalog};
@@ -23,8 +22,8 @@ pub use run_observation::{
     FairCardSlot, FairEventChoice, FairEventObservation, FairGridObservation, FairMapNode,
     FairMapObservation, FairMatchAndKeepCard, FairQueuedCardReward, FairRestObservation,
     FairRestOption, FairRewardObservation, FairRunContext, FairRunObservation, FairRunPhase,
-    FairRunPotionSlot, FairRunRelic, FairRunScreen, FairShopCard, FairShopObservation,
-    FairShopPotion, FairShopRelic, FairTreasureObservation, FAIR_RUN_OBSERVATION_SCHEMA_VERSION,
+    FairRunPotionSlot, FairRunScreen, FairShopCard, FairShopObservation, FairShopPotion,
+    FairShopRelic, FairTreasureObservation, FAIR_RUN_OBSERVATION_SCHEMA_VERSION,
 };
 
 pub(crate) use run_observation::fair_run_observation;

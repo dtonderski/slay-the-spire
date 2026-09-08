@@ -1,8 +1,8 @@
 //! Visibility-safe, strongly typed observations for run decisions.
 
 use crate::combat_observation::{
-    fair_combat_observation, potion_key, project_card, FairCard, FairCombatObservation,
-    FairObservationError,
+    fair_combat_observation, potion_key, project_card, project_relic_state, FairCard,
+    FairCombatObservation, FairObservationError, FairRelic,
 };
 use serde::{Deserialize, Serialize};
 use sts_core::adapter_internals::{
@@ -12,7 +12,7 @@ use sts_core::adapter_internals::{
     CardInstance, RestAction, RunPhase,
 };
 
-pub const FAIR_RUN_OBSERVATION_SCHEMA_VERSION: u32 = 3;
+pub const FAIR_RUN_OBSERVATION_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FairRunObservation {
@@ -44,14 +44,8 @@ pub struct FairRunContext {
     pub player_hp: i32,
     pub player_max_hp: i32,
     pub deck: Vec<FairCard>,
-    pub relics: Vec<FairRunRelic>,
+    pub relics: Vec<FairRelic>,
     pub potion_slots: Vec<FairRunPotionSlot>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FairRunRelic {
-    pub slot: usize,
-    pub content_key: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -248,6 +242,10 @@ pub fn fair_run_observation(run: &RunState) -> Result<FairRunObservation, FairOb
 }
 
 fn public_context(run: &RunState) -> Result<FairRunContext, FairObservationError> {
+    let combat = match (run.phase, run.combat.as_ref()) {
+        (RunPhase::Combat, Some(combat)) => Some(combat),
+        _ => None,
+    };
     Ok(FairRunContext {
         ascension: run.ascension,
         act: run.current_act,
@@ -263,10 +261,12 @@ fn public_context(run: &RunState) -> Result<FairRunContext, FairObservationError
         relics: run
             .relics
             .iter()
+            .copied()
             .enumerate()
-            .map(|(slot, relic)| FairRunRelic {
+            .map(|(slot, relic)| FairRelic {
                 slot,
                 content_key: relic.trace_name().to_owned(),
+                state: project_relic_state(relic, run, combat),
             })
             .collect(),
         potion_slots: (0..run.potion_capacity())
@@ -615,6 +615,7 @@ impl From<RunPhase> for FairRunPhase {
 mod tests {
     use super::*;
     use crate::fair_json_allowlist::{check_schema, FAIR_RUN_OBSERVATION_SCHEMA};
+    use sts_core::adapter_internals::{Potion, Relic, ShopPotionSlot, ShopRelicSlot, ShopScreen};
 
     #[test]
     fn fair_run_schema_rejects_missing_and_unknown_fields() {
@@ -648,5 +649,286 @@ mod tests {
         assert!(!json.contains("card_id"));
         assert!(!json.contains(&format!("card:{}", first_id.get())));
         assert!(json.contains("card_slot"));
+    }
+
+    fn relic_counter(
+        observation: &FairRunObservation,
+        relic_key: &str,
+        state_key: &str,
+    ) -> Option<i64> {
+        observation
+            .context
+            .relics
+            .iter()
+            .find(|relic| relic.content_key == relic_key)
+            .and_then(|relic| relic.state.iter().find(|state| state.key == state_key))
+            .map(|state| state.value)
+    }
+
+    fn relic_state<'a>(
+        observation: &'a FairRunObservation,
+        relic_key: &str,
+    ) -> &'a [crate::FairCounter] {
+        observation
+            .context
+            .relics
+            .iter()
+            .find(|relic| relic.content_key == relic_key)
+            .map(|relic| relic.state.as_slice())
+            .unwrap_or_else(|| panic!("missing relic {relic_key}"))
+    }
+
+    fn combat_screen_value(observation: &FairRunObservation) -> serde_json::Value {
+        let FairRunScreen::Combat(combat) = &observation.screen else {
+            panic!("expected combat screen, got {}", observation.screen.kind());
+        };
+        serde_json::to_value(combat).expect("combat screen serializes")
+    }
+
+    #[test]
+    fn owned_relics_live_only_in_context_with_public_state() {
+        let mut run =
+            RunState::combat_fixture_with_relics(vec![Relic::InkBottle, Relic::OrnamentalFan]);
+        run.ink_bottle_cards_played = 7;
+        run.combat
+            .as_mut()
+            .expect("combat")
+            .relic_counters
+            .ornamental_fan_attacks_this_turn = 2;
+        run.potions = vec![Potion::Fire, Potion::Block];
+        run.empty_potion_slots = vec![1];
+
+        let observation = fair_run_observation(&run).expect("combat projects");
+        assert_eq!(observation.schema_version, 4);
+        assert_eq!(observation.context.relics.len(), 2);
+        assert_eq!(relic_counter(&observation, "Ink Bottle", "cards"), Some(7));
+        assert_eq!(
+            relic_counter(&observation, "Ornamental Fan", "attacks_this_turn"),
+            Some(2)
+        );
+        assert_eq!(
+            observation
+                .context
+                .potion_slots
+                .iter()
+                .map(|slot| slot.content_key.as_deref())
+                .collect::<Vec<_>>(),
+            vec![Some("fire"), None, Some("block")]
+        );
+
+        let screen = combat_screen_value(&observation);
+        assert_eq!(screen["schema_version"], 3);
+        assert!(screen.get("relics").is_none());
+        assert!(screen.get("potion_slots").is_none());
+        assert!(screen.get("context").is_none());
+    }
+
+    #[test]
+    fn persistent_relic_counters_survive_noncombat_screens() {
+        let mut run = RunState::map_fixture();
+        run.relics = vec![
+            Relic::Omamori,
+            Relic::MawBank,
+            Relic::AncientTeaSet,
+            Relic::Girya,
+            Relic::Matryoshka,
+            Relic::TinyChest,
+            Relic::WingBoots,
+            Relic::NeowsLament,
+            Relic::InkBottle,
+            Relic::LizardTail,
+        ];
+        run.omamori_charges_used = 1;
+        run.maw_bank_broken = true;
+        run.ancient_tea_set_armed = true;
+        run.girya_lifts = 2;
+        run.matryoshka_chests_opened = 1;
+        run.tiny_chest_counter = 3;
+        run.wing_boots_charges = 2;
+        run.neow_lament_combats_remaining = 1;
+        run.ink_bottle_cards_played = 4;
+        run.lizard_tail_used = true;
+
+        let observation = fair_run_observation(&run).expect("map projects");
+        assert!(matches!(observation.screen, FairRunScreen::Map(_)));
+        assert_eq!(
+            relic_counter(&observation, "Omamori", "charges_remaining"),
+            Some(1)
+        );
+        assert_eq!(relic_counter(&observation, "Maw Bank", "active"), Some(0));
+        assert_eq!(
+            relic_counter(&observation, "Ancient Tea Set", "armed"),
+            Some(1)
+        );
+        assert_eq!(relic_counter(&observation, "Girya", "lifts"), Some(2));
+        assert_eq!(
+            relic_counter(&observation, "Matryoshka", "chests_remaining"),
+            Some(1)
+        );
+        assert_eq!(relic_counter(&observation, "Tiny Chest", "rooms"), Some(3));
+        assert_eq!(
+            relic_counter(&observation, "Wing Boots", "charges"),
+            Some(2)
+        );
+        assert_eq!(
+            relic_counter(&observation, "Neow's Lament", "combats_remaining"),
+            Some(1)
+        );
+        assert_eq!(relic_counter(&observation, "Ink Bottle", "cards"), Some(4));
+        assert_eq!(
+            relic_counter(&observation, "Lizard Tail", "available"),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn combat_only_relic_counters_are_omitted_outside_combat_not_zeroed() {
+        let mut map = RunState::map_fixture();
+        map.relics = vec![Relic::OrnamentalFan, Relic::InkBottle, Relic::VelvetChoker];
+        map.ink_bottle_cards_played = 0;
+
+        let observation = fair_run_observation(&map).expect("map projects");
+        assert!(relic_state(&observation, "Ornamental Fan").is_empty());
+        assert!(relic_state(&observation, "Velvet Choker").is_empty());
+        assert_eq!(relic_counter(&observation, "Ink Bottle", "cards"), Some(0));
+        assert!(relic_counter(&observation, "Ornamental Fan", "attacks_this_turn").is_none());
+
+        let mut combat = RunState::combat_fixture_with_relics(vec![
+            Relic::OrnamentalFan,
+            Relic::InkBottle,
+            Relic::VelvetChoker,
+        ]);
+        combat.ink_bottle_cards_played = 0;
+        let combat_observation = fair_run_observation(&combat).expect("combat projects");
+        assert_eq!(
+            relic_counter(&combat_observation, "Ornamental Fan", "attacks_this_turn"),
+            Some(0)
+        );
+        assert_eq!(
+            relic_counter(&combat_observation, "Velvet Choker", "cards_this_turn"),
+            Some(0)
+        );
+        assert_eq!(
+            relic_counter(&combat_observation, "Ink Bottle", "cards"),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn shop_and_reward_offers_are_not_owned_relics() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Shop;
+        run.shop_merchant_open = true;
+        run.relics = vec![Relic::BurningBlood, Relic::Girya];
+        run.girya_lifts = 1;
+        run.shop = Some(ShopScreen {
+            cards: Vec::new(),
+            relics: vec![ShopRelicSlot {
+                relic_key: Relic::Anchor,
+                price: 150,
+                sold: false,
+            }],
+            potions: vec![ShopPotionSlot {
+                potion: Potion::Fire,
+                price: 50,
+                sold: false,
+            }],
+            remove_cost: 75,
+            remove_available: true,
+            sale_slot: None,
+        });
+
+        let observation = fair_run_observation(&run).expect("shop projects");
+        let owned: Vec<_> = observation
+            .context
+            .relics
+            .iter()
+            .map(|relic| relic.content_key.as_str())
+            .collect();
+        assert_eq!(owned, vec!["Burning Blood", "Girya"]);
+        assert_eq!(relic_counter(&observation, "Girya", "lifts"), Some(1));
+        let FairRunScreen::Shop(shop) = &observation.screen else {
+            panic!("expected shop screen");
+        };
+        assert_eq!(shop.relics.len(), 1);
+        assert_eq!(shop.relics[0].content_key, "Anchor");
+        assert_eq!(shop.potions[0].content_key, "fire");
+        assert!(!owned.contains(&"Anchor"));
+    }
+
+    #[test]
+    fn private_relic_bookkeeping_does_not_change_context_relics() {
+        let mut left = RunState::combat_fixture_with_relics(vec![Relic::Necronomicon]);
+        left.combat
+            .as_mut()
+            .expect("combat")
+            .relic_counters
+            .necronomicon_used_this_turn = true;
+        let mut right = left.clone();
+        let combat = right.combat.as_mut().expect("combat");
+        combat.relic_counters.fairy_heal_percent = 99;
+        combat.relic_counters.fairy_consumed = true;
+        combat.relic_counters.deferred_centennial_puzzle_draw = true;
+        combat.relic_counters.deferred_runic_cube_draws = 4;
+        combat.relic_counters.deferred_warped_tongs = true;
+
+        let left_observation = fair_run_observation(&left).expect("projects");
+        let right_observation = fair_run_observation(&right).expect("projects");
+        assert_eq!(
+            left_observation.context.relics,
+            right_observation.context.relics
+        );
+        assert_eq!(
+            relic_counter(&left_observation, "Necronomicon", "used_this_turn"),
+            Some(1)
+        );
+
+        let mut map = RunState::map_fixture();
+        map.relics = vec![Relic::Necronomicon];
+        let map_observation = fair_run_observation(&map).expect("map projects");
+        assert!(relic_state(&map_observation, "Necronomicon").is_empty());
+    }
+
+    #[test]
+    fn run_context_gold_is_observable_without_combat_context() {
+        let baseline = RunState::combat_fixture();
+        let mut gold_changed = baseline.clone();
+        gold_changed.gold += 1;
+        let left = serde_json::to_vec(&fair_run_observation(&baseline).expect("projects"))
+            .expect("serializes");
+        let right = serde_json::to_vec(&fair_run_observation(&gold_changed).expect("projects"))
+            .expect("serializes");
+        assert_ne!(left, right);
+        let combat_left = combat_screen_value(&fair_run_observation(&baseline).expect("projects"));
+        let combat_right =
+            combat_screen_value(&fair_run_observation(&gold_changed).expect("projects"));
+        assert_eq!(combat_left, combat_right);
+    }
+
+    #[test]
+    fn combat_screen_schema_rejects_removed_duplicate_fields() {
+        let observation =
+            fair_run_observation(&RunState::combat_fixture()).expect("combat projects");
+        let mut screen = combat_screen_value(&observation);
+        check_schema(
+            &screen,
+            &crate::fair_json_allowlist::FAIR_COMBAT_OBSERVATION_SCHEMA,
+            "combat",
+        )
+        .expect("combat schema accepted");
+
+        let object = screen.as_object_mut().expect("combat object");
+        object.insert("relics".to_owned(), serde_json::json!([]));
+        object.insert("potion_slots".to_owned(), serde_json::json!([]));
+        object.insert(
+            "context".to_owned(),
+            serde_json::json!({"ascension": 0, "act": 1, "floor": 1, "gold": 99}),
+        );
+        assert!(check_schema(
+            &screen,
+            &crate::fair_json_allowlist::FAIR_COMBAT_OBSERVATION_SCHEMA,
+            "combat",
+        )
+        .is_err());
     }
 }

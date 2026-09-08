@@ -14,7 +14,7 @@ class FairApiTest(unittest.TestCase):
         decision = state.decision()
         self.assertEqual(decision.schema_version, 1)
         self.assertEqual(decision.revision, state.revision)
-        self.assertEqual(decision.observation.schema_version, 3)
+        self.assertEqual(decision.observation.schema_version, 4)
         self.assertIsInstance(decision.actions, tuple)
         self.assertEqual(len(decision.actions), len(state.legal_actions()))
 

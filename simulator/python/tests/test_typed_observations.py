@@ -66,7 +66,7 @@ def _context() -> dict[str, object]:
         "player_hp": 80,
         "player_max_hp": 80,
         "deck": (_card(),),
-        "relics": ({"slot": 0, "content_key": "Burning Blood"},),
+        "relics": ({"slot": 0, "content_key": "Burning Blood", "state": ()},),
         "potion_slots": ({"slot": 0, "content_key": None},),
     }
 
@@ -83,8 +83,7 @@ def _observation(kind: str, screen: object, phase: str | None = None) -> dict[st
 
 def _combat_screen() -> dict[str, object]:
     return {
-        "schema_version": 2,
-        "context": {"ascension": 0, "act": 1, "floor": 1, "gold": 99},
+        "schema_version": 3,
         "phase": "waiting_for_player",
         "player": {
             "hp": 80,
@@ -122,14 +121,6 @@ def _combat_screen() -> dict[str, object]:
                 "in_defensive_mode": False,
             },
         ),
-        "relics": (
-            {
-                "slot": 0,
-                "content_key": "Burning Blood",
-                "state": ({"key": "cards", "value": 1},),
-            },
-        ),
-        "potion_slots": ({"slot": 0, "content_key": None},),
         "selection": {
             "kind": "armaments_upgrade",
             "options": ({"slot": 0, "card": _card()},),
@@ -142,7 +133,11 @@ def _combat_screen() -> dict[str, object]:
 class TypedObservationRuntimeTest(unittest.TestCase):
     def test_public_package_does_not_export_record_escape_hatch(self) -> None:
         self.assertFalse(hasattr(sts_sim, "Record"))
+        self.assertFalse(hasattr(sts_sim, "CombatRelic"))
+        self.assertFalse(hasattr(sts_sim, "CombatContext"))
         self.assertNotIn("Record", sts_sim.__all__)
+        self.assertNotIn("CombatRelic", sts_sim.__all__)
+        self.assertNotIn("CombatContext", sts_sim.__all__)
         state = State.new("HUMAN1")
         observation = state.observation()
         self.assertIsInstance(observation, OBSERVATION_TYPES)
@@ -176,6 +171,7 @@ class TypedObservationRuntimeTest(unittest.TestCase):
         self.assertIs(observation.context.deck[0].content_key, CardKey.STRIKE_R)
         self.assertEqual(observation.context.deck[0].content_key, "Strike_R")
         self.assertIs(observation.context.relics[0].content_key, RelicKey.BURNING_BLOOD)
+        self.assertEqual(observation.context.relics[0].state, ())
         self.assertIn(observation.kind, {"event", "map"})
         if observation.kind == "event":
             self.assertTrue(observation.screen.choices)
@@ -196,10 +192,16 @@ class TypedObservationRuntimeTest(unittest.TestCase):
         self.assertIsInstance(observation, CombatObservation)
         if observation.kind != "combat":
             self.fail("expected a combat observation")
-        self.assertEqual(observation.screen.schema_version, 2)
+        self.assertEqual(observation.screen.schema_version, 3)
         self.assertGreaterEqual(observation.screen.player.energy, 0)
         self.assertTrue(observation.screen.hand)
         self.assertTrue(observation.screen.monsters)
+        self.assertFalse(hasattr(observation.screen, "relics"))
+        self.assertFalse(hasattr(observation.screen, "context"))
+        self.assertFalse(hasattr(observation.screen, "potion_slots"))
+        self.assertTrue(observation.context.relics)
+        self.assertIsInstance(observation.context.relics[0].state, tuple)
+        self.assertTrue(observation.context.potion_slots)
         monster = observation.screen.monsters[0]
         self.assertIsInstance(monster.content_key, MonsterKey)
         if monster.intent.visibility == "visible":
@@ -217,8 +219,12 @@ class TypedObservationRuntimeTest(unittest.TestCase):
             if monster.intent.visibility == "visible":
                 self.assertEqual(monster.intent.damage, 11)
             self.assertEqual(combat.screen.hand[0].card.dynamic.rampage_damage_bonus, None)
-            self.assertIs(combat.screen.relics[0].content_key, RelicKey.BURNING_BLOOD)
-            self.assertIsNone(combat.screen.potion_slots[0].content_key)
+            self.assertIs(combat.context.relics[0].content_key, RelicKey.BURNING_BLOOD)
+            self.assertEqual(combat.context.relics[0].state, ())
+            self.assertIsNone(combat.context.potion_slots[0].content_key)
+            self.assertFalse(hasattr(combat.screen, "relics"))
+            self.assertFalse(hasattr(combat.screen, "context"))
+            self.assertFalse(hasattr(combat.screen, "potion_slots"))
 
         mapping = decode_observation(
             _observation(
@@ -370,11 +376,25 @@ class TypedObservationRuntimeTest(unittest.TestCase):
             decode_observation(combat)
 
         unknown_relic = _observation("combat", _combat_screen(), phase="combat")
-        unknown_relic_screen = unknown_relic["screen"]
-        assert isinstance(unknown_relic_screen, dict)
-        unknown_relic_screen["relics"] = ({"slot": 0, "content_key": "not-a-relic", "state": ()},)
+        unknown_relic_context = unknown_relic["context"]
+        assert isinstance(unknown_relic_context, dict)
+        unknown_relic_context["relics"] = ({"slot": 0, "content_key": "not-a-relic", "state": ()},)
         with self.assertRaisesRegex(ValueError, "unknown RelicKey"):
             decode_observation(unknown_relic)
+
+        missing_relic_state = _observation("combat", _combat_screen(), phase="combat")
+        missing_relic_context = missing_relic_state["context"]
+        assert isinstance(missing_relic_context, dict)
+        missing_relic_context["relics"] = ({"slot": 0, "content_key": "Burning Blood"},)
+        with self.assertRaisesRegex(ValueError, "missing"):
+            decode_observation(missing_relic_state)
+
+        duplicate_screen_relics = _observation("combat", _combat_screen(), phase="combat")
+        duplicate_screen = duplicate_screen_relics["screen"]
+        assert isinstance(duplicate_screen, dict)
+        duplicate_screen["relics"] = ()
+        with self.assertRaisesRegex(ValueError, "extra"):
+            decode_observation(duplicate_screen_relics)
 
     def test_observations_are_immutable(self) -> None:
         observation = decode_observation(_observation("combat", _combat_screen(), phase="combat"))
@@ -467,7 +487,7 @@ class TypedObservationStaticTest(unittest.TestCase):
         output = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0, output)
         diagnostics = [line for line in output.splitlines() if "unresolved-attribute" in line]
-        self.assertEqual(len(diagnostics), 4, output)
+        self.assertEqual(len(diagnostics), 7, output)
 
         def has_diagnostic(*needles: str) -> bool:
             return any(all(needle in line for needle in needles) for line in diagnostics)
@@ -486,6 +506,18 @@ class TypedObservationStaticTest(unittest.TestCase):
         )
         self.assertTrue(
             has_diagnostic(":20:", "Object of type `MapScreen` has no attribute `player`"),
+            output,
+        )
+        self.assertTrue(
+            has_diagnostic(":26:", "CombatScreen", "has no attribute `relics`"),
+            output,
+        )
+        self.assertTrue(
+            has_diagnostic(":32:", "CombatScreen", "has no attribute `context`"),
+            output,
+        )
+        self.assertTrue(
+            has_diagnostic(":38:", "CombatScreen", "has no attribute `potion_slots`"),
             output,
         )
 

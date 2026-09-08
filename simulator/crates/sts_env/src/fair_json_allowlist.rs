@@ -197,16 +197,8 @@ const PLAYER: Schema = Schema::Object(&[
     ("max_energy", Schema::Leaf),
     ("powers", Schema::Array(&POWER)),
 ]);
-const CONTEXT: Schema = Schema::Object(&[
-    ("ascension", Schema::Leaf),
-    ("act", Schema::Leaf),
-    ("floor", Schema::Leaf),
-    ("gold", Schema::Leaf),
-]);
-
 pub(crate) const FAIR_COMBAT_OBSERVATION_SCHEMA: Schema = Schema::Object(&[
     ("schema_version", Schema::Leaf),
-    ("context", CONTEXT),
     ("phase", Schema::Leaf),
     ("player", PLAYER),
     ("orb_slots", Schema::Array(&ORB_SLOT)),
@@ -215,13 +207,10 @@ pub(crate) const FAIR_COMBAT_OBSERVATION_SCHEMA: Schema = Schema::Object(&[
     ("discard_pile", PILE),
     ("exhaust_pile", PILE),
     ("monsters", Schema::Array(&MONSTER)),
-    ("relics", Schema::Array(&RELIC)),
-    ("potion_slots", Schema::Array(&POTION_SLOT)),
     ("selection", Schema::Optional(&SELECTION)),
     ("public_counters", Schema::Array(&COUNTER)),
 ]);
 
-const RUN_RELIC: Schema = Schema::Object(&[("slot", Schema::Leaf), ("content_key", Schema::Leaf)]);
 const RUN_CONTEXT: Schema = Schema::Object(&[
     ("ascension", Schema::Leaf),
     ("act", Schema::Leaf),
@@ -230,7 +219,7 @@ const RUN_CONTEXT: Schema = Schema::Object(&[
     ("player_hp", Schema::Leaf),
     ("player_max_hp", Schema::Leaf),
     ("deck", Schema::Array(&CARD)),
-    ("relics", Schema::Array(&RUN_RELIC)),
+    ("relics", Schema::Array(&RELIC)),
     ("potion_slots", Schema::Array(&POTION_SLOT)),
 ]);
 const CARD_SLOT: Schema = Schema::Object(&[("slot", Schema::Leaf), ("card", CARD)]);

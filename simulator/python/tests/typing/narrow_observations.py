@@ -1,6 +1,6 @@
 """Static regression: kind discriminants narrow nested observation fields."""
 
-from sts_sim import Observation, State
+from sts_sim import Counter, Observation, State
 
 
 def combat_energy(observation: Observation) -> int | None:
@@ -40,6 +40,10 @@ def dark_orb_evoke(observation: Observation) -> int | None:
         if slot.orb is not None and slot.orb.type == "dark":
             return slot.orb.evoke
     return None
+
+
+def context_relic_state(observation: Observation) -> tuple[Counter, ...]:
+    return observation.context.relics[0].state
 
 
 def live_state_narrowing() -> int | None:

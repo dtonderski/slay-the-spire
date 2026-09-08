@@ -30,6 +30,14 @@ unions such as monster intents, orbs, and rest options. Unknown mapping fields
 are rejected when projecting native records, so Python types fail closed if the
 fair schema grows.
 
+Owned relics live only on `observation.context.relics`. Each `Relic` has a
+decision-local `slot`, a `RelicKey`, and public `state` counters. Persistent
+counters such as Ink Bottle or Girya remain visible on every screen; combat-only
+counters are omitted outside combat rather than fabricated as zero. Combat
+screens do not repeat owned relics, owned potions, or run metadata already on
+`observation.context`. Shop and reward relic/potion offers stay on those screens
+because they are not owned.
+
 Finite content identities are generated `StrEnum` members: `RelicKey`,
 `PotionKey`, `CardKey`, `MonsterKey`, `PowerKey`, `EventKey`, and `CounterKey`.
 Decoder output uses those enum instances, and unknown keys are rejected. Empty

@@ -21,6 +21,7 @@ from sts_sim import (
 from sts_sim.observations import (
     FAIR_RUN_OBSERVATION_SCHEMA_VERSION,
     Card,
+    Counter,
     EventScreen,
     Monster,
     PotionSlot,
@@ -57,7 +58,7 @@ def _context() -> dict[str, object]:
         "player_hp": 80,
         "player_max_hp": 80,
         "deck": (_card(),),
-        "relics": ({"slot": 0, "content_key": "Burning Blood"},),
+        "relics": ({"slot": 0, "content_key": "Burning Blood", "state": ()},),
         "potion_slots": (
             {"slot": 0, "content_key": None},
             {"slot": 1, "content_key": "fire"},
@@ -145,6 +146,7 @@ class ContentIdentityRuntimeTest(unittest.TestCase):
     def test_nested_annotations_use_generated_enums(self) -> None:
         self.assertIs(get_type_hints(Card)["content_key"], CardKey)
         self.assertIs(get_type_hints(Relic)["content_key"], RelicKey)
+        self.assertEqual(get_type_hints(Relic)["state"], tuple[Counter, ...])
         self.assertEqual(get_type_hints(PotionSlot)["content_key"], PotionKey | None)
         self.assertIs(get_type_hints(Monster)["content_key"], MonsterKey)
         self.assertIs(get_type_hints(Power)["key"], PowerKey)

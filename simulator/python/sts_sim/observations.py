@@ -17,8 +17,8 @@ from .content_ids import (
     RelicKey,
 )
 
-FAIR_RUN_OBSERVATION_SCHEMA_VERSION = 3
-FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION = 2
+FAIR_RUN_OBSERVATION_SCHEMA_VERSION = 4
+FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION = 3
 
 Phase = Literal["combat", "reward", "treasure", "rest", "event", "shop", "idle", "complete"]
 ObservationKind = Literal[
@@ -138,6 +138,7 @@ class Counter:
 class Relic:
     slot: int
     content_key: RelicKey
+    state: tuple[Counter, ...]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -157,14 +158,6 @@ class RunContext:
     deck: tuple[Card, ...]
     relics: tuple[Relic, ...]
     potion_slots: tuple[PotionSlot, ...]
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class CombatContext:
-    ascension: int
-    act: int
-    floor: int
-    gold: int
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -250,13 +243,6 @@ class Monster:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class CombatRelic:
-    slot: int
-    content_key: RelicKey
-    state: tuple[Counter, ...]
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
 class SelectionOption:
     slot: int
     card: Card
@@ -272,7 +258,6 @@ class Selection:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CombatScreen:
     schema_version: int
-    context: CombatContext
     phase: CombatPhase
     player: Player
     orb_slots: tuple[OrbSlot, ...]
@@ -281,8 +266,6 @@ class CombatScreen:
     discard_pile: Pile
     exhaust_pile: Pile
     monsters: tuple[Monster, ...]
-    relics: tuple[CombatRelic, ...]
-    potion_slots: tuple[PotionSlot, ...]
     selection: Selection | None
     public_counters: tuple[Counter, ...]
 
@@ -739,6 +722,7 @@ def decode_relic(value: object, path: str) -> Relic:
     return Relic(
         slot=_int(data["slot"], f"{path}.slot"),
         content_key=_enum(data["content_key"], f"{path}.content_key", RelicKey),
+        state=_seq(data["state"], f"{path}.state", decode_counter),
     )
 
 
@@ -757,7 +741,6 @@ def decode_combat_screen(value: object, path: str) -> CombatScreen:
         raise ValueError(f"{path}.schema_version: unsupported fair combat schema {schema_version}")
     return CombatScreen(
         schema_version=schema_version,
-        context=decode_combat_context(data["context"], f"{path}.context"),
         phase=_literal(data["phase"], f"{path}.phase", get_args(CombatPhase)),
         player=decode_player(data["player"], f"{path}.player"),
         orb_slots=_seq(data["orb_slots"], f"{path}.orb_slots", decode_orb_slot),
@@ -766,20 +749,8 @@ def decode_combat_screen(value: object, path: str) -> CombatScreen:
         discard_pile=decode_pile(data["discard_pile"], f"{path}.discard_pile"),
         exhaust_pile=decode_pile(data["exhaust_pile"], f"{path}.exhaust_pile"),
         monsters=_seq(data["monsters"], f"{path}.monsters", decode_monster),
-        relics=_seq(data["relics"], f"{path}.relics", decode_combat_relic),
-        potion_slots=_seq(data["potion_slots"], f"{path}.potion_slots", decode_potion_slot),
         selection=_optional(data["selection"], f"{path}.selection", decode_selection),
         public_counters=_seq(data["public_counters"], f"{path}.public_counters", decode_counter),
-    )
-
-
-def decode_combat_context(value: object, path: str) -> CombatContext:
-    data = _exact(value, path, CombatContext)
-    return CombatContext(
-        ascension=_int(data["ascension"], f"{path}.ascension"),
-        act=_int(data["act"], f"{path}.act"),
-        floor=_int(data["floor"], f"{path}.floor"),
-        gold=_int(data["gold"], f"{path}.gold"),
     )
 
 
@@ -882,15 +853,6 @@ def decode_intent(value: object, path: str) -> MonsterIntent:
             hits=_optional_int(visible, "hits", path),
         )
     raise ValueError(f"{path}.visibility: unknown intent visibility {visibility!r}")
-
-
-def decode_combat_relic(value: object, path: str) -> CombatRelic:
-    data = _exact(value, path, CombatRelic)
-    return CombatRelic(
-        slot=_int(data["slot"], f"{path}.slot"),
-        content_key=_enum(data["content_key"], f"{path}.content_key", RelicKey),
-        state=_seq(data["state"], f"{path}.state", decode_counter),
-    )
 
 
 def decode_selection(value: object, path: str) -> Selection:
@@ -1223,9 +1185,7 @@ __all__ = [
     "CardDynamicValues",
     "CardKey",
     "CardSlot",
-    "CombatContext",
     "CombatObservation",
-    "CombatRelic",
     "CombatScreen",
     "CompleteObservation",
     "Counter",

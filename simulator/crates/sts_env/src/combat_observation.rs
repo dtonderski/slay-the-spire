@@ -22,7 +22,7 @@ use sts_core::adapter_internals::{
 };
 
 /// Version of the serialized symbolic fair-combat observation contract.
-pub const FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION: u32 = 2;
+pub const FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -53,7 +53,6 @@ impl Error for FairObservationError {}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FairCombatObservation {
     pub schema_version: u32,
-    pub context: FairCombatContext,
     pub phase: FairCombatPhase,
     pub player: FairPlayer,
     /// Public left-to-right orb slots. Empty slots are represented explicitly.
@@ -63,18 +62,8 @@ pub struct FairCombatObservation {
     pub discard_pile: FairPile,
     pub exhaust_pile: FairPile,
     pub monsters: Vec<FairMonster>,
-    pub relics: Vec<FairRelic>,
-    pub potion_slots: Vec<FairPotionSlot>,
     pub selection: Option<FairSelection>,
     pub public_counters: Vec<FairCounter>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FairCombatContext {
-    pub ascension: u8,
-    pub act: i32,
-    pub floor: i32,
-    pub gold: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -299,10 +288,6 @@ pub fn fair_combat_observation(
         (_, None) => return Err(FairObservationError::NoActiveCombat),
     };
     let corruption_active = combat.player.powers.corruption > 0;
-    let visible_gold = run
-        .gold
-        .checked_add(combat.combat_gold_gained)
-        .ok_or(FairObservationError::InvalidAuthoritativeState)?;
 
     let hand = combat
         .piles
@@ -347,12 +332,6 @@ pub fn fair_combat_observation(
 
     Ok(FairCombatObservation {
         schema_version: FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION,
-        context: FairCombatContext {
-            ascension: run.ascension,
-            act: run.current_act,
-            floor: run.current_floor,
-            gold: visible_gold,
-        },
         phase: project_phase(combat.phase),
         player: FairPlayer {
             hp: combat.player.hp,
@@ -385,23 +364,6 @@ pub fn fair_combat_observation(
             .enumerate()
             .map(|(slot, monster)| project_monster(slot, monster, combat))
             .collect::<Result<Vec<_>, _>>()?,
-        relics: combat
-            .relics
-            .iter()
-            .copied()
-            .enumerate()
-            .map(|(slot, relic)| FairRelic {
-                slot,
-                content_key: relic.trace_name().to_owned(),
-                state: project_relic_state(relic, run, combat),
-            })
-            .collect(),
-        potion_slots: (0..run.potion_capacity())
-            .map(|slot| FairPotionSlot {
-                slot,
-                content_key: run.potion_at_slot(slot).map(potion_key).map(str::to_owned),
-            })
-            .collect(),
         selection: project_selection(combat, corruption_active)?,
         public_counters: project_public_counters(combat),
     })
@@ -758,8 +720,11 @@ fn push_power(result: &mut Vec<FairPower>, key: &str, amount: i32) {
     }
 }
 
-fn project_relic_state(relic: Relic, run: &RunState, combat: &CombatState) -> Vec<FairCounter> {
-    let counters = &combat.relic_counters;
+pub(crate) fn project_relic_state(
+    relic: Relic,
+    run: &RunState,
+    combat: Option<&CombatState>,
+) -> Vec<FairCounter> {
     let mut state = Vec::new();
     let mut push = |key: &str, value: i64| {
         state.push(FairCounter {
@@ -768,14 +733,72 @@ fn project_relic_state(relic: Relic, run: &RunState, combat: &CombatState) -> Ve
         });
     };
     match relic {
-        Relic::LizardTail => push("available", i64::from(!combat.lizard_tail_used)),
-        Relic::InkBottle => push("cards", i64::from(combat.ink_bottle_cards_played)),
+        Relic::LizardTail => push("available", i64::from(!run.lizard_tail_used)),
+        Relic::InkBottle => push("cards", i64::from(run.ink_bottle_cards_played)),
+        Relic::Nunchaku => push("attacks", i64::from(run.nunchaku_attacks_played)),
+        Relic::PenNib => push("attacks", i64::from(run.pen_nib_attacks_played)),
+        Relic::HappyFlower => push("turns", i64::from(run.happy_flower_turns)),
+        Relic::Sundial => push("shuffles", i64::from(run.sundial_shuffles)),
+        Relic::IncenseBurner => push("turns", i64::from(run.incense_burner_counter)),
+        Relic::Omamori => push(
+            "charges_remaining",
+            i64::from(OMAMORI_CHARGES.saturating_sub(run.omamori_charges_used)),
+        ),
+        Relic::MawBank => push("active", i64::from(!run.maw_bank_broken)),
+        Relic::AncientTeaSet => push("armed", i64::from(run.ancient_tea_set_armed)),
+        Relic::Girya => push("lifts", i64::from(run.girya_lifts)),
+        Relic::Matryoshka => push(
+            "chests_remaining",
+            i64::from(MATRYOSHKA_MAX_CHESTS.saturating_sub(run.matryoshka_chests_opened)),
+        ),
+        Relic::TinyChest => push("rooms", i64::from(run.tiny_chest_counter)),
+        Relic::WingBoots => push("charges", i64::from(run.wing_boots_charges)),
+        Relic::NeowsLament => push(
+            "combats_remaining",
+            i64::from(run.neow_lament_combats_remaining),
+        ),
+        Relic::OrnamentalFan
+        | Relic::Shuriken
+        | Relic::Kunai
+        | Relic::LetterOpener
+        | Relic::CentennialPuzzle
+        | Relic::Akabeko
+        | Relic::Pocketwatch
+        | Relic::ArtOfWar
+        | Relic::OrangePellets
+        | Relic::Necronomicon
+        | Relic::SelfFormingClay
+        | Relic::RedSkull
+        | Relic::VelvetChoker
+        | Relic::HornCleat
+        | Relic::CaptainsWheel
+        | Relic::StoneCalendar => {
+            if let Some(combat) = combat {
+                project_combat_only_relic_state(relic, combat, &mut state);
+            }
+        }
+        _ => {}
+    }
+    state
+}
+
+fn project_combat_only_relic_state(
+    relic: Relic,
+    combat: &CombatState,
+    state: &mut Vec<FairCounter>,
+) {
+    let counters = &combat.relic_counters;
+    let mut push = |key: &str, value: i64| {
+        state.push(FairCounter {
+            key: key.to_owned(),
+            value,
+        });
+    };
+    match relic {
         Relic::OrnamentalFan => push(
             "attacks_this_turn",
             i64::from(counters.ornamental_fan_attacks_this_turn),
         ),
-        Relic::Nunchaku => push("attacks", i64::from(combat.nunchaku_attacks_played)),
-        Relic::PenNib => push("attacks", i64::from(combat.pen_nib_attacks_played)),
         Relic::Shuriken => push(
             "attacks_this_turn",
             i64::from(counters.shuriken_attacks_this_turn),
@@ -788,9 +811,6 @@ fn project_relic_state(relic: Relic, run: &RunState, combat: &CombatState) -> Ve
             "skills_this_turn",
             i64::from(counters.letter_opener_skills_this_turn),
         ),
-        Relic::HappyFlower => push("turns", i64::from(combat.happy_flower_turns)),
-        Relic::Sundial => push("shuffles", i64::from(combat.sundial_shuffles)),
-        Relic::IncenseBurner => push("turns", i64::from(combat.incense_burner_counter)),
         Relic::CentennialPuzzle => push("triggers", i64::from(counters.centennial_puzzle_triggers)),
         Relic::Akabeko => push(
             "attacks_this_combat",
@@ -835,26 +855,8 @@ fn project_relic_state(relic: Relic, run: &RunState, combat: &CombatState) -> Ve
             "player_turns_started",
             i64::from(counters.player_turns_started),
         ),
-        Relic::Omamori => push(
-            "charges_remaining",
-            i64::from(OMAMORI_CHARGES.saturating_sub(run.omamori_charges_used)),
-        ),
-        Relic::MawBank => push("active", i64::from(!run.maw_bank_broken)),
-        Relic::AncientTeaSet => push("armed", i64::from(run.ancient_tea_set_armed)),
-        Relic::Girya => push("lifts", i64::from(run.girya_lifts)),
-        Relic::Matryoshka => push(
-            "chests_remaining",
-            i64::from(MATRYOSHKA_MAX_CHESTS.saturating_sub(run.matryoshka_chests_opened)),
-        ),
-        Relic::TinyChest => push("rooms", i64::from(run.tiny_chest_counter)),
-        Relic::WingBoots => push("charges", i64::from(run.wing_boots_charges)),
-        Relic::NeowsLament => push(
-            "combats_remaining",
-            i64::from(run.neow_lament_combats_remaining),
-        ),
         _ => {}
     }
-    state
 }
 
 fn project_public_counters(combat: &CombatState) -> Vec<FairCounter> {
@@ -1494,7 +1496,7 @@ mod tests {
         combat.piles.hand[0].windmill_retain_damage = 8;
 
         let projected = observation(&run);
-        assert_eq!(projected.schema_version, 2);
+        assert_eq!(projected.schema_version, 3);
         assert_eq!(
             projected.orb_slots,
             vec![
@@ -1543,12 +1545,9 @@ mod tests {
     }
 
     #[test]
-    fn public_cards_potions_relics_and_counters_are_projected() {
-        let mut run = RunState::combat_fixture_with_relics(vec![Relic::InkBottle]);
-        run.potions = vec![Potion::Fire, Potion::Block];
-        run.empty_potion_slots = vec![1];
+    fn public_cards_and_counters_are_projected() {
+        let mut run = RunState::combat_fixture();
         let combat = run.combat.as_mut().expect("combat");
-        combat.ink_bottle_cards_played = 7;
         combat.relic_counters.cards_played_this_turn = 2;
         combat.piles.hand[0].content_id =
             sts_core::adapter_internals::content::cards::STEAM_BARRIER_ANY_COLOR_ID;
@@ -1571,16 +1570,6 @@ mod tests {
                 .combat_cost_under_turn_override,
             Some(1)
         );
-        assert_eq!(projected.relics[0].content_key, "Ink Bottle");
-        assert_eq!(projected.relics[0].state[0].value, 7);
-        assert_eq!(
-            projected
-                .potion_slots
-                .iter()
-                .map(|slot| slot.content_key.as_deref())
-                .collect::<Vec<_>>(),
-            vec![Some("fire"), None, Some("block")]
-        );
         assert_eq!(projected.public_counters[0].value, 2);
         assert_eq!(
             projected
@@ -1590,48 +1579,6 @@ mod tests {
                 .map(|counter| counter.value),
             Some(3)
         );
-    }
-
-    #[test]
-    fn public_run_level_relic_state_is_projected() {
-        let relics = vec![
-            Relic::Omamori,
-            Relic::MawBank,
-            Relic::AncientTeaSet,
-            Relic::Girya,
-            Relic::Matryoshka,
-            Relic::TinyChest,
-            Relic::WingBoots,
-            Relic::NeowsLament,
-        ];
-        let mut run = RunState::combat_fixture_with_relics(relics);
-        run.omamori_charges_used = 1;
-        run.maw_bank_broken = true;
-        run.ancient_tea_set_armed = true;
-        run.girya_lifts = 2;
-        run.matryoshka_chests_opened = 1;
-        run.tiny_chest_counter = 3;
-        run.wing_boots_charges = 2;
-        run.neow_lament_combats_remaining = 1;
-
-        let projected = observation(&run);
-        let value = |relic_key: &str, state_key: &str| {
-            projected
-                .relics
-                .iter()
-                .find(|relic| relic.content_key == relic_key)
-                .and_then(|relic| relic.state.iter().find(|state| state.key == state_key))
-                .map(|state| state.value)
-                .unwrap_or_else(|| panic!("missing {relic_key}.{state_key}"))
-        };
-        assert_eq!(value("Omamori", "charges_remaining"), 1);
-        assert_eq!(value("Maw Bank", "active"), 0);
-        assert_eq!(value("Ancient Tea Set", "armed"), 1);
-        assert_eq!(value("Girya", "lifts"), 2);
-        assert_eq!(value("Matryoshka", "chests_remaining"), 1);
-        assert_eq!(value("Tiny Chest", "rooms"), 3);
-        assert_eq!(value("Wing Boots", "charges"), 2);
-        assert_eq!(value("Neow's Lament", "combats_remaining"), 1);
     }
 
     #[test]
@@ -1860,10 +1807,6 @@ mod tests {
         intent_changed.combat.as_mut().expect("combat").monsters[0].intent =
             MonsterIntent::Attack { damage: 42 };
         assert_public_change("visible monster intent", &baseline, &intent_changed);
-
-        let mut gold_changed = baseline.clone();
-        gold_changed.gold += 1;
-        assert_public_change("run gold", &baseline, &gold_changed);
     }
 
     #[test]
@@ -1977,18 +1920,6 @@ mod tests {
         rich.hand[0].card.dynamic.windmill_retain_damage = Some(2);
         rich.hand[0].card.dynamic.steam_barrier_block_reduction = Some(1);
         rich.hand[0].card.dynamic.combat_cost_under_turn_override = Some(0);
-        rich.relics = vec![FairRelic {
-            slot: 0,
-            content_key: "Ink Bottle".to_owned(),
-            state: vec![FairCounter {
-                key: "counters".to_owned(),
-                value: 8,
-            }],
-        }];
-        rich.potion_slots = vec![FairPotionSlot {
-            slot: 0,
-            content_key: Some("Fire Potion".to_owned()),
-        }];
         let mut known_order = rich.clone();
         known_order.draw_pile.known_order = rich.draw_pile.cards.clone();
         let mut visible_intent = ordinary.clone();
