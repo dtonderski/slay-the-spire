@@ -1,8 +1,10 @@
 # Agent Rules
 
 These rules apply across Rust, Python, bindings, collection tools, mods, and
-verification. `PROJECT_OVERVIEW.md` defines the project objective and fair-state
-boundary.
+verification. Read `PROJECT_OVERVIEW.md` before implementation work and preserve
+its fair-state boundary.
+
+`rl` may depend on `simulator`; `simulator` must not depend on `rl`.
 
 ## Never
 
@@ -29,32 +31,40 @@ boundary.
 
 ## Testing
 
-Traces are the primary gameplay regression. Unit tests are appropriate for
-infrastructure, deterministic invariants, and source-backed rules that no trace
-can pin.
+Traces are the primary gameplay regression evidence. Unit tests may supplement
+them and cover infrastructure, deterministic invariants, and source-backed rules,
+but do not establish real-game parity.
 
-Run from the repository root:
+For Rust changes, run from the repository root; for gameplay or replay changes,
+also replay the reviewed corpus:
 
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace -- --test-threads=1
-cargo run -p sts_verify --bin sts_verify -- <trace.jsonl|trace-directory>
+cargo run -p sts_verify --bin sts_verify -- simulator/verification/corpus/permanent_traces
 ```
 
 `sts_verify` accepts exactly one file or directory and caps directory replay at
 24 workers. It reports divergence, incomplete traces, and invalid input as
 failures.
 
-Python and PyO3 commands go through `uv`; there is no required system
-`python`/`pip`.
+Use `simulator/README.md` for Python and collection-tool validation commands when
+changing those areas. Python and PyO3 commands go through `uv`; there is no
+required system `python`/`pip`.
+
+Report which checks ran and any failures or checks that could not run. If the
+reviewed corpus is unavailable, report that limitation; fixtures are not a
+substitute for corpus replay.
 
 ## Determinism
 
 - No untracked global RNG.
 - No RNG during legal-action generation, serialization, hashing, observation
   extraction, or display.
-- Every RNG draw names its stream and call site.
+- Gameplay RNG draws use explicit named streams and preserve call-site attribution
+  in the RNG tracing infrastructure. Non-seeded gameplay draws require typed,
+  call-time external inputs as documented in `simulator/docs/research.md`.
 - Snapshot/restore preserves replay behavior exactly.
 
 ## Corpus and collection
@@ -72,8 +82,9 @@ Real-game control uses the CommunicationMod bridge documented in
 ## Working practice
 
 - Keep searches under `tmp/decompiled-sts/` targeted to one package path.
-- If a missing dependency materially improves correctness, stop and report it
-  rather than building an inferior workaround.
+- If a required dependency or authoritative source is unavailable and proceeding
+  would require guessing gameplay behavior, report the blocker rather than
+  inventing a substitute. Continue independent work that is not blocked.
 - Read `simulator/docs/research.md` before changing RNG, action queues, save
   loading, or map/reward/shop generation.
 - Update `docs/project_history.md` only for major assumptions, rejected
