@@ -903,11 +903,6 @@ pub fn open_astrolabe_grid(run: &mut RunState) -> SimResult<()> {
 pub(crate) const ASTROLABE_TRANSFORM_COUNT: usize = 3;
 
 pub(crate) fn validate_grid_select(run: &RunState, index: usize) -> SimResult<()> {
-    run.validate()?;
-    validate_grid_select_after_validation(run, index)
-}
-
-pub(crate) fn validate_grid_select_after_validation(run: &RunState, index: usize) -> SimResult<()> {
     let grid = run
         .card_grid
         .as_ref()
@@ -1000,11 +995,6 @@ pub(crate) fn apply_validated_grid_select(mut next: RunState, index: usize) -> S
 }
 
 pub(crate) fn validate_grid_cancel(run: &RunState) -> SimResult<()> {
-    run.validate()?;
-    validate_grid_cancel_after_validation(run)
-}
-
-pub(crate) fn validate_grid_cancel_after_validation(run: &RunState) -> SimResult<()> {
     let grid = run
         .card_grid
         .as_ref()
@@ -1029,11 +1019,6 @@ pub(crate) fn apply_validated_grid_cancel(mut next: RunState) -> RunState {
 }
 
 pub(crate) fn validate_grid_confirm(run: &RunState) -> SimResult<()> {
-    run.validate()?;
-    validate_grid_confirm_after_validation(run)
-}
-
-pub(crate) fn validate_grid_confirm_after_validation(run: &RunState) -> SimResult<()> {
     let grid = run
         .card_grid
         .as_ref()

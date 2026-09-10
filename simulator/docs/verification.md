@@ -10,7 +10,8 @@ cargo run -p sts_verify --bin sts_verify -- <schema-6-or-7-trace.jsonl-or-direct
 For each trace it:
 
 1. requires one leading schema-6 or schema-7 metadata record;
-2. initializes Ironclad from `START_VERIFY`, profile inputs, and boss unlocks;
+2. initializes Ironclad from `START_VERIFY`, profile inputs, and boss unlocks,
+   then explicitly audits that imported start state with `RunState::validate`;
 3. validates each command against its schema's completion fence;
 4. applies the command once to simulator-owned state;
 5. compares the resulting observable projection with the recorded state; and

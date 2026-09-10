@@ -4312,7 +4312,7 @@ pub(crate) fn enter_act4_map(run: &mut RunState) -> SimResult<()> {
     run.event = None;
     run.combat = None;
     run.reward = None;
-    run.validate()
+    Ok(())
 }
 
 fn entered_event_screen_for_run(run: &mut RunState, event: Event) -> SimResult<EventScreen> {
@@ -4551,11 +4551,6 @@ fn event_choice_is_locked(choice: &EventChoice) -> bool {
 }
 
 pub fn legal_event_actions(run: &RunState) -> SimResult<Vec<EventAction>> {
-    run.validate()?;
-    legal_event_actions_after_validation(run)
-}
-
-pub(crate) fn legal_event_actions_after_validation(run: &RunState) -> SimResult<Vec<EventAction>> {
     if run.phase != RunPhase::Event {
         return Ok(Vec::new());
     }
@@ -4575,14 +4570,6 @@ pub(crate) fn legal_event_actions_after_validation(run: &RunState) -> SimResult<
 }
 
 pub fn validate_event_action(run: &RunState, action: EventAction) -> SimResult<()> {
-    run.validate()?;
-    validate_event_action_after_validation(run, action)
-}
-
-pub(crate) fn validate_event_action_after_validation(
-    run: &RunState,
-    action: EventAction,
-) -> SimResult<()> {
     if run.phase != RunPhase::Event {
         return Err(SimError::IllegalAction("event actions require event phase"));
     }
@@ -4871,7 +4858,6 @@ fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) ->
     let mut initialized = run.init_combat_consuming_relics(combat)?;
     // Same Mark of Pain / cardRandomRng ordering as map combat entry.
     add_mark_of_pain_wounds_to_draw_pile(run, &mut initialized)?;
-    initialized.validate()?;
     run.install_combat_owner(initialized)?;
     Ok(())
 }
@@ -6057,7 +6043,7 @@ mod tests {
         });
 
         assert_eq!(
-            apply_event_action(&run, EventAction::Choose { choice_index: 1 }),
+            run.validate(),
             Err(SimError::InvalidState(
                 "World of Goop gold loss exceeds its roll range"
             ))
@@ -6661,10 +6647,6 @@ mod tests {
             run.validate(),
             Err(SimError::InvalidState("Match and Keep state is missing"))
         );
-        assert_eq!(
-            apply_event_action(&run, EventAction::Choose { choice_index: 0 }),
-            Err(SimError::InvalidState("Match and Keep state is missing"))
-        );
     }
 
     #[test]
@@ -6884,9 +6866,15 @@ mod tests {
         });
 
         assert_eq!(
-            apply_event_action(&run, EventAction::Choose { choice_index: 0 }),
+            run.validate(),
             Err(SimError::InvalidState(
                 "Match and Keep choices do not match its state"
+            ))
+        );
+        assert_eq!(
+            apply_event_action(&run, EventAction::Choose { choice_index: 0 }),
+            Err(SimError::InvalidState(
+                "Match and Keep card label is invalid"
             ))
         );
     }
@@ -7785,7 +7773,7 @@ mod tests {
         let mut steered = run.clone();
         steered.event.as_mut().expect("event screen").choices[0].label = "Attack".to_owned();
         assert_eq!(
-            apply_event_action(&steered, EventAction::Choose { choice_index: 0 }),
+            steered.validate(),
             Err(SimError::InvalidState(
                 "We Meet Again choices do not match encoded options"
             ))

@@ -1728,7 +1728,6 @@ fn enter_boss_combat_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
 }
 
 fn validate_combat_reward_entry(run: &RunState) -> SimResult<()> {
-    run.validate()?;
     if run.phase != RunPhase::Combat {
         return Err(SimError::InvalidState(
             "combat reward entry requires combat phase",
@@ -2370,11 +2369,8 @@ pub(crate) fn enter_final_boss_victory(run: &mut RunState) -> SimResult<()> {
 }
 
 pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
-    run.validate()?;
-    crate::run::decision::validate_run_action_after_run_validation(run, action)?;
-    let next = apply_validated_run_action_owned(run.clone(), action)?;
-    next.validate()?;
-    Ok(next)
+    crate::run::decision::validate_run_action(run, action)?;
+    apply_validated_run_action_owned(run.clone(), action)
 }
 
 pub(crate) fn apply_validated_run_action_owned(
@@ -2441,14 +2437,6 @@ pub(crate) fn apply_validated_run_action_owned(
 }
 
 pub fn validate_treasure_action(run: &RunState, action: RunAction) -> SimResult<()> {
-    run.validate()?;
-    validate_treasure_action_after_validation(run, action)
-}
-
-pub(crate) fn validate_treasure_action_after_validation(
-    run: &RunState,
-    action: RunAction,
-) -> SimResult<()> {
     if run.phase != RunPhase::Treasure {
         return Err(SimError::IllegalAction(
             "treasure actions require treasure phase",

@@ -30,6 +30,21 @@ use std::collections::{BTreeSet, VecDeque};
 
 pub const BASE_PLAYER_ENERGY: i32 = 3;
 
+#[cfg(test)]
+thread_local! {
+    static FULL_VALIDATION_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_full_validation_count() {
+    FULL_VALIDATION_COUNT.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn full_validation_count() -> usize {
+    FULL_VALIDATION_COUNT.with(std::cell::Cell::get)
+}
+
 /// Complete RNG state required by every authoritative combat.
 ///
 /// This is flattened into `CombatState` so snapshot field names remain stable
@@ -1164,16 +1179,14 @@ impl CombatState {
         if ascension > 20 {
             return Err(SimError::InvalidState("combat ascension exceeds 20"));
         }
-        let state = Self::from_entry_parts(
+        Ok(Self::from_entry_parts(
             player,
             monsters,
             piles,
             relics,
             ascension,
             rng.with_trace_streams(),
-        );
-        state.validate_unique_card_piles()?;
-        Ok(state)
+        ))
     }
 
     #[must_use]
@@ -1361,11 +1374,15 @@ impl CombatState {
         Ok(())
     }
 
-    /// Validates invariants required by authoritative combat transitions.
+    /// Explicit structural/invariant audit for tests, snapshot restore, and
+    /// verifier/import boundaries. Ordinary constructors, legal queries, and
+    /// accepted transitions do not invoke this automatically.
     ///
     /// This check is pure: it must not advance RNG or normalize malformed
     /// imported state into a plausible state.
     pub fn validate(&self) -> SimResult<()> {
+        #[cfg(test)]
+        FULL_VALIDATION_COUNT.with(|count| count.set(count.get() + 1));
         if [
             self.rng.shuffle_rng.counter(),
             self.rng.monster_rng.counter(),
