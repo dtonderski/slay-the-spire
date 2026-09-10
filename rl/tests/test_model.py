@@ -5,7 +5,6 @@ from typing import ClassVar, cast, get_args
 from unittest.mock import patch
 
 import torch
-from encoders.cards import tensorize_cards
 from encoders.selection import SELECTION_TO_INDEX
 from jaxtyping import Float
 from model import CombatModel
@@ -54,7 +53,8 @@ class ModelTests(unittest.TestCase):
     def observe(
         self, observation: CombatObservation
     ) -> tuple[Float[Tensor, " action_dim"], dict[str, Float[Tensor, "?n_rows ?feature_dim"]]]:
-        return self.model.observation_encoder(observation)
+        queries, features = self.model.observation_encoder([observation])
+        return queries[0], features[0]
 
     def test_live_decision_and_parameter_ownership(self) -> None:
         logits = self.model(self.observation, self.actions)
@@ -74,8 +74,8 @@ class ModelTests(unittest.TestCase):
 
     def test_shared_rows_and_gradients_from_both_paths(self) -> None:
         query, features = self.observe(self.observation)
-        expected = tensorize_cards(
-            tuple(entry.card for entry in self.observation.screen.hand), self.model.observation_encoder.cards.embedding
+        expected = self.model.observation_encoder.cards.tensorize(
+            tuple(entry.card for entry in self.observation.screen.hand)
         )
         torch.testing.assert_close(features["hand"], expected)
         query.square().sum().backward()
@@ -131,11 +131,11 @@ class ModelTests(unittest.TestCase):
         for kind in SELECTION_TO_INDEX:
             changed = None if kind is None else replace(selection, kind=kind)
             options, context, tokens = self.model.observation_encoder.selection(
-                changed, self.model.observation_encoder.cards
+                [changed], self.model.observation_encoder.cards
             )
-            self.assertEqual(context.shape, (1, 16))
-            self.assertEqual(tokens.shape[0], 0 if kind is None else 2)
-            self.assertEqual(options.shape[0], tokens.shape[0])
+            self.assertEqual(context[0].shape, (1, 16))
+            self.assertEqual(tokens[0].shape[0], 0 if kind is None else 2)
+            self.assertEqual(options[0].shape[0], tokens[0].shape[0])
         with self.assertRaises(NotImplementedError):
             self.model.action_encoder((action("proceed"),), features)
         with self.assertRaises(ValueError):
@@ -145,9 +145,9 @@ class ModelTests(unittest.TestCase):
         cards = self.model.observation_encoder.cards
         card = self.observation.screen.hand[0].card
         monster = replace(self.observation.screen.monsters[0], stasis_card=card)
-        features, _ = self.model.observation_encoder.enemies((monster,), cards)
-        expected = tensorize_cards((card,), cards.embedding)
-        held_card = features[:, -expected.shape[1] :]
+        features, _ = self.model.observation_encoder.enemies([(monster,)], cards)
+        expected = cards.tensorize((card,))
+        held_card = features[0][:, -expected.shape[1] :]
         torch.testing.assert_close(held_card, expected)
         held_card.sum().backward()
         gradient = cards.embedding.weight.grad

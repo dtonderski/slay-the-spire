@@ -50,35 +50,37 @@ from encoders.potions import PotionEncoder
 relic_encoder = RelicEncoder()
 potion_encoder = PotionEncoder()
 
-# Given an observation; each returns raw features and transformer tokens:
-relic_features, relic_tokens = relic_encoder(observation.context.relics)
-potion_features, potion_tokens = potion_encoder(observation.context.potion_slots)
+# Each returns lists of raw feature tensors and token tensors, one per observation:
+relic_features, relic_tokens = relic_encoder([observation.context.relics])
+potion_features, potion_tokens = potion_encoder([observation.context.potion_slots])
 ```
 
-The tensorizer functions remain beside the classes as implementation helpers.
+Tensorization lives inside the classes. Batch-first `forward` calls flatten input
+rows, project once, then split into per-observation lists without adding padding.
 
 Outputs preserve input order. Empty potion slots have their own index (`0`),
 and empty inputs return zero rows. Each relic vector concatenates three raw,
 alphabetically key-sorted counter slots after its identity embedding; unused slots are
 zero. Mappings use the current catalog; checkpoint compatibility is not implemented.
 
-`tensorize_player(observation)` returns a float32 vector ordered as
+`PlayerEncoder.tensorize(observation)` returns a vector ordered as
 `[hp, max_hp, block, energy, max_energy, gold, power amounts...]`.
 HP/max HP/block are divided by 100, energy/max energy by 10, and gold by 1000,
 without clipping. Power amounts remain raw and use `POWER_TO_INDEX`, with zero
-for absent powers. Pass `device=...` when needed to match your model's device.
+for absent powers. Features follow the encoder's device and dtype.
 
-`tensorize_cards(cards, embedding)` appends 11 raw state values to each card
-embedding (27 features with the default 16-dimensional table). Column order is
-listed in its docstring. One `CardEncoder` owns the embedding and projection
+`CardEncoder.tensorize(cards)` appends 11 raw state values to each card
+embedding (27 features with the default 16-dimensional table): cost, upgrade
+level, cost-modified/reset flags, temporary flag, Rampage/Ritual Dagger/Windmill/
+Steam Barrier bonuses, underlying combat cost, and its presence bit. One `CardEncoder` owns the embedding and projection
 shared across all piles and selection cards. For the hand, pass `tuple(entry.card for entry in observation.screen.hand)`;
 for a pile, pass its `.cards`. Draw `known_positions` remain separate information.
 An optional underlying combat cost has a presence bit; the other dynamic bonuses
 default to zero. Bottled status is omitted for this combat v0.
 
-`tensorize_enemies(monsters, enemy_embedding, card_embedding)` takes that same
-shared card embedding for Stasis-held cards. Absent held cards have zero features
-and a separate presence flag. The full column order is in its docstring;
+`EnemyEncoder.tensorize(monsters, cards)` takes the shared `CardEncoder`
+for Stasis-held cards. Absent held cards have zero features
+and a separate presence flag;
 slime size distinguishes none/small/medium/large, and stolen gold is divided by
 1000. Dead/escaped entries stay in input slot order.
 
@@ -100,14 +102,14 @@ The encoder preserves candidate order and returns `[0, action_dim]` for no actio
 
 ```python
 from encoders.actions import tensorize_actions
-from encoders.selection import tensorize_selection
 
-selection_context, selection_features = tensorize_selection(
-    observation.screen.selection, self.card_embedding
+# Use the existing ObservationEncoder instance and its shared card encoder.
+selection_features, context_tokens, option_tokens = encoder.selection(
+    [observation.screen.selection], encoder.cards
 )
 action_inputs = tensorize_actions(
     decision.actions, hand_features, potion_features, enemy_features,
-    selection_features=selection_features,
+    selection_features=selection_features[0],
 )
 ```
 
@@ -120,10 +122,10 @@ slice feeds both context and option tokens to the observation transformer.
 
 `ObservationEncoder` projects each group to `d_model` (default 64), adds learned
 group/location embeddings, and applies a two-layer, four-head transformer.
-Its learned summary token is projected to `[action_dim]` (default 64).
+Its learned summary tokens are projected to `[batch, action_dim]` (default 64).
 There is no positional encoding or dropout in this initial version.
 
-It accepts just a raw `CombatObservation`. Slices
+It accepts a list of raw `CombatObservation` objects. Slices
 in `encoders/` handle player, cards, enemies, relics, potions, and selection.
 Each slice tensorizes its raw objects and projects features into tokens. One
 card projection is reused for every pile and selection cards; selection adds a
@@ -131,8 +133,8 @@ selected-bit projection. Location embeddings distinguish hand/draw/discard/etc.
 
 The card, enemy, potion, and relic encoders each own one identity table. Stasis
 and selection receive the shared `CardEncoder` when called, without registering
-a duplicate instance. The observation encoder returns its query
-and raw hand/enemy/potion/selection rows. Actions reuse those rows **before**
+a duplicate instance. The observation encoder returns batched queries
+and a list of raw hand/enemy/potion/selection feature dictionaries. Actions reuse those rows **before**
 observation projection, so no card/potion/enemy tensorization is repeated for
 action scoring. No extra shared MLP is added.
 
@@ -149,13 +151,64 @@ The model computes observation features once, encodes the supplied candidates,
 and returns `action_vectors @ query` in candidate order. Pass actions from the
 same decision; noncombat kinds remain unsupported.
 
-This version handles one observation at a time, with no batching or padding
-masks. Empty groups may have zero tokens. Keep dead enemies and empty potion
-slots; the summary token is always present.
+`CombatModel` and the trainer still handle one decision at a time, using the
+batched observation encoder with a batch of one. Action batching is not yet
+implemented. Empty groups may have zero tokens. Keep dead enemies and empty
+potion slots; the summary token is always present.
 
 This consumes the existing tensorized features, not every public observation
 field. Known draw positions and other not-yet-tensorized context are not added
 implicitly. This is not yet a complete encoding of every gameplay-relevant field.
+
+## Observation batching: concatenate first, pad once
+
+```python
+encoder = model.observation_encoder
+raw, tokens = encoder.cards([cards_a, cards_b])
+# raw:    [Tensor[n_cards_a, 27], Tensor[n_cards_b, 27]]
+# tokens: [Tensor[n_cards_a, 64], Tensor[n_cards_b, 64]]
+
+queries, features = encoder([observation_a, observation_b])
+# queries: [2, action_dim]
+# features[i]["hand"]: [n_hand_i, 27], with no padding
+
+# To inspect the assembled transformer input without running attention:
+tokens, padding_mask, features = encoder.prepare_batch([observation_a, observation_b])
+# tokens: [2, max_total_tokens, d_model]
+# padding_mask: [2, max_total_tokens], True only for added padding
+```
+
+Each slice returns variable-length lists; projections operate on flattened rows
+across the batch. `ObservationEncoder` adds group embeddings and concatenates
+all real groups within each observation, with the summary token first. Only then
+are the complete sequences padded. Player and selection context contribute one
+token each. An empty observation list raises `ValueError`.
+
+For example, 3 cards + 3 enemies and 5 cards + 1 enemy each need 6 tokens, not
+8 tokens from independently padding both groups. This count excludes the other
+groups and summary token. Masks prevent padding from affecting real tokens.
+Raw action features retain per-observation slot order and gradients; no action
+can reference another observation's rows through the current single-decision model.
+
+## Multi-root overnight experiment
+
+`train_roots.py --run-id <unique-name>` defaults to eight hours on CPU: 50 seeds
+split 40/10 **before** collecting combats within the first ten floors at A0.
+The fixed uniform-random legal collector retains early deaths and reports any
+5000-decision collection cutoffs. Ten floors do not imply ten combat roots.
+
+Training shuffles all training roots each epoch and accumulates eight episodes
+per optimizer update. This is not parallel or tensor batching. Rewards remain
+terminal HP / starting max HP, with no baseline. Validation uses three stochastic
+episodes per held-out root every 20 minutes, with fixed evaluation sampling seeds
+and no updates to model weights. Random and initial-policy baselines use the same
+validation roots. Episode cutoffs remain separate from terminal outcomes.
+
+The run saves `rl/wandb/<run-id>/roots.json` (seed + accepted-action prefixes) and
+`latest.pt` (model/optimizer weights and progress) every validation and at exit.
+These are local experiment artifacts, not a cross-version checkpoint format or
+a resume implementation. The deadline is checked between training batches;
+final validation/save can extend past it. Metrics go to local W&B.
 
 ## Training v1 and local W&B
 

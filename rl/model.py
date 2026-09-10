@@ -15,6 +15,6 @@ class CombatModel(nn.Module):
 
     def forward(self, observation: CombatObservation, actions: tuple[Action, ...]) -> Float[Tensor, " n_actions"]:
         """Return one logit per supplied legal action from the same decision."""
-        query, features = self.observation_encoder(observation)
-        action_vectors = self.action_encoder(actions, features)
-        return action_vectors @ query
+        queries, features = self.observation_encoder([observation])
+        action_vectors = self.action_encoder(actions, features[0])
+        return action_vectors @ queries[0]

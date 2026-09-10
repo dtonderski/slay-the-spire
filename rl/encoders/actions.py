@@ -26,7 +26,7 @@ def tensorize_actions(
     """Gather (kind, raw features) pairs in candidate order; widths vary by kind.
 
     Use same-decision rows in visible slot order, with matching device/dtype.
-    Selection rows come from tensorize_selection. Play/use append target features
+    Selection rows come from SelectionEncoder. Play/use append target features
     and a presence bit; no-object actions have empty vectors. No learned layers.
     """
     result: list[tuple[str, Float[Tensor, " ?action_features"]]] = []
