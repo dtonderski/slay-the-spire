@@ -184,6 +184,16 @@ pub enum InternalAction {
         target: MonsterId,
         amount: i32,
     },
+    /// Lagavulin changeState(OPEN) ReducePowerAction is addToBot after the
+    /// hitting DamageAction, so Headbutt's PutOnDeck grid still sees sleep
+    /// Metallicize until CONFIRM.
+    ReduceLagavulinSleepMetallicize {
+        target: MonsterId,
+    },
+    /// Shelled Parasite plated-armor break ChangeState(STUN) is addToBot.
+    ApplyMonsterStun {
+        target: MonsterId,
+    },
     ReduceMonsterStrengthThisTurn {
         target: MonsterId,
         amount: i32,
@@ -571,6 +581,8 @@ pub enum InternalAction {
     OpenDiscoveryCardReward {
         source_card_id: CardId,
     },
+    /// ElixirPotion addToBot ExhaustAction while another select is open.
+    OpenGenericExhaustSelect,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

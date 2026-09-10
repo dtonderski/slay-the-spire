@@ -118,6 +118,8 @@ pub enum PublicChoice {
     EnterShop,
     LeaveShop,
     OpenShopRemove,
+    ReturnFromMap,
+    DismissFtue,
 }
 
 impl PublicChoice {
@@ -127,7 +129,7 @@ impl PublicChoice {
             Self::PlayHandSlot { .. } | Self::EndTurn => "combat",
             Self::ChooseEventOption { .. } => "event",
             Self::ToggleGridCard { .. } | Self::ConfirmGrid | Self::CancelGrid => "grid",
-            Self::ChooseMapNode { .. } => "map",
+            Self::ChooseMapNode { .. } | Self::ReturnFromMap | Self::DismissFtue => "map",
             Self::RestHeal
             | Self::RestOpenSmith
             | Self::RestOpenRemove
@@ -190,6 +192,8 @@ impl PublicChoice {
             Self::EnterShop => "enter_shop",
             Self::LeaveShop => "leave_shop",
             Self::OpenShopRemove => "open_shop_remove",
+            Self::ReturnFromMap => "return_from_map",
+            Self::DismissFtue => "dismiss_ftue",
         }
     }
 }
@@ -392,6 +396,8 @@ fn project_run_action(run: &RunState, action: RunAction) -> Result<PublicChoice,
         RunAction::EnterShop => PublicChoice::EnterShop,
         RunAction::LeaveShop => PublicChoice::LeaveShop,
         RunAction::OpenShopRemove => PublicChoice::OpenShopRemove,
+        RunAction::ReturnFromMap => PublicChoice::ReturnFromMap,
+        RunAction::DismissFtue => PublicChoice::DismissFtue,
     })
 }
 

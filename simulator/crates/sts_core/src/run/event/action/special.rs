@@ -25,8 +25,7 @@ pub(super) fn apply_special_event_action(
                 }
             }
             2 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -106,8 +105,7 @@ pub(super) fn apply_special_event_action(
             }
             2 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -136,8 +134,7 @@ pub(super) fn apply_special_event_action(
             2 if choice_index == 0 => {
                 // Flush deferred Duplicator copy (and Ceramic Fish) on Leave.
                 next.flush_pending_obtain_cards()?;
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -176,8 +173,7 @@ pub(super) fn apply_special_event_action(
                 });
             }
             1 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -186,31 +182,40 @@ pub(super) fn apply_special_event_action(
             }
         },
         Event::AccursedBlacksmith => match screen.stage {
-            0 if choice_index == 0 => {
-                open_event_upgrade_return_to_event_grid(next, Event::AccursedBlacksmith);
-            }
-            0 if choice_index == 1 => {
-                next.gain_relic_key(Relic::WarpedTongs)?;
-                next.queue_pending_obtain_card(PAIN_ID);
-                next.event = Some(EventScreen {
-                    event: Event::AccursedBlacksmith,
-                    choices: labeled_choices(&["Leave"]),
-                    stage: 1,
-                    event_data: 0,
-                });
-            }
-            0 if choice_index == 2 => {
-                next.event = Some(EventScreen {
-                    event: Event::AccursedBlacksmith,
-                    choices: labeled_choices(&["Leave"]),
-                    stage: 1,
-                    event_data: 0,
-                });
+            0 => {
+                let forge = next
+                    .deck
+                    .iter()
+                    .any(crate::content::cards::card_instance_is_upgradeable);
+                let rummage = if forge { 1 } else { 0 };
+                let leave = if forge { 2 } else { 1 };
+                if forge && choice_index == 0 {
+                    open_event_upgrade_return_to_event_grid(next, Event::AccursedBlacksmith);
+                } else if choice_index == rummage {
+                    next.gain_relic_key(Relic::WarpedTongs)?;
+                    next.queue_pending_obtain_card(PAIN_ID);
+                    next.event = Some(EventScreen {
+                        event: Event::AccursedBlacksmith,
+                        choices: labeled_choices(&["Leave"]),
+                        stage: 1,
+                        event_data: 0,
+                    });
+                } else if choice_index == leave {
+                    next.event = Some(EventScreen {
+                        event: Event::AccursedBlacksmith,
+                        choices: labeled_choices(&["Leave"]),
+                        stage: 1,
+                        event_data: 0,
+                    });
+                } else {
+                    return Err(SimError::IllegalAction(
+                        "event choice is not implemented for Accursed Blacksmith",
+                    ));
+                }
             }
             1 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -276,8 +281,7 @@ pub(super) fn apply_special_event_action(
                     });
                 }
                 1 if choice_index == 0 => {
-                    next.phase = RunPhase::Idle;
-                    next.event = None;
+                    leave_event_to_map(next);
                 }
                 _ => {
                     return Err(SimError::IllegalAction(
@@ -319,8 +323,7 @@ pub(super) fn apply_special_event_action(
                 });
             }
             1 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -366,8 +369,7 @@ pub(super) fn apply_special_event_action(
                 next.event = Some(make_event_screen(Event::TheJoust, joust_choices(4), 4));
             }
             4 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -423,8 +425,7 @@ pub(super) fn apply_special_event_action(
             ));
         }
         Event::TheWomanInBlue if screen.stage == 1 && choice_index == 0 => {
-            next.phase = RunPhase::Idle;
-            next.event = None;
+            leave_event_to_map(next);
         }
         Event::FaceTrader => match screen.stage {
             0 if choice_index == 0 => {
@@ -465,8 +466,7 @@ pub(super) fn apply_special_event_action(
                 });
             }
             2 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -497,8 +497,7 @@ pub(super) fn apply_special_event_action(
                 });
             }
             2 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -540,8 +539,7 @@ pub(super) fn apply_special_event_action(
                 enter_secret_portal_boss_combat(next)?;
             }
             2 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -617,8 +615,7 @@ pub(super) fn apply_special_event_action(
             }
             2 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(

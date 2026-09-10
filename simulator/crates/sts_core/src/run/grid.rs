@@ -77,6 +77,7 @@ pub(super) fn event_grid_has_authoritative_owner(run: &RunState, purpose: GridPu
                         0,
                     )
                     | (Event::Designer | Event::NoteForYourself | Event::Falling, 1) => true,
+                    (Event::Beggar, 2) => true,
                     (Event::WheelOfChange, 2) => screen.event_data == 4,
                     _ => false,
                 }
@@ -1004,18 +1005,33 @@ pub(crate) fn validate_grid_cancel(run: &RunState) -> SimResult<()> {
     validate_grid_cancel_after_validation(run)
 }
 
+pub(crate) fn grid_confirm_screen_up(grid: &CardGridScreen) -> bool {
+    // Multi-card grids (Astrolabe, two-card Neow remove) keep the card list
+    // visible. One-card peek confirm (confirmScreenUp) hides it.
+    match grid_multi_select_count(grid.purpose) {
+        Some(required) if required > 1 => false,
+        Some(_) => !grid.selected_indices.is_empty(),
+        None => grid.selected.is_some(),
+    }
+}
+
 pub(crate) fn validate_grid_cancel_after_validation(run: &RunState) -> SimResult<()> {
     let grid = run
         .card_grid
         .as_ref()
         .ok_or(SimError::IllegalAction("no card grid is open"))?;
-    if !matches!(
-        grid.purpose,
-        GridPurpose::RestSmith | GridPurpose::RestRemove | GridPurpose::ShopRemove
-    ) {
-        return Err(SimError::IllegalAction("card grid cannot be cancelled"));
+    // Peeked confirm screen: cancel unselects the card (GridCardSelectScreen
+    // confirmScreenUp). Rest/shop smith-style grids also expose cancel before
+    // a card is peeked because canCancel is true.
+    if grid_confirm_screen_up(grid)
+        || matches!(
+            grid.purpose,
+            GridPurpose::RestSmith | GridPurpose::RestRemove | GridPurpose::ShopRemove
+        )
+    {
+        return Ok(());
     }
-    Ok(())
+    Err(SimError::IllegalAction("card grid cannot be cancelled"))
 }
 
 pub fn cancel_grid(run: &RunState) -> SimResult<RunState> {
@@ -1024,6 +1040,13 @@ pub fn cancel_grid(run: &RunState) -> SimResult<RunState> {
 }
 
 pub(crate) fn apply_validated_grid_cancel(mut next: RunState) -> RunState {
+    let confirm_up = next.card_grid.as_ref().is_some_and(grid_confirm_screen_up);
+    if confirm_up {
+        let grid = next.card_grid.as_mut().expect("validated card grid");
+        grid.selected = None;
+        grid.selected_indices.clear();
+        return next;
+    }
     next.card_grid = None;
     next
 }
@@ -1238,6 +1261,9 @@ pub(crate) fn apply_validated_grid_confirmation(mut next: RunState) -> SimResult
                 stage: leave_stage,
                 event_data: 0,
             });
+            if event == Event::Beggar {
+                next.map_overlay = Some(crate::MapOverlay { dismissable: true });
+            }
         }
         GridPurpose::BonfireElementals => {
             let card = selected_grid_card(&grid)?;
@@ -2344,6 +2370,31 @@ mod tests {
     }
 
     #[test]
+    fn neow_transform_cancel_unselects_peeked_card() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        crate::run::neow::open_neow_reward_grid(&mut run, crate::NeowRewardType::TransformCard)
+            .expect("transform grid opens");
+        let selected = select_grid_card(&run, 0).expect("one card can be peeked");
+        assert!(grid_confirm_screen_up(
+            selected.card_grid.as_ref().expect("grid remains")
+        ));
+        let legal = crate::legal_run_decision_actions(&selected).expect("peeked grid is legal");
+        assert!(legal.contains(&crate::RunDecisionAction::GridCancel));
+        assert!(legal.contains(&crate::RunDecisionAction::GridConfirm));
+        assert!(!legal
+            .iter()
+            .any(|action| matches!(action, crate::RunDecisionAction::GridSelect { .. })));
+
+        let cancelled = cancel_grid(&selected).expect("cancel unselects");
+        assert!(!grid_confirm_screen_up(
+            cancelled.card_grid.as_ref().expect("grid remains open")
+        ));
+        cancelled
+            .validate()
+            .expect("unselected transform grid is valid");
+    }
+
+    #[test]
     fn neow_remove_two_auto_confirms_on_the_final_selection() {
         let mut run = RunState::seeded_ironclad(1, 0);
         open_neow_remove_grid(&mut run, 2);
@@ -2532,8 +2583,11 @@ mod tests {
         assert!(after_leave.pending_obtain_cards.is_empty());
         assert_eq!(after_leave.deck.len(), original_deck.len());
         assert_eq!(after_leave.deck.last().unwrap().content_id, expected);
-        assert_eq!(after_leave.phase, RunPhase::Idle);
-        assert!(after_leave.event.is_none());
+        assert_eq!(after_leave.phase, RunPhase::Event);
+        assert!(after_leave
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(after_leave.event.is_some());
     }
 
     #[test]

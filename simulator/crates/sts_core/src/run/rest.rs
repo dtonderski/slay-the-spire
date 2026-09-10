@@ -259,8 +259,7 @@ pub(crate) fn apply_validated_rest_action(
             next.rest_room_complete = true;
         }
         RestAction::Proceed => {
-            next.phase = RunPhase::Idle;
-            next.rest_room_complete = false;
+            next.map_overlay = Some(crate::MapOverlay { dismissable: true });
         }
     }
 
@@ -483,9 +482,12 @@ mod tests {
         assert_eq!(claimed.phase, RunPhase::Reward);
         let settled = apply_run_action(&claimed, RunAction::Proceed)
             .expect("completed Shovel reward proceeds to the map");
-        assert_eq!(settled.phase, RunPhase::Idle);
-        assert!(!settled.rest_room_complete);
-        assert!(settled.reward.is_none());
+        assert_eq!(settled.phase, RunPhase::Reward);
+        assert!(settled
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(settled.rest_room_complete);
+        assert!(settled.reward.is_some());
     }
 
     #[test]

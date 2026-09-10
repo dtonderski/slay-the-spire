@@ -80,9 +80,13 @@ pub fn legal_run_decision_actions(run: &RunState) -> SimResult<Vec<RunDecisionAc
     let mut actions = Vec::new();
 
     if let Some(grid) = run.card_grid.as_ref() {
-        for index in 0..grid.cards.len() {
-            if validate_grid_select_after_validation(run, index).is_ok() {
-                actions.push(RunDecisionAction::GridSelect { index });
+        // GridCardSelectScreen.confirmScreenUp hides the card list; only
+        // confirm/cancel are advertised until the peeked card is unselected.
+        if !super::grid::grid_confirm_screen_up(grid) {
+            for index in 0..grid.cards.len() {
+                if validate_grid_select_after_validation(run, index).is_ok() {
+                    actions.push(RunDecisionAction::GridSelect { index });
+                }
             }
         }
         if validate_grid_confirm_after_validation(run).is_ok() {
@@ -91,6 +95,33 @@ pub fn legal_run_decision_actions(run: &RunState) -> SimResult<Vec<RunDecisionAc
         if validate_grid_cancel_after_validation(run).is_ok() {
             actions.push(RunDecisionAction::GridCancel);
         }
+        return Ok(actions);
+    }
+
+    if run.calling_bell_ftue {
+        actions.push(RunDecisionAction::Run(RunAction::DismissFtue));
+        actions.extend(
+            legal_potion_actions_on_run(run)?
+                .into_iter()
+                .map(RunDecisionAction::Run),
+        );
+        return Ok(actions);
+    }
+
+    if run.map_overlay.is_some() {
+        actions.extend(
+            legal_map_actions_on_run_after_validation(run)?
+                .into_iter()
+                .map(RunDecisionAction::Map),
+        );
+        if run.map_overlay.is_some_and(|overlay| overlay.dismissable) {
+            actions.push(RunDecisionAction::Run(RunAction::ReturnFromMap));
+        }
+        actions.extend(
+            legal_potion_actions_on_run(run)?
+                .into_iter()
+                .map(RunDecisionAction::Run),
+        );
         return Ok(actions);
     }
 
@@ -142,29 +173,62 @@ pub fn legal_run_decision_actions(run: &RunState) -> SimResult<Vec<RunDecisionAc
                     })
                     .map(RunDecisionAction::Run),
             );
+            actions.extend(
+                legal_potion_actions_on_run(run)?
+                    .into_iter()
+                    .map(RunDecisionAction::Run),
+            );
         }
-        RunPhase::Idle => actions.extend(
-            legal_map_actions_on_run_after_validation(run)?
-                .into_iter()
-                .map(RunDecisionAction::Map),
-        ),
-        RunPhase::Rest => actions.extend(
-            legal_rest_actions_after_validation(run)?
-                .into_iter()
-                .map(RunDecisionAction::Rest),
-        ),
-        RunPhase::Event => actions.extend(
-            legal_event_actions_after_validation(run)?
-                .into_iter()
-                .map(RunDecisionAction::Event),
-        ),
-        RunPhase::Shop => actions.extend(
-            legal_shop_actions_after_validation(run)?
-                .into_iter()
-                .map(RunDecisionAction::Run),
-        ),
+        RunPhase::Idle => {
+            actions.extend(
+                legal_map_actions_on_run_after_validation(run)?
+                    .into_iter()
+                    .map(RunDecisionAction::Map),
+            );
+            actions.extend(
+                legal_potion_actions_on_run(run)?
+                    .into_iter()
+                    .map(RunDecisionAction::Run),
+            );
+        }
+        RunPhase::Rest => {
+            actions.extend(
+                legal_rest_actions_after_validation(run)?
+                    .into_iter()
+                    .map(RunDecisionAction::Rest),
+            );
+            actions.extend(
+                legal_potion_actions_on_run(run)?
+                    .into_iter()
+                    .map(RunDecisionAction::Run),
+            );
+        }
+        RunPhase::Event => {
+            actions.extend(
+                legal_event_actions_after_validation(run)?
+                    .into_iter()
+                    .map(RunDecisionAction::Event),
+            );
+            actions.extend(
+                legal_potion_actions_on_run(run)?
+                    .into_iter()
+                    .map(RunDecisionAction::Run),
+            );
+        }
+        RunPhase::Shop => {
+            actions.extend(
+                legal_shop_actions_after_validation(run)?
+                    .into_iter()
+                    .map(RunDecisionAction::Run),
+            );
+            actions.extend(
+                legal_potion_actions_on_run(run)?
+                    .into_iter()
+                    .map(RunDecisionAction::Run),
+            );
+        }
         RunPhase::Victory => actions.push(RunDecisionAction::Run(RunAction::Proceed)),
-        RunPhase::Complete => {}
+        RunPhase::Complete => actions.push(RunDecisionAction::Run(RunAction::Proceed)),
     }
 
     Ok(actions)
@@ -211,7 +275,12 @@ pub fn apply_run_decision_action(run: &RunState, action: RunDecisionAction) -> S
         // publishing. Settle ShowCardAndObtainEffect once no grid decision owns it;
         // this is simulator queue processing, not observation-driven correction.
         if next.card_grid.is_none() && !next.pending_obtain_provenance.is_empty() {
-            next.flush_pending_obtain_cards()?;
+            let match_keep_board = next.event.as_ref().is_some_and(|screen| {
+                screen.event == crate::run::event::Event::MatchAndKeep && screen.stage == 2
+            });
+            if !match_keep_board {
+                next.flush_pending_obtain_cards()?;
+            }
         }
         if !next.pending_combat_obtain_cards.is_empty() {
             next.flush_pending_combat_obtain_cards()?;
@@ -226,6 +295,20 @@ pub(crate) fn validate_run_action_after_run_validation(
     action: RunAction,
 ) -> SimResult<()> {
     match action {
+        RunAction::ReturnFromMap => {
+            if run.map_overlay.is_some_and(|overlay| overlay.dismissable) {
+                Ok(())
+            } else {
+                Err(SimError::IllegalAction("map overlay is not dismissable"))
+            }
+        }
+        RunAction::DismissFtue => {
+            if run.calling_bell_ftue && run.calling_bell_hidden_reward.is_some() {
+                Ok(())
+            } else {
+                Err(SimError::IllegalAction("no FTUE overlay is open"))
+            }
+        }
         RunAction::OpenChest => super::reward::validate_treasure_action(run, action),
         RunAction::Proceed if run.phase == RunPhase::Reward => run.validate_reward_action(action),
         RunAction::Proceed if run.phase == RunPhase::Shop => validate_shop_action(run, action),
@@ -245,6 +328,7 @@ pub(crate) fn validate_run_action_after_run_validation(
         RunAction::Proceed if run.phase == RunPhase::Victory => {
             run.validate_final_boss_victory_action(action)
         }
+        RunAction::Proceed if run.phase == RunPhase::Complete => Ok(()),
         RunAction::Proceed => super::reward::validate_treasure_action(run, action),
         RunAction::BuyShopCard { .. }
         | RunAction::BuyShopRelic { .. }
@@ -296,7 +380,7 @@ fn legal_combat_select_actions_on_run(
             );
             candidates.push(RunAction::SkipCombatCardReward);
         }
-        Some(CombatDecisionState::ToolboxCardReward { choices })
+        Some(CombatDecisionState::ToolboxCardReward { choices, .. })
         | Some(CombatDecisionState::DiscoveryCardReward { choices, .. }) => {
             candidates.extend(
                 (0..choices.len()).map(|index| RunAction::ChooseCombatCardReward { index }),

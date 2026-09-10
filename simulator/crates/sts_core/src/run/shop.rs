@@ -390,7 +390,9 @@ fn restock_courier_potion_slot(next: &mut RunState, slot: usize) {
     let mut potion_rng = StsRng::with_counter(next.potion_rng_seed as i64, next.potion_rng_counter);
     let mut merchant_rng =
         StsRng::with_counter(next.merchant_rng_seed as i64, next.merchant_rng_counter);
-    let potion = target_uniform_random_potion(&mut potion_rng);
+    // ShopScreen.init uses PotionHelper.getRandomPotion() (uniform). Courier
+    // restock uses AbstractDungeon.returnRandomPotion() (rarity then pool).
+    let potion = crate::run::reward::target_random_potion(&mut potion_rng);
     let price = apply_relic_discounts_to_price(potion_price(potion, &mut merchant_rng), next);
     next.potion_rng_counter = potion_rng.counter();
     next.merchant_rng_counter = merchant_rng.counter();
@@ -739,7 +741,7 @@ pub(crate) fn apply_validated_shop_action_owned(
             leave_shop_merchant(&mut next);
         }
         RunAction::Proceed => {
-            leave_shop_room(&mut next);
+            next.map_overlay = Some(crate::MapOverlay { dismissable: true });
         }
         RunAction::OpenShopRemove => {
             open_shop_remove_grid(&mut next);
@@ -907,8 +909,9 @@ mod tests {
         );
         assert_eq!(validate_shop_action(&run, RunAction::EnterShop), Ok(()));
         let left = apply_shop_action(&run, RunAction::Proceed).expect("shop room can close");
-        assert_eq!(left.phase, RunPhase::Idle);
-        assert!(left.shop.is_none());
+        assert_eq!(left.phase, RunPhase::Shop);
+        assert!(left.map_overlay.is_some_and(|overlay| overlay.dismissable));
+        assert!(left.shop.is_some());
     }
 
     #[test]
@@ -935,8 +938,11 @@ mod tests {
         assert_eq!(reopened.shop.as_ref(), Some(&inventory));
 
         let left_room = apply_shop_action(&closed, RunAction::Proceed).expect("shop room closes");
-        assert_eq!(left_room.phase, RunPhase::Idle);
-        assert!(left_room.shop.is_none());
+        assert_eq!(left_room.phase, RunPhase::Shop);
+        assert!(left_room
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(left_room.shop.is_some());
         assert!(!left_room.shop_merchant_open);
     }
     #[test]
@@ -956,14 +962,17 @@ mod tests {
     }
 
     #[test]
-    fn shop_potions_use_one_uniform_potion_rng_draw_each() {
+    fn courier_potion_restock_uses_rarity_then_pool() {
         let mut run = RunState::map_fixture();
         enter_shop_room(&mut run).expect("shop entry succeeds");
 
         let before_restock = run.potion_rng_counter;
         run.relics.push(Relic::TheCourier);
         restock_courier_potion_slot(&mut run, 0);
-        assert_eq!(run.potion_rng_counter, before_restock + 1);
+        assert!(
+            run.potion_rng_counter > before_restock,
+            "returnRandomPotion consumes rarity plus at least one pool draw"
+        );
     }
 
     #[test]
@@ -1175,14 +1184,18 @@ mod tests {
         assert!(!skipped.shop_merchant_open);
 
         let left = apply_shop_action(&skipped, RunAction::Proceed).expect("shop room closes");
-        assert_eq!(left.phase, RunPhase::Idle);
-        assert!(left.shop.is_none());
+        assert_eq!(left.phase, RunPhase::Shop);
+        assert!(left.map_overlay.is_some_and(|overlay| overlay.dismissable));
+        assert!(left.shop.is_some());
 
         let proceeded = crate::run::reward::apply_run_action(&next, RunAction::Proceed)
             .expect("Cauldron overlay PROCEED abandons leftover potions and leaves the shop");
-        assert_eq!(proceeded.phase, RunPhase::Idle);
-        assert!(proceeded.reward.is_none());
-        assert!(proceeded.shop.is_none());
+        assert_eq!(proceeded.phase, RunPhase::Reward);
+        assert!(proceeded
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(proceeded.reward.is_some());
+        assert!(proceeded.shop.is_some());
     }
 
     #[test]

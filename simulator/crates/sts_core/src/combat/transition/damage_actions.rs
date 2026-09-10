@@ -16,7 +16,7 @@ use crate::{
     },
     content::monsters::{
         awakened_one_is_half_dead, check_slime_boss_split, guardian_accumulate_hp_damage,
-        wake_lagavulin_on_damage, DARKLING_ID,
+        reduce_lagavulin_sleep_metallicize, wake_lagavulin_on_damage, DARKLING_ID,
     },
     ids::{CardId, MonsterId},
     SimError, SimResult,
@@ -100,12 +100,15 @@ fn resolve_calculated_attack_damage(
         hand_drill_applies,
         curl_up_block,
         malleable_block,
+        woke_lagavulin,
+        shell_broke,
     ) = {
         let monster = living_monster_mut(state, target)?;
         let spikes = monster.powers.spikes;
         let monster_content_id = monster.content_id;
         let damage = deal_attack_damage_to_monster(monster, &relics, amount);
-        wake_lagavulin_on_damage(monster, damage.hp_damage);
+        let woke_lagavulin = wake_lagavulin_on_damage(monster, damage.hp_damage);
+        let shell_broke = damage.shell_broke;
         guardian_accumulate_hp_damage(monster, damage.hp_damage);
         (
             spikes,
@@ -114,9 +117,17 @@ fn resolve_calculated_attack_damage(
             relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
             damage.curl_up_block,
             damage.malleable_block,
+            woke_lagavulin,
+            shell_broke,
         )
     };
     let mut follow_ups = Vec::new();
+    if woke_lagavulin {
+        follow_ups.push(InternalAction::ReduceLagavulinSleepMetallicize { target });
+    }
+    if shell_broke {
+        follow_ups.push(InternalAction::ApplyMonsterStun { target });
+    }
     push_attack_block_follow_ups(
         state,
         &mut follow_ups,
@@ -241,7 +252,12 @@ pub(super) fn deal_damage_random_enemy(
                 temp_strength,
                 &relics,
             );
-            wake_lagavulin_on_damage(monster, damage.hp_damage);
+            if wake_lagavulin_on_damage(monster, damage.hp_damage) {
+                reduce_lagavulin_sleep_metallicize(monster);
+            }
+            if damage.shell_broke {
+                monster.intent = crate::MonsterIntent::Stun;
+            }
             guardian_accumulate_hp_damage(monster, damage.hp_damage);
             (
                 spikes,
@@ -412,7 +428,12 @@ pub(super) fn deal_hand_of_greed_damage(
             temp_strength,
             &relics,
         );
-        wake_lagavulin_on_damage(monster, damage.hp_damage);
+        if wake_lagavulin_on_damage(monster, damage.hp_damage) {
+            reduce_lagavulin_sleep_metallicize(monster);
+        }
+        if damage.shell_broke {
+            monster.intent = crate::MonsterIntent::Stun;
+        }
         guardian_accumulate_hp_damage(monster, damage.hp_damage);
         (
             spikes,
@@ -496,7 +517,12 @@ pub(super) fn deal_damage_and_heal_unblocked(
             temp_strength,
             &relics,
         );
-        wake_lagavulin_on_damage(monster, damage.hp_damage);
+        if wake_lagavulin_on_damage(monster, damage.hp_damage) {
+            reduce_lagavulin_sleep_metallicize(monster);
+        }
+        if damage.shell_broke {
+            monster.intent = crate::MonsterIntent::Stun;
+        }
         guardian_accumulate_hp_damage(monster, damage.hp_damage);
         (
             damage.hp_damage,
@@ -563,7 +589,12 @@ pub(super) fn deal_damage_and_gain_block_unblocked(
             temp_strength,
             &relics,
         );
-        wake_lagavulin_on_damage(monster, damage.hp_damage);
+        if wake_lagavulin_on_damage(monster, damage.hp_damage) {
+            reduce_lagavulin_sleep_metallicize(monster);
+        }
+        if damage.shell_broke {
+            monster.intent = crate::MonsterIntent::Stun;
+        }
         guardian_accumulate_hp_damage(monster, damage.hp_damage);
         (
             damage.hp_damage,
@@ -622,6 +653,7 @@ pub(super) fn deal_feed_damage(
         monster_content_id,
         still_alive,
         minion,
+        half_dead_nonfatal,
         hand_drill_applies,
         curl_up_block,
         malleable_block,
@@ -636,13 +668,19 @@ pub(super) fn deal_feed_damage(
             temp_strength,
             &relics,
         );
-        wake_lagavulin_on_damage(monster, damage.hp_damage);
+        if wake_lagavulin_on_damage(monster, damage.hp_damage) {
+            reduce_lagavulin_sleep_metallicize(monster);
+        }
+        if damage.shell_broke {
+            monster.intent = crate::MonsterIntent::Stun;
+        }
         guardian_accumulate_hp_damage(monster, damage.hp_damage);
         (
             spikes,
             monster_content_id,
             monster.alive,
             monster.powers.minion > 0,
+            awakened_one_is_half_dead(monster),
             relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
             damage.curl_up_block,
             damage.malleable_block,
@@ -669,13 +707,14 @@ pub(super) fn deal_feed_damage(
         // Darklings become half-dead and escape until the complete pack has
         // been defeated. Feed triggers only when this kill actually finishes
         // that pack; a half-dead Darkling must not award the max-HP gain.
+        // Awakened One's first death is the same non-fatal half-dead (FIDL00439).
         let darkling_pack_defeated = monster_content_id != DARKLING_ID
             || state
                 .monsters
                 .iter()
                 .filter(|monster| monster.content_id == DARKLING_ID)
                 .all(|monster| !monster.alive);
-        if !minion && darkling_pack_defeated {
+        if !minion && darkling_pack_defeated && !half_dead_nonfatal {
             // Mark of the Bloom blocks the heal half of increaseMaxHp, not the
             // max-HP award itself. Magic Flower still multiplies only the heal.
             let max_hp = checked_combat_sum(state.player.max_hp, max_hp_gain)?;
@@ -733,14 +772,20 @@ pub(super) fn deal_ritual_dagger_damage(
             temp_strength,
             &relics,
         );
-        wake_lagavulin_on_damage(monster, damage.hp_damage);
+        if wake_lagavulin_on_damage(monster, damage.hp_damage) {
+            reduce_lagavulin_sleep_metallicize(monster);
+        }
+        if damage.shell_broke {
+            monster.intent = crate::MonsterIntent::Stun;
+        }
         guardian_accumulate_hp_damage(monster, damage.hp_damage);
         (
             spikes,
             monster_content_id,
             monster.alive,
             monster.powers.minion > 0,
-            monster.content_id == DARKLING_ID && monster.escaped,
+            (monster.content_id == DARKLING_ID && monster.escaped)
+                || awakened_one_is_half_dead(monster),
             relics.contains(&crate::Relic::HandDrill) && damage.broke_block,
             damage.curl_up_block,
             damage.malleable_block,

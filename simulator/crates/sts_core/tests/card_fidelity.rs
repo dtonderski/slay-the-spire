@@ -2780,18 +2780,15 @@ fn dual_wield_plus_creates_two_temporary_copies_and_discards_source() {
     state.piles.discard_pile.clear();
     state.piles.exhaust_pile.clear();
 
-    let mut next = apply_combat_action(
+    let next = apply_combat_action(
         &state,
         CombatAction::PlayCard {
             card_id: CardId::new(1),
             target: None,
         },
     )
-    .expect("Dual Wield+ opens hand selection");
-    assert!(next.hand_select().is_some());
-
-    choose_hand_select(&mut next, 0).expect("select upgraded Strike");
-    confirm_hand_select(&mut next).expect("confirm Dual Wield+ selection");
+    .expect("Dual Wield+ auto-copies the only attack");
+    assert!(next.hand_select().is_none());
 
     assert_eq!(next.player.energy, 0);
     assert!(next.hand_select().is_none());

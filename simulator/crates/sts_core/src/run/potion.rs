@@ -1,4 +1,5 @@
 use crate::{
+    action::InternalAction,
     card::{CardInstance, CardType, TargetRequirement},
     combat::damage::deal_unmodified_damage_to_monster,
     combat::transition::{
@@ -17,7 +18,7 @@ use crate::{
         ExhaustSelectPurpose, HandSelectPurpose, PotionCardRewardKind,
     },
     content::cards::{get_card_definition, upgrade_card_instance},
-    content::monsters::wake_lagavulin_on_damage,
+    content::monsters::{reduce_lagavulin_sleep_metallicize, wake_lagavulin_on_damage},
     content::shop_pool::{
         burn_all_discovery_card_choice_generations, colorless_discovery_card_choices,
         discovery_card_choices,
@@ -570,6 +571,10 @@ pub(crate) fn apply_validated_discard_select_choice_owned(
             exhaust_count.saturating_sub(handled_dead_branch_count),
         )?;
         flush_pending_player_spikes_damage_if_ready(&mut combat)?;
+        if purpose == DiscardSelectPurpose::LiquidMemoriesReturnToHand {
+            crate::relic::apply_potion_use_relics_to_combat(&mut combat)?;
+            next.hp = combat.player.hp;
+        }
     }
     next.combat = Some(combat);
     Ok(next)
@@ -781,6 +786,7 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
             CombatDecisionState::PotionCardReward {
                 choices,
                 reward_kind: _,
+                pending_actions,
             } => {
                 let card_id = CardId::new(combat.next_card_instance_id()?);
                 let choice = choices[index];
@@ -789,6 +795,11 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
                 // CommunicationMod exposes potion-generated cards after the cards that
                 // were already in hand, unlike Toolbox and Discovery rewards.
                 combat.piles.hand.push(card);
+                if !pending_actions.is_empty() {
+                    let transition =
+                        crate::combat::transition::process_internal_queue(combat, pending_actions)?;
+                    *combat = transition.state;
+                }
                 crate::relic::apply_potion_use_relics_to_combat(combat)?;
                 next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             }
@@ -833,7 +844,10 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
                 combat.play_top_force_exhaust_active = false;
                 next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             }
-            CombatDecisionState::ToolboxCardReward { choices } => {
+            CombatDecisionState::ToolboxCardReward {
+                choices,
+                pending_actions,
+            } => {
                 let choice = choices[index];
                 let card_id = CardId::new(combat.next_card_instance_id()?);
                 combat.piles.hand.insert(
@@ -843,6 +857,11 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
                         ..CardInstance::new(card_id, choice.content_id)
                     },
                 );
+                if !pending_actions.is_empty() {
+                    let transition =
+                        crate::combat::transition::process_internal_queue(combat, pending_actions)?;
+                    *combat = transition.state;
+                }
                 next.card_random_rng_counter = combat.rng.card_random_rng.counter();
                 crate::relic::settle_pending_opening_combat_actions(combat)?;
                 crate::relic::settle_pending_start_of_turn_relic_actions(combat)?;
@@ -905,7 +924,14 @@ pub(crate) fn apply_validated_combat_card_reward_skip_owned(
 ) -> SimResult<RunState> {
     let combat = next.combat.as_mut().expect("validated combat");
     match combat.decision.take() {
-        Some(CombatDecisionState::PotionCardReward { .. }) => {
+        Some(CombatDecisionState::PotionCardReward {
+            pending_actions, ..
+        }) => {
+            if !pending_actions.is_empty() {
+                let transition =
+                    crate::combat::transition::process_internal_queue(combat, pending_actions)?;
+                *combat = transition.state;
+            }
             crate::relic::apply_potion_use_relics_to_combat(combat)?;
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             combat.activate_next_queued_decision_if_idle();
@@ -1007,6 +1033,44 @@ fn blood_potion_heal(max_hp: i32, multiplier: i32) -> SimResult<i32> {
     i32::try_from(heal).map_err(|_| SimError::InvalidState("Blood Potion heal exceeds i32"))
 }
 
+fn queue_action_behind_open_select(combat: &mut CombatState, action: InternalAction) -> bool {
+    match combat.decision.as_mut() {
+        Some(CombatDecisionState::HandSelect {
+            pending_actions, ..
+        }) => {
+            pending_actions.push_back(action);
+            true
+        }
+        Some(CombatDecisionState::ExhaustSelect { state, .. }) => {
+            state.pending_actions.push_back(action);
+            true
+        }
+        Some(CombatDecisionState::DiscardSelect { state, .. }) => {
+            state.pending_actions.push_back(action);
+            true
+        }
+        Some(CombatDecisionState::PotionCardReward {
+            pending_actions, ..
+        }) => {
+            pending_actions.push_back(action);
+            true
+        }
+        Some(CombatDecisionState::DiscoveryCardReward {
+            pending_actions, ..
+        }) => {
+            pending_actions.push_back(action);
+            true
+        }
+        Some(CombatDecisionState::ToolboxCardReward {
+            pending_actions, ..
+        }) => {
+            pending_actions.push_back(action);
+            true
+        }
+        _ => false,
+    }
+}
+
 pub fn apply_potion_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
     validate_potion_action(run, action)?;
     apply_validated_potion_action_owned(run.clone(), action)
@@ -1018,66 +1082,71 @@ pub(crate) fn apply_validated_potion_action_owned(
 ) -> SimResult<RunState> {
     match action {
         RunAction::UsePotion { slot, target } => {
-            let entropic_brew_had_open_slot = next.potion_at_slot(slot)
-                == Some(Potion::EntropicBrew)
-                && next.open_potion_slots() > 0;
             let potion = next.take_potion_slot(slot)?;
-            if potion == Potion::Cultist {
-                if let Some(CombatDecisionState::ExhaustSelect { state, .. }) = next
-                    .combat
-                    .as_mut()
-                    .and_then(|combat| combat.decision.as_mut())
-                {
-                    state.interrupted_by_cultist_potion = true;
-                }
-            }
             let multiplier = potion_multiplier(&next);
             let mut defer_potion_use_relics = false;
             let mut victory_healing_applied = false;
             match potion {
                 Potion::Fire => {
                     let target = target.expect("validated fire potion target");
+                    let amount = FIRE_POTION_DAMAGE * multiplier;
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    let killed = {
+                    if queue_action_behind_open_select(
+                        combat,
+                        InternalAction::DealUnmodifiedDamage { target, amount },
+                    ) {
+                        // UsePotionAction is addToBot while HandCardSelectScreen
+                        // (Warcry, etc.) is open. Damage lands when CONFIRM
+                        // closes the screen (FIDL00011).
+                    } else {
+                        let killed = {
+                            let monster = combat
+                                .monsters
+                                .iter_mut()
+                                .find(|monster| monster.id == target)
+                                .expect("validated potion target");
+                            let hp_damage = deal_unmodified_damage_to_monster(monster, amount);
+                            if wake_lagavulin_on_damage(monster, hp_damage) {
+                                reduce_lagavulin_sleep_metallicize(monster);
+                            }
+                            !monster.alive
+                        };
+                        if killed {
+                            apply_monster_death_hooks(combat, target)?;
+                        }
+                        if combat.monsters.iter().all(|monster| !monster.alive) {
+                            combat.phase = CombatPhase::Won;
+                        }
+                    }
+                }
+                Potion::Block => {
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    let amount = BLOCK_POTION_BLOCK * multiplier;
+                    if queue_action_behind_open_select(combat, InternalAction::GainBlock { amount })
+                    {
+                    } else {
+                        combat.player.block = checked_potion_stat_gain(
+                            combat.player.block,
+                            BLOCK_POTION_BLOCK,
+                            multiplier,
+                        )?;
+                    }
+                }
+                Potion::Fear => {
+                    let target = target.expect("validated fear potion target");
+                    let amount = FEAR_POTION_VULNERABLE * multiplier;
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    if !queue_action_behind_open_select(
+                        combat,
+                        InternalAction::ApplyVulnerable { target, amount },
+                    ) {
                         let monster = combat
                             .monsters
                             .iter_mut()
                             .find(|monster| monster.id == target)
                             .expect("validated potion target");
-                        let hp_damage = deal_unmodified_damage_to_monster(
-                            monster,
-                            FIRE_POTION_DAMAGE * multiplier,
-                        );
-                        wake_lagavulin_on_damage(monster, hp_damage);
-                        !monster.alive
-                    };
-                    if killed {
-                        apply_monster_death_hooks(combat, target)?;
+                        apply_monster_vulnerable(&mut monster.powers, amount)?;
                     }
-                    if combat.monsters.iter().all(|monster| !monster.alive) {
-                        combat.phase = CombatPhase::Won;
-                    }
-                }
-                Potion::Block => {
-                    let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.block = checked_potion_stat_gain(
-                        combat.player.block,
-                        BLOCK_POTION_BLOCK,
-                        multiplier,
-                    )?;
-                }
-                Potion::Fear => {
-                    let target = target.expect("validated fear potion target");
-                    let combat = next.combat.as_mut().expect("validated combat state");
-                    let monster = combat
-                        .monsters
-                        .iter_mut()
-                        .find(|monster| monster.id == target)
-                        .expect("validated potion target");
-                    apply_monster_vulnerable(
-                        &mut monster.powers,
-                        FEAR_POTION_VULNERABLE * multiplier,
-                    )?;
                 }
                 Potion::Blood => {
                     if let Some(combat) = next.combat.as_mut() {
@@ -1106,11 +1175,18 @@ pub(crate) fn apply_validated_potion_action_owned(
                 }
                 Potion::Cultist => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.powers.ritual = checked_potion_stat_gain(
-                        combat.player.powers.ritual,
-                        CULTIST_POTION_RITUAL,
-                        multiplier,
-                    )?;
+                    let amount = CULTIST_POTION_RITUAL * multiplier;
+                    if queue_action_behind_open_select(
+                        combat,
+                        InternalAction::GainRitual { amount },
+                    ) {
+                    } else {
+                        combat.player.powers.ritual = checked_potion_stat_gain(
+                            combat.player.powers.ritual,
+                            CULTIST_POTION_RITUAL,
+                            multiplier,
+                        )?;
+                    }
                 }
                 Potion::Dexterity => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -1122,13 +1198,16 @@ pub(crate) fn apply_validated_potion_action_owned(
                 }
                 Potion::Energy => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.energy = combat
-                        .player
-                        .energy
-                        .checked_add(ENERGY_POTION_ENERGY * multiplier)
-                        .ok_or(SimError::InvalidState(
-                            "Energy Potion energy gain overflows i32",
-                        ))?;
+                    let amount = ENERGY_POTION_ENERGY * multiplier;
+                    if queue_action_behind_open_select(
+                        combat,
+                        InternalAction::GainEnergy { amount },
+                    ) {
+                    } else {
+                        combat.player.energy = combat.player.energy.checked_add(amount).ok_or(
+                            SimError::InvalidState("Energy Potion energy gain overflows i32"),
+                        )?;
+                    }
                 }
                 Potion::EssenceOfSteel => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -1157,7 +1236,9 @@ pub(crate) fn apply_validated_potion_action_owned(
                                 monster,
                                 EXPLOSIVE_POTION_DAMAGE * multiplier,
                             );
-                            wake_lagavulin_on_damage(monster, hp_damage);
+                            if wake_lagavulin_on_damage(monster, hp_damage) {
+                                reduce_lagavulin_sleep_metallicize(monster);
+                            }
                             !monster.alive
                         };
                         if killed {
@@ -1186,19 +1267,33 @@ pub(crate) fn apply_validated_potion_action_owned(
                 }
                 Potion::Strength => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.powers.strength = checked_potion_stat_gain(
-                        combat.player.powers.strength,
-                        STRENGTH_POTION_STRENGTH,
-                        multiplier,
-                    )?;
+                    let amount = STRENGTH_POTION_STRENGTH * multiplier;
+                    if queue_action_behind_open_select(
+                        combat,
+                        InternalAction::GainStrength { amount },
+                    ) {
+                    } else {
+                        combat.player.powers.strength = checked_potion_stat_gain(
+                            combat.player.powers.strength,
+                            STRENGTH_POTION_STRENGTH,
+                            multiplier,
+                        )?;
+                    }
                 }
                 Potion::Flex => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.temp_strength = checked_potion_stat_gain(
-                        combat.player.temp_strength,
-                        FLEX_POTION_TEMP_STRENGTH,
-                        multiplier,
-                    )?;
+                    let amount = FLEX_POTION_TEMP_STRENGTH * multiplier;
+                    if queue_action_behind_open_select(
+                        combat,
+                        InternalAction::GainTempStrength { amount },
+                    ) {
+                    } else {
+                        combat.player.temp_strength = checked_potion_stat_gain(
+                            combat.player.temp_strength,
+                            FLEX_POTION_TEMP_STRENGTH,
+                            multiplier,
+                        )?;
+                    }
                 }
                 Potion::Speed => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -1217,7 +1312,12 @@ pub(crate) fn apply_validated_potion_action_owned(
                 }
                 Potion::Swift => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    player_draw_cards(combat, SWIFT_POTION_DRAW * multiplier as usize)?;
+                    let count = SWIFT_POTION_DRAW * multiplier as usize;
+                    if queue_action_behind_open_select(combat, InternalAction::DrawCards { count })
+                    {
+                    } else {
+                        player_draw_cards(combat, count)?;
+                    }
                 }
                 Potion::SneckoOil => {
                     let mut rng = next.card_random_rng();
@@ -1294,7 +1394,15 @@ pub(crate) fn apply_validated_potion_action_owned(
                 }
                 Potion::Elixir => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    open_exhaust_select(combat)?;
+                    if queue_action_behind_open_select(
+                        combat,
+                        InternalAction::OpenGenericExhaustSelect,
+                    ) {
+                        defer_potion_use_relics = true;
+                    } else {
+                        defer_potion_use_relics = true;
+                        open_exhaust_select(combat)?;
+                    }
                 }
                 Potion::BlessingOfTheForge => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -1420,24 +1528,32 @@ pub(crate) fn apply_validated_potion_action_owned(
                     next.combat = Some(combat);
                 }
                 Potion::LiquidMemories => {
+                    defer_potion_use_relics = true;
                     let combat = next.combat.as_mut().expect("validated combat state");
                     open_discard_select_with_max_choices(combat, multiplier as usize)?;
                 }
                 Potion::Weak => {
                     let target = target.expect("validated weak potion target");
+                    let amount = WEAK_POTION_WEAK * multiplier;
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    let monster = combat
-                        .monsters
-                        .iter_mut()
-                        .find(|monster| monster.id == target)
-                        .expect("validated potion target");
-                    apply_monster_weak(&mut monster.powers, WEAK_POTION_WEAK * multiplier)?;
+                    if !queue_action_behind_open_select(
+                        combat,
+                        InternalAction::ApplyWeak { target, amount },
+                    ) {
+                        let monster = combat
+                            .monsters
+                            .iter_mut()
+                            .find(|monster| monster.id == target)
+                            .expect("validated potion target");
+                        apply_monster_weak(&mut monster.powers, amount)?;
+                    }
                 }
                 Potion::FruitJuice => {
                     let max_hp = FRUIT_JUICE_MAX_HP * multiplier;
                     next.gain_max_hp(max_hp)?;
                 }
                 Potion::GamblersBrew => {
+                    defer_potion_use_relics = true;
                     let combat = next.combat.as_mut().expect("validated combat state");
                     open_gambling_chip_select(combat)?;
                 }
@@ -1446,7 +1562,9 @@ pub(crate) fn apply_validated_potion_action_owned(
                         next.potion_rng_seed as i64,
                         next.potion_rng_counter,
                     );
-                    if next.can_gain_potions() && entropic_brew_had_open_slot {
+                    // Consume first, then fill every PotionSlot including the
+                    // freed brew slot (FIDL00591).
+                    if next.can_gain_potions() {
                         let capacity = next.potion_capacity();
                         let combat_fill = next.phase == RunPhase::Combat;
                         for _ in 0..capacity {
@@ -1502,6 +1620,7 @@ pub(crate) fn apply_validated_potion_action_owned(
                     combat.queue_or_activate_decision(CombatDecisionState::PotionCardReward {
                         choices: reward_cards,
                         reward_kind: kind,
+                        pending_actions: Default::default(),
                     });
                     next.combat = Some(combat);
                 }
@@ -1604,10 +1723,12 @@ mod tests {
                 target: Some(monster_id),
             },
         )
-        .expect("lethal fire potion applies during an open Headbutt select");
+        .expect("fire potion queues behind an open Headbutt select");
         next.validate()
-            .expect("potion victory does not keep a stale combat select");
-        assert_ne!(next.phase, crate::RunPhase::Combat);
+            .expect("queued potion keeps the Headbutt select");
+        assert_eq!(next.phase, crate::RunPhase::Combat);
+        assert_eq!(next.combat.as_ref().expect("combat").monsters[0].hp, 5);
+        assert!(next.potions.iter().all(|potion| *potion != Potion::Fire));
     }
 
     #[test]
@@ -2155,11 +2276,15 @@ mod tests {
     }
 
     #[test]
-    fn full_belt_entropic_brew_checks_capacity_before_consuming_itself() {
+    fn full_belt_entropic_brew_fills_the_freed_slot() {
         let mut run = RunState::map_fixture();
         run.potions = vec![Potion::Swift, Potion::Elixir, Potion::EntropicBrew];
         run.empty_potion_slots.clear();
-        let starting_rng_counter = run.potion_rng_counter;
+        let mut expected_rng =
+            StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+        let expected = target_random_potion(&mut expected_rng);
+        let _ = target_random_potion(&mut expected_rng);
+        let _ = target_random_potion(&mut expected_rng);
 
         let next = apply_potion_action(
             &run,
@@ -2168,11 +2293,11 @@ mod tests {
                 target: None,
             },
         )
-        .expect("full-belt Entropic Brew is consumed without generating a potion");
+        .expect("full-belt Entropic Brew fills the slot it just freed");
 
-        assert_eq!(next.potions, vec![Potion::Swift, Potion::Elixir]);
-        assert_eq!(next.empty_potion_slots, vec![2]);
-        assert_eq!(next.potion_rng_counter, starting_rng_counter);
+        assert_eq!(next.potions, vec![Potion::Swift, Potion::Elixir, expected]);
+        assert!(next.empty_potion_slots.is_empty());
+        assert_eq!(next.potion_rng_counter, expected_rng.counter());
     }
 
     #[test]
@@ -2584,6 +2709,7 @@ mod tests {
                 choice_content,
             )],
             reward_kind: PotionCardRewardKind::Colorless,
+            pending_actions: Default::default(),
         });
         combat.rng.card_random_rng = StsRng::new(123);
         let rng_counter_before = combat.rng.card_random_rng.counter();
@@ -3438,6 +3564,7 @@ mod tests {
                 CardId::new(chosen_id.get() + 1),
                 choice_content,
             )],
+            pending_actions: Default::default(),
         });
 
         let next = apply_combat_card_reward_choice(&run, 0).expect("Toolbox card choice");
@@ -3581,6 +3708,7 @@ mod tests {
         combat.pending_start_of_turn_relic_energy = 1;
         combat.decision = Some(CombatDecisionState::ToolboxCardReward {
             choices: vec![CardInstance::new(CardId::new(10_000), choice_content)],
+            pending_actions: Default::default(),
         });
         let combat_before = combat.clone();
 

@@ -1,7 +1,8 @@
 use crate::combat::{CombatState, MonsterState, PlayerState};
 use crate::content::cards::COMBUST_HP_LOSS;
 use crate::content::monsters::{
-    awakened_one_is_half_dead, check_slime_boss_split, wake_lagavulin_on_damage,
+    awakened_one_is_half_dead, check_slime_boss_split, reduce_lagavulin_sleep_metallicize,
+    wake_lagavulin_on_damage,
 };
 use crate::relic::{
     apply_hand_drill_if_broke_block, heal_combat_player_with_relics,
@@ -338,7 +339,9 @@ fn deal_unmodified_damage_to_living_monsters(
                     monster, amount,
                 );
             crate::content::monsters::guardian_accumulate_hp_damage(monster, hp_damage);
-            wake_lagavulin_on_damage(monster, hp_damage);
+            if wake_lagavulin_on_damage(monster, hp_damage) {
+                reduce_lagavulin_sleep_metallicize(monster);
+            }
             (!monster.alive, block_before > 0 && monster.block == 0)
         };
         if let Some(monster) = state

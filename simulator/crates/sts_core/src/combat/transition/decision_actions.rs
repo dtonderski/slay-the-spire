@@ -88,14 +88,9 @@ pub(super) fn await_hand_select(
     // any source-delaying hand selection is open.
     let mut dual_wield_force_exhaust = state.play_top_force_exhaust_active;
     if purpose == HandSelectPurpose::DualWieldCopy {
-        let source_started_in_hand = state
-            .piles
-            .hand
-            .iter()
-            .any(|card| card.id == source_card_id);
-        // PlayTop stages Dual Wield into hand before await, so hand membership
-        // is not a reliable force-play signal. Havoc sets play_top_force_exhaust.
-        dual_wield_force_exhaust = state.play_top_force_exhaust_active || !source_started_in_hand;
+        // Hand-played Dual Wield is already out of hand by the time the select
+        // opens (`PlayCard` ran first). Only PlayTop/Havoc sets the force flag.
+        dual_wield_force_exhaust = state.play_top_force_exhaust_active;
         // Park the source in limbo while the select is open so combat hand
         // projection matches CommunicationMod (source already in cardInUse).
         if let Some(index) = state
@@ -149,10 +144,32 @@ pub(super) fn await_hand_select(
             .filter(|(_, card)| super::dual_wield_select_allows_card(card))
             .map(|(index, _)| index)
             .collect();
-        if eligible.len() == 1 && dual_wield_force_exhaust {
-            // Force-played Dual Wield (Havoc/Mayhem) does not open a select
-            // when only one Attack/Power remains. PlayTop stages Dual Wield
-            // into hand, so source_started_in_hand is not a force-play signal.
+        if eligible.is_empty() {
+            state.piles.hand.extend(dual_wield_restore_on_confirm);
+            if let Some(limbo_index) = state
+                .piles
+                .limbo
+                .iter()
+                .position(|card| card.id == source_card_id)
+            {
+                let source = state.piles.limbo.remove(limbo_index);
+                if dual_wield_force_exhaust {
+                    state.piles.exhaust_pile.push(source);
+                    super::apply_on_exhaust_effects(state, source_card_id)?;
+                } else {
+                    state.piles.hand.push(source);
+                    super::move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
+                }
+            }
+            state.play_top_force_exhaust_active = false;
+            if state.piles.hand.is_empty() {
+                super::apply_unceasing_top_after_hand_emptied(state)?;
+            }
+            return Ok(Vec::new());
+        }
+        if eligible.len() == 1 {
+            // DualWieldAction auto-applies when only one Attack/Power remains.
+            // CommunicationMod therefore never publishes a HAND_SELECT frame.
             super::confirm_dual_wield_select(
                 state,
                 source_card_id,
@@ -405,7 +422,11 @@ pub(super) fn await_discard_select(
             state.play_top_force_exhaust_active = false;
             return Ok(Vec::new());
         }
-        if state.monsters.iter().all(|monster| !monster.alive) {
+        if state.monsters.iter().all(|monster| {
+            !monster.alive
+                && !crate::content::monsters::awakened_one_is_half_dead(monster)
+                && !(monster.content_id == crate::content::monsters::DARKLING_ID && monster.escaped)
+        }) {
             super::settle_headbutt_source_after_discard_select(state, source_card, force_exhaust)?;
             state.play_top_force_exhaust_active = false;
             return Ok(Vec::new());
@@ -449,7 +470,13 @@ pub(super) fn await_copied_discard_select(
             "copied discard select purpose is unsupported",
         ));
     }
-    if state.monsters.iter().all(|monster| !monster.alive) || state.piles.discard_pile.is_empty() {
+    if state.piles.discard_pile.is_empty()
+        || state.monsters.iter().all(|monster| {
+            !monster.alive
+                && !crate::content::monsters::awakened_one_is_half_dead(monster)
+                && !(monster.content_id == crate::content::monsters::DARKLING_ID && monster.escaped)
+        })
+    {
         return Ok(Vec::new());
     }
     if state.piles.discard_pile.len() == 1 {

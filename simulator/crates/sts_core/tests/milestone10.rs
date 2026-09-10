@@ -410,7 +410,8 @@ fn coffee_dripper_and_fusion_hammer_allow_immediate_campfire_proceed() {
 
     let next = apply_rest_action(&run, RestAction::Proceed)
         .expect("a campfire with no available activities auto-completes");
-    assert_eq!(next.phase, RunPhase::Idle);
+    assert_eq!(next.phase, RunPhase::Rest);
+    assert!(next.map_overlay.is_some_and(|overlay| overlay.dismissable));
 }
 
 #[test]

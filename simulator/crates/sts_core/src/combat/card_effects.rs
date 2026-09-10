@@ -4,7 +4,6 @@ use crate::{
     combat::{
         cost::effective_card_cost,
         damage::{DamageInfo, DamageSource},
-        draw::MAX_HAND_SIZE,
         CombatDecisionState, CombatState, HandSelectPurpose,
     },
     content::cards::{
@@ -20,9 +19,10 @@ use crate::{
         BRUTALITY_ID, BRUTALITY_PLUS_ID, BURNING_PACT_ID, BURNING_PACT_PLUS_ID,
         CHARGE_BATTERY_ANY_COLOR_ID, CHRYSALIS_ID, CHRYSALIS_PLUS_ID, CLASH_ID, CLASH_PLUS_ID,
         CLEAVE_ID, CLEAVE_PLUS_ID, CLOAK_AND_DAGGER_ANY_COLOR_ID, CLOTHESLINE_ID,
-        CLOTHESLINE_PLUS_ID, COMBUST_ID, COMBUST_PLUS_ID, COMPILE_DRIVER_ANY_COLOR_ID,
-        CORRUPTION_ID, CORRUPTION_PLUS_ID, CRIPPLING_CLOUD_ANY_COLOR_ID, DAGGER_SPRAY_ANY_COLOR_ID,
-        DARK_EMBRACE_ID, DARK_EMBRACE_PLUS_ID, DARK_SHACKLES_ID, DARK_SHACKLES_PLUS_ID, DAZED_ID,
+        CLOTHESLINE_PLUS_ID, COLD_SNAP_ANY_COLOR_ID, COMBUST_ID, COMBUST_PLUS_ID,
+        COMPILE_DRIVER_ANY_COLOR_ID, CORRUPTION_ID, CORRUPTION_PLUS_ID,
+        CRIPPLING_CLOUD_ANY_COLOR_ID, DAGGER_SPRAY_ANY_COLOR_ID, DARK_EMBRACE_ID,
+        DARK_EMBRACE_PLUS_ID, DARK_SHACKLES_ID, DARK_SHACKLES_PLUS_ID, DAZED_ID,
         DEADLY_POISON_ANY_COLOR_ID, DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID, DEFEND_R_ID,
         DEFEND_R_PLUS_ID, DEMON_FORM_ID, DEMON_FORM_PLUS_ID, DISARM_ID, DISARM_PLUS_ID,
         DISCOVERY_ID, DISCOVERY_PLUS_ID, DOPPELGANGER_ANY_COLOR_ID, DOUBLE_TAP_ID,
@@ -47,28 +47,28 @@ use crate::{
         METAMORPHOSIS_ID, METAMORPHOSIS_PLUS_ID, MIND_BLAST_ID, MIND_BLAST_PLUS_ID,
         NIRVANA_ANY_COLOR_ID, OFFERING_ID, OFFERING_PLUS_ID, PANACEA_ID, PANACEA_PLUS_ID,
         PANACHE_ID, PANACHE_PLUS_ID, PANIC_BUTTON_ID, PANIC_BUTTON_PLUS_ID, PERFECTED_STRIKE_ID,
-        PERFECTED_STRIKE_PLUS_ID, POISONED_STAB_ANY_COLOR_ID, POMMEL_STRIKE_ID,
-        POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID, PREPARED_ANY_COLOR_ID,
-        PRESSURE_POINTS_ANY_COLOR_ID, PROSTRATE_ANY_COLOR_ID, PROTECT_ANY_COLOR_ID, PUMMEL_ID,
-        PUMMEL_PLUS_ID, PURITY_ID, PURITY_PLUS_ID, QUICK_SLASH_ANY_COLOR_ID, RAGE_ID, RAGE_PLUS_ID,
-        RAMPAGE_ID, RAMPAGE_PLUS_ID, REAPER_ID, REAPER_PLUS_ID, RECKLESS_CHARGE_ID,
-        RECKLESS_CHARGE_PLUS_ID, RECYCLE_ANY_COLOR_ID, RIP_AND_TEAR_ANY_COLOR_ID, RITUAL_DAGGER_ID,
-        RUPTURE_ID, RUPTURE_PLUS_ID, SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID, SANDS_OF_TIME_ID,
-        SANDS_OF_TIME_PLUS_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECOND_WIND_ID,
-        SECOND_WIND_PLUS_ID, SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID,
-        SECRET_WEAPON_PLUS_ID, SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID,
-        SEVER_SOUL_PLUS_ID, SHIV_ANY_COLOR_ID, SHOCKWAVE_ID, SHOCKWAVE_PLUS_ID, SHRUG_IT_OFF_ID,
-        SHRUG_IT_OFF_PLUS_ID, SKEWER_ANY_COLOR_ID, SKIM_ANY_COLOR_ID, SLIMED_ID, SPOT_WEAKNESS_ID,
-        SPOT_WEAKNESS_PLUS_ID, STEAM_BARRIER_ANY_COLOR_ID, STORM_OF_STEEL_ANY_COLOR_ID,
-        STREAMLINE_ANY_COLOR_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
-        SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID, THE_BOMB_ID,
-        THE_BOMB_PLUS_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID, THINKING_AHEAD_PLUS_ID,
-        THIRD_EYE_ANY_COLOR_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID, TRANQUILITY_ANY_COLOR_ID,
-        TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID, TRUE_GRIT_ID,
-        TRUE_GRIT_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UNLOAD_ANY_COLOR_ID, UPPERCUT_ID,
-        UPPERCUT_PLUS_ID, VIOLENCE_ID, VIOLENCE_PLUS_ID, WALLOP_ANY_COLOR_ID, WARCRY_ID,
-        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID,
-        WOUND_ID,
+        PERFECTED_STRIKE_PLUS_ID, PIERCING_WAIL_ANY_COLOR_ID, POISONED_STAB_ANY_COLOR_ID,
+        POMMEL_STRIKE_ID, POMMEL_STRIKE_PLUS_ID, POWER_THROUGH_ID, POWER_THROUGH_PLUS_ID,
+        PREPARED_ANY_COLOR_ID, PRESSURE_POINTS_ANY_COLOR_ID, PROSTRATE_ANY_COLOR_ID,
+        PROTECT_ANY_COLOR_ID, PUMMEL_ID, PUMMEL_PLUS_ID, PURITY_ID, PURITY_PLUS_ID,
+        QUICK_SLASH_ANY_COLOR_ID, RAGE_ID, RAGE_PLUS_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, REAPER_ID,
+        REAPER_PLUS_ID, RECKLESS_CHARGE_ID, RECKLESS_CHARGE_PLUS_ID, RECYCLE_ANY_COLOR_ID,
+        RIP_AND_TEAR_ANY_COLOR_ID, RITUAL_DAGGER_ID, RUPTURE_ID, RUPTURE_PLUS_ID,
+        SADISTIC_NATURE_ID, SADISTIC_NATURE_PLUS_ID, SANDS_OF_TIME_ID, SANDS_OF_TIME_PLUS_ID,
+        SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID, SECOND_WIND_ID, SECOND_WIND_PLUS_ID,
+        SECRET_TECHNIQUE_ID, SECRET_TECHNIQUE_PLUS_ID, SECRET_WEAPON_ID, SECRET_WEAPON_PLUS_ID,
+        SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHIV_ANY_COLOR_ID,
+        SHOCKWAVE_ID, SHOCKWAVE_PLUS_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID,
+        SKEWER_ANY_COLOR_ID, SKIM_ANY_COLOR_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
+        STEAM_BARRIER_ANY_COLOR_ID, STORM_OF_STEEL_ANY_COLOR_ID, STREAMLINE_ANY_COLOR_ID,
+        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID,
+        SWORD_BOOMERANG_PLUS_ID, THE_BOMB_ID, THE_BOMB_PLUS_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID,
+        THINKING_AHEAD_PLUS_ID, THIRD_EYE_ANY_COLOR_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID,
+        TRANQUILITY_ANY_COLOR_ID, TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID,
+        TRUE_GRIT_ID, TRUE_GRIT_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UNLOAD_ANY_COLOR_ID,
+        UPPERCUT_ID, UPPERCUT_PLUS_ID, VIOLENCE_ID, VIOLENCE_PLUS_ID, WALLOP_ANY_COLOR_ID,
+        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID,
+        WILD_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::shop_pool::{
         colorless_discovery_pool, ironclad_combat_attack_discovery_pool,
@@ -303,6 +303,13 @@ pub(super) fn play_card_queue_in_place(
         id if id == crate::content::cards::COOLHEADED_ANY_COLOR_ID => {
             coolheaded_queue(state, card_id, definition)
         }
+        COLD_SNAP_ANY_COLOR_ID => cold_snap_queue(
+            state,
+            card_id,
+            target.expect("validated Cold Snap has a target"),
+            definition,
+        ),
+        PIERCING_WAIL_ANY_COLOR_ID => piercing_wail_queue(state, card_id, definition),
         id if id == crate::content::cards::CALTROPS_ANY_COLOR_ID => {
             caltrops_queue(state, card_id, definition)
         }
@@ -1453,6 +1460,9 @@ fn synthetic_any_color_upgrade_damage(definition: &CardDefinition, upgrades: u8)
     } else if definition.id == crate::content::cards::BANE_ANY_COLOR_ID {
         // Bane.upgradeDamage(3)
         3
+    } else if definition.id == crate::content::cards::COLD_SNAP_ANY_COLOR_ID {
+        // ColdSnap.upgradeDamage(3)
+        3
     } else {
         0
     }
@@ -2154,24 +2164,13 @@ fn infernal_blade_queue(
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
     let generated = infernal_blade_generated_attack(state);
-    let add_generated = if state.piles.hand.len() >= MAX_HAND_SIZE {
-        // MakeTempCardInHandAction observes the played card in limbo. A full
-        // visible hand therefore still has one slot for Infernal Blade's
-        // generated attack while its source card is resolving.
-        InternalAction::AddGeneratedCardsToHandWhileSourceInLimbo {
-            content_id: generated,
-            source_card_id: card_id,
-            count: 1,
-            temp_cost: Some(0),
-            temp_cost_turn_only: true,
-        }
-    } else {
-        InternalAction::AddGeneratedCardToPile {
-            content_id: generated,
-            to: CardPile::Hand,
-            temp_cost: Some(0),
-            temp_cost_turn_only: true,
-        }
+    // MakeTempCardInHandAction observes Infernal Blade in cardInUse.
+    let add_generated = InternalAction::AddGeneratedCardsToHandWhileSourceInLimbo {
+        content_id: generated,
+        source_card_id: card_id,
+        count: 1,
+        temp_cost: Some(0),
+        temp_cost_turn_only: true,
     };
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
@@ -2391,27 +2390,17 @@ fn jack_of_all_trades_queue(
             amount: i32::from(definition.cost),
         },
     ]);
-    if state.piles.hand.len() >= MAX_HAND_SIZE {
-        for _ in 0..generated_count {
-            let generated = jack_of_all_trades_generated_colorless(state);
-            queue.push_back(InternalAction::AddGeneratedCardsToHandWhileSourceInLimbo {
-                content_id: generated,
-                source_card_id: card_id,
-                count: 1,
-                temp_cost: None,
-                temp_cost_turn_only: false,
-            });
-        }
-    } else {
-        for _ in 0..generated_count {
-            let generated = jack_of_all_trades_generated_colorless(state);
-            queue.push_back(InternalAction::AddGeneratedCardToPile {
-                content_id: generated,
-                to: CardPile::Hand,
-                temp_cost: None,
-                temp_cost_turn_only: false,
-            });
-        }
+    // MakeTempCardInHandAction observes Jack of All Trades in cardInUse, so a
+    // 9-card hand still has room for both generated colorless cards.
+    for _ in 0..generated_count {
+        let generated = jack_of_all_trades_generated_colorless(state);
+        queue.push_back(InternalAction::AddGeneratedCardsToHandWhileSourceInLimbo {
+            content_id: generated,
+            source_card_id: card_id,
+            count: 1,
+            temp_cost: None,
+            temp_cost_turn_only: false,
+        });
     }
     queue.extend([InternalAction::MoveCard {
         card_id,
@@ -2868,18 +2857,12 @@ fn dark_shackles_queue(
 }
 
 fn sword_boomerang_queue(
-    state: &CombatState,
+    _state: &CombatState,
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    state
-        .monsters
-        .iter()
-        .any(|monster| monster.alive)
-        .then_some(())
-        .ok_or(SimError::InvalidState(
-            "Sword Boomerang requires a living monster",
-        ))?;
+    // Playable with no living enemies: hits fizzle and the card still discards
+    // (Awakened One half-dead window, FIDL00503).
     let damage = required_damage(definition)?;
 
     let hits = if definition.id == SWORD_BOOMERANG_PLUS_ID {
@@ -4381,6 +4364,54 @@ fn caltrops_queue(
     ]))
 }
 
+fn piercing_wail_queue(
+    state: &CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgrades = state
+        .piles
+        .hand
+        .iter()
+        .find(|card| card.id == card_id)
+        .map(|card| card.upgrades)
+        .unwrap_or(0);
+    // PiercingWail.baseMagicNumber is 6; upgradeMagicNumber(2).
+    let amount = 6 + if upgrades > 0 { 2 } else { 0 };
+    let mut queue = VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+    ]);
+    for monster in state.monsters.iter().filter(|monster| monster.alive) {
+        queue.push_back(InternalAction::ReduceMonsterStrengthThisTurn {
+            target: monster.id,
+            amount,
+        });
+    }
+    queue.push_back(InternalAction::MoveCard {
+        card_id,
+        from: CardPile::Hand,
+        to: card_move_destination(definition),
+    });
+    Ok(queue)
+}
+
+fn cold_snap_queue(
+    state: &CombatState,
+    card_id: CardId,
+    target: MonsterId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let mut queue = generic_attack_queue(state, card_id, target, definition)?;
+    // ColdSnap.use: DamageAction then ChannelAction(Frost).
+    let insert_at = queue
+        .iter()
+        .position(|action| matches!(action, InternalAction::MoveCard { .. }))
+        .unwrap_or(queue.len());
+    queue.insert(insert_at, InternalAction::ChannelFrost);
+    Ok(queue)
+}
+
 fn coolheaded_queue(
     state: &CombatState,
     card_id: CardId,
@@ -5614,19 +5645,6 @@ fn secret_weapon_queue(
     Ok(queue)
 }
 
-fn has_attack_or_power_in_hand(state: &CombatState, exclude_id: CardId) -> bool {
-    state
-        .piles
-        .hand
-        .iter()
-        .filter(|card| card.id != exclude_id)
-        .any(|card| {
-            get_card_definition(card.content_id).is_some_and(|definition| {
-                definition.card_type == CardType::Attack || definition.card_type == CardType::Power
-            })
-        })
-}
-
 fn dual_wield_force_play_defers_source_settlement(
     state: &CombatState,
     source_card_id: CardId,
@@ -5648,16 +5666,10 @@ fn dual_wield_force_play_defers_source_settlement(
 }
 
 fn dual_wield_queue(
-    state: &CombatState,
+    _state: &CombatState,
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    if !has_attack_or_power_in_hand(state, card_id) {
-        return Err(SimError::IllegalAction(
-            "Dual Wield requires an attack or power",
-        ));
-    }
-
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendEnergy {
@@ -6015,11 +6027,24 @@ fn true_grit_queue(
 
     if state.piles.hand.iter().any(|card| card.id != card_id) {
         if definition.id == TRUE_GRIT_PLUS_ID {
-            queue.push_back(InternalAction::AwaitExhaustSelect {
-                source_card_id: card_id,
-                purpose: crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne,
-            });
-            return Ok(queue);
+            let others = other_hand_cards(state, card_id);
+            if others.len() <= 1 {
+                // ExhaustAction exhausts the whole remaining hand without a UI
+                // when hand.size <= amount (1 after True Grit+ leaves).
+                if others.len() == 1 {
+                    queue.push_back(InternalAction::MoveCard {
+                        card_id: others[0],
+                        from: CardPile::Hand,
+                        to: CardPile::ExhaustPile,
+                    });
+                }
+            } else {
+                queue.push_back(InternalAction::AwaitExhaustSelect {
+                    source_card_id: card_id,
+                    purpose: crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne,
+                });
+                return Ok(queue);
+            }
         } else if other_hand_cards(state, card_id).len() == 1 {
             // Target ExhaustAction takes its non-random "exhaust all" path
             // when this is the only card left in hand, so it does not advance

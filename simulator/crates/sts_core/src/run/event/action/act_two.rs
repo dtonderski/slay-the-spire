@@ -7,8 +7,7 @@ pub(super) fn apply_act_two_event_action(
 ) -> SimResult<bool> {
     match screen.event {
         Event::BackToBasics if screen.stage > 0 && choice_index == 0 => {
-            next.phase = RunPhase::Idle;
-            next.event = None;
+            leave_event_to_map(next);
         }
         Event::BackToBasics if choice_index == 1 => {
             upgrade_starter_strikes_and_defends(next)?;
@@ -36,8 +35,7 @@ pub(super) fn apply_act_two_event_action(
         Event::TheLibrary if screen.stage > 0 && choice_index == 0 => {
             // Flush deferred Read-path card obtain (Ceramic Fish) on Leave.
             next.flush_pending_obtain_cards()?;
-            next.phase = RunPhase::Idle;
-            next.event = None;
+            leave_event_to_map(next);
         }
         Event::TheLibrary if screen.stage == 0 && choice_index == 1 => {
             let heal = the_library_heal_for_ascension(next.max_hp, next.ascension);
@@ -54,8 +52,7 @@ pub(super) fn apply_act_two_event_action(
         }
         Event::TheMausoleum if screen.stage == 1 && choice_index == 0 => {
             next.flush_pending_obtain_cards()?;
-            next.phase = RunPhase::Idle;
-            next.event = None;
+            leave_event_to_map(next);
         }
         Event::TheMausoleum
             if screen.stage == 0 && choice_index == screen.choices.len().saturating_sub(1) =>
@@ -110,8 +107,7 @@ pub(super) fn apply_act_two_event_action(
         }
         Event::Vampires if screen.stage == 1 && choice_index == 0 => {
             next.flush_pending_obtain_cards()?;
-            next.phase = RunPhase::Idle;
-            next.event = None;
+            leave_event_to_map(next);
         }
         Event::Vampires
             if screen.stage == 0 && choice_index == screen.choices.len().saturating_sub(1) =>
@@ -195,8 +191,7 @@ pub(super) fn apply_act_two_event_action(
                 });
             }
             5 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -234,8 +229,7 @@ pub(super) fn apply_act_two_event_action(
             }
             2 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -265,7 +259,7 @@ pub(super) fn apply_act_two_event_action(
                 });
             }
             1 if choice_index == 0 => {
-                open_event_remove_grid(next);
+                open_event_remove_return_to_event_grid(next, Event::Beggar);
                 next.event = Some(EventScreen {
                     event: Event::Beggar,
                     choices: beggar_choices(2),
@@ -273,13 +267,11 @@ pub(super) fn apply_act_two_event_action(
                     event_data: 0,
                 });
                 if next.card_grid.is_none() {
-                    next.phase = RunPhase::Idle;
-                    next.event = None;
+                    leave_event_to_map(next);
                 }
             }
             2 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -322,13 +314,17 @@ pub(super) fn apply_act_two_event_action(
             0 if (choice_index == 2 && next.gold >= ADDICT_GOLD_COST)
                 || (choice_index == 1 && next.gold < ADDICT_GOLD_COST) =>
             {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                next.event = Some(EventScreen {
+                    event: Event::Addict,
+                    choices: addict_choices(1, next.gold),
+                    stage: 1,
+                    event_data: 0,
+                });
+                leave_event_to_map(next);
             }
             1 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -368,8 +364,7 @@ pub(super) fn apply_act_two_event_action(
             }
             1 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -402,8 +397,7 @@ pub(super) fn apply_act_two_event_action(
             }
             1 | 2 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -447,8 +441,7 @@ pub(super) fn apply_act_two_event_action(
                 });
             }
             3 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -475,8 +468,7 @@ pub(super) fn apply_act_two_event_action(
                 // combat (e.g. Mind Bloom) does not inherit that shuffle stream
                 // (FIDL00438).
                 next.pending_event_combat_rng = None;
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             2 if choice_index == 1 => {
                 let event_room_override = next.current_room_override;
@@ -534,8 +526,7 @@ pub(super) fn apply_act_two_event_action(
             }
             1 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                leave_event_to_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(

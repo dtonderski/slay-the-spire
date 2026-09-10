@@ -26,8 +26,7 @@ pub(super) fn apply_lifecycle_event_action(
             }
             2 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                next.map_overlay = Some(crate::MapOverlay { dismissable: true });
             }
             _ => {
                 return Err(SimError::IllegalAction(

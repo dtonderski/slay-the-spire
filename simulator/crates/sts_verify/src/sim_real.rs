@@ -15,10 +15,11 @@ use sts_core::adapter_internals::content::monsters::{
 use sts_core::adapter_internals::potion::Potion;
 use sts_core::adapter_internals::{
     affordable_shop_picks, apply_run_decision_action, legal_run_decision_actions,
-    try_sts_seed_string_to_long, CardGridScreen, CardId, CardInstance, CombatAction,
-    CombatDecisionState, CombatPhase, CombatState, ContentId, Event, EventScreen, GridPurpose,
-    MapAction, MonsterId, MonsterIntent, MonsterState, Relic, RestAction, RewardContinuation,
-    RewardScreen, RoomKind, RunAction, RunDecisionAction, RunPhase, RunState, ShopPick,
+    shop_action_for_choice_index, tick_match_and_keep_wait, try_sts_seed_string_to_long,
+    CardGridScreen, CardId, CardInstance, CombatAction, CombatDecisionState, CombatPhase,
+    CombatState, ContentId, Event, EventScreen, GridPurpose, MapAction, MonsterId, MonsterIntent,
+    MonsterState, Relic, RestAction, RewardContinuation, RewardScreen, RoomKind, RunAction,
+    RunDecisionAction, RunPhase, RunState, ShopPick,
 };
 mod replay;
 
@@ -1276,6 +1277,18 @@ fn seed_start_rest_screen_actions(
 }
 
 fn seed_start_treasure_simulated_subset(run: &RunState) -> Value {
+    if run.calling_bell_ftue {
+        return json!({
+            "screen_type": "NONE",
+            "floor": run.current_floor,
+            "gold": run.gold,
+            "current_hp": run.hp,
+            "max_hp": run.max_hp,
+            "deck_ids": deck_content_keys(&run.deck),
+            "relic_ids": relic_ids_for_simulated_subset(run),
+            "choices": Vec::<String>::new(),
+        });
+    }
     let choices = if run.current_room_kind() == Some(RoomKind::Boss) && run.boss_chest_opened {
         Vec::new()
     } else {
@@ -1663,6 +1676,11 @@ fn seed_start_simulated_map_return(run: &RunState) -> Result<Value, String> {
     map_action_run.shop = None;
     map_action_run.shop_merchant_open = false;
     map_action_run.card_grid = None;
+    map_action_run.map_overlay = None;
+    map_action_run.rest_room_complete = false;
+    map_action_run.treasure_room = None;
+    map_action_run.boss_chest_opened = false;
+    map_action_run.emerald_key_reward_available = false;
     let legal_actions = legal_map_decisions(&map_action_run)
         .map_err(|error| format!("core legal-action boundary rejected map state: {error}"))?;
     let next_node_ids = legal_actions
@@ -2112,6 +2130,12 @@ fn seed_start_event_choice_presentations<'a>(
             .as_ref()
             .expect("validated Match and Keep choice projection has state");
         let card_count = state.cards.len();
+        let unrevealed_remain = state
+            .cards
+            .iter()
+            .any(|card| !card.matched && !card.revealed);
+        let waiting = state.wait_remaining_ms > 0;
+        let show_names = !unrevealed_remain && !waiting;
         let mut presentations = Vec::new();
         for label_index in 0..card_count {
             let group_index = sts_core::adapter_internals::match_and_keep_group_index_for_label(
@@ -2128,7 +2152,10 @@ fn seed_start_event_choice_presentations<'a>(
             if card.matched || currently_flipped {
                 continue;
             }
-            presentations.push(if card.revealed {
+            if !show_names && card.revealed {
+                continue;
+            }
+            presentations.push(if show_names {
                 SeedStartEventChoicePresentation::Card(card.content_id)
             } else {
                 SeedStartEventChoicePresentation::CardSlot(label_index)
@@ -2487,12 +2514,9 @@ fn seed_start_victory_simulated_subset(run: &RunState) -> Value {
 
 fn seed_start_complete_simulated_subset(run: &RunState) -> Value {
     debug_assert_eq!(run.phase, RunPhase::Complete);
-    // A positive-HP Complete run is the terminal Spire Heart outcome. The
-    // Heart event has already advanced the room to Victory, so phase—not the
-    // prior room kind—owns the GAME_OVER presentation.
-    if run.hp <= 0 {
-        return json!({ "run_over": true });
-    }
+    // Death and Spire Heart both publish CommunicationMod GAME_OVER with the
+    // last run stats. A later PROCEED with no game_state uses the in_game=false
+    // terminal path in compare_direct_run, not this subset.
     json!({
         "screen_type": "GAME_OVER",
         "floor": run.current_floor,
@@ -3776,6 +3800,18 @@ fn seed_start_potion_command_target(
         .is_some_and(Potion::requires_target)
         .then_some(potion_use.target)
         .flatten()
+}
+
+fn parse_potion_discard(command: &str) -> Option<usize> {
+    let parts: Vec<_> = command.split_whitespace().collect();
+    match parts.as_slice() {
+        [head, kind, slot]
+            if head.eq_ignore_ascii_case("POTION") && kind.eq_ignore_ascii_case("DISCARD") =>
+        {
+            slot.parse().ok()
+        }
+        _ => None,
+    }
 }
 
 fn parse_potion_use(command: &str) -> Option<ParsedPotionUse> {

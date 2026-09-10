@@ -56,6 +56,10 @@ pub const MALAISE_ANY_COLOR_ID: ContentId = ContentId::new(70_270_875_658);
 pub const STORM_ANY_COLOR_ID: ContentId = ContentId::new(79_233_825);
 /// Prismatic/Defect Coolheaded — id matches `shop_card_content_id("COOLHEADED")`.
 pub const COOLHEADED_ANY_COLOR_ID: ContentId = ContentId::new(1_841_076_150_543_712);
+/// Prismatic/Defect Cold Snap — id matches `shop_card_content_id("COLD_SNAP")`.
+pub const COLD_SNAP_ANY_COLOR_ID: ContentId = ContentId::new(59_386_683_370_141);
+/// Prismatic/Silent Piercing Wail — id matches `shop_card_content_id("PIERCING_WAIL")`.
+pub const PIERCING_WAIL_ANY_COLOR_ID: ContentId = ContentId::new(9_586_390_919_680_416_191);
 /// Prismatic/Silent Caltrops — id matches `shop_card_content_id("CALTROPS")`.
 pub const CALTROPS_ANY_COLOR_ID: ContentId = ContentId::new(1_903_288_797_886);
 /// Prismatic/Defect Capacitor — id matches `shop_card_content_id("CAPACITOR")`.
@@ -5271,6 +5275,8 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | MALAISE_ANY_COLOR_ID
             | STORM_ANY_COLOR_ID
             | COOLHEADED_ANY_COLOR_ID
+            | COLD_SNAP_ANY_COLOR_ID
+            | PIERCING_WAIL_ANY_COLOR_ID
             | CALTROPS_ANY_COLOR_ID
             | CAPACITOR_ANY_COLOR_ID
             | RECURSION_ANY_COLOR_ID
@@ -5780,6 +5786,40 @@ pub static COOLHEADED_ANY_COLOR: CardDefinition = CardDefinition {
     id: COOLHEADED_ANY_COLOR_ID,
     key: "COOLHEADED",
     name: "Coolheaded",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static COLD_SNAP_ANY_COLOR: CardDefinition = CardDefinition {
+    id: COLD_SNAP_ANY_COLOR_ID,
+    key: "COLD_SNAP",
+    name: "Cold Snap",
+    cost: 1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(6),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
+pub static PIERCING_WAIL_ANY_COLOR: CardDefinition = CardDefinition {
+    id: PIERCING_WAIL_ANY_COLOR_ID,
+    key: "PIERCING_WAIL",
+    name: "Piercing Wail",
     cost: 1,
     card_type: CardType::Skill,
     rarity: Some(CardRarity::Common),
@@ -6657,6 +6697,8 @@ pub static EXTRA_PUBLIC_CARD_DEFINITIONS: &[CardDefinition] = &[
     MALAISE_ANY_COLOR,
     STORM_ANY_COLOR,
     COOLHEADED_ANY_COLOR,
+    COLD_SNAP_ANY_COLOR,
+    PIERCING_WAIL_ANY_COLOR,
     CALTROPS_ANY_COLOR,
     CAPACITOR_ANY_COLOR,
     RECURSION_ANY_COLOR,

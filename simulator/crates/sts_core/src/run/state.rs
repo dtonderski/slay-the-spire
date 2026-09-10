@@ -734,6 +734,11 @@ mod tests {
             run.content_id_after_card_add_relics(crate::content::cards::STRIKE_R_PLUS_ID),
             Ok(crate::content::cards::STRIKE_R_PLUS_ID)
         );
+        assert_eq!(
+            run.content_id_after_card_add_relics(crate::content::cards::PIERCING_WAIL_ANY_COLOR_ID),
+            Ok(crate::content::cards::PIERCING_WAIL_ANY_COLOR_ID),
+            "unimplemented-or-synthetic prismatic ids must not fail egg preview"
+        );
     }
 
     #[test]
@@ -1162,6 +1167,20 @@ pub struct RunState {
     pub shop_merchant_open: bool,
     #[serde(default)]
     pub card_grid: Option<super::grid::CardGridScreen>,
+    /// Map overlay on top of the current room screen. None means the map is
+    /// not showing as an overlay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_overlay: Option<MapOverlay>,
+    /// Calling Bell shows an FTUE over the three relic rewards. PROCEED is
+    /// intercepted until the overlay is dismissed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub calling_bell_ftue: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub calling_bell_ftue_shown: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calling_bell_hidden_reward: Option<RewardScreen>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub calling_bell_reward_screen: bool,
     #[serde(default)]
     pub potions: Vec<Potion>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1243,6 +1262,9 @@ pub struct RunState {
     pub girya_lifts: u32,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub matryoshka_chests_opened: u32,
+    /// N'loth's Hungry Face empties the next non-boss chest, then stays owned.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub nloths_mask_used: bool,
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub tiny_chest_counter: u32,
     /// Target `EventHelper.MONSTER_CHANCE` probability in `[0, ∞)`.
@@ -1393,6 +1415,15 @@ pub enum RunPhase {
     Victory,
     /// The terminal Spire Heart screen after the final event choice.
     Complete,
+}
+
+/// `AbstractDungeon.screen == MAP` overlay on top of the current room screen.
+///
+/// `dismissable` is `DungeonMapScreen.dismissable`. CommunicationMod exposes
+/// RETURN while the overlay can be cancelled back to the previous screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MapOverlay {
+    pub dismissable: bool,
 }
 
 pub const REWARD_GOLD_AMOUNT: i32 = 20;
@@ -1793,6 +1824,12 @@ pub enum RunAction {
     EnterShop,
     LeaveShop,
     OpenShopRemove,
+    /// Dismiss a dismissable dungeon-map overlay, restoring the previous room
+    /// screen. CommunicationMod RETURN on MAP.
+    ReturnFromMap,
+    /// Dismiss the Calling Bell FTUE overlay and restore the hidden relic
+    /// rewards. Collector CLICK on the FTUE snapshot.
+    DismissFtue,
 }
 
 /// Reconstruct metadata that is intrinsic to a card content when a visual
@@ -2844,9 +2881,13 @@ impl RunState {
                     CardInstance::new(CardId::new(next_card_id + index as u64), content_id)
                 })
                 .collect();
-            if let Some(existing) = combat
-                .decision
-                .replace(CombatDecisionState::ToolboxCardReward { choices })
+            if let Some(existing) =
+                combat
+                    .decision
+                    .replace(CombatDecisionState::ToolboxCardReward {
+                        choices,
+                        pending_actions: Default::default(),
+                    })
             {
                 combat.queued_decisions.push_back(existing);
             }
@@ -2938,6 +2979,11 @@ impl RunState {
             shop: None,
             shop_merchant_open: false,
             card_grid: None,
+            map_overlay: None,
+            calling_bell_ftue: false,
+            calling_bell_ftue_shown: false,
+            calling_bell_hidden_reward: None,
+            calling_bell_reward_screen: false,
             potions: Vec::new(),
             empty_potion_slots: Vec::new(),
             pending_obtain_cards: Vec::new(),
@@ -2968,6 +3014,7 @@ impl RunState {
             ancient_tea_set_armed: false,
             girya_lifts: 0,
             matryoshka_chests_opened: 0,
+            nloths_mask_used: false,
             tiny_chest_counter: 0,
             event_room_monster_chance: EventRoomChance::new(DEFAULT_EVENT_ROOM_MONSTER_CHANCE),
             event_room_shop_chance: EventRoomChance::new(DEFAULT_EVENT_ROOM_SHOP_CHANCE),
@@ -3050,6 +3097,11 @@ impl RunState {
             shop: None,
             shop_merchant_open: false,
             card_grid: None,
+            map_overlay: None,
+            calling_bell_ftue: false,
+            calling_bell_ftue_shown: false,
+            calling_bell_hidden_reward: None,
+            calling_bell_reward_screen: false,
             potions: Vec::new(),
             empty_potion_slots: Vec::new(),
             pending_obtain_cards: Vec::new(),
@@ -3080,6 +3132,7 @@ impl RunState {
             ancient_tea_set_armed: false,
             girya_lifts: 0,
             matryoshka_chests_opened: 0,
+            nloths_mask_used: false,
             tiny_chest_counter: 0,
             event_room_monster_chance: EventRoomChance::new(DEFAULT_EVENT_ROOM_MONSTER_CHANCE),
             event_room_shop_chance: EventRoomChance::new(DEFAULT_EVENT_ROOM_SHOP_CHANCE),
@@ -3492,13 +3545,15 @@ impl RunState {
         {
             return Ok(content_id);
         }
-        let definition = get_card_definition(content_id).ok_or_else(|| {
+        // Prismatic pool cards may not have a local definition yet. Eggs still
+        // upgrade those instances via `card_after_card_add_relics` / upgrades=1;
+        // reward generation must not fail closed on an unimplemented cardID.
+        let Some(definition) = get_card_definition(content_id) else {
             if super::reward::any_color_reward_card_key(content_id).is_some() {
-                SimError::UnsupportedMechanic(content_id)
-            } else {
-                SimError::UnknownContent(content_id)
+                return Ok(content_id);
             }
-        })?;
+            return Err(SimError::UnknownContent(content_id));
+        };
         let has_matching_egg = match definition.card_type {
             CardType::Attack => self.relics.contains(&Relic::MoltenEgg),
             CardType::Skill => self.relics.contains(&Relic::ToxicEgg),
@@ -4284,9 +4339,8 @@ impl RunState {
                 if offered.is_none() {
                     return Err(SimError::IllegalAction("no potion reward offered"));
                 }
-                if !self.can_gain_potions() {
-                    return Err(SimError::IllegalAction("potions cannot be obtained"));
-                }
+                // Sozu and a full belt still let the reward item be clicked;
+                // the potion is discarded rather than obtained.
                 Ok(())
             }
             RunAction::TakeRelicReward => {
@@ -4372,6 +4426,11 @@ impl RunState {
                 let event_map_reward = reward.continuation == RewardContinuation::Map
                     && self.current_room_kind() == Some(RoomKind::Event)
                     && !reward.card_reward_is_active();
+                // Treasure-chest CombatRewardScreen also exposes PROCEED with
+                // leftover relics/gold. RETURN restores that overlay.
+                let treasure_map_reward = reward.continuation == RewardContinuation::Map
+                    && self.current_room_kind() == Some(RoomKind::Treasure)
+                    && !reward.card_reward_is_active();
                 // Dig/Dream Catcher CombatRewardScreen frames expose PROCEED
                 // after the rest action has already completed. The overlay
                 // leaves the room rather than returning to a second rest menu.
@@ -4398,6 +4457,7 @@ impl RunState {
                     || (reward.continuation == RewardContinuation::Event
                         && !reward.card_reward_is_active())
                     || event_map_reward
+                    || treasure_map_reward
                     || completed_rest_reward
                     || shop_overlay_reward
                     || leftover_boss_treasure_reward
@@ -4483,6 +4543,9 @@ impl RunState {
                 Err(SimError::IllegalAction("not a reward action"))
             }
             RunAction::ChooseExhaustSelect { .. } | RunAction::ConfirmExhaustSelect => {
+                Err(SimError::IllegalAction("not a reward action"))
+            }
+            RunAction::ReturnFromMap | RunAction::DismissFtue => {
                 Err(SimError::IllegalAction("not a reward action"))
             }
         }
