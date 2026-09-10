@@ -224,31 +224,11 @@ impl fmt::Display for FairError {
 
 impl std::error::Error for FairError {}
 
-#[cfg(test)]
 pub(crate) fn projected_choices(
     run: &RunState,
 ) -> Result<Vec<(PublicChoice, RunDecisionAction)>, FairError> {
-    projected_choices_from_actions(
-        run,
-        sts_core::adapter_internals::legal_run_decision_actions(run)
-            .map_err(|_| FairError::DecisionUnavailable)?,
-    )
-}
-
-pub(crate) fn projected_choices_after_validation(
-    run: &RunState,
-) -> Result<Vec<(PublicChoice, RunDecisionAction)>, FairError> {
-    projected_choices_from_actions(
-        run,
-        sts_core::adapter_internals::legal_run_decision_actions_after_validation(run)
-            .map_err(|_| FairError::DecisionUnavailable)?,
-    )
-}
-
-fn projected_choices_from_actions(
-    run: &RunState,
-    actions: Vec<RunDecisionAction>,
-) -> Result<Vec<(PublicChoice, RunDecisionAction)>, FairError> {
+    let actions = sts_core::adapter_internals::legal_run_decision_actions(run)
+        .map_err(|_| FairError::DecisionUnavailable)?;
     let mut seen = BTreeSet::new();
     let mut projected = Vec::with_capacity(actions.len());
     for action in actions {
@@ -434,7 +414,7 @@ fn public_slot(index: usize) -> Result<u16, FairError> {
 mod tests {
     use super::*;
     use sts_core::adapter_internals::{
-        combat::CombatPhase, CardId, MonsterId, Potion, Relic, RoomKind, RunPhase,
+        combat::CombatPhase, CardId, MonsterId, Potion, Relic, RoomKind, RunPhase, SimError,
     };
 
     #[test]
@@ -569,11 +549,16 @@ mod tests {
     }
 
     #[test]
-    fn malformed_state_collapses_to_decision_unavailable() {
+    fn malformed_state_is_rejected_by_the_explicit_validator() {
         let mut run = RunState::combat_fixture();
         let combat = run.combat.as_mut().expect("combat");
         combat.piles.draw_pile[0].id = combat.piles.hand[0].id;
-        assert_eq!(projected_choices(&run), Err(FairError::DecisionUnavailable));
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "card instance appears in more than one pile"
+            ))
+        );
     }
 
     #[test]

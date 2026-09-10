@@ -3,17 +3,17 @@ use sts_core::adapter_internals::run::event::{
 };
 use sts_core::adapter_internals::run::setup_treasure_room;
 use sts_core::adapter_internals::{
-    apply_combat_action, apply_map_action_on_run,
+    apply_map_action_on_run,
     card::CardInstance,
     combat::{
         CombatDecisionState, CombatPhase, DrawSelectPurpose, DrawSelectState, HandSelectState,
     },
     content::cards,
     content::shop_pool::shop_card_content_id,
-    enter_reward_screen, legal_event_actions, legal_rest_actions, legal_run_decision_actions,
-    legal_shop_actions, open_shop_merchant, CardGridScreen, CardId, CardRewardFlow, CombatAction,
-    CombatState, ContentId, GridPurpose, MapAction, MapNodeId, MonsterIntent, Relic,
-    RewardContinuation, RewardScreen, RoomKind, RunPhase, RunState, SimError,
+    enter_reward_screen, legal_event_actions, legal_run_decision_actions, open_shop_merchant,
+    CardGridScreen, CardId, CardRewardFlow, CombatState, ContentId, GridPurpose, MapAction,
+    MapNodeId, MonsterIntent, Relic, RewardContinuation, RewardScreen, RoomKind, RunPhase,
+    RunState, SimError,
 };
 
 fn empty_reward_screen(continuation: RewardContinuation) -> RewardScreen {
@@ -152,10 +152,9 @@ fn unknown_content_fails_validation() {
 }
 
 #[test]
-fn missing_variable_monster_damage_fails_before_action_execution() {
+fn missing_variable_monster_damage_fails_explicit_validation() {
     let mut state = CombatState::red_louse_fixture();
     state.monsters[0].rolled_attack_damage = None;
-    let original = state.clone();
 
     assert_eq!(
         state.validate(),
@@ -163,20 +162,12 @@ fn missing_variable_monster_damage_fails_before_action_execution() {
             "monster requires rolled attack damage"
         ))
     );
-    assert_eq!(
-        apply_combat_action(&state, CombatAction::EndTurn),
-        Err(SimError::InvalidState(
-            "monster requires rolled attack damage"
-        ))
-    );
-    assert_eq!(state, original);
 }
 
 #[test]
-fn unresolved_initial_ai_roll_fails_before_action_execution() {
+fn unresolved_initial_ai_roll_fails_explicit_validation() {
     let mut state = CombatState::initial_fixture();
     state.monsters[0].intent = MonsterIntent::PendingAiRoll;
-    let original = state.clone();
 
     assert_eq!(
         state.validate(),
@@ -184,13 +175,6 @@ fn unresolved_initial_ai_roll_fails_before_action_execution() {
             "combat monster intent is pending AI roll"
         ))
     );
-    assert_eq!(
-        apply_combat_action(&state, CombatAction::EndTurn),
-        Err(SimError::InvalidState(
-            "combat monster intent is pending AI roll"
-        ))
-    );
-    assert_eq!(state, original);
 }
 
 #[test]
@@ -232,11 +216,10 @@ fn inconsistent_combust_authorities_fail_validation() {
 }
 
 #[test]
-fn nonpositive_monster_max_hp_fails_before_action_execution() {
+fn nonpositive_monster_max_hp_fails_explicit_validation() {
     let mut state = CombatState::initial_fixture();
     state.monsters[0].hp = 0;
     state.monsters[0].max_hp = 0;
-    let original = state.clone();
 
     assert_eq!(
         state.validate(),
@@ -244,13 +227,6 @@ fn nonpositive_monster_max_hp_fails_before_action_execution() {
             "combat monster HP, block, or stolen gold is out of bounds"
         ))
     );
-    assert_eq!(
-        apply_combat_action(&state, CombatAction::EndTurn),
-        Err(SimError::InvalidState(
-            "combat monster HP, block, or stolen gold is out of bounds"
-        ))
-    );
-    assert_eq!(state, original);
 }
 
 #[test]
@@ -523,7 +499,7 @@ fn overlay_state_cannot_replace_the_required_phase_owner() {
     );
     assert_eq!(
         legal_event_actions(&event),
-        Err(SimError::InvalidState("event phase has no event screen"))
+        Err(SimError::InvalidState("event screen is missing"))
     );
 }
 
@@ -533,10 +509,6 @@ fn screen_backed_phases_require_their_authoritative_state() {
     shop.phase = RunPhase::Shop;
     assert_eq!(
         shop.validate(),
-        Err(SimError::InvalidState("shop phase has no shop screen"))
-    );
-    assert_eq!(
-        legal_shop_actions(&shop),
         Err(SimError::InvalidState("shop phase has no shop screen"))
     );
 
@@ -557,10 +529,6 @@ fn rest_phase_requires_a_rest_room() {
 
     assert_eq!(
         run.validate(),
-        Err(SimError::InvalidState("rest phase is not in a rest room"))
-    );
-    assert_eq!(
-        legal_rest_actions(&run),
         Err(SimError::InvalidState("rest phase is not in a rest room"))
     );
 }

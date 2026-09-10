@@ -17,6 +17,17 @@ RL code may consume the simulator's public APIs; the dependency is one-way:
 - `mods/`: collection support mods.
 - `docs/`: simulator research, verification, and Python API documentation.
 
+## Checked vs normal execution
+
+Ordinary simulation does not run full `RunState` / `CombatState` / map
+invariant scans on constructors, legal-action queries, accepted transitions, or
+internal mechanics. Those `validate()` methods remain explicitly callable for
+tests, snapshot restore, and verifier/import audit. Normal paths still enforce
+action legality, stale-revision rejection, targets/costs/phase restrictions,
+required environmental inputs, supported-surface/fairness guards, and malformed
+load/schema safety. Illegal actions stay atomically rejected; the simulator does
+not repair or hydrate state.
+
 ## Rust validation
 
 Run from the repository root:

@@ -563,11 +563,6 @@ pub fn leave_shop_room(run: &mut RunState) {
 }
 
 pub fn legal_shop_actions(run: &RunState) -> SimResult<Vec<RunAction>> {
-    run.validate()?;
-    legal_shop_actions_after_validation(run)
-}
-
-pub(crate) fn legal_shop_actions_after_validation(run: &RunState) -> SimResult<Vec<RunAction>> {
     if run.phase != RunPhase::Shop {
         return Ok(Vec::new());
     }
@@ -621,14 +616,6 @@ pub(crate) fn legal_shop_actions_after_validation(run: &RunState) -> SimResult<V
 }
 
 pub fn validate_shop_action(run: &RunState, action: RunAction) -> SimResult<()> {
-    run.validate()?;
-    validate_shop_action_after_validation(run, action)
-}
-
-pub(crate) fn validate_shop_action_after_validation(
-    run: &RunState,
-    action: RunAction,
-) -> SimResult<()> {
     if run.phase != RunPhase::Shop {
         return Err(SimError::IllegalAction("shop actions require shop phase"));
     }

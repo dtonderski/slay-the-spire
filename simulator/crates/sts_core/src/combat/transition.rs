@@ -126,7 +126,6 @@ pub(crate) fn apply_validated_combat_action_owned(
         crate::combat::hand::discard_end_of_turn_hand(&mut transition.state)?;
         crate::combat::turn::settle_opening_end_turn_monster_and_draw(&mut transition.state)?;
     }
-    transition.state.validate()?;
     Ok(transition)
 }
 
@@ -9174,7 +9173,7 @@ mod tests {
     }
 
     #[test]
-    fn sentinel_energy_overflow_fails_closed_at_the_combat_action_boundary() {
+    fn sentinel_energy_overflow_is_rejected_by_the_explicit_validator() {
         let mut state = CombatState::initial_fixture();
         state.player.energy = i32::MAX;
         state.piles.hand = vec![
@@ -9182,14 +9181,16 @@ mod tests {
             CardInstance::new(CardId::new(2), SENTINEL_ID),
         ];
 
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("ordinary apply does not structurally scan successors");
         assert_eq!(
-            apply_combat_action(
-                &state,
-                CombatAction::PlayCard {
-                    card_id: CardId::new(1),
-                    target: None,
-                },
-            ),
+            next.validate(),
             Err(SimError::InvalidState(
                 "combat player block or energy is negative"
             ))
@@ -9342,18 +9343,20 @@ mod tests {
     }
 
     #[test]
-    fn sundial_counter_overflow_fails_closed_at_the_combat_action_boundary() {
+    fn sundial_counter_overflow_is_rejected_by_the_explicit_validator() {
         let mut state = shuffle_trigger_state(Relic::Sundial);
         state.sundial_shuffles = i32::MAX as u32;
 
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("ordinary apply does not structurally scan successors");
         assert_eq!(
-            apply_combat_action(
-                &state,
-                CombatAction::PlayCard {
-                    card_id: CardId::new(1),
-                    target: None,
-                },
-            ),
+            next.validate(),
             Err(SimError::InvalidState(
                 "combat relic counter is outside its stable range"
             ))

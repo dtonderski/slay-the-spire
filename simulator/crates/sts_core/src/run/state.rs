@@ -1883,7 +1883,9 @@ impl RunState {
         }
     }
 
-    /// Validates invariants required by authoritative run transitions.
+    /// Explicit structural/invariant audit for tests, snapshot restore, and
+    /// verifier/import boundaries. Ordinary constructors, legal queries, and
+    /// accepted transitions do not invoke this automatically.
     ///
     /// Overlay screens may legitimately coexist with their owning phase, so
     /// this rejects contradictory ownership without normalizing valid
@@ -2732,7 +2734,6 @@ impl RunState {
     }
 
     pub fn init_combat(&self, base: CombatState) -> SimResult<CombatState> {
-        base.validate()?;
         let mut combat = base;
         combat.player.authority = self
             .run_player
@@ -2854,7 +2855,6 @@ impl RunState {
         if !combat.opening_turn_pending {
             crate::relic::apply_start_of_player_turn_post_draw_relics(&mut combat)?;
         }
-        combat.validate()?;
         Ok(combat)
     }
 
@@ -2870,7 +2870,6 @@ impl RunState {
         if self.relics.contains(&Relic::Toolbox) || self.relics.contains(&Relic::Enchiridion) {
             self.card_random_rng_counter = combat.rng.card_random_rng.counter();
         }
-        combat.validate()?;
         Ok(combat)
     }
 
@@ -3183,7 +3182,7 @@ impl RunState {
             let index = map_rng.random_int((elite_nodes.len() - 1) as i32) as usize;
             self.emerald_key_node = Some(elite_nodes[index]);
         }
-        self.validate()
+        Ok(())
     }
 
     /// Start a deterministic seeded Ironclad run with explicit profile boss history.

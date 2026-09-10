@@ -37,9 +37,8 @@ use crate::{
         SPIRE_SPEAR_A0, SPIRE_SPEAR_ID, TASKMASTER_ID, WRITHING_MASS_ID,
     },
     map::{
-        apply_map_action_after_validation, legal_map_actions_after_validation,
-        reachable_nodes_after_validation, validate_map_action_after_validation,
-        wing_boots_reachable_nodes_after_validation, MapAction, RoomKind, TargetMapAct,
+        apply_map_action, legal_map_actions, reachable_nodes, validate_map_action,
+        wing_boots_reachable_nodes, MapAction, RoomKind, TargetMapAct,
     },
     rng::{seed_for_floor, StsRng},
     MonsterPowers, Relic, RunPhase, RunState, SimError, SimResult,
@@ -63,13 +62,6 @@ fn current_room_kind(run: &RunState) -> Option<RoomKind> {
 }
 
 pub fn legal_map_actions_on_run(run: &RunState) -> SimResult<Vec<MapAction>> {
-    run.validate()?;
-    legal_map_actions_on_run_after_validation(run)
-}
-
-pub(crate) fn legal_map_actions_on_run_after_validation(
-    run: &RunState,
-) -> SimResult<Vec<MapAction>> {
     if run.phase != RunPhase::Idle {
         return Ok(Vec::new());
     }
@@ -78,9 +70,9 @@ pub(crate) fn legal_map_actions_on_run_after_validation(
         return Ok(Vec::new());
     };
 
-    let mut actions = legal_map_actions_after_validation(map_state)?;
+    let mut actions = legal_map_actions(map_state)?;
     if run.relics.contains(&Relic::WingBoots) && run.wing_boots_charges > 0 {
-        for node_id in wing_boots_reachable_nodes_after_validation(map_state)? {
+        for node_id in wing_boots_reachable_nodes(map_state)? {
             let action = MapAction::ChooseNode { node_id };
             if !actions.contains(&action) {
                 actions.push(action);
@@ -94,14 +86,6 @@ pub(crate) fn legal_map_actions_on_run_after_validation(
 }
 
 pub fn validate_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<()> {
-    run.validate()?;
-    validate_map_action_on_run_after_validation(run, action)
-}
-
-pub(crate) fn validate_map_action_on_run_after_validation(
-    run: &RunState,
-    action: MapAction,
-) -> SimResult<()> {
     if run.phase != RunPhase::Idle {
         return Err(SimError::IllegalAction("map actions require idle phase"));
     }
@@ -111,7 +95,7 @@ pub(crate) fn validate_map_action_on_run_after_validation(
         .as_ref()
         .ok_or(SimError::InvalidState("map state is missing"))?;
 
-    if validate_map_action_after_validation(map_state, action).is_ok() {
+    if validate_map_action(map_state, action).is_ok() {
         return Ok(());
     }
 
@@ -138,11 +122,11 @@ pub(crate) fn apply_validated_map_action_on_run(
     let last_room_was_shop = next.current_room_kind() == Some(RoomKind::Shop);
     let uses_wing_boots = next.relics.contains(&Relic::WingBoots)
         && next.wing_boots_charges > 0
-        && !reachable_nodes_after_validation(map_state)?.contains(&chosen_node_id(action));
+        && !reachable_nodes(map_state)?.contains(&chosen_node_id(action));
     let next_map = if uses_wing_boots {
         apply_wing_boots_map_action(map_state, action)?
     } else {
-        apply_map_action_after_validation(map_state, action)?
+        apply_map_action(map_state, action)?
     };
     let next_floor = i32::try_from(next_map.floor)
         .map_err(|_| SimError::InvalidState("map floor exceeds supported run range"))?;
@@ -326,7 +310,6 @@ fn enter_combat_with_monsters(run: &mut RunState, monsters: Vec<MonsterState>) -
     let mut initialized = run.init_combat_consuming_relics(combat)?;
     initialized.rng.monster_rng = monster_rng;
     add_mark_of_pain_wounds_to_draw_pile(run, &mut initialized)?;
-    initialized.validate()?;
     run.install_combat_owner(initialized)?;
     Ok(())
 }
@@ -1105,7 +1088,7 @@ fn wing_boots_action_is_legal(
     map_state: &crate::MapRunState,
     action: MapAction,
 ) -> SimResult<bool> {
-    Ok(wing_boots_reachable_nodes_after_validation(map_state)?.contains(&chosen_node_id(action)))
+    Ok(wing_boots_reachable_nodes(map_state)?.contains(&chosen_node_id(action)))
 }
 
 fn chosen_node_id(action: MapAction) -> crate::MapNodeId {
@@ -1581,7 +1564,7 @@ mod tests {
         map.floor = u32::MAX;
 
         assert_eq!(
-            crate::map::apply_map_action(
+            apply_map_action(
                 &map,
                 MapAction::ChooseNode {
                     node_id: crate::MapNodeId::new(1),
