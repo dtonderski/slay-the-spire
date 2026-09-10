@@ -57,12 +57,14 @@ class ModelTests(unittest.TestCase):
         return queries[0], features[0]
 
     def test_live_decision_and_parameter_ownership(self) -> None:
-        logits = self.model(self.observation, self.actions)
-        self.assertEqual(logits.shape, (len(self.actions),))
+        logits, valid = self.model([self.observation], [self.actions])
+        self.assertEqual(logits.shape, (1, len(self.actions)))
+        self.assertTrue(valid.all())
         self.assertEqual(logits.dtype, torch.float64)
         self.assertTrue(torch.isfinite(logits).all())
-        torch.testing.assert_close(self.model(self.observation, self.actions[::-1]), logits.flip(0))
-        self.assertEqual(self.model(self.observation, ()).shape, (0,))
+        torch.testing.assert_close(self.model([self.observation], [self.actions[::-1]])[0], logits.flip(1))
+        with self.assertRaises(ValueError):
+            self.model([self.observation], [()])
         parameters = list(self.model.named_parameters(remove_duplicate=False))
         self.assertEqual(len(parameters), len({id(parameter) for _, parameter in parameters}))
         for name in ("cards", "enemies", "potions", "relics"):
@@ -92,7 +94,7 @@ class ModelTests(unittest.TestCase):
             "forward",
             side_effect=AssertionError("Card rows recomputed"),
         ):
-            self.model.action_encoder(actions, features).sum().backward()
+            self.model.action_encoder([actions], [features])[0].sum().backward()
         for name in ("cards", "enemies", "potions"):
             gradient = getattr(self.model.observation_encoder, name).embedding.weight.grad
             self.assertIsNotNone(gradient)
@@ -122,9 +124,9 @@ class ModelTests(unittest.TestCase):
             "skip_selection",
         )
         actions = tuple(action(kind, target_slot=0, option_slot=1) for kind in kinds)
-        vectors = self.model.action_encoder(actions, features)
+        vectors = self.model.action_encoder([actions], [features])[0]
         self.assertEqual(vectors.shape, (9, 8))
-        torch.testing.assert_close(self.model(obs, actions), vectors @ query)
+        torch.testing.assert_close(self.model([obs], [actions])[0][0], vectors @ query)
         vectors.sum().backward()
         self.assertTrue(all(parameter.grad is not None for parameter in self.model.action_encoder.parameters()))
         # Every public selection kind remains encodable through the slice.
@@ -137,9 +139,9 @@ class ModelTests(unittest.TestCase):
             self.assertEqual(tokens[0].shape[0], 0 if kind is None else 2)
             self.assertEqual(options[0].shape[0], tokens[0].shape[0])
         with self.assertRaises(NotImplementedError):
-            self.model.action_encoder((action("proceed"),), features)
+            self.model.action_encoder([(action("proceed"),)], [features])
         with self.assertRaises(ValueError):
-            self.model.action_encoder((action("toggle_visible_card", option_slot=-1),), features)
+            self.model.action_encoder([(action("toggle_visible_card", option_slot=-1),)], [features])
 
     def test_stasis_uses_shared_card_encoder(self) -> None:
         cards = self.model.observation_encoder.cards
@@ -174,8 +176,8 @@ class ModelTests(unittest.TestCase):
             ),
             context=replace(self.observation.context, relics=(), potion_slots=()),
         )
-        logits = self.model(empty, (action("end_turn"),))
-        self.assertEqual(logits.shape, (1,))
+        logits, _ = self.model([empty], [(action("end_turn"),)])
+        self.assertEqual(logits.shape, (1, 1))
         self.assertTrue(torch.isfinite(logits).all())
 
 

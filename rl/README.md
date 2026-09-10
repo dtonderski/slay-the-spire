@@ -13,7 +13,7 @@ must not consume privileged serialized state as a policy observation.
 
 ## Layout
 
-- `model.py`: single-decision policy composition.
+- `model.py`: batch-only policy composition.
 - `observation_encoder.py`: input-slice assembly, transformer, and summary-token query.
 - `encoders/`: one file per input type, containing its tensorizer and encoder:
   - `cards.py`, `enemies.py`, `player.py`, `potions.py`, `relics.py`: raw features and token projections.
@@ -93,12 +93,16 @@ vectors, distinguished by their kind. Unsupported kinds raise.
 
 There are no action layers in the tensorizer. It only gathers/concatenates
 existing features, preserving gradients to shared embeddings. `ActionEncoder`
-in `encoders/actions.py` maps those inputs to `[n_actions, action_dim]` (default 64).
-It accepts raw candidates and the observation encoder's reusable feature rows:
-`action_vectors = self.action_encoder(actions, features)`. Each feature-bearing kind
+in `encoders/actions.py` accepts a list of candidate tuples and the observation
+encoder's list of reusable feature dictionaries:
+`action_vectors = self.action_encoder(action_batches, features)`.
+It returns one unpadded `[n_actions_i, action_dim]` tensor per observation (default 64).
+Each feature-bearing kind
 has its own `Linear → ReLU → Linear` MLP; no-object kinds have separate one-entry
 embeddings. Feature widths are fixed by the tensorizers.
-The encoder preserves candidate order and returns `[0, action_dim]` for no actions.
+Each kind is encoded once across the batch, then vectors are restored to their
+original candidate positions and split by observation. Empty candidate tuples
+return `[0, action_dim]`; action and feature batch lengths must match.
 
 ```python
 from encoders.actions import tensorize_actions
@@ -143,17 +147,17 @@ from model import CombatModel
 
 model = CombatModel()  # Create once; default d_model=64 and action_dim=64.
 # Given a current combat decision from State.decision():
-logits = model(decision.observation, decision.actions)  # [n_actions]
-probabilities = logits.softmax(dim=0)
+logits, valid_actions = model([decision.observation], [decision.actions])  # [1, n_actions]
+probabilities = logits.softmax(dim=-1)
 ```
 
 The model computes observation features once, encodes the supplied candidates,
 and returns `action_vectors @ query` in candidate order. Pass actions from the
 same decision; noncombat kinds remain unsupported.
 
-`CombatModel` and the trainer still handle one decision at a time, using the
-batched observation encoder with a batch of one. Action batching is not yet
-implemented. Empty groups may have zero tokens. Keep dead enemies and empty
+`CombatModel.forward` accepts batches only. The trainer still handles one
+decision at a time using a batch of one. The multi-environment rollout loop is not
+yet implemented. Empty groups may have zero tokens. Keep dead enemies and empty
 potion slots; the summary token is always present.
 
 This consumes the existing tensorized features, not every public observation
@@ -188,7 +192,28 @@ For example, 3 cards + 3 enemies and 5 cards + 1 enemy each need 6 tokens, not
 8 tokens from independently padding both groups. This count excludes the other
 groups and summary token. Masks prevent padding from affecting real tokens.
 Raw action features retain per-observation slot order and gradients; no action
-can reference another observation's rows through the current single-decision model.
+can reference another observation's rows through the batched model.
+
+## Batched action scoring
+
+```python
+import torch
+
+logits, valid_actions = model(
+    [decision_a.observation, decision_b.observation],
+    [decision_a.actions, decision_b.actions],
+)
+# Both: [2, max_actions]. True means a real candidate (not padding).
+indices = torch.distributions.Categorical(logits=logits).sample()  # [2]
+# Step each simulator with its original decision.actions[indices[i].item()].
+```
+
+Action references are resolved within their own observation before grouping by
+kind. Scoring pads the encoded candidate vectors and sets invalid logits to
+`-inf`, so padding has zero probability. `forward` rejects empty batches,
+mismatched batch lengths, and observations with no candidates; terminal episodes
+must be handled outside the policy. This does not yet collect batched rollouts
+or change the training objective.
 
 ## Multi-root overnight experiment
 

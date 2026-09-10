@@ -90,25 +90,33 @@ class ActionEncoder(nn.Module):
 
     def forward(
         self,
-        actions: tuple[Action, ...],
-        features: dict[str, Float[Tensor, "?n_rows ?feature_dim"]],
-    ) -> Float[Tensor, "n_actions action_dim"]:
-        """Gather referenced rows from the same decision, preserving candidate order."""
-        action_inputs = tensorize_actions(
-            actions,
-            features["hand"],
-            features["potions"],
-            features["enemies"],
-            selection_features=features["selection"],
-        )
+        actions: list[tuple[Action, ...]],
+        features: list[dict[str, Float[Tensor, "?n_rows ?feature_dim"]]],
+    ) -> list[Float[Tensor, "?n_actions action_dim"]]:
+        """Encode once per kind across the batch, then restore per-decision candidate order."""
+        if len(actions) != len(features):
+            raise ValueError("Action and feature batches must have the same length")
+        grouped: dict[str, list[tuple[int, Float[Tensor, " ?action_features"]]]] = {}
+        offset = 0
+        for candidates, rows in zip(actions, features):
+            inputs = tensorize_actions(
+                candidates,
+                rows["hand"],
+                rows["potions"],
+                rows["enemies"],
+                selection_features=rows["selection"],
+            )
+            for index, (kind, row) in enumerate(inputs):
+                grouped.setdefault(kind, []).append((offset + index, row))
+            offset += len(candidates)
+
         reference = next(self.parameters())
-        vectors: list[Float[Tensor, " action_dim"]] = []
-        for kind, row in action_inputs:
+        vectors = reference.new_zeros((offset, self.action_dim))
+        for kind, entries in grouped.items():
+            indices = reference.new_tensor([index for index, _ in entries], dtype=torch.long)
             if kind in self.encoders:
-                vector = self.encoders[kind](row)
+                encoded = self.encoders[kind](torch.stack([row for _, row in entries]))
             else:
-                vector = self.constants[kind](reference.new_zeros((), dtype=torch.long))
-            vectors.append(vector)
-        if not vectors:
-            return reference.new_empty((0, self.action_dim))
-        return torch.stack(vectors)
+                encoded = self.constants[kind](torch.zeros_like(indices))
+            vectors = vectors.index_copy(0, indices, encoded)
+        return list(vectors.split([len(candidates) for candidates in actions]))

@@ -80,7 +80,8 @@ def play_combat(
             index = rng.randrange(len(decision.actions))
         else:
             with torch.set_grad_enabled(training):
-                distribution = Categorical(logits=model(observation, decision.actions))
+                logits, _ = model([observation], [decision.actions])
+                distribution = Categorical(logits=logits[0])
                 sampled = distribution.sample()
                 if training:
                     log_probs.append(distribution.log_prob(sampled))
