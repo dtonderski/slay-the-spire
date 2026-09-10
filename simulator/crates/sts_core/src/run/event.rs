@@ -33,9 +33,9 @@ use crate::{
     run::{
         grid::{
             open_bonfire_elementals_grid, open_designer_remove_and_upgrade_grid,
-            open_event_obtain_card_return_to_event_grid, open_event_remove_grid,
-            open_event_remove_return_to_event_grid, open_event_transform_return_to_event_grid,
-            open_event_upgrade_return_to_event_grid, GridPurpose, ASTROLABE_TRANSFORM_COUNT,
+            open_event_obtain_card_return_to_event_grid, open_event_remove_return_to_event_grid,
+            open_event_transform_return_to_event_grid, open_event_upgrade_return_to_event_grid,
+            GridPurpose, ASTROLABE_TRANSFORM_COUNT,
         },
         map::{
             add_mark_of_pain_wounds_to_draw_pile, apply_initial_monster_ai_rolls,
@@ -1156,12 +1156,7 @@ pub(super) fn validate_event_screen_authority(
                     "Accursed Blacksmith retains unexpected event data",
                 ));
             }
-            let expected_choices = if screen.stage == 0 {
-                labeled_choices(&["Forge", "Rummage", "Leave"])
-            } else {
-                labeled_choices(&["Leave"])
-            };
-            if screen.choices != expected_choices {
+            if screen.choices != accursed_blacksmith_choices(run, screen.stage) {
                 return Err(SimError::InvalidState(
                     "Accursed Blacksmith choices do not match its stage",
                 ));
@@ -1805,14 +1800,8 @@ pub(super) fn validate_pending_obtain_authority(run: &RunState) -> SimResult<()>
                 pending_obtain_source_is_empty(run)
                     || (run.pending_obtain_provenance.len() == 1 && pending.len() == 1)
             }
-            (Event::MatchAndKeep, 2) => {
-                pending_obtain_source_is_empty(run)
-                    || (run.pending_obtain_provenance.len() == 1
-                        && pending.len() == 1
-                        && run
-                            .match_and_keep
-                            .as_ref()
-                            .is_some_and(|state| state.matched_cards.contains(&pending[0])))
+            (Event::MatchAndKeep, 2) | (Event::MatchAndKeep, 3) => {
+                match_and_keep_pending_obtains_are_valid(run)
             }
             _ => pending_obtain_is_necronomicon_curse(run, pending),
         },
@@ -2559,6 +2548,11 @@ pub struct MatchAndKeepState {
     /// the card board one step longer, then any CHOOSE advances to Leave.
     #[serde(default)]
     pub game_done: bool,
+    /// GremlinMatchGame waitTimer / waitForEndTimer in milliseconds. Face-up
+    /// mismatch cards stay out of CommunicationMod's pickable list until this
+    /// elapses (collector WAIT commands).
+    #[serde(default)]
+    pub wait_remaining_ms: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -3301,6 +3295,21 @@ fn designer_purgeable_card_count(run: &RunState) -> usize {
         .count()
 }
 
+fn accursed_blacksmith_has_forge(run: &RunState) -> bool {
+    run.deck.iter().any(card_instance_is_upgradeable)
+}
+
+fn accursed_blacksmith_choices(run: &RunState, stage: u32) -> Vec<EventChoice> {
+    if stage > 0 {
+        return labeled_choices(&["Leave"]);
+    }
+    if accursed_blacksmith_has_forge(run) {
+        labeled_choices(&["Forge", "Rummage", "Leave"])
+    } else {
+        labeled_choices(&["Rummage", "Leave"])
+    }
+}
+
 fn designer_has_upgradable_card(run: &RunState) -> bool {
     run.deck.iter().any(card_instance_is_upgradeable)
 }
@@ -3804,6 +3813,20 @@ fn wheel_of_change_choices(stage: u32, _result: u32) -> Vec<EventChoice> {
     }
 }
 
+fn match_and_keep_pending_obtains_are_valid(run: &RunState) -> bool {
+    let Some(state) = run.match_and_keep.as_ref() else {
+        return pending_obtain_source_is_empty(run);
+    };
+    pending_obtain_source_is_empty(run)
+        || (run.pending_obtain_provenance.len() == run.pending_obtain_cards.len()
+            && run.pending_obtain_cards.len() <= state.matched_cards.len()
+            && run
+                .pending_obtain_cards
+                .iter()
+                .zip(state.matched_cards.iter())
+                .all(|(pending, matched)| pending == matched))
+}
+
 fn match_and_keep_choices(stage: u32, card_count: usize) -> Vec<EventChoice> {
     match stage {
         0 => labeled_choices(&["Continue"]),
@@ -3850,22 +3873,47 @@ pub fn match_and_keep_label_index_for_group(
     }
 }
 
+const MATCH_AND_KEEP_PAIR_WAIT_MS: u32 = 800;
+
+fn match_and_keep_visible_slots(
+    state: &MatchAndKeepState,
+) -> impl Iterator<Item = (usize, usize)> + '_ {
+    let card_count = state.cards.len();
+    let unrevealed_remain = state
+        .cards
+        .iter()
+        .any(|card| !card.matched && !card.revealed);
+    let waiting = state.wait_remaining_ms > 0;
+    (0..card_count).filter_map(move |label_index| {
+        let group_index = match_and_keep_group_index_for_label(label_index, card_count)?;
+        let card = state.cards.get(group_index)?;
+        if card.matched {
+            return None;
+        }
+        let currently_flipped = state.first_flipped_index == Some(group_index)
+            || state.second_flipped_index == Some(group_index);
+        if unrevealed_remain || waiting {
+            (!card.revealed && !currently_flipped).then_some((label_index, group_index))
+        } else {
+            (!currently_flipped).then_some((label_index, group_index))
+        }
+    })
+}
+
 fn match_and_keep_card_choices(run: &RunState) -> SimResult<Vec<EventChoice>> {
     let state = run
         .match_and_keep
         .as_ref()
         .ok_or(SimError::InvalidState("Match and Keep state is missing"))?;
-    let card_count = state.cards.len();
-    (0..card_count)
-        .filter_map(|label_index| {
-            let group_index = match_and_keep_group_index_for_label(label_index, card_count)?;
-            let card = state.cards.get(group_index)?;
-            let currently_flipped = state.first_flipped_index == Some(group_index)
-                || state.second_flipped_index == Some(group_index);
-            (!card.matched && !currently_flipped).then_some((label_index, card))
-        })
-        .map(|(label_index, card)| {
-            let label = if card.revealed {
+    let show_names = !state
+        .cards
+        .iter()
+        .any(|card| !card.matched && !card.revealed)
+        && state.wait_remaining_ms == 0;
+    match_and_keep_visible_slots(state)
+        .map(|(label_index, group_index)| {
+            let card = &state.cards[group_index];
+            let label = if show_names {
                 get_card_definition(card.content_id)
                     .ok_or(SimError::UnknownContent(card.content_id))?
                     .name
@@ -3878,38 +3926,81 @@ fn match_and_keep_card_choices(run: &RunState) -> SimResult<Vec<EventChoice>> {
         .collect()
 }
 
+/// Advance GremlinMatchGame waitTimer by collector WAIT milliseconds.
+pub fn tick_match_and_keep_wait(run: &mut RunState, ms: u32) -> SimResult<()> {
+    let Some(state) = run.match_and_keep.as_mut() else {
+        return Ok(());
+    };
+    if state.wait_remaining_ms == 0 || ms == 0 {
+        return Ok(());
+    }
+    state.wait_remaining_ms = state.wait_remaining_ms.saturating_sub(ms);
+    if state.wait_remaining_ms > 0 {
+        return Ok(());
+    }
+    let on_board = run
+        .event
+        .as_ref()
+        .is_some_and(|screen| screen.event == Event::MatchAndKeep && screen.stage == 2);
+    if !on_board {
+        return Ok(());
+    }
+    let unmatched_remain = run
+        .match_and_keep
+        .as_ref()
+        .is_some_and(|state| state.cards.iter().any(|card| !card.matched));
+    if !unmatched_remain {
+        run.flush_pending_obtain_cards()?;
+        run.event = Some(make_event_screen(
+            Event::MatchAndKeep,
+            labeled_choices(&["Leave"]),
+            3,
+        ));
+        return Ok(());
+    }
+    let choices = match_and_keep_card_choices(run)?;
+    if let Some(screen) = run.event.as_mut() {
+        screen.choices = choices;
+    }
+    Ok(())
+}
+
 fn initialize_match_and_keep_state(run: &mut RunState) -> SimResult<MatchAndKeepState> {
+    // GremlinMatchGame.<init>: getCard uses cardRandomRng against src*CardPool.
+    // Curses use cardRng. returnColorlessCard shuffles via shuffleRng.randomLong().
+    // CardGroup.addToTop during construction leaves Bash at index 0.
+    let mut card_random = run.rng_for_stream(RunRngStream::CardRandom);
     let mut card_rng = run.rng_for_stream(RunRngStream::CardReward);
     let mut shuffle_rng = run.rng_for_stream(RunRngStream::Shuffle);
     if run.colorless_card_pool.is_empty() {
         run.colorless_card_pool = colorless_match_and_keep_pool();
     }
-    let mut contents = if run.ascension >= 15 {
-        vec![
-            random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Rare)?,
-            random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Uncommon)?,
-            random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Common)?,
-            random_normal_curse(&mut card_rng),
-            random_normal_curse(&mut card_rng),
-            BASH_ID,
-        ]
+    // Constructor order: colorless/A15 curse, rare, uncommon, common, curse, Bash.
+    let mut contents = Vec::new();
+    if run.ascension >= 15 {
+        contents.push(random_normal_curse(&mut card_rng));
     } else {
-        // Match and Keep's colorless slot uses returnColorlessCard, which mutates
-        // the shared colorlessCardPool (same path as Knowing Skull Success).
-        let colorless = return_colorless_card_from_pool(
+        contents.push(return_colorless_card_from_pool(
             &mut run.colorless_card_pool,
             &mut shuffle_rng,
             CardRarity::Uncommon,
-        );
-        vec![
-            random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Rare)?,
-            random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Uncommon)?,
-            random_ironclad_card_by_rarity(&mut card_rng, CardRarity::Common)?,
-            colorless,
-            random_normal_curse(&mut card_rng),
-            BASH_ID,
-        ]
-    };
+        ));
+    }
+    contents.push(random_ironclad_card_by_rarity(
+        &mut card_random,
+        CardRarity::Rare,
+    )?);
+    contents.push(random_ironclad_card_by_rarity(
+        &mut card_random,
+        CardRarity::Uncommon,
+    )?);
+    contents.push(random_ironclad_card_by_rarity(
+        &mut card_random,
+        CardRarity::Common,
+    )?);
+    contents.push(random_normal_curse(&mut card_rng));
+    contents.push(BASH_ID);
+    run.store_rng_counter(RunRngStream::CardRandom, &card_random);
     run.store_rng_counter(RunRngStream::CardReward, &card_rng);
     run.store_rng_counter(RunRngStream::Shuffle, &shuffle_rng);
 
@@ -3934,6 +4025,7 @@ fn initialize_match_and_keep_state(run: &mut RunState) -> SimResult<MatchAndKeep
         second_flipped_index: None,
         matched_cards: Vec::new(),
         game_done: false,
+        wait_remaining_ms: 0,
     })
 }
 
@@ -4220,6 +4312,9 @@ pub fn event_screen_for_run(run: &RunState, event: Event) -> EventScreen {
         Event::SensoryStone => make_event_screen(event, sensory_stone_choices(0), 0),
         Event::WindingHalls => make_event_screen(event, winding_halls_choices(run, 0), 0),
         Event::MindBloom => make_event_screen(event, mind_bloom_choices(run), 0),
+        Event::AccursedBlacksmith => {
+            make_event_screen(event, accursed_blacksmith_choices(run, 0), 0)
+        }
         _ => event_screen(event),
     }
 }
@@ -4545,6 +4640,11 @@ fn open_neow_card_reward_choices(run: &mut RunState, cards: Vec<ContentId>) -> S
     Ok(())
 }
 
+pub(crate) fn leave_event_to_map(next: &mut RunState) {
+    // CommunicationMod RETURN on MAP dismisses this overlay back to Leave.
+    next.map_overlay = Some(crate::MapOverlay { dismissable: true });
+}
+
 fn event_choice_is_locked(choice: &EventChoice) -> bool {
     let label = choice.label.to_ascii_lowercase();
     label == "locked" || label.ends_with("(locked)")
@@ -4644,22 +4744,13 @@ fn match_and_keep_group_index_for_visible_choice(
     choice_index: usize,
 ) -> Option<usize> {
     let state = run.match_and_keep.as_ref()?;
-    let card_count = state.cards.len();
-    (0..card_count)
-        .filter_map(|label_index| {
-            let group_index = match_and_keep_group_index_for_label(label_index, card_count)?;
-            let card = state.cards.get(group_index)?;
-            let currently_flipped = state.first_flipped_index == Some(group_index)
-                || state.second_flipped_index == Some(group_index);
-            (!card.matched && !currently_flipped).then_some(group_index)
-        })
+    match_and_keep_visible_slots(state)
+        .map(|(_, group_index)| group_index)
         .nth(choice_index)
 }
 
 fn apply_match_and_keep_card_choice(run: &mut RunState, choice_index: usize) -> SimResult<()> {
-    // A matched card's obtain effect settles on the following update.
-    run.flush_pending_obtain_cards()?;
-
+    // ShowCardAndObtainEffect stays queued until Leave.
     {
         let state = run
             .match_and_keep
@@ -4703,25 +4794,30 @@ fn apply_match_and_keep_card_choice(run: &mut RunState, choice_index: usize) -> 
         .ok_or(SimError::InvalidState("Match and Keep state is missing"))?
         .attempts_remaining;
     if attempts_remaining == 0 {
-        // Target sets gameDone and waitTimer=1s, then CLEAN_UP/Leave. CommunicationMod
-        // only becomes ready after that wait, so the discrete post-state of the fifth
-        // attempt's second flip is already Leave (not a sticky card board).
         if let Some(state) = run.match_and_keep.as_mut() {
             state.game_done = true;
         }
+    }
+    let unmatched_remain = run
+        .match_and_keep
+        .as_ref()
+        .is_some_and(|state| state.cards.iter().any(|card| !card.matched));
+    if !unmatched_remain {
         run.flush_pending_obtain_cards()?;
         run.event = Some(make_event_screen(
             Event::MatchAndKeep,
             labeled_choices(&["Leave"]),
             3,
         ));
-    } else {
-        run.event = Some(make_event_screen(
-            Event::MatchAndKeep,
-            match_and_keep_card_choices(run)?,
-            2,
-        ));
+        return Ok(());
     }
+    // FIDL00012 keeps emitting remaining cardN slots through all 12 clicks.
+    // Leave / named leftovers appear only after waitTimer elapses.
+    run.event = Some(make_event_screen(
+        Event::MatchAndKeep,
+        match_and_keep_card_choices(run)?,
+        2,
+    ));
     Ok(())
 }
 
@@ -4741,14 +4837,6 @@ fn resolve_match_and_keep_pending_pair(run: &mut RunState) -> SimResult<bool> {
             "Match and Keep pending pair is out of range",
         ));
     }
-    let attempts_remaining =
-        state
-            .attempts_remaining
-            .checked_sub(1)
-            .ok_or(SimError::InvalidState(
-                "Match and Keep has no attempts remaining",
-            ))?;
-
     let first_content = state.cards[first_index].content_id;
     let second_content = state.cards[second_index].content_id;
     state.first_flipped_index = None;
@@ -4759,10 +4847,14 @@ fn resolve_match_and_keep_pending_pair(run: &mut RunState) -> SimResult<bool> {
         state.cards[first_index].matched = true;
         state.cards[second_index].matched = true;
     } else {
+        // Clicked cards stay face-up (and out of CommunicationMod's cardN list)
+        // until waitTimer elapses. After WAIT they become named pickable cards.
+        // attemptCount only decrements on a mismatch.
         state.cards[first_index].revealed = true;
         state.cards[second_index].revealed = true;
+        state.attempts_remaining = state.attempts_remaining.saturating_sub(1);
     }
-    state.attempts_remaining = attempts_remaining;
+    state.wait_remaining_ms = MATCH_AND_KEEP_PAIR_WAIT_MS;
 
     if let Some(content_id) = matched_content {
         run.queue_pending_obtain_card(content_id);
@@ -4912,6 +5004,7 @@ mod tests {
             second_flipped_index: None,
             matched_cards: Vec::new(),
             game_done: false,
+            wait_remaining_ms: 0,
         });
         let choices = match stage {
             0 | 1 => match_and_keep_choices(stage, 0),
@@ -5050,8 +5143,21 @@ mod tests {
             crate::run::grid::select_grid_card(&after_continue, 0).expect("select purge target");
         let completed =
             crate::run::grid::confirm_grid(&selected).expect("Beggar purge confirm settles to map");
-        assert_eq!(completed.phase, RunPhase::Idle);
-        assert!(completed.event.is_none());
+        assert_eq!(completed.phase, RunPhase::Event);
+        assert!(completed
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert_eq!(
+            completed
+                .event
+                .as_ref()
+                .expect("leave screen")
+                .choices
+                .iter()
+                .map(|choice| choice.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Leave"]
+        );
         assert!(completed.card_grid.is_none());
         assert_eq!(completed.deck.len(), deck_len_before - 1);
         assert!(completed.deck.iter().all(|card| card.id != purge_id));
@@ -5075,8 +5181,11 @@ mod tests {
 
         let completed = apply_event_action(&leave_screen, EventAction::Choose { choice_index: 0 })
             .expect("final Beggar Leave returns to the map");
-        assert_eq!(completed.phase, RunPhase::Idle);
-        assert!(completed.event.is_none());
+        assert_eq!(completed.phase, RunPhase::Event);
+        assert!(completed
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(completed.event.is_some());
     }
 
     #[test]
@@ -5110,7 +5219,7 @@ mod tests {
             .expect("Addict Leave settles the pending Shame");
         assert!(left.pending_obtain_cards.is_empty());
         assert!(left.deck.iter().any(|card| card.content_id == SHAME_ID));
-        assert!(left.event.is_none());
+        assert!(left.event.is_some());
     }
 
     #[test]
@@ -5373,6 +5482,26 @@ mod tests {
     }
 
     #[test]
+    fn neow_leave_opens_a_dismissable_map_overlay() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.hp = 10_000;
+        run.max_hp = 10_000;
+        run.phase = RunPhase::Event;
+        run.event = Some(neow_screen_for_stage(&run, 2));
+        let left = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
+            .expect("Neow Leave opens the map overlay");
+        assert_eq!(left.phase, RunPhase::Event);
+        assert!(left.event.is_some());
+        assert!(left.map_overlay.is_some_and(|overlay| overlay.dismissable));
+        let returned = apply_run_action(&left, RunAction::ReturnFromMap)
+            .expect("RETURN restores the Leave screen");
+        assert!(returned.map_overlay.is_none());
+        assert_eq!(returned.phase, RunPhase::Event);
+        assert_eq!(returned.event.as_ref().map(|event| event.stage), Some(2));
+        returned.validate().expect("restored Leave screen is valid");
+    }
+
+    #[test]
     fn neow_option_enters_leave_stage_before_hp_changing_grid_result() {
         let mut run = RunState::seeded_ironclad(34_961_238_661_169, 0);
         run.hp = 10_000;
@@ -5543,10 +5672,17 @@ mod tests {
         );
 
         let early_proceed = apply_run_action(&next, RunAction::Proceed)
-            .expect("non-empty Neow reward can be abandoned with proceed");
-        assert_eq!(early_proceed.phase, RunPhase::Idle);
-        assert!(early_proceed.reward.is_none());
-        assert!(early_proceed.event.is_none());
+            .expect("non-empty Neow reward can open the map overlay");
+        assert_eq!(early_proceed.phase, RunPhase::Reward);
+        assert!(early_proceed
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(early_proceed.reward.is_some());
+        assert!(early_proceed.event.is_some());
+        let returned = apply_run_action(&early_proceed, RunAction::ReturnFromMap)
+            .expect("RETURN dismisses the map overlay");
+        assert!(returned.map_overlay.is_none());
+        assert_eq!(returned.phase, RunPhase::Reward);
 
         for expected in generated.potions {
             next = apply_run_action(&next, RunAction::TakePotionReward { index: 0 })
@@ -5561,10 +5697,11 @@ mod tests {
             .is_empty());
 
         next = apply_run_action(&next, RunAction::Proceed)
-            .expect("empty Neow reward proceeds to the map");
-        assert_eq!(next.phase, RunPhase::Idle);
-        assert!(next.event.is_none());
-        assert!(next.reward.is_none());
+            .expect("empty Neow reward opens the map overlay");
+        assert_eq!(next.phase, RunPhase::Reward);
+        assert!(next.map_overlay.is_some_and(|overlay| overlay.dismissable));
+        assert!(next.event.is_some());
+        assert!(next.reward.is_some());
     }
 
     #[test]
@@ -5648,8 +5785,9 @@ mod tests {
         let next = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
             .expect("COWARDICE leaves Colosseum");
         assert!(next.pending_event_combat_rng.is_none());
-        assert!(next.event.is_none());
-        assert_eq!(next.phase, RunPhase::Idle);
+        assert!(next.event.is_some());
+        assert_eq!(next.phase, RunPhase::Event);
+        assert!(next.map_overlay.is_some_and(|overlay| overlay.dismissable));
     }
 
     #[test]
@@ -5760,8 +5898,11 @@ mod tests {
 
         let completed = apply_event_action(&leave, EventAction::Choose { choice_index: 0 })
             .expect("Wheel of Change leave can be selected");
-        assert_eq!(completed.phase, RunPhase::Idle);
-        assert!(completed.event.is_none());
+        assert_eq!(completed.phase, RunPhase::Event);
+        assert!(completed
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(completed.event.is_some());
     }
 
     #[test]
@@ -5841,9 +5982,12 @@ mod tests {
 
         let completed = apply_event_action(&leave, EventAction::Choose { choice_index: 0 })
             .expect("Wheel of Change leave applies");
-        assert_eq!(completed.phase, RunPhase::Idle);
+        assert_eq!(completed.phase, RunPhase::Event);
+        assert!(completed
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
         assert_eq!(completed.gold, 50);
-        assert!(completed.event.is_none());
+        assert!(completed.event.is_some());
     }
 
     #[test]
@@ -6292,8 +6436,9 @@ mod tests {
             .expect("Leave settles both transformed cards");
         assert_eq!(left.deck.len(), original_deck_len);
         assert!(left.pending_obtain_cards.is_empty());
-        assert_eq!(left.phase, RunPhase::Idle);
-        assert!(left.event.is_none());
+        assert_eq!(left.phase, RunPhase::Event);
+        assert!(left.map_overlay.is_some_and(|overlay| overlay.dismissable));
+        assert!(left.event.is_some());
     }
 
     #[test]
@@ -6318,8 +6463,9 @@ mod tests {
             .expect("Leave settles the J.A.X. obtain effect");
         assert_eq!(left.deck.len(), original_deck_len + 1);
         assert_eq!(left.pending_obtain_cards, Vec::<ContentId>::new());
-        assert_eq!(left.phase, RunPhase::Idle);
-        assert!(left.event.is_none());
+        assert_eq!(left.phase, RunPhase::Event);
+        assert!(left.map_overlay.is_some_and(|overlay| overlay.dismissable));
+        assert!(left.event.is_some());
         assert_eq!(
             left.deck.last().expect("J.A.X. deck card").content_id,
             JAX_ID
@@ -6455,8 +6601,11 @@ mod tests {
         let after_leave =
             apply_event_action(&after_confirm, EventAction::Choose { choice_index: 0 })
                 .expect("Bonfire leave applies");
-        assert_eq!(after_leave.phase, RunPhase::Idle);
-        assert!(after_leave.event.is_none());
+        assert_eq!(after_leave.phase, RunPhase::Event);
+        assert!(after_leave
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(after_leave.event.is_some());
     }
 
     #[test]
@@ -6780,13 +6929,15 @@ mod tests {
         state.second_flipped_index = Some(1);
         let before = run.clone();
 
+        assert_eq!(resolve_match_and_keep_pending_pair(&mut run), Ok(true));
         assert_eq!(
-            resolve_match_and_keep_pending_pair(&mut run),
-            Err(SimError::InvalidState(
-                "Match and Keep has no attempts remaining"
-            ))
+            run.match_and_keep
+                .as_ref()
+                .expect("state")
+                .attempts_remaining,
+            0
         );
-        assert_eq!(run, before);
+        assert_ne!(run, before);
     }
 
     #[test]
@@ -6875,6 +7026,7 @@ mod tests {
             second_flipped_index: None,
             matched_cards: Vec::new(),
             game_done: false,
+            wait_remaining_ms: 0,
         });
 
         assert_eq!(
@@ -6915,6 +7067,7 @@ mod tests {
             second_flipped_index: None,
             matched_cards: Vec::new(),
             game_done: false,
+            wait_remaining_ms: 0,
         });
 
         let after_first = apply_event_action(&run, EventAction::Choose { choice_index: 2 })
@@ -6989,6 +7142,7 @@ mod tests {
             second_flipped_index: None,
             matched_cards: Vec::new(),
             game_done: false,
+            wait_remaining_ms: 0,
         });
 
         let after_first = apply_event_action(&run, EventAction::Choose { choice_index: 3 })
@@ -7034,6 +7188,7 @@ mod tests {
             second_flipped_index: None,
             matched_cards: Vec::new(),
             game_done: false,
+            wait_remaining_ms: 0,
         });
         let first = apply_event_action(&run, EventAction::Choose { choice_index: 11 }).unwrap();
         let second = apply_event_action(&first, EventAction::Choose { choice_index: 3 }).unwrap();
@@ -7046,8 +7201,10 @@ mod tests {
             .iter()
             .map(|choice| choice.label.as_str())
             .collect::<Vec<_>>();
-        assert!(!choices.contains(&"card6"));
-        assert!(choices.contains(&"card7"));
+        // Prior mismatch keeps card3/card11 out of the cardN list, so visible
+        // index 6 is card7 rather than the original card6 slot.
+        assert!(!choices.contains(&"card7"));
+        assert!(choices.contains(&"card6"));
     }
 
     #[test]
@@ -7082,6 +7239,7 @@ mod tests {
             second_flipped_index: None,
             matched_cards: Vec::new(),
             game_done: false,
+            wait_remaining_ms: 0,
         });
 
         let after_first = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
@@ -7105,7 +7263,7 @@ mod tests {
             .match_and_keep
             .as_ref()
             .expect("state remains while attempts remain");
-        assert_eq!(state.attempts_remaining, 4);
+        assert_eq!(state.attempts_remaining, 5);
         assert_eq!(state.matched_cards, vec![STRIKE_R_ID]);
         assert_eq!(state.cards.len(), 3);
         assert_eq!(state.first_flipped_index, None);
@@ -7131,17 +7289,17 @@ mod tests {
 
         let after_next_flip =
             apply_event_action(&after_second, EventAction::Choose { choice_index: 0 })
-                .expect("next flip resolves the pair and flushes the obtain effect");
-        assert!(after_next_flip.pending_obtain_cards.is_empty());
+                .expect("next flip keeps the matched obtain pending until Leave");
+        assert_eq!(after_next_flip.pending_obtain_cards, vec![STRIKE_R_ID]);
         let state = after_next_flip.match_and_keep.as_ref().unwrap();
-        assert_eq!(state.attempts_remaining, 4);
+        assert_eq!(state.attempts_remaining, 5);
         assert_eq!(state.matched_cards, vec![STRIKE_R_ID]);
         assert_eq!(state.cards.len(), 3);
         assert!(state.cards[0].matched);
         assert_eq!(state.cards[1].content_id, DEFEND_R_ID);
         assert_eq!(state.first_flipped_index, Some(1));
         assert!(state.cards[2].matched);
-        assert_eq!(
+        assert_ne!(
             after_next_flip.deck.last().map(|card| card.content_id),
             Some(STRIKE_R_ID)
         );
@@ -7175,6 +7333,7 @@ mod tests {
             second_flipped_index: None,
             matched_cards: Vec::new(),
             game_done: false,
+            wait_remaining_ms: 0,
         });
 
         let after_first = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
@@ -7192,27 +7351,21 @@ mod tests {
         assert!(state.game_done);
         assert_eq!(state.first_flipped_index, None);
         assert_eq!(state.second_flipped_index, None);
-        // Discrete CM ready-state folds gameDone waitTimer into Leave.
-        assert_eq!(after_second.event.as_ref().expect("leave").stage, 3);
-        assert_eq!(
+        assert_eq!(after_second.event.as_ref().expect("waiting").stage, 2);
+        assert!(after_second
+            .event
+            .as_ref()
+            .expect("waiting")
+            .choices
+            .is_empty());
+        assert!(
             after_second
-                .event
+                .match_and_keep
                 .as_ref()
-                .expect("leave screen")
-                .choices
-                .iter()
-                .map(|choice| choice.label.as_str())
-                .collect::<Vec<_>>(),
-            vec!["Leave"]
+                .expect("state")
+                .wait_remaining_ms
+                > 0
         );
-
-        let after_leave =
-            apply_event_action(&after_second, EventAction::Choose { choice_index: 0 })
-                .expect("leave closes the completed game");
-        assert_eq!(after_leave.deck.len(), deck_len);
-        assert_eq!(after_leave.phase, RunPhase::Idle);
-        assert!(after_leave.event.is_none());
-        assert!(after_leave.match_and_keep.is_none());
     }
 
     #[test]
@@ -7246,8 +7399,11 @@ mod tests {
         );
         let after_close = apply_event_action(&after_leave, EventAction::Choose { choice_index: 0 })
             .expect("leave screen closes the shrine");
-        assert_eq!(after_close.phase, RunPhase::Idle);
-        assert!(after_close.event.is_none());
+        assert_eq!(after_close.phase, RunPhase::Event);
+        assert!(after_close
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(after_close.event.is_some());
 
         let after_pray = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
             .expect("pray choice applies");
@@ -7288,8 +7444,11 @@ mod tests {
 
         let completed = apply_event_action(&after_confirm, EventAction::Choose { choice_index: 0 })
             .expect("Upgrade Shrine leave returns to the map");
-        assert_eq!(completed.phase, RunPhase::Idle);
-        assert!(completed.event.is_none());
+        assert_eq!(completed.phase, RunPhase::Event);
+        assert!(completed
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(completed.event.is_some());
     }
 
     #[test]
@@ -7393,8 +7552,9 @@ mod tests {
 
         let left = apply_event_action(&after_select, EventAction::Choose { choice_index: 0 })
             .expect("Leave returns to map");
-        assert_eq!(left.phase, RunPhase::Idle);
-        assert!(left.event.is_none());
+        assert_eq!(left.phase, RunPhase::Event);
+        assert!(left.map_overlay.is_some_and(|overlay| overlay.dismissable));
+        assert!(left.event.is_some());
     }
 
     #[test]
@@ -7423,8 +7583,11 @@ mod tests {
         let completed =
             apply_event_action(&after_first_leave, EventAction::Choose { choice_index: 0 })
                 .expect("second Purifier leave choice returns to the map");
-        assert_eq!(completed.phase, RunPhase::Idle);
-        assert!(completed.event.is_none());
+        assert_eq!(completed.phase, RunPhase::Event);
+        assert!(completed
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(completed.event.is_some());
     }
 
     #[test]
@@ -7446,8 +7609,11 @@ mod tests {
         let completed =
             apply_event_action(&after_first_leave, EventAction::Choose { choice_index: 0 })
                 .expect("second Golden Idol leave choice returns to the map");
-        assert_eq!(completed.phase, RunPhase::Idle);
-        assert!(completed.event.is_none());
+        assert_eq!(completed.phase, RunPhase::Event);
+        assert!(completed
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(completed.event.is_some());
     }
 
     #[test]
@@ -7470,8 +7636,11 @@ mod tests {
 
         let completed = apply_event_action(&after_sleep, EventAction::Choose { choice_index: 0 })
             .expect("Library leave choice returns to the map");
-        assert_eq!(completed.phase, RunPhase::Idle);
-        assert!(completed.event.is_none());
+        assert_eq!(completed.phase, RunPhase::Event);
+        assert!(completed
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(completed.event.is_some());
     }
 
     #[test]
@@ -7500,8 +7669,11 @@ mod tests {
             let completed =
                 apply_event_action(&after_first_leave, EventAction::Choose { choice_index: 0 })
                     .expect("terminal leave choice returns to the map");
-            assert_eq!(completed.phase, RunPhase::Idle);
-            assert!(completed.event.is_none());
+            assert_eq!(completed.phase, RunPhase::Event);
+            assert!(completed
+                .map_overlay
+                .is_some_and(|overlay| overlay.dismissable));
+            assert!(completed.event.is_some());
         }
     }
 
@@ -7529,8 +7701,11 @@ mod tests {
             apply_event_action(&after_first_leave, EventAction::Choose { choice_index: 0 })
                 .expect("second leave choice closes the event");
 
-        assert_eq!(after_second_leave.phase, RunPhase::Idle);
-        assert!(after_second_leave.event.is_none());
+        assert_eq!(after_second_leave.phase, RunPhase::Event);
+        assert!(after_second_leave
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(after_second_leave.event.is_some());
     }
 
     #[test]
@@ -7718,7 +7893,7 @@ mod tests {
             left.deck.last().expect("transformed card").content_id,
             pending[0]
         );
-        assert!(left.event.is_none());
+        assert!(left.event.is_some());
     }
 
     #[test]
@@ -8061,8 +8236,11 @@ mod tests {
         let after_leave =
             apply_event_action(&after_ignore, EventAction::Choose { choice_index: 0 })
                 .expect("leave choice closes the event");
-        assert_eq!(after_leave.phase, RunPhase::Idle);
-        assert!(after_leave.event.is_none());
+        assert_eq!(after_leave.phase, RunPhase::Event);
+        assert!(after_leave
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(after_leave.event.is_some());
     }
 
     #[test]
@@ -8140,8 +8318,11 @@ mod tests {
         let after_final_leave =
             apply_event_action(&after_first_leave, EventAction::Choose { choice_index: 0 })
                 .expect("final leave choice returns to map");
-        assert_eq!(after_final_leave.phase, RunPhase::Idle);
-        assert!(after_final_leave.event.is_none());
+        assert_eq!(after_final_leave.phase, RunPhase::Event);
+        assert!(after_final_leave
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(after_final_leave.event.is_some());
     }
 
     #[test]
@@ -8459,8 +8640,11 @@ mod tests {
         let completed =
             apply_event_action(&continue_screen, EventAction::Choose { choice_index: 0 })
                 .expect("Ssssserpent leave");
-        assert_eq!(completed.phase, RunPhase::Idle);
-        assert!(completed.event.is_none());
+        assert_eq!(completed.phase, RunPhase::Event);
+        assert!(completed
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(completed.event.is_some());
         assert_eq!(
             completed
                 .deck
@@ -9067,8 +9251,11 @@ mod tests {
 
         let completed = apply_event_action(&leave, EventAction::Choose { choice_index: 0 })
             .expect("Accursed Blacksmith final leave returns to the map");
-        assert_eq!(completed.phase, RunPhase::Idle);
-        assert!(completed.event.is_none());
+        assert_eq!(completed.phase, RunPhase::Event);
+        assert!(completed
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(completed.event.is_some());
     }
 
     #[test]
@@ -9271,7 +9458,7 @@ mod tests {
 
         let after_leave = apply_event_action(&after_heal, EventAction::Choose { choice_index: 0 })
             .expect("Mushroom leave applies");
-        assert!(after_leave.event.is_none());
+        assert!(after_leave.event.is_some());
         assert!(after_leave
             .deck
             .iter()
@@ -9477,8 +9664,9 @@ mod tests {
 
         let left = apply_event_action(&accepted, EventAction::Choose { choice_index: 0 })
             .expect("Vampires leave returns to map");
-        assert_eq!(left.phase, RunPhase::Idle);
-        assert!(left.event.is_none());
+        assert_eq!(left.phase, RunPhase::Event);
+        assert!(left.map_overlay.is_some_and(|overlay| overlay.dismissable));
+        assert!(left.event.is_some());
         assert!(left.pending_obtain_cards.is_empty());
         assert_eq!(
             left.deck
@@ -9865,8 +10053,11 @@ mod tests {
 
         let after_leave = apply_event_action(&after_drink, EventAction::Choose { choice_index: 0 })
             .expect("Fountain leave applies");
-        assert_eq!(after_leave.phase, RunPhase::Idle);
-        assert!(after_leave.event.is_none());
+        assert_eq!(after_leave.phase, RunPhase::Event);
+        assert!(after_leave
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(after_leave.event.is_some());
     }
 
     #[test]
@@ -9894,8 +10085,11 @@ mod tests {
         let after_confirm =
             apply_event_action(&after_root_leave, EventAction::Choose { choice_index: 0 })
                 .expect("Leave confirm exits");
-        assert_eq!(after_confirm.phase, RunPhase::Idle);
-        assert!(after_confirm.event.is_none());
+        assert_eq!(after_confirm.phase, RunPhase::Event);
+        assert!(after_confirm
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(after_confirm.event.is_some());
     }
 
     #[test]
@@ -10248,8 +10442,11 @@ mod tests {
 
         let on_map = apply_event_action(&leave_page, EventAction::Choose { choice_index: 0 })
             .expect("final Leave returns to map");
-        assert_eq!(on_map.phase, RunPhase::Idle);
-        assert!(on_map.event.is_none());
+        assert_eq!(on_map.phase, RunPhase::Event);
+        assert!(on_map
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
+        assert!(on_map.event.is_some());
     }
 
     #[test]
@@ -10629,8 +10826,11 @@ mod tests {
         );
         let after_leave =
             apply_event_action(&after_rob, EventAction::Choose { choice_index: 0 }).expect("leave");
-        assert!(after_leave.event.is_none(), "event={:?}", after_leave.event);
-        assert_eq!(after_leave.phase, RunPhase::Idle);
+        assert!(after_leave.event.is_some());
+        assert_eq!(after_leave.phase, RunPhase::Event);
+        assert!(after_leave
+            .map_overlay
+            .is_some_and(|overlay| overlay.dismissable));
         assert!(after_leave.deck.iter().any(|c| c.content_id == SHAME_ID));
     }
 }

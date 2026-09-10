@@ -5,7 +5,8 @@ use crate::{
     content::{
         cards::{get_card_definition, is_curse_content_id, EVISCERATE_ANY_COLOR_ID, VOID_ID},
         monsters::{
-            check_slime_boss_split, guardian_accumulate_hp_damage, wake_lagavulin_on_damage,
+            check_slime_boss_split, guardian_accumulate_hp_damage,
+            reduce_lagavulin_sleep_metallicize, wake_lagavulin_on_damage,
         },
     },
     ids::{ContentId, MonsterId},
@@ -413,7 +414,9 @@ pub(crate) fn apply_fire_breathing_damage(state: &mut CombatState, amount: i32) 
             guardian_accumulate_hp_damage(monster, hp_damage);
             let blocked = block_before - monster.block;
             let broke_block = block_before > 0 && blocked == block_before;
-            wake_lagavulin_on_damage(monster, hp_damage);
+            if wake_lagavulin_on_damage(monster, hp_damage) {
+                reduce_lagavulin_sleep_metallicize(monster);
+            }
             (monster.alive, broke_block)
         };
         if still_alive && hand_drill && broke_block {

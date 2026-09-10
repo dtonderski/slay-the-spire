@@ -80,12 +80,10 @@ pub(crate) fn legal_combat_actions_after_validation(
         }
 
         if definition.id == DUAL_WIELD_ID || definition.id == DUAL_WIELD_PLUS_ID {
-            if has_attack_or_power_in_hand(state, card.id) {
-                actions.push(CombatAction::PlayCard {
-                    card_id: card.id,
-                    target: None,
-                });
-            }
+            actions.push(CombatAction::PlayCard {
+                card_id: card.id,
+                target: None,
+            });
             continue;
         }
 
@@ -214,11 +212,6 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
                         "non-targeted card cannot have a target",
                     ));
                 }
-                if !has_attack_or_power_in_hand(state, card_id) {
-                    return Err(SimError::IllegalAction(
-                        "Dual Wield requires an attack or power",
-                    ));
-                }
                 return Ok(());
             }
 
@@ -340,15 +333,6 @@ fn has_living_or_awakened_one_half_dead(state: &CombatState) -> bool {
         .monsters
         .iter()
         .any(|monster| monster.alive || awakened_one_is_half_dead(monster))
-}
-
-fn has_attack_or_power_in_hand(state: &CombatState, exclude_id: CardId) -> bool {
-    state.piles.hand.iter().any(|card| {
-        card.id != exclude_id
-            && get_card_definition(card.content_id).is_some_and(|definition| {
-                definition.card_type == CardType::Attack || definition.card_type == CardType::Power
-            })
-    })
 }
 
 fn has_attack_in_draw_pile(state: &CombatState) -> bool {

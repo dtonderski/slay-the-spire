@@ -9677,18 +9677,22 @@ pub fn clear_lagavulin_metallicize_if_awake(_monster: &mut MonsterState) {
 }
 
 /// Wakes a sleeping Lagavulin when HP damage is dealt and updates its intent for the current turn.
-pub fn wake_lagavulin_on_damage(monster: &mut MonsterState, hp_damage: i32) {
+/// Returns true when this hit woke Lagavulin from sleep. Sleep Metallicize is
+/// not reduced here; `changeState(OPEN)` queues that ReducePowerAction.
+pub fn wake_lagavulin_on_damage(monster: &mut MonsterState, hp_damage: i32) -> bool {
     if monster.content_id == LAGAVULIN_ID && hp_damage > 0 {
-        if monster.sleep_turns_remaining > 0 {
+        let woke = monster.sleep_turns_remaining > 0;
+        if woke {
             monster.sleep_turns_remaining = 0;
             monster.intent = MonsterIntent::Stun;
-            reduce_lagavulin_sleep_metallicize(monster);
         }
         monster.block = 0;
+        return woke;
     }
+    false
 }
 
-fn reduce_lagavulin_sleep_metallicize(monster: &mut MonsterState) {
+pub(crate) fn reduce_lagavulin_sleep_metallicize(monster: &mut MonsterState) {
     monster.powers.metallicize = (monster.powers.metallicize - LAGAVULIN_SLEEP_METALLICIZE).max(0);
 }
 

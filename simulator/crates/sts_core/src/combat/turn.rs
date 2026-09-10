@@ -89,6 +89,7 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
 }
 
 pub(crate) fn end_player_turn_owned(mut next: CombatState) -> SimResult<CombatState> {
+    next.play_top_force_exhaust_active = false;
     if next.pending_end_turn_feel_no_pain_block > 0 {
         next.player.block = next.player.block.saturating_add(std::mem::take(
             &mut next.pending_end_turn_feel_no_pain_block,
@@ -1508,8 +1509,15 @@ fn execute_generic_monster_intent(
         // duplicate-queue replay that would stack a second Head Slam.
         crate::power::apply_player_draw_reduction(&mut state.player.powers, 1)?;
     }
+    let monster = &state.monsters[index];
+    let half_dead_relic_death = monster.escaped
+        && (monster.content_id == crate::content::monsters::DARKLING_ID
+            || crate::content::monsters::awakened_one_is_half_dead(monster));
+    // Looter/Mugger escape is not a death (FIDL00115). Darkling Life Link
+    // and Awakened One first-deaths set escaped without die(); Gremlin Horn
+    // still fires (FIDL00165).
     let died_during_intent =
-        actor_was_alive && !state.monsters[index].alive && !state.monsters[index].escaped;
+        actor_was_alive && !monster.alive && (!monster.escaped || half_dead_relic_death);
     if died_during_intent {
         crate::combat::transition::apply_monster_death_hooks(state, actor_id)?;
     }
@@ -2551,7 +2559,11 @@ fn apply_queued_multi_hit_thorns(
     let was_alive = attacker.alive;
     crate::combat::damage::deal_unmodified_damage_to_monster(&mut state.monsters[index], amount);
     check_slime_boss_split(state, attacker_id);
-    if was_alive && !state.monsters[index].alive && !state.monsters[index].escaped {
+    let monster = &state.monsters[index];
+    let half_dead_relic_death = monster.escaped
+        && (monster.content_id == crate::content::monsters::DARKLING_ID
+            || crate::content::monsters::awakened_one_is_half_dead(monster));
+    if was_alive && !monster.alive && (!monster.escaped || half_dead_relic_death) {
         crate::combat::transition::apply_monster_death_hooks(state, attacker_id)?;
     }
     Ok(())
@@ -6639,6 +6651,37 @@ mod tests {
         assert_eq!(state.monsters[0].intent, MonsterIntent::DarklingCount);
         assert_eq!(state.monsters[0].move_history, vec![1, 4, 5, 4]);
         assert_eq!(state.rng.monster_rng.counter(), 1);
+    }
+
+    #[test]
+    fn darkling_thorns_half_death_triggers_gremlin_horn_draw() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.thorns = 3;
+        state.player.authority.relics.push(Relic::GremlinHorn);
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(20), STRIKE_R_ID)];
+        let actor_id = MonsterId::new(1);
+        let mut actor = monster_state_for_ascension(&DARKLING_A0, actor_id, 0);
+        actor.hp = 2;
+        actor.intent = MonsterIntent::Attack { damage: 6 };
+        let mut sibling = monster_state_for_ascension(&DARKLING_A0, MonsterId::new(2), 0);
+        sibling.hp = 20;
+        sibling.intent = MonsterIntent::Block { block: 12 };
+        state.monsters = vec![actor, sibling];
+        let mut skip_ritual_tick = Vec::new();
+
+        execute_generic_monster_intent(&mut state, actor_id, 0, 0, &[], &mut skip_ritual_tick)
+            .expect("Darkling attack is supported");
+
+        assert!(!state.monsters[0].alive);
+        assert!(state.monsters[0].escaped);
+        assert!(
+            state
+                .piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == STRIKE_R_ID),
+            "Gremlin Horn must draw on Darkling Life Link first-death from thorns"
+        );
     }
 
     #[test]

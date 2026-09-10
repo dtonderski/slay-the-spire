@@ -70,7 +70,7 @@ pub fn legal_map_actions_on_run(run: &RunState) -> SimResult<Vec<MapAction>> {
 pub(crate) fn legal_map_actions_on_run_after_validation(
     run: &RunState,
 ) -> SimResult<Vec<MapAction>> {
-    if run.phase != RunPhase::Idle {
+    if run.phase != RunPhase::Idle && run.map_overlay.is_none() {
         return Ok(Vec::new());
     }
 
@@ -96,8 +96,10 @@ pub(crate) fn legal_map_actions_on_run_after_validation(
 pub fn validate_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<()> {
     run.validate()?;
 
-    if run.phase != RunPhase::Idle {
-        return Err(SimError::IllegalAction("map actions require idle phase"));
+    if run.phase != RunPhase::Idle && run.map_overlay.is_none() {
+        return Err(SimError::IllegalAction(
+            "map actions require the map screen",
+        ));
     }
 
     let map_state = run
@@ -128,6 +130,19 @@ pub(crate) fn apply_validated_map_action_on_run(
     mut next: RunState,
     action: MapAction,
 ) -> SimResult<RunState> {
+    if next.map_overlay.take().is_some() {
+        // Choosing a node leaves the previous room. Unclaimed overlay rewards
+        // are abandoned, matching Proceed-then-path on CombatRewardScreen.
+        next.event = None;
+        next.reward = None;
+        next.emerald_key_reward_available = false;
+        next.shop = None;
+        next.shop_merchant_open = false;
+        next.card_grid = None;
+        next.rest_room_complete = false;
+        next.treasure_room = None;
+        next.boss_chest_opened = false;
+    }
     let map_state = next.map.as_ref().expect("validated map state");
     let last_room_was_shop = next.current_room_kind() == Some(RoomKind::Shop);
     let uses_wing_boots = next.relics.contains(&Relic::WingBoots)
