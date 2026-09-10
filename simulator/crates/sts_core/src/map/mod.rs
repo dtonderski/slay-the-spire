@@ -56,6 +56,8 @@ impl FixedMap {
             .ok_or(SimError::UnknownMapNode(id))
     }
 
+    /// Explicit structural audit. Ordinary map queries and transitions do not
+    /// invoke this automatically.
     pub fn validate(&self) -> SimResult<()> {
         if self.nodes.is_empty() {
             return Err(SimError::InvalidState("map has no nodes"));
@@ -82,6 +84,8 @@ impl FixedMap {
 }
 
 impl MapRunState {
+    /// Explicit structural audit. Ordinary map queries and transitions do not
+    /// invoke this automatically.
     pub fn validate(&self) -> SimResult<()> {
         self.map.validate()?;
         let current = self
@@ -98,11 +102,6 @@ impl MapRunState {
 }
 
 pub fn reachable_nodes(state: &MapRunState) -> SimResult<Vec<MapNodeId>> {
-    state.validate()?;
-    reachable_nodes_after_validation(state)
-}
-
-pub(crate) fn reachable_nodes_after_validation(state: &MapRunState) -> SimResult<Vec<MapNodeId>> {
     let mut nodes = state.map.children_of(state.current_node)?.to_vec();
     // CommunicationMod exposes map choices from left to right. Generated edge
     // insertion order is not stable enough to use as the CHOOSE slot order.
@@ -111,13 +110,6 @@ pub(crate) fn reachable_nodes_after_validation(state: &MapRunState) -> SimResult
 }
 
 pub fn wing_boots_reachable_nodes(state: &MapRunState) -> SimResult<Vec<MapNodeId>> {
-    state.validate()?;
-    wing_boots_reachable_nodes_after_validation(state)
-}
-
-pub(crate) fn wing_boots_reachable_nodes_after_validation(
-    state: &MapRunState,
-) -> SimResult<Vec<MapNodeId>> {
     let depths = node_depths_from_root(&state.map);
     let current_depth = depths
         .get(&state.current_node)
@@ -158,12 +150,7 @@ fn node_depths_from_root(map: &FixedMap) -> BTreeMap<MapNodeId, u32> {
 }
 
 pub fn legal_map_actions(state: &MapRunState) -> SimResult<Vec<MapAction>> {
-    state.validate()?;
-    legal_map_actions_after_validation(state)
-}
-
-pub(crate) fn legal_map_actions_after_validation(state: &MapRunState) -> SimResult<Vec<MapAction>> {
-    Ok(reachable_nodes_after_validation(state)?
+    Ok(reachable_nodes(state)?
         .into_iter()
         .map(|node_id| MapAction::ChooseNode { node_id })
         .collect())

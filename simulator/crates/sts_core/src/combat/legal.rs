@@ -18,17 +18,6 @@ use crate::{
 };
 
 pub fn legal_combat_actions(state: &CombatState) -> SimResult<Vec<CombatAction>> {
-    state.validate()?;
-    legal_combat_actions_after_validation(state)
-}
-
-/// Enumerates actions for a combat already validated by an enclosing run query.
-///
-/// This is crate-private so externally supplied combat states always retain the
-/// full validation performed by [`legal_combat_actions`].
-pub(crate) fn legal_combat_actions_after_validation(
-    state: &CombatState,
-) -> SimResult<Vec<CombatAction>> {
     if state.phase != CombatPhase::WaitingForPlayer {
         return Ok(Vec::new());
     }
@@ -132,8 +121,6 @@ pub(crate) fn legal_combat_actions_after_validation(
 }
 
 pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimResult<()> {
-    state.validate()?;
-
     if state.phase != CombatPhase::WaitingForPlayer {
         return Err(SimError::IllegalAction(
             "combat is not waiting for player input",
@@ -435,16 +422,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn malformed_combat_state_is_not_reported_as_no_legal_actions() {
+    fn malformed_combat_state_is_rejected_by_the_explicit_validator() {
         let mut state = CombatState::initial_fixture();
         state.piles.draw_pile[0].id = state.piles.hand[0].id;
 
         assert_eq!(
-            legal_combat_actions(&state),
+            state.validate(),
             Err(SimError::InvalidState(
                 "card instance appears in more than one pile"
             ))
         );
+    }
+
+    #[test]
+    fn ordinary_combat_paths_do_not_run_full_structural_validation() {
+        let state = CombatState::initial_fixture();
+        crate::combat::state::reset_full_validation_count();
+        let actions = legal_combat_actions(&state).expect("fixture is valid");
+        assert!(!actions.is_empty());
+        assert_eq!(crate::combat::state::full_validation_count(), 0);
+
+        crate::combat::state::reset_full_validation_count();
+        crate::apply_combat_action(&state, CombatAction::EndTurn).expect("end turn applies");
+        assert_eq!(crate::combat::state::full_validation_count(), 0);
     }
 
     #[test]

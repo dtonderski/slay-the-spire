@@ -37,9 +37,8 @@ use crate::{
         SPIRE_SPEAR_A0, SPIRE_SPEAR_ID, TASKMASTER_ID, WRITHING_MASS_ID,
     },
     map::{
-        apply_map_action, legal_map_actions_after_validation, reachable_nodes, validate_map_action,
-        wing_boots_reachable_nodes, wing_boots_reachable_nodes_after_validation, MapAction,
-        RoomKind, TargetMapAct,
+        apply_map_action, legal_map_actions, reachable_nodes, validate_map_action,
+        wing_boots_reachable_nodes, MapAction, RoomKind, TargetMapAct,
     },
     rng::{seed_for_floor, StsRng},
     MonsterPowers, Relic, RunPhase, RunState, SimError, SimResult,
@@ -63,13 +62,6 @@ fn current_room_kind(run: &RunState) -> Option<RoomKind> {
 }
 
 pub fn legal_map_actions_on_run(run: &RunState) -> SimResult<Vec<MapAction>> {
-    run.validate()?;
-    legal_map_actions_on_run_after_validation(run)
-}
-
-pub(crate) fn legal_map_actions_on_run_after_validation(
-    run: &RunState,
-) -> SimResult<Vec<MapAction>> {
     if run.phase != RunPhase::Idle {
         return Ok(Vec::new());
     }
@@ -78,9 +70,9 @@ pub(crate) fn legal_map_actions_on_run_after_validation(
         return Ok(Vec::new());
     };
 
-    let mut actions = legal_map_actions_after_validation(map_state)?;
+    let mut actions = legal_map_actions(map_state)?;
     if run.relics.contains(&Relic::WingBoots) && run.wing_boots_charges > 0 {
-        for node_id in wing_boots_reachable_nodes_after_validation(map_state)? {
+        for node_id in wing_boots_reachable_nodes(map_state)? {
             let action = MapAction::ChooseNode { node_id };
             if !actions.contains(&action) {
                 actions.push(action);
@@ -94,8 +86,6 @@ pub(crate) fn legal_map_actions_on_run_after_validation(
 }
 
 pub fn validate_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<()> {
-    run.validate()?;
-
     if run.phase != RunPhase::Idle {
         return Err(SimError::IllegalAction("map actions require idle phase"));
     }
@@ -320,7 +310,6 @@ fn enter_combat_with_monsters(run: &mut RunState, monsters: Vec<MonsterState>) -
     let mut initialized = run.init_combat_consuming_relics(combat)?;
     initialized.rng.monster_rng = monster_rng;
     add_mark_of_pain_wounds_to_draw_pile(run, &mut initialized)?;
-    initialized.validate()?;
     run.install_combat_owner(initialized)?;
     Ok(())
 }

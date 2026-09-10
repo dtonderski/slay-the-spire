@@ -1728,7 +1728,6 @@ fn enter_boss_combat_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
 }
 
 fn validate_combat_reward_entry(run: &RunState) -> SimResult<()> {
-    run.validate()?;
     if run.phase != RunPhase::Combat {
         return Err(SimError::InvalidState(
             "combat reward entry requires combat phase",
@@ -2370,8 +2369,7 @@ pub(crate) fn enter_final_boss_victory(run: &mut RunState) -> SimResult<()> {
 }
 
 pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
-    run.validate()?;
-    crate::run::decision::validate_run_action_after_run_validation(run, action)?;
+    crate::run::decision::validate_run_action(run, action)?;
     apply_validated_run_action_owned(run.clone(), action)
 }
 
@@ -2379,7 +2377,7 @@ pub(crate) fn apply_validated_run_action_owned(
     next: RunState,
     action: RunAction,
 ) -> SimResult<RunState> {
-    let next = match action {
+    match action {
         RunAction::OpenChest => apply_validated_treasure_action_owned(next, action),
         RunAction::Proceed if next.phase == RunPhase::Reward => {
             apply_validated_reward_action_owned(next, action)
@@ -2435,20 +2433,10 @@ pub(crate) fn apply_validated_run_action_owned(
             super::potion::apply_validated_exhaust_select_confirm_owned(next)
         }
         _ => apply_validated_reward_action_owned(next, action),
-    }?;
-    next.validate()?;
-    Ok(next)
+    }
 }
 
 pub fn validate_treasure_action(run: &RunState, action: RunAction) -> SimResult<()> {
-    run.validate()?;
-    validate_treasure_action_after_validation(run, action)
-}
-
-pub(crate) fn validate_treasure_action_after_validation(
-    run: &RunState,
-    action: RunAction,
-) -> SimResult<()> {
     if run.phase != RunPhase::Treasure {
         return Err(SimError::IllegalAction(
             "treasure actions require treasure phase",
@@ -2534,7 +2522,6 @@ fn apply_final_boss_victory_proceed(mut next: RunState) -> SimResult<RunState> {
     } else {
         enter_spire_heart_event(&mut next)?;
     }
-    next.validate()?;
     Ok(next)
 }
 

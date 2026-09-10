@@ -51,14 +51,6 @@ use crate::{
 const DISCOVERY_POST_SELECT_GENERATIONS: usize = 15;
 
 pub fn validate_potion_action(run: &RunState, action: RunAction) -> SimResult<()> {
-    run.validate()?;
-    validate_potion_action_after_validation(run, action)
-}
-
-pub(crate) fn validate_potion_action_after_validation(
-    run: &RunState,
-    action: RunAction,
-) -> SimResult<()> {
     if run.phase == RunPhase::Combat {
         let combat = run
             .combat

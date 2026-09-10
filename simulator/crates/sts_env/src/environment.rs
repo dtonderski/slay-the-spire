@@ -31,9 +31,6 @@ impl FairEnvironment {
     pub fn new_ironclad(seed: u64, ascension: u8) -> Result<Self, FairError> {
         let state = RunState::try_seeded_ironclad(seed, ascension)
             .map_err(|_| FairError::DecisionUnavailable)?;
-        state
-            .validate()
-            .map_err(|_| FairError::DecisionUnavailable)?;
         Ok(Self {
             state,
             revision: DecisionRevision::new(0),
