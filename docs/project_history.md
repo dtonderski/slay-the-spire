@@ -87,7 +87,8 @@ must earn complexity from a concrete experiment.
 - Explicit environmental inputs are narrow exceptions to seed determinism and
   must be captured before the affected transition.
 - Fairness belongs at observation/action boundaries; full state remains valid
-  for simulation and verification but not policy input.
+  for simulation and verification but not policy input. Public draw-pile order
+  is an explicit combat history record, never reconstructed from hidden order.
 - One current schema is preferable to compatibility machinery for disposable
   research artifacts.
 - Large speculative subsystems and per-fix design documents age poorly. Keep

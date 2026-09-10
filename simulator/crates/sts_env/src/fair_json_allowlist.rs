@@ -124,10 +124,10 @@ const CARD: Schema = Schema::Object(&[
     ("dynamic", DYNAMIC),
 ]);
 const HAND_CARD: Schema = Schema::Object(&[("slot", Schema::Leaf), ("card", CARD)]);
+const KNOWN_POSITION: Schema = Schema::Object(&[("position", Schema::Leaf), ("card", CARD)]);
 const PILE: Schema = Schema::Object(&[
-    ("count", Schema::Leaf),
     ("cards", Schema::Array(&CARD)),
-    ("known_order", Schema::Array(&CARD)),
+    ("known_positions", Schema::Array(&KNOWN_POSITION)),
 ]);
 const ORB: Schema = Schema::Tagged {
     tag: "type",

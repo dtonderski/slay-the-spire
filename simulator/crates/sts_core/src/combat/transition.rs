@@ -1791,7 +1791,8 @@ fn apply_internal_action_with_defer(
         ),
         InternalAction::PutHandCardOnTopOfDraw { card_id } => {
             let card = remove_card_from_pile(state, card_id, CardPile::Hand)?;
-            state.piles.draw_pile.insert(0, card);
+            // Geometry is insert(0) = bottom of the bottom-first vec, despite the name.
+            state.piles.insert_draw_bottom(card);
             Ok(Vec::new())
         }
         InternalAction::CopyHandCardToHand { card_id } => {
@@ -1799,8 +1800,7 @@ fn apply_internal_action_with_defer(
             let next_id = CardId::new(state.next_card_instance_id()?);
             state
                 .piles
-                .draw_pile
-                .push(CardInstance::new(next_id, card.content_id));
+                .push_draw_top(CardInstance::new(next_id, card.content_id));
             Ok(Vec::new())
         }
         InternalAction::AwaitHandSelect {
@@ -3094,7 +3094,7 @@ fn draw_random_attacks_from_draw_pile(state: &mut CombatState, count: usize) {
         else {
             continue;
         };
-        let card = state.piles.draw_pile.remove(draw_index);
+        let card = state.piles.remove_draw_unknown_index(draw_index);
         if state.piles.hand.len() >= 10 {
             state.piles.discard_pile.push(card);
         } else {
@@ -3211,7 +3211,7 @@ fn add_generated_card_to_draw_pile_random_spot(
     card.temp_cost = temp_cost;
     card.temp_cost_turn_only = temp_cost_turn_only;
     if state.piles.draw_pile.is_empty() {
-        state.piles.draw_pile.push(card);
+        state.piles.push_draw_top(card);
         return Ok(());
     }
     // CardGroup.addToRandomSpot selects an existing position; it does not
@@ -3219,7 +3219,7 @@ fn add_generated_card_to_draw_pile_random_spot(
     // effect constructor performs exactly one insertion and one card RNG draw.
     let bound = (state.piles.draw_pile.len() - 1) as i32;
     let index = state.rng.card_random_rng.random_int(bound) as usize;
-    state.piles.draw_pile.insert(index, card);
+    state.piles.insert_draw_unknown_index(index, card);
     Ok(())
 }
 
@@ -3295,7 +3295,7 @@ fn random_colorless_card(state: &mut CombatState, upgrade: bool) -> SimResult<Co
 fn push_card_to_pile(state: &mut CombatState, card: CardInstance, to: CardPile) {
     match to {
         CardPile::DiscardPile => state.piles.discard_pile.push(card),
-        CardPile::DrawPile => state.piles.draw_pile.push(card),
+        CardPile::DrawPile => state.piles.push_draw_top(card),
         CardPile::Hand => state.piles.hand.push(card),
         CardPile::ExhaustPile => state.piles.exhaust_pile.push(card),
     }
@@ -3612,7 +3612,7 @@ fn apply_play_top_draw_card(
         // First-form half-death is not battle-ending (`isBattleEnding` is
         // false). EmptyDeckShuffleAction and the subsequent PlayTop still run
         // (FIDL01451: Havoc on an empty draw while Awakened One is at 0 HP).
-        let _ = state.piles.draw_pile.pop();
+        let _ = state.piles.pop_draw_top();
         return Ok(Vec::new());
     }
     if state.piles.draw_pile.is_empty() {
@@ -3624,8 +3624,7 @@ fn apply_play_top_draw_card(
 
     let card = state
         .piles
-        .draw_pile
-        .pop()
+        .pop_draw_top()
         .ok_or(SimError::IllegalAction("draw pile is empty"))?;
     let definition =
         get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
@@ -4701,7 +4700,7 @@ fn confirm_scry_select(
             .ok_or(SimError::IllegalAction(
                 "scry card is no longer in draw pile",
             ))?;
-        let selected = state.piles.draw_pile.remove(position);
+        let selected = state.piles.remove_draw_unknown_index(position);
         state.piles.discard_pile.push(selected);
     }
     // The target's Prismatic Just Lucky is colorless and is discarded even
@@ -4783,7 +4782,7 @@ fn move_draw_select_source_card(
 }
 
 fn move_selected_draw_card_to_hand_or_discard(state: &mut CombatState, index: usize) {
-    let card = state.piles.draw_pile.remove(index);
+    let card = state.piles.remove_draw_unknown_index(index);
     if state.piles.hand.len() >= 10 {
         state.piles.discard_pile.push(card);
     } else {
@@ -4801,7 +4800,7 @@ fn confirm_warcry_select(
     // card already on top of the draw pile.
     let put_back = state.piles.hand[index].id;
     let card = remove_card_from_pile(state, put_back, CardPile::Hand)?;
-    state.piles.draw_pile.push(card);
+    state.piles.push_draw_top(card);
     Ok(())
 }
 
@@ -4828,7 +4827,7 @@ fn confirm_thinking_ahead_select(
     // on top before the source settles into exhaust/discard.
     let put_back = state.piles.hand[index].id;
     let card = remove_card_from_pile(state, put_back, CardPile::Hand)?;
-    state.piles.draw_pile.push(card);
+    state.piles.push_draw_top(card);
     Ok(())
 }
 
@@ -5029,7 +5028,7 @@ pub fn close_discovery_source_card_with_force_exhaust(
         }
         CardPile::DiscardPile => state.piles.discard_pile.push(source),
         CardPile::Hand => state.piles.hand.push(source),
-        CardPile::DrawPile => state.piles.draw_pile.push(source),
+        CardPile::DrawPile => state.piles.push_draw_top(source),
     }
     Ok(())
 }
@@ -5212,7 +5211,7 @@ fn move_forethought_selected_card_to_draw_bottom(
     let mut card = remove_card_from_pile(state, card_id, CardPile::Hand)?;
     crate::combat::cost::set_card_cost_for_turn(&mut card, 0)?;
     card.free_to_play_once = true;
-    state.piles.draw_pile.insert(0, card);
+    state.piles.insert_draw_bottom(card);
     Ok(())
 }
 
@@ -5687,7 +5686,7 @@ pub fn confirm_headbutt_select(state: &mut CombatState) -> SimResult<usize> {
     // source may already sit in exhaust; only the source settlement is skipped
     // below, never the put-on-draw.
     let card = state.piles.discard_pile.remove(index);
-    state.piles.draw_pile.push(card);
+    state.piles.push_draw_top(card);
     let forced_top_draw_source = discard_select.source_card.is_none()
         && discard_select.source_card_id.is_some_and(|source_card_id| {
             state
@@ -5766,7 +5765,7 @@ pub(super) fn settle_headbutt_source_after_discard_select(
                 0
             }
             CardPile::DrawPile => {
-                state.piles.draw_pile.push(source);
+                state.piles.push_draw_top(source);
                 0
             }
         };
@@ -6186,7 +6185,7 @@ fn confirm_true_grit_select(
                 }
                 CardPile::DiscardPile => state.piles.discard_pile.push(source_card),
                 CardPile::Hand => state.piles.hand.push(source_card),
-                CardPile::DrawPile => state.piles.draw_pile.push(source_card),
+                CardPile::DrawPile => state.piles.push_draw_top(source_card),
             }
         } else {
             // Ordinary hand-played True Grit+ follows UseCardAction settlement.
@@ -6201,7 +6200,7 @@ fn confirm_true_grit_select(
                 }
                 CardPile::DiscardPile => state.piles.discard_pile.push(source_card),
                 CardPile::Hand => state.piles.hand.push(source_card),
-                CardPile::DrawPile => state.piles.draw_pile.push(source_card),
+                CardPile::DrawPile => state.piles.push_draw_top(source_card),
             }
         }
     } else if let Some(source_card_id) = source_card_id {
@@ -6222,7 +6221,7 @@ fn confirm_true_grit_select(
                     }
                     CardPile::DiscardPile => state.piles.discard_pile.push(source_card),
                     CardPile::Hand => state.piles.hand.push(source_card),
-                    CardPile::DrawPile => state.piles.draw_pile.push(source_card),
+                    CardPile::DrawPile => state.piles.push_draw_top(source_card),
                 }
             } else {
                 let definition = get_card_definition(source_card.content_id)
@@ -6234,7 +6233,7 @@ fn confirm_true_grit_select(
                     }
                     CardPile::DiscardPile => state.piles.discard_pile.push(source_card),
                     CardPile::Hand => state.piles.hand.push(source_card),
-                    CardPile::DrawPile => state.piles.draw_pile.push(source_card),
+                    CardPile::DrawPile => state.piles.push_draw_top(source_card),
                 }
             }
         } else if !state
@@ -6458,7 +6457,7 @@ fn confirm_burning_pact_select(
             }
             CardPile::DiscardPile => state.piles.discard_pile.push(source_card),
             CardPile::Hand => state.piles.hand.push(source_card),
-            CardPile::DrawPile => state.piles.draw_pile.push(source_card),
+            CardPile::DrawPile => state.piles.push_draw_top(source_card),
         }
     } else {
         move_delayed_played_source_with_strange_spoon(state, source_card_id)?;
@@ -6600,7 +6599,7 @@ fn confirm_burning_pact_select_skipped_retrieval_with_time_warp_policy(
                 }
                 CardPile::DiscardPile => state.piles.discard_pile.push(source_card),
                 CardPile::Hand => state.piles.hand.push(source_card),
-                CardPile::DrawPile => state.piles.draw_pile.push(source_card),
+                CardPile::DrawPile => state.piles.push_draw_top(source_card),
             }
         }
     }
@@ -6979,6 +6978,9 @@ fn remove_card_from_pile(
             .ok_or(SimError::UnknownCard(card_id))?;
         cards.remove(index)
     };
+    if pile == CardPile::DrawPile {
+        state.piles.draw_pile_knowledge.remove_unknown_index();
+    }
     Ok(card)
 }
 
@@ -7089,7 +7091,7 @@ fn move_card(
                 .iter()
                 .position(|card| card.id == card_id)
                 .ok_or(SimError::UnknownCard(card_id))?;
-            state.piles.draw_pile.remove(index)
+            state.piles.remove_draw_unknown_index(index)
         }
         CardPile::DiscardPile | CardPile::ExhaustPile => {
             return Err(SimError::IllegalAction(
@@ -12559,7 +12561,7 @@ mod tests {
             .pop()
             .expect("generated Anger copy");
         state.piles.discard_pile.clear();
-        state.piles.draw_pile.push(generated_copy);
+        state.piles.push_draw_top(generated_copy);
 
         apply_play_top_draw_card_to_state(&mut state, Some(target))
             .expect("Mayhem-style play of generated Anger copy");

@@ -51,3 +51,9 @@ def live_state_narrowing() -> int | None:
     if observation.kind == "map":
         return observation.screen.floor
     return None
+
+
+def known_draw_positions(observation: Observation) -> int:
+    if observation.kind == "combat":
+        return len(observation.screen.draw_pile.known_positions)
+    return 0

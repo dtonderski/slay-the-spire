@@ -1,0 +1,10 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/rl/.venv/bin/python",
+  "python.languageServer": "Pylance",
+  "python.analysis.typeCheckingMode": "off",
+  "ty.diagnosticMode": "openFilesOnly",
+  "ty.disableLanguageServices": true,
+  "ty.importStrategy": "fromEnvironment",
+  "ty.interpreter": ["${workspaceFolder}/rl/.venv/bin/python"],
+  "rust-analyzer.checkOnSave": true
+}

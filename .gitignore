@@ -1,6 +1,9 @@
 target/
 target-*/
 
+# Local W&B runs
+rl/wandb/
+
 # Local Python / build outputs
 .tmp/
 .venv/

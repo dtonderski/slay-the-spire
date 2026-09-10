@@ -1,0 +1,25 @@
+[project]
+name = "rl"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "jaxtyping>=0.3.11",
+    "numpy>=2.5.3",
+    "sts-sim",
+    "torch>=2.14.0",
+    "wandb>=0.30.0",
+]
+
+[dependency-groups]
+dev = [
+    "ty>=0.0.1",
+]
+
+[tool.uv.sources]
+sts-sim = { path = "../simulator/python", editable = true }
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.black]
+line-length = 120

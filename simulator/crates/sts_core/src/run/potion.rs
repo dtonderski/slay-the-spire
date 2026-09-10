@@ -1345,7 +1345,7 @@ pub(crate) fn apply_validated_potion_action_owned(
                         {
                             player_shuffle_discard_into_draw(&mut combat)?;
                         }
-                        let Some(card) = combat.piles.draw_pile.pop() else {
+                        let Some(card) = combat.piles.pop_draw_top() else {
                             break;
                         };
                         combat.piles.limbo.push(card);
@@ -1367,7 +1367,7 @@ pub(crate) fn apply_validated_potion_action_owned(
                                         "Distilled Chaos held card is missing from limbo",
                                     ))?;
                                 combat.piles.limbo.remove(index);
-                                combat.piles.draw_pile.push(*held_card);
+                                combat.piles.restore_hidden_draw_top(*held_card);
                             }
                             break;
                         }
@@ -1380,7 +1380,7 @@ pub(crate) fn apply_validated_potion_action_owned(
                                 "Distilled Chaos queued card is missing from limbo",
                             ))?;
                         combat.piles.limbo.remove(limbo_index);
-                        combat.piles.draw_pile.push(card);
+                        combat.piles.push_draw_top(card);
                         let top_definition = top_draw_card_definition(&combat)
                             .ok_or(SimError::IllegalAction("draw pile is empty"))?;
                         let target = if top_definition.target == TargetRequirement::Enemy {
@@ -1404,7 +1404,7 @@ pub(crate) fn apply_validated_potion_action_owned(
                                         "Distilled Chaos held card is missing from limbo",
                                     ))?;
                                 combat.piles.limbo.remove(index);
-                                combat.piles.draw_pile.push(*held_card);
+                                combat.piles.restore_hidden_draw_top(*held_card);
                             }
                             pending_actions.extend(queued_plays.drain(..).map(|(_, target)| {
                                 crate::InternalAction::PlayTopDrawCard {

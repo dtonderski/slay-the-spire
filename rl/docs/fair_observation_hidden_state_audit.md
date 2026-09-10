@@ -2,15 +2,17 @@
 
 Source of truth:
 
-- `simulator/crates/sts_core/src/combat/fair_observation.rs`
-- `simulator/crates/sts_core/src/run/fair_observation.rs`
-- `simulator/crates/sts_core/src/run/player_choice.rs`
+- `simulator/crates/sts_env/src/combat_observation.rs`
+- `simulator/crates/sts_env/src/run_observation.rs`
+- `simulator/crates/sts_env/src/action.rs`
+- `simulator/crates/sts_core/src/combat/pile_knowledge.rs`
 
 The current projection has no known hidden-state leak. Existing tests require
 byte-identical observations and choices after hidden pile permutations, RNG
 changes, internal-ID renumbering, hidden Runic Dome intent changes, and private
 queue/relic/monster mutations. They also require public HP, hand order, pile
-membership, visible intent, Frozen Eye order, and gold changes to affect output.
+membership, visible intent, Frozen Eye order, public draw-position history, and
+gold changes to affect output.
 
 ## Classification
 
@@ -37,9 +39,26 @@ belief construction must refuse the state.
 ## Known underexposure
 
 The projection currently omits some information a player could track, including
-public placement history, general combat turn number, public monster move
-history, next-turn energy/retention, and some later-act powers. This limits agent
-strength but does not leak hidden state.
+general combat turn number, public monster move history, next-turn
+energy/retention, and some later-act powers. This limits agent strength but does
+not leak hidden state.
+
+Draw-pile `known_positions` is an explicit public-history record updated at
+accepted transitions. Supported history includes top inserts (Headbutt, Warcry,
+Thinking Ahead, add-to-top), bottom inserts (Forethought), draws and PlayTop
+removals, and Scry prefix reveals when the overlay opens. Conservative
+invalidation applies to shuffles, random inserts (Wild Strike, Hex, Mark of
+Pain, Nilry, monster status), unknown-index removals (Secret Technique/Weapon,
+Violence, Scry discard, Bronze Orb Stasis from the draw pile), Distilled Chaos
+interrupt restores of unplayed hidden tops, and Toolbox parking of the unseen
+opening draw. Distilled Chaos currently-played push/pop is a public PlayTop, not
+a reveal of unplayed hold-outs. Frozen Eye is a view-time overlay and does not
+write the tracker. Discard and exhaust `known_positions` stay empty in this
+schema. Unknown-position removals do not branch on private `CardId`. Complex
+exact tracking may be coarser than a player who memorized every public reveal;
+missed unknown mutations invalidate rather than guess. Historical in-combat
+snapshots taken before this field restore with empty knowledge and are not
+repaired from hidden pile order.
 
 `stasis_card` is projected when present, and Nilry's Codex currently shares the
 Toolbox selection kind. These are documented representation choices, not known

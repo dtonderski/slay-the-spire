@@ -129,7 +129,7 @@ pub(crate) fn add_cards_to_draw_random_spot(
         for id in first_id..=last_id {
             let card = generated_combat_card(CardId::new(id), content_id);
             if piles.draw_pile.is_empty() {
-                piles.draw_pile.push(card);
+                piles.push_draw_top(card);
             } else {
                 let max_index = i32::try_from(piles.draw_pile.len() - 1).map_err(|_| {
                     SimError::InvalidState(
@@ -137,7 +137,7 @@ pub(crate) fn add_cards_to_draw_random_spot(
                     )
                 })?;
                 let index = rng.random_int(max_index) as usize;
-                piles.draw_pile.insert(index, card);
+                piles.insert_draw_unknown_index(index, card);
             }
         }
     }
@@ -200,6 +200,7 @@ mod tests {
             discard_pile: Vec::new(),
             exhaust_pile: Vec::new(),
             limbo: Vec::new(),
+            draw_pile_knowledge: crate::combat::DrawPilePublicKnowledge::default(),
         };
         add_cards_to_discard(&mut piles, DAZED_ID, 2, 10).expect("Dazed generation is valid");
         assert_eq!(piles.discard_pile.len(), 2);
@@ -220,6 +221,7 @@ mod tests {
             discard_pile: Vec::new(),
             exhaust_pile: Vec::new(),
             limbo: Vec::new(),
+            draw_pile_knowledge: crate::combat::DrawPilePublicKnowledge::default(),
         };
         let mut rng = StsRng::new(17);
 
@@ -250,6 +252,7 @@ mod tests {
                 discard_pile: Vec::new(),
                 exhaust_pile: Vec::new(),
                 limbo: Vec::new(),
+                draw_pile_knowledge: crate::combat::DrawPilePublicKnowledge::default(),
             };
             let mut rng = StsRng::new(seed);
 
@@ -279,6 +282,7 @@ mod tests {
             discard_pile: Vec::new(),
             exhaust_pile: Vec::new(),
             limbo: Vec::new(),
+            draw_pile_knowledge: crate::combat::DrawPilePublicKnowledge::default(),
         };
 
         add_cards_to_discard(&mut piles, BURN_ID, 2, 100)
@@ -302,6 +306,7 @@ mod tests {
             discard_pile: Vec::new(),
             exhaust_pile: Vec::new(),
             limbo: Vec::new(),
+            draw_pile_knowledge: crate::combat::DrawPilePublicKnowledge::default(),
         };
         let piles_before = piles.clone();
         let mut rng = StsRng::new(17);
@@ -330,6 +335,7 @@ mod tests {
             discard_pile: Vec::new(),
             exhaust_pile: Vec::new(),
             limbo: Vec::new(),
+            draw_pile_knowledge: crate::combat::DrawPilePublicKnowledge::default(),
         };
         let piles_before = piles.clone();
 

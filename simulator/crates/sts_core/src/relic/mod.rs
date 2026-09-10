@@ -2862,11 +2862,11 @@ pub(crate) fn insert_mark_of_pain_wounds(combat: &mut CombatState) -> SimResult<
             ..CardInstance::new(next_id, WOUND_ID)
         };
         if combat.piles.draw_pile.is_empty() {
-            combat.piles.draw_pile.push(wound);
+            combat.piles.push_draw_top(wound);
         } else {
             let bound = (combat.piles.draw_pile.len() - 1) as i32;
             let index = combat.rng.card_random_rng.random_int(bound) as usize;
-            combat.piles.draw_pile.insert(index, wound);
+            combat.piles.insert_draw_unknown_index(index, wound);
         }
     }
     Ok(())

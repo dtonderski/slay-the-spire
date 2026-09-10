@@ -37,9 +37,14 @@ An action is not necessarily a combat turn. Do not treat a demo cutoff as death,
 a missing action list as victory, or `complete` alone as proof of a Heart kill.
 Failures should be reported separately from gameplay outcomes.
 
-The Python observation types are in
-[`observations.py`](../../simulator/python/sts_sim/observations.py). Action
-bindings remain in [`_native.pyi`](../../simulator/python/sts_sim/_native.pyi).
+The Python observation types live in the
+[`sts_sim.observations`](../../simulator/python/sts_sim/observations/) package.
+`from sts_sim.observations import Relic, CombatObservation` still works; domain
+code can import combat types from
+[`observations.combat`](../../simulator/python/sts_sim/observations/combat.py)
+and shared card/relic/context types from
+[`observations.common`](../../simulator/python/sts_sim/observations/common.py).
+Action bindings remain in [`_native.pyi`](../../simulator/python/sts_sim/_native.pyi).
 Public field schemas are in
 [`run_observation.rs`](../../simulator/crates/sts_env/src/run_observation.rs)
 and [`combat_observation.rs`](../../simulator/crates/sts_env/src/combat_observation.rs).

@@ -11017,7 +11017,9 @@ fn bronze_orb_apply_stasis(
 
 fn take_stasis_card(piles: &mut CardPiles, card_random_rng: &mut StsRng) -> Option<CardInstance> {
     if !piles.draw_pile.is_empty() {
-        return take_random_card_by_stasis_priority(&mut piles.draw_pile, card_random_rng);
+        let card = take_random_card_by_stasis_priority(&mut piles.draw_pile, card_random_rng)?;
+        piles.invalidate_draw_order();
+        return Some(card);
     }
     if !piles.discard_pile.is_empty() {
         return take_random_card_by_stasis_priority(&mut piles.discard_pile, card_random_rng);
@@ -11221,6 +11223,64 @@ mod tests {
         assert!(pile.iter().any(|card| card.content_id == DEFEND_R_ID));
         assert!(pile.iter().any(|card| card.content_id == CLEAVE_ID));
         assert!(pile.iter().any(|card| card.content_id == FLEX_ID));
+    }
+
+    #[test]
+    fn stasis_from_draw_invalidates_positional_knowledge() {
+        use crate::combat::DrawPilePublicKnowledge;
+        use crate::content::cards::{BASH_ID, BODY_SLAM_ID, STRIKE_R_ID};
+
+        let mut piles = CardPiles {
+            hand: Vec::new(),
+            draw_pile: vec![
+                CardInstance::new(CardId::new(10), STRIKE_R_ID),
+                CardInstance::new(CardId::new(11), BODY_SLAM_ID),
+                CardInstance::new(CardId::new(20), BASH_ID),
+            ],
+            discard_pile: Vec::new(),
+            exhaust_pile: Vec::new(),
+            limbo: Vec::new(),
+            draw_pile_knowledge: DrawPilePublicKnowledge::default(),
+        };
+        piles.draw_pile_knowledge.insert_top(CardId::new(20));
+        piles.draw_pile_knowledge.insert_top(CardId::new(11));
+        assert!(!piles.draw_pile_knowledge.is_empty());
+
+        let mut monster = monster_state(&BRONZE_ORB_A0, MonsterId::new(1));
+        let mut rng = StsRng::new(3);
+        bronze_orb_apply_stasis(&mut monster, &mut piles, &mut rng);
+        assert!(monster.stasis_card.is_some());
+        assert!(
+            piles.draw_pile_knowledge.is_empty(),
+            "draw-pile Stasis must invalidate known_positions"
+        );
+    }
+
+    #[test]
+    fn stasis_from_discard_does_not_mutate_draw_knowledge() {
+        use crate::combat::DrawPilePublicKnowledge;
+        use crate::content::cards::{BASH_ID, BODY_SLAM_ID};
+
+        let mut piles = CardPiles {
+            hand: Vec::new(),
+            draw_pile: Vec::new(),
+            discard_pile: vec![
+                CardInstance::new(CardId::new(11), BODY_SLAM_ID),
+                CardInstance::new(CardId::new(20), BASH_ID),
+            ],
+            exhaust_pile: Vec::new(),
+            limbo: Vec::new(),
+            draw_pile_knowledge: DrawPilePublicKnowledge::default(),
+        };
+        piles.draw_pile_knowledge.insert_top(CardId::new(99));
+        let knowledge_before = piles.draw_pile_knowledge.clone();
+
+        let mut monster = monster_state(&BRONZE_ORB_A0, MonsterId::new(1));
+        let mut rng = StsRng::new(3);
+        bronze_orb_apply_stasis(&mut monster, &mut piles, &mut rng);
+        assert!(monster.stasis_card.is_some());
+        assert!(piles.draw_pile.is_empty());
+        assert_eq!(piles.draw_pile_knowledge, knowledge_before);
     }
 
     #[test]

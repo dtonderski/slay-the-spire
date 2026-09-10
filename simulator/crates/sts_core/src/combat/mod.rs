@@ -6,6 +6,7 @@ pub mod draw;
 pub mod hand;
 pub mod hp_loss;
 pub mod legal;
+pub(crate) mod pile_knowledge;
 pub(crate) mod piles;
 pub mod setup;
 pub mod state;
@@ -16,6 +17,7 @@ pub mod turn_powers;
 pub use burning_blood::apply_burning_blood;
 pub use damage::{DamageInfo, DamageSource};
 pub use legal::{legal_combat_actions, validate_combat_action};
+pub use pile_knowledge::DrawPilePublicKnowledge;
 pub use setup::{card_has_innate, initialize_combat_piles_with_relics};
 pub use state::{
     BombTimer, CardPiles, CombatDecisionState, CombatOrb, CombatPhase, CombatRngState, CombatState,

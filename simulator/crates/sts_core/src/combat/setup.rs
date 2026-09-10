@@ -108,6 +108,7 @@ pub fn initialize_combat_piles_with_relics(
         discard_pile: Vec::new(),
         exhaust_pile: Vec::new(),
         limbo: Vec::new(),
+        draw_pile_knowledge: crate::combat::DrawPilePublicKnowledge::default(),
     })
 }
 

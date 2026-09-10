@@ -58,7 +58,7 @@ pub(super) fn await_hand_select(
                     let index = candidates[pick];
                     let put_back = state.piles.hand[index].id;
                     let card = remove_card_from_pile(state, put_back, CardPile::Hand)?;
-                    state.piles.draw_pile.push(card);
+                    state.piles.push_draw_top(card);
                     remaining -= 1;
                 }
             }
@@ -264,6 +264,10 @@ pub(super) fn await_draw_select(
                 .take(scry_count)
                 .map(|card| card.id),
         );
+        state
+            .piles
+            .draw_pile_knowledge
+            .reveal_prefix(&selectable_card_ids);
     }
     for card in &state.piles.draw_pile {
         if purpose == DrawSelectPurpose::Scry {
@@ -396,7 +400,7 @@ pub(super) fn await_discard_select(
         // discard suppresses the player-facing select on a lethal action.
         if state.piles.discard_pile.len() == 1 {
             let selected = state.piles.discard_pile.remove(0);
-            state.piles.draw_pile.push(selected);
+            state.piles.push_draw_top(selected);
             super::settle_headbutt_source_after_discard_select(state, source_card, force_exhaust)?;
             state.play_top_force_exhaust_active = false;
             return Ok(Vec::new());
@@ -450,7 +454,7 @@ pub(super) fn await_copied_discard_select(
     }
     if state.piles.discard_pile.len() == 1 {
         let card = state.piles.discard_pile.remove(0);
-        state.piles.draw_pile.push(card);
+        state.piles.push_draw_top(card);
         return Ok(Vec::new());
     }
     state.decision = Some(CombatDecisionState::DiscardSelect {

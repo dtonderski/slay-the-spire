@@ -83,7 +83,7 @@ def _observation(kind: str, screen: object, phase: str | None = None) -> dict[st
 
 def _combat_screen() -> dict[str, object]:
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "phase": "waiting_for_player",
         "player": {
             "hp": 80,
@@ -99,9 +99,9 @@ def _combat_screen() -> dict[str, object]:
             {"slot": 2, "orb": None},
         ),
         "hand": ({"slot": 0, "card": _card()},),
-        "draw_pile": {"count": 1, "cards": (_card(),), "known_order": ()},
-        "discard_pile": {"count": 0, "cards": (), "known_order": ()},
-        "exhaust_pile": {"count": 0, "cards": (), "known_order": ()},
+        "draw_pile": {"cards": (_card(),), "known_positions": ()},
+        "discard_pile": {"cards": (), "known_positions": ()},
+        "exhaust_pile": {"cards": (), "known_positions": ()},
         "monsters": (
             {
                 "slot": 0,
@@ -192,10 +192,13 @@ class TypedObservationRuntimeTest(unittest.TestCase):
         self.assertIsInstance(observation, CombatObservation)
         if observation.kind != "combat":
             self.fail("expected a combat observation")
-        self.assertEqual(observation.screen.schema_version, 3)
+        self.assertEqual(observation.screen.schema_version, 4)
         self.assertGreaterEqual(observation.screen.player.energy, 0)
         self.assertTrue(observation.screen.hand)
         self.assertTrue(observation.screen.monsters)
+        self.assertIsInstance(observation.screen.draw_pile.known_positions, tuple)
+        self.assertFalse(hasattr(observation.screen.draw_pile, "count"))
+        self.assertFalse(hasattr(observation.screen.draw_pile, "known_order"))
         self.assertFalse(hasattr(observation.screen, "relics"))
         self.assertFalse(hasattr(observation.screen, "context"))
         self.assertFalse(hasattr(observation.screen, "potion_slots"))
@@ -395,6 +398,72 @@ class TypedObservationRuntimeTest(unittest.TestCase):
         duplicate_screen["relics"] = ()
         with self.assertRaisesRegex(ValueError, "extra"):
             decode_observation(duplicate_screen_relics)
+
+    def test_decoder_rejects_old_pile_fields_and_invalid_known_positions(self) -> None:
+        old_count = _observation("combat", _combat_screen(), phase="combat")
+        screen = old_count["screen"]
+        assert isinstance(screen, dict)
+        screen["draw_pile"] = {"count": 1, "cards": (_card(),), "known_positions": ()}
+        with self.assertRaisesRegex(ValueError, "extra"):
+            decode_observation(old_count)
+
+        old_order = _observation("combat", _combat_screen(), phase="combat")
+        old_order_screen = old_order["screen"]
+        assert isinstance(old_order_screen, dict)
+        old_order_screen["draw_pile"] = {
+            "cards": (_card(),),
+            "known_order": (_card(),),
+        }
+        with self.assertRaisesRegex(ValueError, "extra|missing"):
+            decode_observation(old_order)
+
+        duplicate = _observation("combat", _combat_screen(), phase="combat")
+        duplicate_screen = duplicate["screen"]
+        assert isinstance(duplicate_screen, dict)
+        duplicate_screen["draw_pile"] = {
+            "cards": (_card(), _card()),
+            "known_positions": (
+                {"position": 0, "card": _card()},
+                {"position": 0, "card": _card()},
+            ),
+        }
+        with self.assertRaisesRegex(ValueError, "unique"):
+            decode_observation(duplicate)
+
+        unsorted = _observation("combat", _combat_screen(), phase="combat")
+        unsorted_screen = unsorted["screen"]
+        assert isinstance(unsorted_screen, dict)
+        unsorted_screen["draw_pile"] = {
+            "cards": (_card(), _card()),
+            "known_positions": (
+                {"position": 1, "card": _card()},
+                {"position": 0, "card": _card()},
+            ),
+        }
+        with self.assertRaisesRegex(ValueError, "sorted"):
+            decode_observation(unsorted)
+
+        oob = _observation("combat", _combat_screen(), phase="combat")
+        oob_screen = oob["screen"]
+        assert isinstance(oob_screen, dict)
+        oob_screen["draw_pile"] = {
+            "cards": (_card(),),
+            "known_positions": ({"position": 1, "card": _card()},),
+        }
+        with self.assertRaisesRegex(ValueError, "out of bounds"):
+            decode_observation(oob)
+
+        missing_member = _observation("combat", _combat_screen(), phase="combat")
+        missing_screen = missing_member["screen"]
+        assert isinstance(missing_screen, dict)
+        bash = _card()
+        bash["content_key"] = "Bash"
+        missing_screen["draw_pile"] = {
+            "cards": (_card(),),
+            "known_positions": ({"position": 0, "card": bash},),
+        }
+        with self.assertRaisesRegex(ValueError, "subset"):
+            decode_observation(missing_member)
 
     def test_observations_are_immutable(self) -> None:
         observation = decode_observation(_observation("combat", _combat_screen(), phase="combat"))

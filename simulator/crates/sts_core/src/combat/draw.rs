@@ -15,7 +15,7 @@ use crate::{
 
 /// CommunicationMod lists draw piles bottom-first; the game draws from the top (last entry).
 fn draw_card_from_pile_top(state: &mut CombatState) -> Option<CardInstance> {
-    state.piles.draw_pile.pop()
+    state.piles.pop_draw_top()
 }
 
 pub(crate) const MAX_HAND_SIZE: usize = 10;
@@ -571,6 +571,7 @@ pub(crate) fn shuffle_discard_into_draw_sts(
     state.piles.draw_pile.append(&mut state.piles.discard_pile);
     let shuffle_seed = rng.random_long();
     JavaRng::new(shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
+    state.piles.invalidate_draw_order();
     crate::relic::apply_shuffle_relics(state)
 }
 
@@ -584,6 +585,7 @@ pub(crate) fn shuffle_discard_into_draw_with_combat_rng(
     state.piles.draw_pile.append(&mut state.piles.discard_pile);
     let shuffle_seed = state.rng.shuffle_rng.random_long();
     JavaRng::new(shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
+    state.piles.invalidate_draw_order();
     crate::relic::apply_shuffle_relics(state)
 }
 
@@ -599,6 +601,7 @@ pub(crate) fn deep_breath_shuffle_discard_into_draw_with_combat_rng(
     state.piles.draw_pile.append(&mut state.piles.discard_pile);
     let draw_shuffle_seed = state.rng.shuffle_rng.random_long();
     JavaRng::new(draw_shuffle_seed).collections_shuffle(&mut state.piles.draw_pile);
+    state.piles.invalidate_draw_order();
     crate::relic::apply_shuffle_relics(state)
 }
 

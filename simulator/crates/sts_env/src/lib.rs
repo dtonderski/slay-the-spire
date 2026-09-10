@@ -12,9 +12,10 @@ mod run_observation;
 pub use action::{DecisionRevision, FairError, PublicChoice, PublicChoiceRequest};
 pub use combat_observation::{
     FairCard, FairCardDynamicValues, FairCombatObservation, FairCombatPhase, FairCounter,
-    FairHandCard, FairIntentCategory, FairMonster, FairMonsterIntent, FairObservationError,
-    FairOrb, FairOrbSlot, FairPile, FairPlayer, FairPotionSlot, FairPower, FairRelic,
-    FairSelection, FairSelectionKind, FairSelectionOption, FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION,
+    FairHandCard, FairIntentCategory, FairKnownPosition, FairMonster, FairMonsterIntent,
+    FairObservationError, FairOrb, FairOrbSlot, FairPile, FairPlayer, FairPotionSlot, FairPower,
+    FairRelic, FairSelection, FairSelectionKind, FairSelectionOption,
+    FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION,
 };
 pub use environment::{FairDecision, FairEnvironment, FAIR_ENV_SCHEMA_VERSION};
 pub use fair_catalog::{fair_content_catalog, FairContentCatalog};

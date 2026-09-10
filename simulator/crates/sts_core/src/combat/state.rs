@@ -2,6 +2,7 @@ use crate::{
     action::InternalAction,
     card::{CardInstance, CardType},
     combat::cost::validate_combat_card_cost_metadata,
+    combat::pile_knowledge::DrawPilePublicKnowledge,
     content::cards::{
         get_card_definition, validate_searing_blow_metadata, BASH_ID, COMBUST_DAMAGE,
         COMBUST_PLUS_DAMAGE, DEFEND_R_ID, RAMPAGE_ID, RAMPAGE_PLUS_ID, STEAM_BARRIER_ANY_COLOR_ID,
@@ -696,6 +697,12 @@ pub struct CardPiles {
     pub exhaust_pile: Vec<CardInstance>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub limbo: Vec<CardInstance>,
+    /// Explicit public-history record of known next-draw positions.
+    /// Empty when no order is known. Snapshots omit the field when empty so
+    /// historical schema-9 documents still restore; restored empty knowledge is
+    /// not repaired from hidden pile order.
+    #[serde(default, skip_serializing_if = "DrawPilePublicKnowledge::is_empty")]
+    pub draw_pile_knowledge: DrawPilePublicKnowledge,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1135,7 +1142,10 @@ impl CombatState {
         }
         let opening_hand = std::mem::take(&mut self.piles.hand);
         self.pending_opening_hand_draw = opening_hand.len();
+        // Parking is an internal hold-out of the unseen opening draw, not a
+        // public top insert. Do not record those cards as known_positions.
         self.piles.draw_pile.extend(opening_hand.into_iter().rev());
+        self.piles.invalidate_draw_order();
     }
 
     pub(crate) fn new_run_entry(
@@ -1205,6 +1215,7 @@ impl CombatState {
                 discard_pile: Vec::new(),
                 exhaust_pile: Vec::new(),
                 limbo: Vec::new(),
+                draw_pile_knowledge: DrawPilePublicKnowledge::default(),
             },
             Vec::new(),
             0,
@@ -1770,6 +1781,7 @@ mod tests {
             discard_pile: Vec::new(),
             exhaust_pile: Vec::new(),
             limbo: Vec::new(),
+            draw_pile_knowledge: DrawPilePublicKnowledge::default(),
         }
     }
 

@@ -49,7 +49,7 @@ def inspect_combat(observation: Observation) -> None:
     for monster in observation.screen.monsters:
         print(f"  target[{monster.slot}]: {monster.content_key}, hp={monster.hp}")
     # Inspect screen.draw_pile.cards as a multiset, NOT top-to-bottom order.
-    # Only draw_pile.known_order represents publicly known order.
+    # Only draw_pile.known_positions records publicly known next-draw slots.
 
 
 def main() -> None:

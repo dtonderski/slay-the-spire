@@ -26,9 +26,18 @@ Actions expose only stable kinds and visible slots and are rejected when stale.
 
 `observation.kind` is a closed discriminant. After `observation.kind == "combat"`,
 type checkers narrow `observation.screen` to the combat screen, including nested
-unions such as monster intents, orbs, and rest options. Unknown mapping fields
-are rejected when projecting native records, so Python types fail closed if the
-fair schema grows.
+unions such as monster intents, orbs, and rest options. The same types are also
+importable from domain modules when that is clearer than the package facade:
+
+```python
+from sts_sim.observations.combat import CombatObservation, CombatScreen
+from sts_sim.observations.common import Relic, RunContext
+```
+
+Unknown mapping fields are rejected when projecting native records, so Python types fail closed if the
+fair schema grows. Combat piles expose a canonical `cards` multiset and
+`known_positions` (position `0` is the next draw). They do not expose `count` or
+`known_order`.
 
 Owned relics live only on `observation.context.relics`. Each `Relic` has a
 decision-local `slot`, a `RelicKey`, and public `state` counters. Persistent

@@ -717,7 +717,7 @@ mod tests {
         );
 
         let screen = combat_screen_value(&observation);
-        assert_eq!(screen["schema_version"], 3);
+        assert_eq!(screen["schema_version"], 4);
         assert!(screen.get("relics").is_none());
         assert!(screen.get("potion_slots").is_none());
         assert!(screen.get("context").is_none());

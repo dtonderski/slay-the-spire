@@ -17,6 +17,16 @@ boundary.
   match an observation. Whole-state rollback for rejected transitions is fine;
   post-hoc correction of accepted gameplay is not.
 
+## Subagent model policy
+
+- NEVER use Astra (including `gpt-6-astra`, aliases, and variants) for subagents,
+  regardless of role, harness, fallback, or thinking level. It consumes the
+  user's limited quota. Astra is reserved for the parent session only.
+- Explicitly select and verify a non-Astra model for every child launch. Never
+  inherit the parent model implicitly. Do not resume an Astra-backed child.
+- If a safe non-Astra model cannot be verified, stop and ask; do not fall back
+  to Astra. This applies to workers, scouts, reviewers, delegates, and oracles.
+
 ## Testing
 
 Traces are the primary gameplay regression. Unit tests are appropriate for

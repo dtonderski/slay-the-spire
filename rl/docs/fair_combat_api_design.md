@@ -55,9 +55,10 @@ They exclude:
 - unrevealed rewards, rooms, shops, and events.
 
 Discard and exhaust are public multisets, not ordered internal vectors. Draw
-order is hidden without a visibility rule such as Frozen Eye. Runic Dome intent
-is emitted as hidden without category, damage, or hit count. Unknown public
-content fails closed rather than leaking an internal identity.
+order is hidden except for `known_positions` recorded from public history and
+view-time Frozen Eye. See `rl/docs/fair_observation_hidden_state_audit.md`.
+Runic Dome intent is emitted as hidden without category, damage, or hit count.
+Unknown public content fails closed rather than leaking an internal identity.
 
 ## Non-interference
 

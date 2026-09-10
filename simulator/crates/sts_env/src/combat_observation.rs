@@ -22,7 +22,7 @@ use sts_core::adapter_internals::{
 };
 
 /// Version of the serialized symbolic fair-combat observation contract.
-pub const FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION: u32 = 3;
+pub const FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -141,12 +141,19 @@ pub struct FairHandCard {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FairKnownPosition {
+    /// Next-draw index. `0` is the next card that will be drawn.
+    pub position: usize,
+    pub card: FairCard,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FairPile {
-    pub count: usize,
     /// Public contents in canonical multiset order.
     pub cards: Vec<FairCard>,
-    /// Known top-to-bottom order. Empty when no order is publicly known.
-    pub known_order: Vec<FairCard>,
+    /// Known next-draw positions, sorted by position. Empty when no order is
+    /// publicly known. Known cards are a subset of `cards`.
+    pub known_positions: Vec<FairKnownPosition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -318,17 +325,7 @@ pub fn fair_combat_observation(
             Ok(FairOrbSlot { slot, orb })
         })
         .collect::<Result<Vec<_>, FairObservationError>>()?;
-    let draw_order = if combat.relics.contains(&Relic::FrozenEye) {
-        combat
-            .piles
-            .draw_pile
-            .iter()
-            .rev()
-            .map(|card| project_card(card, corruption_active))
-            .collect::<Result<Vec<_>, _>>()?
-    } else {
-        Vec::new()
-    };
+    let known_draw_positions = project_known_draw_positions(combat, corruption_active)?;
 
     Ok(FairCombatObservation {
         schema_version: FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION,
@@ -344,19 +341,16 @@ pub fn fair_combat_observation(
         orb_slots,
         hand,
         draw_pile: FairPile {
-            count: combat.piles.draw_pile.len(),
             cards: draw_cards,
-            known_order: draw_order,
+            known_positions: known_draw_positions,
         },
         discard_pile: FairPile {
-            count: combat.piles.discard_pile.len(),
             cards: canonical_cards(&combat.piles.discard_pile, corruption_active)?,
-            known_order: Vec::new(),
+            known_positions: Vec::new(),
         },
         exhaust_pile: FairPile {
-            count: combat.piles.exhaust_pile.len(),
             cards: canonical_cards(&combat.piles.exhaust_pile, corruption_active)?,
-            known_order: Vec::new(),
+            known_positions: Vec::new(),
         },
         monsters: combat
             .monsters
@@ -420,6 +414,50 @@ fn project_orb(orb: CombatOrb) -> Result<FairOrb, FairObservationError> {
         CombatOrb::Dark { evoke } if evoke >= 0 => Ok(FairOrb::Dark { evoke }),
         CombatOrb::Dark { .. } => Err(FairObservationError::InvalidAuthoritativeState),
     }
+}
+
+fn project_known_draw_positions(
+    combat: &CombatState,
+    corruption_active: bool,
+) -> Result<Vec<FairKnownPosition>, FairObservationError> {
+    if combat.relics.contains(&Relic::FrozenEye) {
+        return combat
+            .piles
+            .draw_pile
+            .iter()
+            .rev()
+            .enumerate()
+            .map(|(position, card)| {
+                Ok(FairKnownPosition {
+                    position,
+                    card: project_card(card, corruption_active)?,
+                })
+            })
+            .collect();
+    }
+    let pile_len = combat.piles.draw_pile.len();
+    let mut emitted = Vec::new();
+    let mut seen_positions = BTreeMap::<usize, ()>::new();
+    for (position, card_id) in combat.piles.draw_pile_knowledge.iter_sorted() {
+        let position = usize::from(position);
+        if position >= pile_len || seen_positions.contains_key(&position) {
+            continue;
+        }
+        let Some(card) = combat
+            .piles
+            .draw_pile
+            .iter()
+            .find(|card| card.id == card_id)
+        else {
+            continue;
+        };
+        seen_positions.insert(position, ());
+        emitted.push(FairKnownPosition {
+            position,
+            card: project_card(card, corruption_active)?,
+        });
+    }
+    Ok(emitted)
 }
 
 fn canonical_cards(
@@ -1210,13 +1248,16 @@ fn nonzero(value: i32) -> Option<i32> {
 mod tests {
     use super::*;
     use sts_core::adapter_internals::{
+        apply_run_decision_action,
         content::cards::{
-            BASH_ID, DEFEND_R_ID, DUAL_WIELD_ID, INFLAME_ID, STRIKE_R_ID,
+            ANGER_ID, BASH_ID, DEEP_BREATH_ID, DEFEND_R_ID, DUAL_WIELD_ID, FORETHOUGHT_ID,
+            HEADBUTT_ID, INFLAME_ID, POMMEL_STRIKE_ID, STRIKE_R_ID, VIOLENCE_ID, WILD_STRIKE_ID,
             WINDMILL_STRIKE_ANY_COLOR_ID,
         },
         content::monsters::{monster_state, BRONZE_ORB_A0, GUARDIAN_A0, LOOTER_A0},
-        CardId, CardInstance, MonsterId, StsRng,
+        CardId, CardInstance, CombatAction, MonsterId, RunAction, RunDecisionAction, StsRng,
     };
+    use sts_core::snapshot::{restore_run_snapshot_json, Snapshot, SNAPSHOT_SCHEMA_VERSION};
 
     fn observation(run: &RunState) -> FairCombatObservation {
         fair_combat_observation(run).expect("fixture projects")
@@ -1337,7 +1378,7 @@ mod tests {
             CardInstance::new(CardId::new(102), DEFEND_R_ID),
             CardInstance::new(CardId::new(103), BASH_ID),
         ];
-        assert!(observation(&hidden).draw_pile.known_order.is_empty());
+        assert!(observation(&hidden).draw_pile.known_positions.is_empty());
 
         let mut revealed = hidden.clone();
         revealed.relics.push(Relic::FrozenEye);
@@ -1350,11 +1391,11 @@ mod tests {
         let projected = observation(&revealed);
         let keys = projected
             .draw_pile
-            .known_order
+            .known_positions
             .iter()
-            .map(|card| card.content_key.as_str())
+            .map(|entry| (entry.position, entry.card.content_key.as_str()))
             .collect::<Vec<_>>();
-        assert_eq!(keys, vec!["Bash", "Defend_R", "Strike_R"]);
+        assert_eq!(keys, vec![(0, "Bash"), (1, "Defend_R"), (2, "Strike_R")]);
 
         let mut permuted = revealed.clone();
         permuted
@@ -1496,7 +1537,7 @@ mod tests {
         combat.piles.hand[0].windmill_retain_damage = 8;
 
         let projected = observation(&run);
-        assert_eq!(projected.schema_version, 3);
+        assert_eq!(projected.schema_version, 4);
         assert_eq!(
             projected.orb_slots,
             vec![
@@ -1921,7 +1962,16 @@ mod tests {
         rich.hand[0].card.dynamic.steam_barrier_block_reduction = Some(1);
         rich.hand[0].card.dynamic.combat_cost_under_turn_override = Some(0);
         let mut known_order = rich.clone();
-        known_order.draw_pile.known_order = rich.draw_pile.cards.clone();
+        known_order.draw_pile.known_positions = rich
+            .draw_pile
+            .cards
+            .iter()
+            .enumerate()
+            .map(|(position, card)| FairKnownPosition {
+                position,
+                card: card.clone(),
+            })
+            .collect();
         let mut visible_intent = ordinary.clone();
         visible_intent.monsters[0].intent = FairMonsterIntent::Visible {
             category: FairIntentCategory::Attack,
@@ -1958,6 +2008,593 @@ mod tests {
         assert!(
             error.contains("player.seed"),
             "path-sensitive allowlist should reject $.player.seed, got {error}"
+        );
+    }
+
+    fn known_keys(run: &RunState) -> Vec<(usize, String)> {
+        observation(run)
+            .draw_pile
+            .known_positions
+            .iter()
+            .map(|entry| (entry.position, entry.card.content_key.clone()))
+            .collect()
+    }
+
+    fn play_headbutt(run: RunState, card_id: u64, discard_index: usize) -> RunState {
+        let target = run.combat.as_ref().expect("combat").monsters[0].id;
+        let run = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(card_id),
+                target: Some(target),
+            }),
+        )
+        .expect("play Headbutt");
+        apply_run_decision_action(
+            &run,
+            RunDecisionAction::Run(RunAction::ChooseDiscardSelect {
+                index: discard_index,
+            }),
+        )
+        .expect("choose Headbutt target")
+    }
+
+    fn double_headbutt_run() -> RunState {
+        let mut run = RunState::combat_fixture();
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.player.energy = 3;
+            combat.piles.hand = vec![
+                CardInstance::new(CardId::new(1), HEADBUTT_ID),
+                CardInstance::new(CardId::new(2), HEADBUTT_ID),
+                CardInstance::new(CardId::new(3), POMMEL_STRIKE_ID),
+                CardInstance::new(CardId::new(4), DEEP_BREATH_ID),
+                CardInstance::new(CardId::new(5), WILD_STRIKE_ID),
+            ];
+            combat.piles.draw_pile = vec![
+                CardInstance::new(CardId::new(10), STRIKE_R_ID),
+                CardInstance::new(CardId::new(11), STRIKE_R_ID),
+                CardInstance::new(CardId::new(12), STRIKE_R_ID),
+            ];
+            combat.piles.discard_pile = vec![
+                CardInstance::new(CardId::new(20), BASH_ID),
+                CardInstance::new(CardId::new(21), DEFEND_R_ID),
+            ];
+            combat.piles.exhaust_pile.clear();
+            combat.piles.draw_pile_knowledge = Default::default();
+        }
+        let run = play_headbutt(run, 1, 0);
+        play_headbutt(run, 2, 0)
+    }
+
+    #[test]
+    fn double_headbutt_public_actions_expose_newest_card_at_position_zero() {
+        let run = double_headbutt_run();
+        assert_eq!(
+            known_keys(&run),
+            vec![(0, "Defend_R".to_owned()), (1, "Bash".to_owned())]
+        );
+        assert!(observation(&run)
+            .draw_pile
+            .cards
+            .iter()
+            .any(|card| card.content_key == "Defend_R"));
+        let encoded = serde_json::to_string(&observation(&run)).expect("serializes");
+        assert!(!encoded.contains("card_id"));
+        assert!(!encoded.contains("known_order"));
+        assert!(!encoded.contains("\"count\""));
+    }
+
+    #[test]
+    fn singleton_headbutt_auto_place_exposes_the_only_discard_card() {
+        let mut run = RunState::combat_fixture();
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.player.energy = 1;
+            combat.piles.hand = vec![CardInstance::new(CardId::new(1), HEADBUTT_ID)];
+            combat.piles.draw_pile = vec![CardInstance::new(CardId::new(10), STRIKE_R_ID)];
+            combat.piles.discard_pile = vec![CardInstance::new(CardId::new(20), BASH_ID)];
+            combat.piles.draw_pile_knowledge = Default::default();
+        }
+        let target = run.combat.as_ref().expect("combat").monsters[0].id;
+        let run = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            }),
+        )
+        .expect("singleton Headbutt auto-places");
+        assert!(run.combat.as_ref().expect("combat").decision.is_none());
+        assert_eq!(known_keys(&run), vec![(0, "Bash".to_owned())]);
+    }
+
+    #[test]
+    fn public_draw_shifts_known_positions() {
+        let run = double_headbutt_run();
+        let target = run.combat.as_ref().expect("combat").monsters[0].id;
+        let drawn = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(3),
+                target: Some(target),
+            }),
+        )
+        .expect("Pommel Strike draws the known top");
+        assert_eq!(known_keys(&drawn), vec![(0, "Bash".to_owned())]);
+        assert!(drawn
+            .combat
+            .as_ref()
+            .expect("combat")
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.content_id == DEFEND_R_ID));
+    }
+
+    #[test]
+    fn public_shuffle_invalidates_known_positions() {
+        let run = double_headbutt_run();
+        assert!(!known_keys(&run).is_empty());
+        let shuffled = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(4),
+                target: None,
+            }),
+        )
+        .expect("Deep Breath shuffles");
+        assert!(known_keys(&shuffled).is_empty());
+    }
+
+    #[test]
+    fn random_insert_invalidates_known_positions() {
+        let run = double_headbutt_run();
+        let target = run.combat.as_ref().expect("combat").monsters[0].id;
+        let mutated = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(5),
+                target: Some(target),
+            }),
+        )
+        .expect("Wild Strike inserts randomly");
+        assert!(known_keys(&mutated).is_empty());
+    }
+
+    #[test]
+    fn forethought_records_bottom_insert() {
+        let mut run = RunState::combat_fixture();
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.player.energy = 1;
+            combat.piles.hand = vec![
+                CardInstance::new(CardId::new(1), FORETHOUGHT_ID),
+                CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            ];
+            combat.piles.draw_pile = vec![
+                CardInstance::new(CardId::new(10), STRIKE_R_ID),
+                CardInstance::new(CardId::new(11), BASH_ID),
+            ];
+            combat.piles.discard_pile.clear();
+            combat.piles.draw_pile_knowledge = Default::default();
+        }
+        let run = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            }),
+        )
+        .expect("play Forethought");
+        let run = if run.combat.as_ref().expect("combat").decision.is_some() {
+            let run = apply_run_decision_action(
+                &run,
+                RunDecisionAction::Run(RunAction::ChooseHandSelect { index: 0 }),
+            )
+            .expect("choose Forethought card");
+            apply_run_decision_action(&run, RunDecisionAction::Run(RunAction::ConfirmHandSelect))
+                .expect("confirm Forethought")
+        } else {
+            run
+        };
+        let pile_len = run.combat.as_ref().expect("combat").piles.draw_pile.len();
+        assert_eq!(
+            known_keys(&run),
+            vec![(pile_len - 1, "Defend_R".to_owned())]
+        );
+        assert_eq!(
+            run.combat.as_ref().expect("combat").piles.draw_pile[0].content_id,
+            DEFEND_R_ID
+        );
+    }
+
+    #[test]
+    fn hidden_permutation_of_known_and_unknown_cards_does_not_change_public_bytes() {
+        let run = double_headbutt_run();
+        let baseline = observation_bytes(&run);
+        let combat = run.combat.as_ref().expect("combat");
+        let defend_id = combat
+            .piles
+            .draw_pile
+            .iter()
+            .find(|card| card.content_id == DEFEND_R_ID)
+            .expect("Defend")
+            .id;
+        let mut permuted = run.clone();
+        {
+            let combat = permuted.combat.as_mut().expect("combat");
+            combat.piles.draw_pile.reverse();
+            let Some(index) = combat
+                .piles
+                .draw_pile
+                .iter()
+                .position(|card| card.id == defend_id)
+            else {
+                panic!("permuted pile lost Defend");
+            };
+            let last = combat.piles.draw_pile.len() - 1;
+            combat
+                .piles
+                .draw_pile
+                .swap(index, last.saturating_sub(1).min(index));
+        }
+        assert_eq!(baseline, observation_bytes(&permuted));
+
+        let mut renumbered = run.clone();
+        {
+            let combat = renumbered.combat.as_mut().expect("combat");
+            let tracked: std::collections::BTreeSet<_> = combat
+                .piles
+                .draw_pile_knowledge
+                .iter_sorted()
+                .map(|(_, id)| id)
+                .collect();
+            for (index, card) in combat.piles.draw_pile.iter_mut().enumerate() {
+                if !tracked.contains(&card.id) {
+                    card.id = CardId::new(8_000 + index as u64);
+                }
+            }
+        }
+        assert_eq!(baseline, observation_bytes(&renumbered));
+    }
+
+    #[test]
+    fn frozen_eye_overlay_ignores_tracker_and_follows_true_order() {
+        let mut run = double_headbutt_run();
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.piles.draw_pile.reverse();
+        }
+        assert_eq!(
+            known_keys(&run),
+            vec![(0, "Defend_R".to_owned()), (1, "Bash".to_owned())]
+        );
+        run.relics.push(Relic::FrozenEye);
+        run.combat
+            .as_mut()
+            .expect("combat")
+            .relics
+            .push(Relic::FrozenEye);
+        let keys = known_keys(&run);
+        let true_order = run
+            .combat
+            .as_ref()
+            .expect("combat")
+            .piles
+            .draw_pile
+            .iter()
+            .rev()
+            .enumerate()
+            .map(|(position, card)| {
+                let key = sts_core::adapter_internals::content::cards::get_card_definition(
+                    card.content_id,
+                )
+                .expect("definition")
+                .key;
+                (position, key.to_owned())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(keys, true_order);
+        assert_ne!(
+            keys,
+            vec![(0, "Defend_R".to_owned()), (1, "Bash".to_owned())]
+        );
+    }
+
+    #[test]
+    fn clone_snapshot_and_rejected_action_preserve_knowledge() {
+        let run = double_headbutt_run();
+        let cloned = run.clone();
+        assert_eq!(observation_bytes(&run), observation_bytes(&cloned));
+
+        let snapshot = Snapshot {
+            schema_version: SNAPSHOT_SCHEMA_VERSION,
+            state: run.clone(),
+        };
+        let json = snapshot.canonical_json().expect("snapshot serializes");
+        let restored = restore_run_snapshot_json(&json).expect("snapshot restores");
+        assert_eq!(known_keys(&run), known_keys(&restored.state));
+
+        let rejected = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(99),
+                target: None,
+            }),
+        );
+        assert!(rejected.is_err());
+        assert_eq!(known_keys(&run), known_keys(&cloned));
+        assert_eq!(
+            run.combat
+                .as_ref()
+                .expect("combat")
+                .piles
+                .draw_pile_knowledge,
+            cloned
+                .combat
+                .as_ref()
+                .expect("combat")
+                .piles
+                .draw_pile_knowledge
+        );
+    }
+
+    #[test]
+    fn observation_does_not_consume_rng() {
+        let run = double_headbutt_run();
+        let combat = run.combat.as_ref().expect("combat");
+        let before = (
+            combat.rng.shuffle_rng.counter(),
+            combat.rng.card_random_rng.counter(),
+            combat.rng.monster_rng.counter(),
+            combat.rng.monster_hp_rng.counter(),
+        );
+        let _ = observation(&run);
+        let combat = run.combat.as_ref().expect("combat");
+        let after = (
+            combat.rng.shuffle_rng.counter(),
+            combat.rng.card_random_rng.counter(),
+            combat.rng.monster_rng.counter(),
+            combat.rng.monster_hp_rng.counter(),
+        );
+        assert_eq!(before, after);
+    }
+
+    #[test]
+    fn duplicate_public_cards_remain_a_membership_subset() {
+        let mut run = RunState::combat_fixture();
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.player.energy = 1;
+            combat.piles.hand = vec![CardInstance::new(CardId::new(1), HEADBUTT_ID)];
+            combat.piles.draw_pile = vec![CardInstance::new(CardId::new(10), DEFEND_R_ID)];
+            combat.piles.discard_pile = vec![
+                CardInstance::new(CardId::new(20), DEFEND_R_ID),
+                CardInstance::new(CardId::new(21), DEFEND_R_ID),
+            ];
+            combat.piles.draw_pile_knowledge = Default::default();
+        }
+        let run = play_headbutt(run, 1, 1);
+        assert_eq!(known_keys(&run), vec![(0, "Defend_R".to_owned())]);
+        let defend_count = observation(&run)
+            .draw_pile
+            .cards
+            .iter()
+            .filter(|card| card.content_key == "Defend_R")
+            .count();
+        assert_eq!(defend_count, 2);
+    }
+
+    #[test]
+    fn toolbox_first_screen_does_not_expose_parked_opening_draw() {
+        let run = RunState::combat_fixture_with_relics(vec![Relic::Toolbox]);
+        let combat = run.combat.as_ref().expect("combat");
+        assert!(combat.piles.hand.is_empty());
+        assert!(matches!(
+            combat.decision,
+            Some(CombatDecisionState::ToolboxCardReward { .. })
+        ));
+        assert!(known_keys(&run).is_empty());
+        assert!(!observation(&run).draw_pile.cards.is_empty());
+    }
+
+    #[test]
+    fn distilled_chaos_interrupt_does_not_reveal_unplayed_tops() {
+        let mut run = RunState::combat_fixture();
+        run.potions = vec![Potion::DistilledChaos];
+        run.empty_potion_slots = vec![1, 2];
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.player.energy = 3;
+            combat.piles.hand = vec![
+                CardInstance::new(CardId::new(1), STRIKE_R_ID),
+                CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            ];
+            combat.piles.draw_pile = vec![
+                CardInstance::new(CardId::new(101), WILD_STRIKE_ID),
+                CardInstance::new(CardId::new(102), ANGER_ID),
+                CardInstance::new(CardId::new(103), DUAL_WIELD_ID),
+            ];
+            combat.piles.discard_pile.clear();
+            combat.piles.draw_pile_knowledge = Default::default();
+        }
+        let run = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Run(RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            }),
+        )
+        .expect("Distilled Chaos pauses at Dual Wield");
+        assert!(matches!(
+            run.combat.as_ref().expect("combat").decision,
+            Some(CombatDecisionState::HandSelect { .. })
+        ));
+        let restored = observation(&run)
+            .draw_pile
+            .cards
+            .iter()
+            .map(|card| card.content_key.clone())
+            .collect::<Vec<_>>();
+        assert!(restored.iter().any(|key| key == "Anger"));
+        assert!(restored.iter().any(|key| key == "WILD_STRIKE"));
+        assert!(
+            known_keys(&run).is_empty(),
+            "unplayed Distilled Chaos tops must not become known_positions: {:?}",
+            known_keys(&run)
+        );
+    }
+
+    #[test]
+    fn distilled_chaos_interrupt_does_not_leave_stale_headbutt_positions() {
+        let mut run = RunState::combat_fixture();
+        run.potions = vec![Potion::DistilledChaos];
+        run.empty_potion_slots = vec![1, 2];
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.player.energy = 2;
+            combat.piles.hand = vec![
+                CardInstance::new(CardId::new(1), HEADBUTT_ID),
+                CardInstance::new(CardId::new(2), STRIKE_R_ID),
+            ];
+            combat.piles.draw_pile = vec![
+                CardInstance::new(CardId::new(101), WILD_STRIKE_ID),
+                CardInstance::new(CardId::new(102), ANGER_ID),
+                CardInstance::new(CardId::new(103), DUAL_WIELD_ID),
+            ];
+            combat.piles.discard_pile = vec![CardInstance::new(CardId::new(20), BASH_ID)];
+            combat.piles.draw_pile_knowledge = Default::default();
+        }
+        let target = run.combat.as_ref().expect("combat").monsters[0].id;
+        let run = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            }),
+        )
+        .expect("singleton Headbutt auto-places Bash");
+        assert_eq!(known_keys(&run), vec![(0, "Bash".to_owned())]);
+        let run = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Run(RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            }),
+        )
+        .expect("Distilled Chaos pauses after Headbutt");
+        assert!(matches!(
+            run.combat.as_ref().expect("combat").decision,
+            Some(CombatDecisionState::HandSelect { .. })
+        ));
+        assert!(
+            known_keys(&run).is_empty(),
+            "interrupt restore must not keep shifted or newly revealed tops: {:?}",
+            known_keys(&run)
+        );
+    }
+
+    #[test]
+    fn violence_duplicate_attacks_do_not_branch_on_private_instance_choice() {
+        let mut left = RunState::combat_fixture();
+        {
+            let combat = left.combat.as_mut().expect("combat");
+            combat.player.energy = 2;
+            combat.piles.hand = vec![
+                CardInstance::new(CardId::new(1), HEADBUTT_ID),
+                CardInstance::new(CardId::new(2), VIOLENCE_ID),
+            ];
+            combat.piles.draw_pile = vec![
+                CardInstance::new(CardId::new(10), STRIKE_R_ID),
+                CardInstance::new(CardId::new(11), STRIKE_R_ID),
+            ];
+            combat.piles.discard_pile = vec![CardInstance::new(CardId::new(20), BASH_ID)];
+            combat.piles.draw_pile_knowledge = Default::default();
+        }
+        let target = left.combat.as_ref().expect("combat").monsters[0].id;
+        let left = apply_run_decision_action(
+            &left,
+            RunDecisionAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            }),
+        )
+        .expect("singleton Headbutt auto-places Bash");
+        let mut right = left.clone();
+        {
+            let combat = right.combat.as_mut().expect("combat");
+            combat.piles.draw_pile.reverse();
+        }
+        assert_eq!(observation_bytes(&left), observation_bytes(&right));
+        let left = apply_run_decision_action(
+            &left,
+            RunDecisionAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(2),
+                target: None,
+            }),
+        )
+        .expect("Violence on original order");
+        let right = apply_run_decision_action(
+            &right,
+            RunDecisionAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(2),
+                target: None,
+            }),
+        )
+        .expect("Violence on reversed order");
+        assert_eq!(known_keys(&left), known_keys(&right));
+        assert!(known_keys(&left).is_empty());
+        assert_eq!(
+            observation(&left).draw_pile.cards,
+            observation(&right).draw_pile.cards
+        );
+    }
+
+    #[test]
+    fn bronze_orb_stasis_from_draw_invalidates_known_positions() {
+        let mut run = RunState::combat_fixture();
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.player.energy = 1;
+            combat.piles.hand = vec![CardInstance::new(CardId::new(1), HEADBUTT_ID)];
+            combat.piles.draw_pile = vec![
+                CardInstance::new(CardId::new(10), STRIKE_R_ID),
+                CardInstance::new(CardId::new(11), STRIKE_R_ID),
+                CardInstance::new(CardId::new(12), STRIKE_R_ID),
+            ];
+            combat.piles.discard_pile = vec![CardInstance::new(CardId::new(20), BASH_ID)];
+            combat.piles.draw_pile_knowledge = Default::default();
+            combat.monsters = vec![monster_state(&BRONZE_ORB_A0, MonsterId::new(1))];
+            combat.monsters[0].intent = MonsterIntent::SiphonPlayer {
+                strength: 0,
+                dexterity: 0,
+            };
+        }
+        let target = run.combat.as_ref().expect("combat").monsters[0].id;
+        let run = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Combat(CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            }),
+        )
+        .expect("singleton Headbutt auto-places Bash");
+        assert_eq!(known_keys(&run), vec![(0, "Bash".to_owned())]);
+        let run = apply_run_decision_action(&run, RunDecisionAction::Combat(CombatAction::EndTurn))
+            .expect("Bronze Orb Stasis resolves on EndTurn");
+        let combat = run.combat.as_ref().expect("combat");
+        assert!(combat.monsters[0].stasis_card.is_some());
+        let stasis_key = observation(&run).monsters[0]
+            .stasis_card
+            .as_ref()
+            .expect("public stasis card")
+            .content_key
+            .clone();
+        assert!(
+            known_keys(&run).iter().all(|(_, key)| key != &stasis_key),
+            "stasis card must not remain a known draw position: {:?}",
+            known_keys(&run)
         );
     }
 }
