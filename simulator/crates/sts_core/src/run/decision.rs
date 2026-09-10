@@ -1,8 +1,8 @@
 use crate::{
     action::{CombatAction, EventAction, RestAction},
     combat::{
-        legal::legal_combat_actions_after_validation, validate_combat_action, CombatDecisionState,
-        CombatState, ExhaustSelectPurpose,
+        legal::{legal_combat_actions_after_validation, validate_combat_action_after_validation},
+        CombatDecisionState, CombatState, ExhaustSelectPurpose,
     },
     map::MapAction,
     potion::Potion,
@@ -11,29 +11,31 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 use super::{
-    event::{apply_validated_event_action, legal_event_actions_after_validation},
+    event::{
+        apply_validated_event_action, legal_event_actions_after_validation,
+        validate_event_action_after_validation,
+    },
     grid::{
         apply_validated_grid_cancel, apply_validated_grid_confirmation,
-        apply_validated_grid_select, validate_grid_cancel, validate_grid_cancel_after_validation,
-        validate_grid_confirm, validate_grid_confirm_after_validation, validate_grid_select,
-        validate_grid_select_after_validation,
+        apply_validated_grid_select, validate_grid_cancel_after_validation,
+        validate_grid_confirm_after_validation, validate_grid_select_after_validation,
     },
     map::{
         apply_validated_map_action_on_run, legal_map_actions_on_run_after_validation,
-        validate_map_action_on_run,
+        validate_map_action_on_run_after_validation,
     },
     potion::validate_potion_action_after_validation,
-    rest::{apply_validated_rest_action, legal_rest_actions_after_validation},
+    rest::{
+        apply_validated_rest_action, legal_rest_actions_after_validation,
+        validate_rest_action_after_validation,
+    },
     reward::{
         apply_validated_combat_action_on_owned_run, apply_validated_run_action_owned,
         validate_treasure_action_after_validation,
     },
-    shop::legal_shop_actions_after_validation,
+    shop::{legal_shop_actions_after_validation, validate_shop_action_after_validation},
 };
-use super::{
-    validate_event_action, validate_potion_action, validate_rest_action, validate_shop_action,
-    RunAction, RunState,
-};
+use super::{RunAction, RunState};
 
 /// One authoritative decision at any supported run boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,6 +53,14 @@ pub enum RunDecisionAction {
 /// Validates one top-level run decision without executing simulator mechanics.
 pub fn validate_run_decision_action(run: &RunState, action: RunDecisionAction) -> SimResult<()> {
     run.validate()?;
+    validate_run_decision_action_after_validation(run, action)
+}
+
+/// Legality-only validation for a run that already passed structural `RunState::validate`.
+pub fn validate_run_decision_action_after_validation(
+    run: &RunState,
+    action: RunDecisionAction,
+) -> SimResult<()> {
     match action {
         RunDecisionAction::Combat(action) => {
             if run.phase != RunPhase::Combat {
@@ -62,14 +72,16 @@ pub fn validate_run_decision_action(run: &RunState, action: RunDecisionAction) -
                 .combat
                 .as_ref()
                 .ok_or(SimError::InvalidState("combat state is missing"))?;
-            validate_combat_action(combat, action)
+            validate_combat_action_after_validation(combat, action)
         }
-        RunDecisionAction::Event(action) => validate_event_action(run, action),
-        RunDecisionAction::GridSelect { index } => validate_grid_select(run, index),
-        RunDecisionAction::GridConfirm => validate_grid_confirm(run),
-        RunDecisionAction::GridCancel => validate_grid_cancel(run),
-        RunDecisionAction::Map(action) => validate_map_action_on_run(run, action),
-        RunDecisionAction::Rest(action) => validate_rest_action(run, action),
+        RunDecisionAction::Event(action) => validate_event_action_after_validation(run, action),
+        RunDecisionAction::GridSelect { index } => {
+            validate_grid_select_after_validation(run, index)
+        }
+        RunDecisionAction::GridConfirm => validate_grid_confirm_after_validation(run),
+        RunDecisionAction::GridCancel => validate_grid_cancel_after_validation(run),
+        RunDecisionAction::Map(action) => validate_map_action_on_run_after_validation(run, action),
+        RunDecisionAction::Rest(action) => validate_rest_action_after_validation(run, action),
         RunDecisionAction::Run(action) => validate_run_action_after_run_validation(run, action),
     }
 }
@@ -77,6 +89,13 @@ pub fn validate_run_decision_action(run: &RunState, action: RunDecisionAction) -
 /// Enumerates the complete supported decision boundary without executing transitions or RNG.
 pub fn legal_run_decision_actions(run: &RunState) -> SimResult<Vec<RunDecisionAction>> {
     run.validate()?;
+    legal_run_decision_actions_after_validation(run)
+}
+
+/// Enumerates decisions for a run that already passed structural `RunState::validate`.
+pub fn legal_run_decision_actions_after_validation(
+    run: &RunState,
+) -> SimResult<Vec<RunDecisionAction>> {
     let mut actions = Vec::new();
 
     if let Some(grid) = run.card_grid.as_ref() {
@@ -193,6 +212,16 @@ fn within_outer_run_transaction<T>(operation: impl FnOnce() -> SimResult<T>) -> 
 /// Applies one top-level run decision and validates both sides of the boundary.
 pub fn apply_run_decision_action(run: &RunState, action: RunDecisionAction) -> SimResult<RunState> {
     validate_run_decision_action(run, action)?;
+    apply_run_decision_action_after_validation(run, action)
+}
+
+/// Applies a previously legality-checked decision without a structural pre-validate.
+///
+/// The successor is still structurally validated once after queue settlement.
+pub fn apply_run_decision_action_after_validation(
+    run: &RunState,
+    action: RunDecisionAction,
+) -> SimResult<RunState> {
     let working = run.clone();
     within_outer_run_transaction(|| {
         let mut next = match action {
@@ -226,9 +255,11 @@ pub(crate) fn validate_run_action_after_run_validation(
     action: RunAction,
 ) -> SimResult<()> {
     match action {
-        RunAction::OpenChest => super::reward::validate_treasure_action(run, action),
+        RunAction::OpenChest => validate_treasure_action_after_validation(run, action),
         RunAction::Proceed if run.phase == RunPhase::Reward => run.validate_reward_action(action),
-        RunAction::Proceed if run.phase == RunPhase::Shop => validate_shop_action(run, action),
+        RunAction::Proceed if run.phase == RunPhase::Shop => {
+            validate_shop_action_after_validation(run, action)
+        }
         RunAction::Proceed if run.phase == RunPhase::Combat => {
             if run
                 .combat
@@ -245,13 +276,13 @@ pub(crate) fn validate_run_action_after_run_validation(
         RunAction::Proceed if run.phase == RunPhase::Victory => {
             run.validate_final_boss_victory_action(action)
         }
-        RunAction::Proceed => super::reward::validate_treasure_action(run, action),
+        RunAction::Proceed => validate_treasure_action_after_validation(run, action),
         RunAction::BuyShopCard { .. }
         | RunAction::BuyShopRelic { .. }
         | RunAction::BuyShopPotion { .. }
         | RunAction::EnterShop
         | RunAction::LeaveShop
-        | RunAction::OpenShopRemove => validate_shop_action(run, action),
+        | RunAction::OpenShopRemove => validate_shop_action_after_validation(run, action),
         RunAction::UsePotion { .. }
         | RunAction::DiscardPotion { .. }
         | RunAction::ChooseCombatCardReward { .. }
@@ -264,7 +295,7 @@ pub(crate) fn validate_run_action_after_run_validation(
         | RunAction::ChooseDiscardSelect { .. }
         | RunAction::ConfirmDiscardSelect
         | RunAction::ChooseExhaustSelect { .. }
-        | RunAction::ConfirmExhaustSelect => validate_potion_action(run, action),
+        | RunAction::ConfirmExhaustSelect => validate_potion_action_after_validation(run, action),
         _ => run.validate_reward_action(action),
     }
 }
@@ -440,7 +471,7 @@ mod tests {
             PURITY_ID, RECYCLE_ANY_COLOR_ID, SECRET_WEAPON_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID,
             THINKING_AHEAD_ID, TRUE_GRIT_PLUS_ID,
         },
-        legal_map_actions_on_run,
+        legal_combat_actions, legal_event_actions, legal_map_actions_on_run, legal_rest_actions,
         snapshot::{restore_run_snapshot_json, Snapshot, SNAPSHOT_SCHEMA_VERSION},
         CardGridScreen, CardId, CardInstance, GridPurpose, Relic,
     };
@@ -571,6 +602,60 @@ mod tests {
         );
     }
 
+    fn rest_fixture() -> RunState {
+        let mut rest = RunState::map_fixture();
+        rest.phase = RunPhase::Rest;
+        rest.current_room_override = Some(crate::RoomKind::Rest);
+        rest.event = None;
+        rest
+    }
+
+    fn grid_fixture() -> RunState {
+        let mut grid = rest_fixture();
+        grid.card_grid = Some(CardGridScreen {
+            cards: grid.deck.clone(),
+            purpose: GridPurpose::RestSmith,
+            selected: None,
+            selected_indices: Vec::new(),
+        });
+        grid
+    }
+
+    fn potion_fixture() -> (RunState, RunDecisionAction) {
+        let mut run = RunState::combat_fixture();
+        run.potions = vec![Potion::Energy];
+        run.empty_potion_slots = vec![1, 2];
+        (
+            run,
+            RunDecisionAction::Run(RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            }),
+        )
+    }
+
+    fn representative_checked_cases() -> Vec<(&'static str, RunState, RunDecisionAction)> {
+        let map = RunState::map_fixture();
+        let map_action = RunDecisionAction::Map(legal_map_actions_on_run(&map).expect("map")[0]);
+        let combat = RunState::combat_fixture();
+        let combat_action = legal_run_decision_actions(&combat)
+            .expect("combat actions")
+            .into_iter()
+            .find(|action| matches!(action, RunDecisionAction::Combat(_)))
+            .expect("combat action");
+        let rest = rest_fixture();
+        let rest_action = legal_run_decision_actions(&rest).expect("rest actions")[0];
+        let grid = grid_fixture();
+        let (potion, potion_action) = potion_fixture();
+        vec![
+            ("map", map, map_action),
+            ("combat", combat, combat_action),
+            ("rest", rest, rest_action),
+            ("grid", grid, RunDecisionAction::GridSelect { index: 0 }),
+            ("run/potion", potion, potion_action),
+        ]
+    }
+
     #[test]
     fn legal_query_performs_one_full_run_validation() {
         for run in [RunState::map_fixture(), RunState::combat_fixture()] {
@@ -579,6 +664,107 @@ mod tests {
             assert!(!actions.is_empty());
             assert_eq!(crate::run::state::full_validation_count(), 1);
         }
+    }
+
+    #[test]
+    fn validate_run_decision_action_performs_one_full_run_validation() {
+        for (name, run, action) in representative_checked_cases() {
+            crate::run::state::reset_full_validation_count();
+            validate_run_decision_action(&run, action)
+                .unwrap_or_else(|error| panic!("{name} validate failed: {error}"));
+            assert_eq!(crate::run::state::full_validation_count(), 1, "{name}");
+        }
+    }
+
+    #[test]
+    fn public_apply_performs_two_full_run_validations() {
+        for (name, run, action) in representative_checked_cases() {
+            crate::run::state::reset_full_validation_count();
+            apply_run_decision_action(&run, action)
+                .unwrap_or_else(|error| panic!("{name} apply failed: {error}"));
+            assert_eq!(crate::run::state::full_validation_count(), 2, "{name}");
+        }
+    }
+
+    #[test]
+    fn after_validation_apply_performs_one_successor_validation() {
+        for (name, run, action) in representative_checked_cases() {
+            run.validate().expect("fixture is valid");
+            crate::run::state::reset_full_validation_count();
+            apply_run_decision_action_after_validation(&run, action)
+                .unwrap_or_else(|error| panic!("{name} trusted apply failed: {error}"));
+            assert_eq!(crate::run::state::full_validation_count(), 1, "{name}");
+        }
+    }
+
+    #[test]
+    fn checked_and_trusted_successors_match_including_rng() {
+        for (name, run, action) in representative_checked_cases() {
+            let checked = apply_run_decision_action(&run, action)
+                .unwrap_or_else(|error| panic!("{name} checked apply failed: {error}"));
+            let trusted = apply_run_decision_action_after_validation(&run, action)
+                .unwrap_or_else(|error| panic!("{name} trusted apply failed: {error}"));
+            assert_eq!(checked, trusted, "{name}");
+            assert_eq!(
+                legal_run_decision_actions(&checked).expect("checked legal"),
+                legal_run_decision_actions(&trusted).expect("trusted legal"),
+                "{name} legal order"
+            );
+        }
+    }
+
+    #[test]
+    fn rest_and_combat_legal_actions_match_specialized_order() {
+        let rest = rest_fixture();
+        let rest_actions = legal_run_decision_actions(&rest).expect("rest legal");
+        assert!(!rest_actions.is_empty());
+        assert!(rest_actions
+            .iter()
+            .all(|action| validate_run_decision_action(&rest, *action).is_ok()));
+        assert_eq!(
+            rest_actions,
+            legal_rest_actions(&rest)
+                .expect("rest specialized")
+                .into_iter()
+                .map(RunDecisionAction::Rest)
+                .collect::<Vec<_>>()
+        );
+
+        let combat = RunState::combat_fixture();
+        let combat_actions = legal_run_decision_actions(&combat).expect("combat legal");
+        let specialized = legal_combat_actions(combat.combat.as_ref().expect("combat"))
+            .expect("combat specialized")
+            .into_iter()
+            .map(RunDecisionAction::Combat)
+            .chain(
+                legal_potion_actions_on_run(&combat)
+                    .expect("potion legal")
+                    .into_iter()
+                    .map(RunDecisionAction::Run),
+            )
+            .collect::<Vec<_>>();
+        assert_eq!(combat_actions, specialized);
+        assert!(combat_actions
+            .iter()
+            .all(|action| validate_run_decision_action(&combat, *action).is_ok()));
+    }
+
+    #[test]
+    fn event_legal_actions_match_specialized_order() {
+        let event = RunState::seeded_ironclad(1, 0);
+        let actions = legal_run_decision_actions(&event).expect("event legal");
+        assert!(!actions.is_empty());
+        assert!(actions
+            .iter()
+            .all(|action| validate_run_decision_action(&event, *action).is_ok()));
+        assert_eq!(
+            actions,
+            legal_event_actions(&event)
+                .expect("event specialized")
+                .into_iter()
+                .map(RunDecisionAction::Event)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]

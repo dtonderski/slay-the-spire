@@ -133,7 +133,13 @@ pub(crate) fn legal_combat_actions_after_validation(
 
 pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimResult<()> {
     state.validate()?;
+    validate_combat_action_after_validation(state, action)
+}
 
+pub(crate) fn validate_combat_action_after_validation(
+    state: &CombatState,
+    action: CombatAction,
+) -> SimResult<()> {
     if state.phase != CombatPhase::WaitingForPlayer {
         return Err(SimError::IllegalAction(
             "combat is not waiting for player input",

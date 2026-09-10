@@ -101,11 +101,17 @@ pub(crate) fn legal_rest_actions_after_validation(run: &RunState) -> SimResult<V
 
 pub fn validate_rest_action(run: &RunState, action: RestAction) -> SimResult<()> {
     run.validate()?;
+    validate_rest_action_after_validation(run, action)
+}
 
+pub(crate) fn validate_rest_action_after_validation(
+    run: &RunState,
+    action: RestAction,
+) -> SimResult<()> {
     if run.phase != RunPhase::Rest {
         return Err(SimError::IllegalAction("rest actions require rest phase"));
     }
-    let legal_actions = legal_rest_actions(run)?;
+    let legal_actions = legal_rest_actions_after_validation(run)?;
 
     match action {
         RestAction::Proceed if legal_actions.contains(&action) => Ok(()),
