@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 use sts_core::adapter_internals::{Relic, RunState};
 
 use crate::{
-    action::{projected_choices, DecisionRevision, FairError, PublicChoice, PublicChoiceRequest},
+    action::{
+        projected_choices_after_validation, DecisionRevision, FairError, PublicChoice,
+        PublicChoiceRequest,
+    },
     fair_run_observation, FairRunObservation,
 };
 
@@ -50,7 +53,7 @@ impl FairEnvironment {
     }
 
     pub fn legal_choices(&self) -> Result<Vec<PublicChoice>, FairError> {
-        projected_choices(&self.state)
+        projected_choices_after_validation(&self.state)
             .map(|choices| choices.into_iter().map(|(choice, _)| choice).collect())
     }
 
@@ -72,7 +75,7 @@ impl FairEnvironment {
             schema_version: FAIR_ENV_SCHEMA_VERSION,
             revision,
             observation: fair_run_observation(state).map_err(|_| FairError::DecisionUnavailable)?,
-            choices: projected_choices(state)?
+            choices: projected_choices_after_validation(state)?
                 .into_iter()
                 .map(|(choice, _)| choice)
                 .collect(),
@@ -87,12 +90,15 @@ impl FairEnvironment {
             .revision
             .checked_next()
             .ok_or(FairError::RevisionExhausted)?;
-        let action = projected_choices(&self.state)?
+        let action = projected_choices_after_validation(&self.state)?
             .into_iter()
             .find_map(|(choice, action)| (choice == request.choice).then_some(action))
             .ok_or(FairError::InvalidChoice)?;
-        let next = sts_core::adapter_internals::apply_run_decision_action(&self.state, action)
-            .map_err(|_| FairError::InvalidChoice)?;
+        let next = sts_core::adapter_internals::apply_run_decision_action_after_validation(
+            &self.state,
+            action,
+        )
+        .map_err(|_| FairError::InvalidChoice)?;
         let decision = Self::decision_for(&next, next_revision)?;
         self.state = next;
         self.revision = next_revision;
@@ -103,6 +109,8 @@ impl FairEnvironment {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::action::projected_choices_after_validation;
+    use sts_core::adapter_internals::apply_run_decision_action;
 
     #[test]
     fn stale_and_invalid_choices_are_atomic() {
@@ -144,6 +152,40 @@ mod tests {
         let cloned = env.clone();
         assert_eq!(cloned.revision(), env.revision());
         assert_eq!(cloned.decision(), env.decision());
+    }
+
+    #[test]
+    fn trusted_step_matches_checked_public_apply_including_rng() {
+        let mut env = FairEnvironment::new_ironclad(1, 0).expect("environment");
+        let mut checked = env.state.clone();
+        for _ in 0..16 {
+            let before = env.decision().expect("decision");
+            let Some(choice) = before.choices.first().copied() else {
+                break;
+            };
+            let action = projected_choices_after_validation(&env.state)
+                .expect("projected")
+                .into_iter()
+                .find_map(|(projected, action)| (projected == choice).then_some(action))
+                .expect("choice maps");
+            let expected = apply_run_decision_action(&checked, action).expect("checked apply");
+            env.step(PublicChoiceRequest {
+                revision: before.revision,
+                choice,
+            })
+            .expect("trusted step");
+            assert_eq!(env.state, expected);
+            assert_eq!(
+                env.legal_choices().expect("trusted choices"),
+                FairEnvironment {
+                    state: expected.clone(),
+                    revision: env.revision,
+                }
+                .legal_choices()
+                .expect("checked choices")
+            );
+            checked = expected;
+        }
     }
 
     #[test]

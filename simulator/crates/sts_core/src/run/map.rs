@@ -37,9 +37,9 @@ use crate::{
         SPIRE_SPEAR_A0, SPIRE_SPEAR_ID, TASKMASTER_ID, WRITHING_MASS_ID,
     },
     map::{
-        apply_map_action, legal_map_actions_after_validation, reachable_nodes, validate_map_action,
-        wing_boots_reachable_nodes, wing_boots_reachable_nodes_after_validation, MapAction,
-        RoomKind, TargetMapAct,
+        apply_map_action_after_validation, legal_map_actions_after_validation,
+        reachable_nodes_after_validation, validate_map_action_after_validation,
+        wing_boots_reachable_nodes_after_validation, MapAction, RoomKind, TargetMapAct,
     },
     rng::{seed_for_floor, StsRng},
     MonsterPowers, Relic, RunPhase, RunState, SimError, SimResult,
@@ -95,7 +95,13 @@ pub(crate) fn legal_map_actions_on_run_after_validation(
 
 pub fn validate_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<()> {
     run.validate()?;
+    validate_map_action_on_run_after_validation(run, action)
+}
 
+pub(crate) fn validate_map_action_on_run_after_validation(
+    run: &RunState,
+    action: MapAction,
+) -> SimResult<()> {
     if run.phase != RunPhase::Idle {
         return Err(SimError::IllegalAction("map actions require idle phase"));
     }
@@ -105,7 +111,7 @@ pub fn validate_map_action_on_run(run: &RunState, action: MapAction) -> SimResul
         .as_ref()
         .ok_or(SimError::InvalidState("map state is missing"))?;
 
-    if validate_map_action(map_state, action).is_ok() {
+    if validate_map_action_after_validation(map_state, action).is_ok() {
         return Ok(());
     }
 
@@ -132,11 +138,11 @@ pub(crate) fn apply_validated_map_action_on_run(
     let last_room_was_shop = next.current_room_kind() == Some(RoomKind::Shop);
     let uses_wing_boots = next.relics.contains(&Relic::WingBoots)
         && next.wing_boots_charges > 0
-        && !reachable_nodes(map_state)?.contains(&chosen_node_id(action));
+        && !reachable_nodes_after_validation(map_state)?.contains(&chosen_node_id(action));
     let next_map = if uses_wing_boots {
         apply_wing_boots_map_action(map_state, action)?
     } else {
-        apply_map_action(map_state, action)?
+        apply_map_action_after_validation(map_state, action)?
     };
     let next_floor = i32::try_from(next_map.floor)
         .map_err(|_| SimError::InvalidState("map floor exceeds supported run range"))?;
@@ -1099,7 +1105,7 @@ fn wing_boots_action_is_legal(
     map_state: &crate::MapRunState,
     action: MapAction,
 ) -> SimResult<bool> {
-    Ok(wing_boots_reachable_nodes(map_state)?.contains(&chosen_node_id(action)))
+    Ok(wing_boots_reachable_nodes_after_validation(map_state)?.contains(&chosen_node_id(action)))
 }
 
 fn chosen_node_id(action: MapAction) -> crate::MapNodeId {
@@ -1575,7 +1581,7 @@ mod tests {
         map.floor = u32::MAX;
 
         assert_eq!(
-            apply_map_action(
+            crate::map::apply_map_action(
                 &map,
                 MapAction::ChooseNode {
                     node_id: crate::MapNodeId::new(1),

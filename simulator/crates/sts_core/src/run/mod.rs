@@ -10,8 +10,9 @@ pub mod shop;
 pub mod state;
 
 pub use decision::{
-    apply_run_decision_action, legal_run_decision_actions, validate_run_decision_action,
-    RunDecisionAction,
+    apply_run_decision_action, apply_run_decision_action_after_validation,
+    legal_run_decision_actions, legal_run_decision_actions_after_validation,
+    validate_run_decision_action, validate_run_decision_action_after_validation, RunDecisionAction,
 };
 pub use event::{
     apply_event_action, enter_event_screen, event_screen, golden_shrine_gold, legal_event_actions,

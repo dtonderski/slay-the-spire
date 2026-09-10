@@ -224,11 +224,31 @@ impl fmt::Display for FairError {
 
 impl std::error::Error for FairError {}
 
+#[cfg(test)]
 pub(crate) fn projected_choices(
     run: &RunState,
 ) -> Result<Vec<(PublicChoice, RunDecisionAction)>, FairError> {
-    let actions = sts_core::adapter_internals::legal_run_decision_actions(run)
-        .map_err(|_| FairError::DecisionUnavailable)?;
+    projected_choices_from_actions(
+        run,
+        sts_core::adapter_internals::legal_run_decision_actions(run)
+            .map_err(|_| FairError::DecisionUnavailable)?,
+    )
+}
+
+pub(crate) fn projected_choices_after_validation(
+    run: &RunState,
+) -> Result<Vec<(PublicChoice, RunDecisionAction)>, FairError> {
+    projected_choices_from_actions(
+        run,
+        sts_core::adapter_internals::legal_run_decision_actions_after_validation(run)
+            .map_err(|_| FairError::DecisionUnavailable)?,
+    )
+}
+
+fn projected_choices_from_actions(
+    run: &RunState,
+    actions: Vec<RunDecisionAction>,
+) -> Result<Vec<(PublicChoice, RunDecisionAction)>, FairError> {
     let mut seen = BTreeSet::new();
     let mut projected = Vec::with_capacity(actions.len());
     for action in actions {

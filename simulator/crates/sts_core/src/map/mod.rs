@@ -170,9 +170,17 @@ pub(crate) fn legal_map_actions_after_validation(state: &MapRunState) -> SimResu
 }
 
 pub fn validate_map_action(state: &MapRunState, action: MapAction) -> SimResult<()> {
+    state.validate()?;
+    validate_map_action_after_validation(state, action)
+}
+
+pub(crate) fn validate_map_action_after_validation(
+    state: &MapRunState,
+    action: MapAction,
+) -> SimResult<()> {
     match action {
         MapAction::ChooseNode { node_id } => {
-            if reachable_nodes(state)?.contains(&node_id) {
+            if reachable_nodes_after_validation(state)?.contains(&node_id) {
                 Ok(())
             } else {
                 Err(SimError::IllegalAction("map node is not reachable"))
@@ -183,7 +191,13 @@ pub fn validate_map_action(state: &MapRunState, action: MapAction) -> SimResult<
 
 pub fn apply_map_action(state: &MapRunState, action: MapAction) -> SimResult<MapRunState> {
     validate_map_action(state, action)?;
+    apply_map_action_after_validation(state, action)
+}
 
+pub(crate) fn apply_map_action_after_validation(
+    state: &MapRunState,
+    action: MapAction,
+) -> SimResult<MapRunState> {
     let MapAction::ChooseNode { node_id } = action;
     let target = state
         .map

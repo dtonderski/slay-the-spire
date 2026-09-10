@@ -4576,7 +4576,13 @@ pub(crate) fn legal_event_actions_after_validation(run: &RunState) -> SimResult<
 
 pub fn validate_event_action(run: &RunState, action: EventAction) -> SimResult<()> {
     run.validate()?;
+    validate_event_action_after_validation(run, action)
+}
 
+pub(crate) fn validate_event_action_after_validation(
+    run: &RunState,
+    action: EventAction,
+) -> SimResult<()> {
     if run.phase != RunPhase::Event {
         return Err(SimError::IllegalAction("event actions require event phase"));
     }
