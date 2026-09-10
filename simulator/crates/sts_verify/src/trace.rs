@@ -76,6 +76,9 @@ pub fn parse_trace_jsonl_line(line: &str) -> Result<Option<TraceLine>, serde_jso
         Some("external_rng") => TraceLine::ExternalRng(serde_json::from_value(value)?),
         Some("state") => TraceLine::State(parse_state(value)?),
         Some("error") => TraceLine::Error(serde_json::from_value(value)?),
+        // Collector bookkeeping around command submission. These are not gameplay
+        // inputs and must not be rewritten out of captured traces.
+        Some("command_accept") | Some("command_observed_timeout") => return Ok(None),
         Some(kind) => {
             return Err(serde_json::Error::custom(format!(
                 "unsupported trace record {kind:?}"
@@ -874,7 +877,7 @@ fn validate_nonblank_string_array(
 fn validate_event_screen_schema(
     step: u32,
     game: &serde_json::Map<String, Value>,
-    command_ready: Option<bool>,
+    _command_ready: Option<bool>,
 ) -> Result<(), serde_json::Error> {
     let screen = game
         .get("screen_state")
@@ -906,7 +909,9 @@ fn validate_event_screen_schema(
                 )));
             }
         }
-        None if command_ready == Some(false) => {}
+        // Match and Keep waitTimer snapshots omit the list entirely (null / missing)
+        // while face-up cards are unclickable.
+        None | Some(Value::Null) => {}
         _ => {
             return Err(serde_json::Error::custom(format!(
                 "trace state at step {step} EVENT screen requires an array game_state.choice_list"
@@ -1090,4 +1095,29 @@ fn required_unsigned_game_field(
             "trace state at step {step} game_state.{field} must be a non-negative integer"
         ))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_trace_jsonl_line;
+
+    #[test]
+    fn skips_collector_bookkeeping_records() {
+        assert!(
+            parse_trace_jsonl_line(r#"{"type":"command_accept","step":1}"#)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            parse_trace_jsonl_line(r#"{"type":"command_observed_timeout","step":1}"#)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn still_rejects_unknown_records() {
+        let error = parse_trace_jsonl_line(r#"{"type":"not_a_record"}"#).unwrap_err();
+        assert!(error.to_string().contains("unsupported trace record"));
+    }
 }
