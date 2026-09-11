@@ -4,14 +4,14 @@ import argparse
 import json
 import random
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 import torch
 import wandb
 from model import CombatModel
 from sts_sim import State
-from train import Episode, metrics, play_combat, reinforce_loss
+from train import Episode, metrics, play_combat, play_combats, reinforce_loss
 
 
 @dataclass
@@ -67,11 +67,16 @@ def evaluate(roots: list[Root], model: CombatModel | None, repeats: int, max_dec
     hp_changes: list[int] = []
     if model is not None:
         model.eval()
-    with torch.random.fork_rng(devices=[]):
+    # manual_seed also seeds CUDA; preserve its state when a GPU model is evaluated.
+    devices = list(range(torch.cuda.device_count())) if model is not None and next(model.parameters()).is_cuda else []
+    with torch.random.fork_rng(devices=devices):
         for index, root in enumerate(roots):
             for repeat in range(repeats):
                 seed = 90000 + index * repeats + repeat
-                torch.manual_seed(seed)
+                if devices:
+                    torch.manual_seed(seed)
+                else:
+                    torch.random.default_generator.manual_seed(seed)
                 ep = play_combat(root.state, model, max_decisions=max_decisions, rng=random.Random(seed))
                 episodes.append(ep)
                 if ep.reward is not None:
@@ -85,35 +90,25 @@ def evaluate(roots: list[Root], model: CombatModel | None, repeats: int, max_dec
 def train_batch(
     roots: list[Root], model: CombatModel, optimizer: torch.optim.Optimizer, max_decisions: int
 ) -> dict[str, float]:
-    """Accumulate one episode at a time to avoid retaining a batch of long graphs."""
+    """Roll out a fixed group, then backpropagate once through its shared graphs."""
     model.train()
     optimizer.zero_grad(set_to_none=True)
-    episodes: list[Episode] = []
-    total_loss = 0.0
-    completed = 0
-    for root in roots:
-        ep = play_combat(root.state, model, max_decisions=max_decisions, training=True, rng=random.Random(0))
-        if ep.reward is not None:
-            loss = reinforce_loss(ep.log_probs, ep.reward)
-            if not torch.isfinite(loss):
-                raise RuntimeError("Non-finite loss")
-            total_loss += loss.detach().item()
-            loss.backward()
-            completed += 1
-            del loss
-        episodes.append(replace(ep, log_probs=()))
-        del ep
-    if completed:
-        for parameter in model.parameters():
-            if parameter.grad is not None:
-                parameter.grad.div_(completed)
-                if not torch.isfinite(parameter.grad).all():
-                    raise RuntimeError("Non-finite gradient")
-        optimizer.step()
+    episodes = play_combats(
+        [root.state for root in roots], model, max_decisions=max_decisions, training=True, rng=random.Random(0)
+    )
+    losses = [reinforce_loss(ep.log_probs, ep.reward) for ep in episodes if ep.reward is not None]
     result = metrics(episodes)
-    result["optimizer_step"] = float(completed > 0)
-    if completed:
-        result["loss"] = total_loss / completed
+    result["optimizer_step"] = float(bool(losses))
+    if losses:
+        loss = torch.stack(losses).mean()
+        if not torch.isfinite(loss):
+            raise RuntimeError("Non-finite loss")
+        loss.backward()
+        for parameter in model.parameters():
+            if parameter.grad is not None and not torch.isfinite(parameter.grad).all():
+                raise RuntimeError("Non-finite gradient")
+        optimizer.step()
+        result["loss"] = loss.detach().item()
     return result
 
 
@@ -127,6 +122,7 @@ def main() -> None:
     parser.add_argument("--eval-repeats", type=int, default=3)
     parser.add_argument("--eval-minutes", type=float, default=20)
     parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--max-decisions", type=int, default=512)
     parser.add_argument("--wandb-mode", choices=("online", "offline", "disabled"), default="online")
     args = parser.parse_args()
@@ -144,6 +140,8 @@ def main() -> None:
         <= 0
     ):
         parser.error("Counts and durations must be positive")
+    if args.device == "cuda" and not torch.cuda.is_available():
+        parser.error("CUDA is not available")
     torch.set_num_threads(1)
     torch.manual_seed(123)
     shuffle_rng = random.Random(123)
@@ -153,7 +151,7 @@ def main() -> None:
     output = Path("wandb") / args.run_id
     output.mkdir(parents=True, exist_ok=False)
     start = time.monotonic()
-    model = CombatModel()
+    model = CombatModel().to(args.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     epoch, update = 0, 0
     with wandb.init(

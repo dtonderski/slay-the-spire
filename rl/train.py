@@ -8,7 +8,7 @@ import torch
 import wandb
 from jaxtyping import Float
 from model import CombatModel
-from sts_sim import Observation, State
+from sts_sim import CombatObservation, Observation, State
 from torch import Tensor
 from torch.distributions import Categorical
 
@@ -60,33 +60,65 @@ def play_combat(
     training: bool = False,
     rng: random.Random,
 ) -> Episode:
-    """Reset by cloning the initial combat only; None model is the random baseline."""
-    state = root.clone()
-    decision = state.decision()
-    starting_max_hp = decision.observation.context.player_max_hp
-    log_probs: list[Float[Tensor, ""]] = []
+    """Evaluate or train one combat through the batched rollout path."""
+    return play_combats([root], model, max_decisions=max_decisions, training=training, rng=rng)[0]
+
+
+def play_combats(
+    roots: list[State],
+    model: CombatModel | None,
+    *,
+    max_decisions: int,
+    training: bool = False,
+    rng: random.Random,
+) -> list[Episode]:
+    """Clone initial roots, batch active decisions, and return episodes in root order."""
+    if not roots or max_decisions < 0:
+        raise ValueError("Rollouts need nonempty roots and a nonnegative decision limit")
+    states = [root.clone() for root in roots]
+    decisions = [state.decision() for state in states]
+    starting_max_hp = [decision.observation.context.player_max_hp for decision in decisions]
+    log_probs: list[list[Float[Tensor, ""]]] = [[] for _ in roots]
+    episodes: list[Episode | None] = [None for _ in roots]
     for step in range(max_decisions + 1):
-        observation = decision.observation
-        won = combat_outcome(observation)
-        if won is not None:
-            hp = observation.context.player_hp if won else 0
-            return Episode(hp / starting_max_hp, won, hp, step, tuple(log_probs))
-        if step == max_decisions:
-            # Drop truncated trajectories rather than inventing a terminal reward.
-            return Episode(None, None, observation.context.player_hp, step, ())
-        if observation.kind != "combat" or not decision.actions:
-            raise RuntimeError("Unsettled combat decision or empty legal-action list")
+        active: list[int] = []
+        observations: list[CombatObservation] = []
+        for index, decision in enumerate(decisions):
+            if episodes[index] is not None:
+                continue
+            observation = decision.observation
+            won = combat_outcome(observation)
+            if won is not None:
+                hp = observation.context.player_hp if won else 0
+                episodes[index] = Episode(hp / starting_max_hp[index], won, hp, step, tuple(log_probs[index]))
+            elif step == max_decisions:
+                # Discard truncations, never treat them as terminal defeats.
+                episodes[index] = Episode(None, None, observation.context.player_hp, step, ())
+            else:
+                if observation.kind != "combat" or not decision.actions:
+                    raise RuntimeError("Unsettled combat decision or empty legal-action list")
+                active.append(index)
+                observations.append(observation)
+                continue
+            log_probs[index].clear()
+        if not active:
+            assert all(episode is not None for episode in episodes)
+            return [episode for episode in episodes if episode is not None]
+        actions = [decisions[index].actions for index in active]
         if model is None:
-            index = rng.randrange(len(decision.actions))
+            choices = [rng.randrange(len(candidates)) for candidates in actions]
         else:
             with torch.set_grad_enabled(training):
-                logits, _ = model([observation], [decision.actions])
-                distribution = Categorical(logits=logits[0])
+                logits, _ = model(observations, actions)
+                distribution = Categorical(logits=logits)
                 sampled = distribution.sample()
                 if training:
-                    log_probs.append(distribution.log_prob(sampled))
-                index = int(sampled.item())
-        decision = state.step(decision.actions[index])
+                    sampled_log_probs = distribution.log_prob(sampled)
+                    for row, index in enumerate(active):
+                        log_probs[index].append(sampled_log_probs[row])
+                choices = sampled.tolist()
+        for index, choice in zip(active, choices):
+            decisions[index] = states[index].step(decisions[index].actions[choice])
     raise AssertionError("Unreachable")
 
 
@@ -166,10 +198,9 @@ def main() -> None:
         )
         for update in range(1, args.updates + 1):
             model.train()
-            episodes = [
-                play_combat(root, model, max_decisions=args.max_decisions, training=True, rng=rng)
-                for _ in range(args.episodes_per_update)
-            ]
+            episodes = play_combats(
+                [root] * args.episodes_per_update, model, max_decisions=args.max_decisions, training=True, rng=rng
+            )
             losses = [reinforce_loss(ep.log_probs, ep.reward) for ep in episodes if ep.reward is not None]
             logs = {f"train/{key}": value for key, value in metrics(episodes).items()}
             if not losses:

@@ -155,9 +155,9 @@ The model computes observation features once, encodes the supplied candidates,
 and returns `action_vectors @ query` in candidate order. Pass actions from the
 same decision; noncombat kinds remain unsupported.
 
-`CombatModel.forward` accepts batches only. The trainer still handles one
-decision at a time using a batch of one. The multi-environment rollout loop is not
-yet implemented. Empty groups may have zero tokens. Keep dead enemies and empty
+`CombatModel.forward` accepts batches only. Training batches the active
+simulators' decisions; single-combat evaluation uses a batch of one.
+Empty groups may have zero tokens. Keep dead enemies and empty
 potion slots; the summary token is always present.
 
 This consumes the existing tensorized features, not every public observation
@@ -212,8 +212,52 @@ Action references are resolved within their own observation before grouping by
 kind. Scoring pads the encoded candidate vectors and sets invalid logits to
 `-inf`, so padding has zero probability. `forward` rejects empty batches,
 mismatched batch lengths, and observations with no candidates; terminal episodes
-must be handled outside the policy. This does not yet collect batched rollouts
-or change the training objective.
+must be handled outside the policy.
+
+## Batched rollouts
+
+`play_combats(roots, model, max_decisions=..., training=True, rng=...)` clones a
+fixed group of initial roots. Each round scores all active decisions in one
+policy call, then steps the simulators sequentially with their own actions.
+Completed/truncated episodes drop out; no new roots refill the group. Results
+stay in original root order, with separate rewards and log-probability histories.
+Outcomes are checked before cutoffs, including victory on the final allowed action.
+
+Training takes one backward pass on the mean completed-episode REINFORCE loss.
+Truncations contribute neither loss nor denominator; all-truncated multi-root
+batches skip the optimizer. Graphs are shared across episodes and retained until
+the whole group finishes, so memory grows with batch size and combat length.
+There is no multiprocessing, baseline, entropy bonus, or reward change.
+Evaluation keeps its fixed per-episode sampling seeds and runs batches of one.
+
+Quick training smoke test (CPU or `--device cuda`):
+
+```bash
+cd rl
+uv run python train.py --updates 2 --episodes-per-update 4 --eval-episodes 2 --wandb-mode disabled
+```
+
+## Profiling training batch sizes
+
+```bash
+cd rl
+uv run python profile_batches.py --batch-sizes 128 256 512 1024 2048
+```
+
+CUDA-only fixed-HUMAN1 probe: one full-update warmup per size, then three timed
+updates. Each measurement starts from identical policy weights and reset warmed
+Adam buffers; setup/reset and W&B are excluded. End-to-end decisions/second
+includes simulator clone/decision/step, Python observation construction, policy,
+sampling, backward, optimizer, and cleanup. This is not a multi-root benchmark.
+
+A separate synchronized pass reports exclusive phase wall times, splitting
+native-step/wrapper work, decision getters/mapping, Python decoding, observation
+feature construction/projection, transformer, action encoding, and backward.
+Device synchronization changes overlap: these diagnostic times include waits,
+not pure GPU kernel time. Use the uninstrumented trials for throughput.
+`--warmups`, `--repeats`, `--max-decisions`, and `--output` are configurable.
+Results overwrite `wandb/batch-profile.json` by default. CUDA OOMs are reported
+without reducing the requested batch size.
 
 ## Multi-root overnight experiment
 
@@ -222,8 +266,9 @@ split 40/10 **before** collecting combats within the first ten floors at A0.
 The fixed uniform-random legal collector retains early deaths and reports any
 5000-decision collection cutoffs. Ten floors do not imply ten combat roots.
 
-Training shuffles all training roots each epoch and accumulates eight episodes
-per optimizer update. This is not parallel or tensor batching. Rewards remain
+Training shuffles all training roots each epoch and rolls out eight episodes
+per optimizer update in one fixed group (`--batch-size`). `--device cuda` enables
+GPU policy batches; simulators remain sequential on CPU. Rewards remain
 terminal HP / starting max HP, with no baseline. Validation uses three stochastic
 episodes per held-out root every 20 minutes, with fixed evaluation sampling seeds
 and no updates to model weights. Random and initial-policy baselines use the same
@@ -239,8 +284,9 @@ final validation/save can extend past it. Metrics go to local W&B.
 
 `train.py` runs REINFORCE on the first combat of one fixed seed. CPU is the
 default; `--device cuda` moves the model and tensor construction to the GPU.
-The simulator and observation decoding remain on CPU. The current unbatched
-loop benchmarked slower on the RTX 5080 than on CPU. Each episode
+The simulator and observation decoding remain on CPU. `--episodes-per-update`
+sets the rollout group size. The earlier unbatched loop was slower on the RTX
+5080 than on CPU; batched throughput needs a fresh benchmark. Each episode
 resets to that initial combat; reward is terminal HP divided by starting max HP,
 with defeat worth zero. This is plain REINFORCE without a baseline; win rate is
 logged independently of reward.
