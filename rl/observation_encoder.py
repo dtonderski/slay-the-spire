@@ -8,7 +8,6 @@ from encoders.selection import SelectionEncoder
 from jaxtyping import Bool, Float
 from sts_sim import CombatObservation
 from torch import Tensor, nn
-from torch.nn.utils.rnn import pad_sequence
 
 OBSERVATION_GROUPS = (
     "player",
@@ -77,19 +76,25 @@ class ObservationEncoder(nn.Module):
         )
         # TODO: Represent meaningful public hand/enemy/relic/potion slot order; attention currently
         # treats each group as a set. Keep action-slot lookup separate and unordered piles unordered.
-        sequences = [
-            torch.cat(
-                [self.summary_embedding.weight]
-                + [
-                    groups[name][i] + self.group_embedding.weight[index]
-                    for index, name in enumerate(OBSERVATION_GROUPS)
-                ]
-            )
-            for i in range(len(observations))
-        ]
-        tokens = pad_sequence(sequences, batch_first=True)
-        lengths = torch.tensor([len(sequence) for sequence in sequences], device=tokens.device)
-        padding_mask = torch.arange(tokens.shape[1], device=tokens.device).unsqueeze(0) >= lengths.unsqueeze(1)
+        # Pack by group, adding each location embedding once across all observations.
+        # Rows 0/1 are the summary/padding tokens. Integer lists describe each complete
+        # observation sequence; one gather replaces per-observation cat/add/pad graphs.
+        reference = self.summary_embedding.weight
+        packed = [reference, reference.new_zeros(reference.shape)]
+        sequences = [[0] for _ in observations]
+        offset = 2
+        for index, name in enumerate(OBSERVATION_GROUPS):
+            rows = groups[name]
+            packed.append(torch.cat(rows) + self.group_embedding.weight[index])
+            for sequence, row in zip(sequences, rows):
+                sequence.extend(range(offset, offset + row.shape[0]))
+                offset += row.shape[0]
+        width = max(map(len, sequences))
+        indices = reference.new_tensor(
+            [sequence + [1] * (width - len(sequence)) for sequence in sequences], dtype=torch.long
+        )
+        tokens = torch.cat(packed).index_select(0, indices.flatten()).reshape(len(observations), width, -1)
+        padding_mask = indices == 1
         action_features = [
             {"hand": hand[i], "enemies": enemies[i], "potions": potions[i], "selection": selection[i]}
             for i in range(len(observations))

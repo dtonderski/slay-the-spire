@@ -105,7 +105,10 @@ class ActionBatchTests(unittest.TestCase):
             torch.testing.assert_close(parameter.grad, parameter_grads[name])
         for item, expected in zip(self.features, row_grads):
             for name, rows in item.items():
-                torch.testing.assert_close(rows.grad, expected[name])
+                # Packed gathering gives unused input rows explicit zero gradients.
+                actual = rows.grad if rows.grad is not None else torch.zeros_like(rows)
+                wanted = expected[name] if expected[name] is not None else torch.zeros_like(rows)
+                torch.testing.assert_close(actual, wanted)
 
     def test_empty_batches_and_local_slot_validation(self) -> None:
         self.assertEqual(self.encoder([], []), [])

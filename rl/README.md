@@ -100,8 +100,12 @@ It returns one unpadded `[n_actions_i, action_dim]` tensor per observation (defa
 Each feature-bearing kind
 has its own `Linear → ReLU → Linear` MLP; no-object kinds have separate one-entry
 embeddings. Feature widths are fixed by the tensorizers.
-Each kind is encoded once across the batch, then vectors are restored to their
-original candidate positions and split by observation. Empty candidate tuples
+Batched action assembly builds validated integer slot indices first, then gathers
+all objects/targets of a kind at once from packed feature tables. Untargeted actions
+use a shared zero target row plus a false presence flag. Each kind is encoded once
+across the batch, then vectors are restored to their original candidate positions
+and split by observation. The standalone `tensorize_actions` helper remains a
+row-wise reference; the batched forward path does not call it. Empty candidate tuples
 return `[0, action_dim]`; action and feature batch lengths must match.
 
 ```python
@@ -185,7 +189,10 @@ tokens, padding_mask, features = encoder.prepare_batch([observation_a, observati
 Each slice returns variable-length lists; projections operate on flattened rows
 across the batch. `ObservationEncoder` adds group embeddings and concatenates
 all real groups within each observation, with the summary token first. Only then
-are the complete sequences padded. Player and selection context contribute one
+are the complete sequences padded. Internally, tokens are packed by group and each
+group embedding is added once; an integer lookup table gathers the complete padded
+sequences in one operation. This avoids per-observation concatenation/addition
+and padding graphs without changing token order or the list-based slice interface. Player and selection context contribute one
 token each. An empty observation list raises `ValueError`.
 
 For example, 3 cards + 3 enemies and 5 cards + 1 enemy each need 6 tokens, not
