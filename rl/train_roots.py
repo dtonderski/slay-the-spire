@@ -88,13 +88,23 @@ def evaluate(roots: list[Root], model: CombatModel | None, repeats: int, max_dec
 
 
 def train_batch(
-    roots: list[Root], model: CombatModel, optimizer: torch.optim.Optimizer, max_decisions: int
+    roots: list[Root],
+    model: CombatModel,
+    optimizer: torch.optim.Optimizer,
+    max_decisions: int,
+    *,
+    numeric: bool = False,
 ) -> dict[str, float]:
     """Roll out a fixed group, then backpropagate once through its shared graphs."""
     model.train()
     optimizer.zero_grad(set_to_none=True)
     episodes = play_combats(
-        [root.state for root in roots], model, max_decisions=max_decisions, training=True, rng=random.Random(0)
+        [root.state for root in roots],
+        model,
+        max_decisions=max_decisions,
+        training=True,
+        rng=random.Random(0),
+        numeric=numeric,
     )
     losses = [reinforce_loss(ep.log_probs, ep.reward) for ep in episodes if ep.reward is not None]
     result = metrics(episodes)
@@ -123,6 +133,7 @@ def main() -> None:
     parser.add_argument("--eval-minutes", type=float, default=20)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    parser.add_argument("--numeric-observations", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--max-decisions", type=int, default=512)
     parser.add_argument("--wandb-mode", choices=("online", "offline", "disabled"), default="online")
     args = parser.parse_args()
@@ -215,7 +226,13 @@ def main() -> None:
                 for offset in range(0, len(order), args.batch_size):
                     if time.monotonic() - start >= args.hours * 3600:
                         break
-                    logs = train_batch(order[offset : offset + args.batch_size], model, optimizer, args.max_decisions)
+                    logs = train_batch(
+                        order[offset : offset + args.batch_size],
+                        model,
+                        optimizer,
+                        args.max_decisions,
+                        numeric=args.numeric_observations,
+                    )
                     update += 1
                     run.log({"epoch": epoch, **{f"train/{k}": v for k, v in logs.items()}}, step=update)
                     print(f"update={update} epoch={epoch} metrics={logs}", flush=True)

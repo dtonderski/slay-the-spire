@@ -1,5 +1,6 @@
 from typing import get_args
 
+import numpy as np
 import torch
 from jaxtyping import Float
 from sts_sim import MonsterKey
@@ -7,6 +8,7 @@ from sts_sim.observations.combat import IntentCategory, Monster, SlimeSize
 from torch import Tensor, nn
 
 from .cards import CARD_FEATURE_DIM, CardEncoder
+from .numeric import NumericBatch, tensor
 from .player import GOLD_SCALE, POWER_TO_INDEX
 
 # Include hidden/none separately from visible categories such as "unknown".
@@ -83,6 +85,29 @@ class EnemyEncoder(nn.Module):
         state = identities.new_tensor(rows).reshape(len(monsters), ENEMY_STATE_DIM)
         held_cards = torch.stack(held_card_rows) if held_card_rows else identities.new_zeros((0, CARD_FEATURE_DIM))
         return torch.cat((identities, state, held_cards), dim=1)
+
+    def numeric(
+        self, batch: NumericBatch, cards: CardEncoder
+    ) -> tuple[Float[Tensor, "n_enemies enemy_features"], Float[Tensor, "n_enemies d_model"], list[int]]:
+        """Encode raw enemy tables, retaining dead slots and shared Stasis features."""
+        rows = batch.table("enemies", 18)
+        identities = self.embedding(
+            tensor(self.embedding.weight, batch.codes(rows[:, 1], ENEMY_TO_INDEX), integer=True)
+        )
+        stats = rows[:, 2:6] / np.array([HP_SCALE, HP_SCALE, BLOCK_SCALE, 1.0])
+        powers = batch.powers("enemy_powers", len(rows), POWER_TO_INDEX)
+        intent = np.eye(len(INTENT_TO_INDEX))[batch.codes(rows[:, 7], INTENT_TO_INDEX)]
+        numbers = rows[:, 8:12] / np.array([INTENT_DAMAGE_SCALE, 1.0, 1.0, 1.0])
+        slime = np.eye(len(SLIME_SIZE_TO_INDEX))[batch.codes(rows[:, 6], SLIME_SIZE_TO_INDEX)]
+        extra = rows[:, 12:17] / np.array([1.0, 1.0, 1.0, GOLD_SCALE, 1.0])
+        state = tensor(identities, np.concatenate((stats, powers, intent, numbers, slime, extra), axis=1))
+        stasis = batch.table("stasis", 18)
+        held = identities.new_zeros((len(rows), CARD_FEATURE_DIM)).index_copy(
+            0, tensor(identities, stasis[:, 0], integer=True), cards.numeric_features(batch, "stasis")
+        )
+        features = torch.cat((identities, state, held), dim=1)
+        lengths = batch.lengths(rows)
+        return features, self.projection(features), lengths
 
     def forward(
         self, batch: list[tuple[Monster, ...]], cards: CardEncoder

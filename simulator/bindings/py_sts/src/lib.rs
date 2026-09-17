@@ -1,3 +1,5 @@
+mod numeric;
+
 use pyo3::exceptions::{PyAttributeError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
@@ -273,6 +275,8 @@ impl PyState {
 
 #[pymodule]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(numeric::numeric_decisions, module)?)?;
+    module.add_function(wrap_pyfunction!(numeric::numeric_steps, module)?)?;
     module.add_class::<PyState>()?;
     module.add_class::<PyAction>()?;
     module.add_class::<PyDecision>()?;

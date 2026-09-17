@@ -4,6 +4,8 @@ from sts_sim import CardKey
 from sts_sim.observations import Card
 from torch import Tensor, nn
 
+from .numeric import NumericBatch, tensor
+
 CARD_EMBEDDING_DIM = 16
 CARD_STATE_DIM = 11
 CARD_FEATURE_DIM = CARD_EMBEDDING_DIM + CARD_STATE_DIM
@@ -49,6 +51,21 @@ class CardEncoder(nn.Module):
             )
         state = identities.new_tensor(rows).reshape(len(cards), CARD_STATE_DIM)
         return torch.cat((identities, state), dim=1)
+
+    def numeric_features(self, batch: NumericBatch, name: str) -> Float[Tensor, "n_cards card_features"]:
+        rows = batch.table(name, 18)
+        ids = tensor(self.embedding.weight, batch.codes(rows[:, 1], CARD_TO_INDEX), integer=True)
+        identities = self.embedding(ids)
+        state = tensor(identities, rows[:, [2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 17]])
+        return torch.cat((identities, state), dim=1)
+
+    def numeric(
+        self, batch: NumericBatch, name: str
+    ) -> tuple[Float[Tensor, "n_cards card_features"], Float[Tensor, "n_cards d_model"], list[int]]:
+        """Return flat card features/tokens and per-observation lengths."""
+        features = self.numeric_features(batch, name)
+        lengths = batch.lengths(batch.table(name, 18))
+        return features, self.projection(features), lengths
 
     def forward(
         self, batch: list[tuple[Card, ...]]

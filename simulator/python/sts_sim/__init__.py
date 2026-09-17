@@ -169,6 +169,16 @@ class State:
     def clone(self) -> State:
         return State(self._native.clone())
 
+    @staticmethod
+    def numeric_decisions(states: list[State]) -> tuple:
+        """Versioned raw public combat tables, without typed observation construction."""
+        return _native.numeric_decisions([state._native for state in states])
+
+    @staticmethod
+    def numeric_steps(states: list[State], actions: list[Action]) -> tuple:
+        """Sequential accepted steps and one batched public export; not batch-atomic."""
+        return _native.numeric_steps([state._native for state in states], actions)
+
     @property
     def revision(self) -> int:
         return self._native.revision

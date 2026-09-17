@@ -1,8 +1,11 @@
+import numpy as np
 import torch
 from jaxtyping import Float
 from sts_sim import RelicKey
 from sts_sim.observations import Relic
 from torch import Tensor, nn
+
+from .numeric import NumericBatch, tensor
 
 RELIC_EMBEDDING_DIM = 16
 RELIC_COUNTER_SLOTS = 3
@@ -35,6 +38,28 @@ class RelicEncoder(nn.Module):
             counter_rows.append(values)
         counters = identities.new_tensor(counter_rows).reshape(len(relics), RELIC_COUNTER_SLOTS)
         return torch.cat((identities, counters), dim=1)
+
+    def numeric(
+        self, batch: NumericBatch
+    ) -> tuple[Float[Tensor, "n_relics relic_features"], Float[Tensor, "n_relics d_model"], list[int]]:
+        """Embed raw relic keys and assemble alphabetically ordered counter slots."""
+        rows = batch.table("relics", 2)
+        identities = self.embedding(
+            tensor(self.embedding.weight, batch.codes(rows[:, 1], RELIC_TO_INDEX), integer=True)
+        )
+        counters = batch.table("relic_counters", 3)
+        counts = np.bincount(counters[:, 0], minlength=len(rows))
+        if np.any(counts > RELIC_COUNTER_SLOTS):
+            raise ValueError("Too many public relic counters")
+        ranks = np.argsort(np.argsort(np.array(batch.symbols)))
+        order = np.lexsort((ranks[counters[:, 1]], counters[:, 0]))
+        counters = counters[order]
+        slots = np.arange(len(counters)) - np.repeat(np.cumsum(counts) - counts, counts)
+        values = np.zeros((len(rows), RELIC_COUNTER_SLOTS))
+        values[counters[:, 0], slots] = counters[:, 2]
+        features = torch.cat((identities, tensor(identities, values)), dim=1)
+        lengths = batch.lengths(rows)
+        return features, self.projection(features), lengths
 
     def forward(
         self, batch: list[tuple[Relic, ...]]

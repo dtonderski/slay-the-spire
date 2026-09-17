@@ -24,6 +24,57 @@ while decision := state.decision():
 revision, fair observation, and an immutable tuple of decision-local actions.
 Actions expose only stable kinds and visible slots and are rejected when stale.
 
+## Numeric combat batches
+
+`State.numeric_decisions(states)` and `State.numeric_steps(states, actions)` expose
+an alternative transport for combat training. The typed API above is unchanged.
+Both call the same fair environment; no gameplay or replay rules are changed.
+Steps are sequential and individually checked, **not atomic across the batch**:
+if a later action fails, earlier accepted steps remain accepted, as in a Python loop.
+
+The version-1 payload is `(version, symbols, tables, actions, model_rows)`:
+
+- `symbols`: public strings. Integer codes are batch-local dictionary references,
+  not stable content IDs or model features. `-1` means an absent optional category.
+- `tables[name] = (width, bytes)`: row-major native-endian signed int64 columns.
+  Bytes are immutable, independently owned, and remain valid after stepping/cloning.
+  Empty tables may be omitted. Normalization and embedding vocabularies belong to RL.
+- `actions`: existing revision-bound action objects per input state, in legal order.
+- `model_rows`: input-state indices with a waiting-for-player combat, in input order.
+  An observation owner below indexes this compact list, not all input states.
+
+Columns (zero-based row references are transport offsets, never instance IDs):
+
+| Table | Columns |
+|---|---|
+| `header` | kind code, run phase code, combat phase code or -1, HP, max HP; one row per input state |
+| `player` | HP, max HP, block, energy, max energy, gold; one row per model observation |
+| `player_powers` | observation owner, power key code, amount |
+| `hand`, `draw`, `discard`, `exhaust`, `selection_cards` | owner, card key code, cost, upgrade level, cost-modified, cost-resets, bottled, temporary; five dynamic values followed by their five presence bits |
+| `stasis` | same card columns, but owner is the global enemy row |
+| `enemies` | owner, key code, HP, max HP, block, alive, slime-size code, intent key code, damage, hits, damage-present, hits-present, escaped, minion, defensive-mode, stolen gold, Stasis-present, targetable |
+| `enemy_powers` | global enemy row, power key code, amount |
+| `relics` | owner, key code |
+| `relic_counters` | global relic row, counter key code, signed value |
+| `potions` | owner, potion key code or -1, visible slot |
+| `selection` | kind code or -1; one row per model observation |
+| `selection_options`, `selected_slots` | owner, visible option slot |
+
+Card dynamic order is Rampage, Ritual Dagger, Windmill Strike, Steam Barrier,
+and underlying combat cost. Absent optional integers have zero payload and a
+false presence bit. Intent keys distinguish hidden/none from visible categories.
+Groups retain the order of the public projection, including canonical unordered
+piles, dead enemy entries, and actual empty potion slots.
+
+This is a versioned **subset** of public observations, covering the existing combat
+policy's inputs plus rollout outcomes. It is not a lossless encoding of every fair
+field: e.g. permanent deck, known draw positions, orbs, and unused public counters
+remain available through the full typed API. Noncombat rows carry outcome metadata
+and actions but no combat feature rows. The exporter accepts only native fair
+projections, not external mappings or observed game state.
+
+## Typed observation discriminants
+
 `observation.kind` is a closed discriminant. After `observation.kind == "combat"`,
 type checkers narrow `observation.screen` to the combat screen, including nested
 unions such as monster intents, orbs, and rest options. The same types are also
