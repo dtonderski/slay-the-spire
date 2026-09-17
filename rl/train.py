@@ -15,6 +15,7 @@ from rollout_errors import SimulatorStepError
 from sts_sim import CombatObservation, State
 from torch import Tensor
 from torch.distributions import Categorical
+from trajectories import DecisionRound, Trajectories, validate_gradients
 
 
 @dataclass
@@ -65,12 +66,19 @@ def play_combats(
     training: bool = False,
     rng: random.Random,
     numeric: bool = False,
+    trajectories: Trajectories | None = None,
 ) -> list[Episode]:
     """Clone initial roots, batch active decisions, and return episodes in root order."""
     if not roots or max_decisions < 0:
         raise ValueError("Rollouts need nonempty roots and a nonnegative decision limit")
+    if trajectories is not None and (not numeric or not training or model is None):
+        raise ValueError("Batched trajectories require numeric training with a policy")
+    if trajectories is not None and trajectories.rounds:
+        raise ValueError("Use an empty trajectory collector for each rollout")
     if numeric:
-        return _play_numeric_combats(roots, model, max_decisions=max_decisions, training=training, rng=rng)
+        return _play_numeric_combats(
+            roots, model, max_decisions=max_decisions, training=training, rng=rng, trajectories=trajectories
+        )
     states = [root.clone() for root in roots]
     decisions = [state.decision() for state in states]
     action_prefixes: list[list[int]] = [[] for _ in roots]
@@ -143,7 +151,13 @@ def play_combats(
 
 
 def _play_numeric_combats(
-    roots: list[State], model: CombatModel | None, *, max_decisions: int, training: bool, rng: random.Random
+    roots: list[State],
+    model: CombatModel | None,
+    *,
+    max_decisions: int,
+    training: bool,
+    rng: random.Random,
+    trajectories: Trajectories | None = None,
 ) -> list[Episode]:
     """Same rollout rule with batched native steps and direct public numeric inputs."""
     from encoders.numeric import NumericBatch
@@ -219,16 +233,28 @@ def _play_numeric_combats(
                 distribution = Categorical(logits=logits)
                 sampled = distribution.sample()
                 batch_entropy = distribution.entropy()
-                batch_max = cast(Tensor, distribution.probs).max(dim=1).values.detach().tolist()
-                for position, row in enumerate(active):
-                    index = remaining[row]
-                    entropies[index].append(batch_entropy[position])
-                    max_probs[index].append(batch_max[position])
-                    counts[index].append(len(actions[position]))
-                if training:
-                    values = distribution.log_prob(sampled)
-                    for row, value in zip(active, values):
-                        log_probs[remaining[row]].append(value)
+                batch_max = cast(Tensor, distribution.probs).max(dim=1).values.detach()
+                if trajectories is not None:
+                    trajectories.rounds.append(
+                        DecisionRound(
+                            tuple(remaining[row] for row in active),
+                            tuple(len(candidates) for candidates in actions),
+                            distribution.log_prob(sampled),
+                            batch_entropy,
+                            batch_max,
+                        )
+                    )
+                else:
+                    max_values = batch_max.tolist()
+                    for position, row in enumerate(active):
+                        index = remaining[row]
+                        entropies[index].append(batch_entropy[position])
+                        max_probs[index].append(max_values[position])
+                        counts[index].append(len(actions[position]))
+                    if training:
+                        values = distribution.log_prob(sampled)
+                        for row, value in zip(active, values):
+                            log_probs[remaining[row]].append(value)
                 choices = sampled.tolist()
         chosen = [candidates[choice] for candidates, choice in zip(actions, choices)]
         for row, action in zip(active, chosen, strict=True):
@@ -355,6 +381,7 @@ def main() -> None:
         )
         for update in range(1, args.updates + 1):
             model.train()
+            trajectories = Trajectories() if args.numeric_observations else None
             episodes = play_combats(
                 [root] * args.episodes_per_update,
                 model,
@@ -362,22 +389,35 @@ def main() -> None:
                 training=True,
                 rng=rng,
                 numeric=args.numeric_observations,
+                trajectories=trajectories,
             )
-            losses = [episode_loss(ep, args.entropy_coef) for ep in episodes if ep.reward is not None]
-            logs = {f"train/{key}": value for key, value in metrics(episodes).items()}
-            if not losses:
+            if trajectories is not None:
+                loss, policy_loss = trajectories.losses(episodes, args.entropy_coef)
+            else:
+                losses = [episode_loss(ep, args.entropy_coef) for ep in episodes if ep.reward is not None]
+                loss = torch.stack(losses).mean() if losses else None
+                with torch.no_grad():
+                    policy_losses = [
+                        reinforce_loss(ep.log_probs, ep.reward) for ep in episodes if ep.reward is not None
+                    ]
+                    policy_loss = torch.stack(policy_losses).mean() if policy_losses else None
+                del losses, policy_losses
+            values = metrics(episodes)
+            if trajectories is not None:
+                values.update(trajectories.metrics())
+            logs = {f"train/{key}": value for key, value in values.items()}
+            if loss is None:
                 run.log(logs, step=update)
                 raise RuntimeError("Every episode was truncated; increase --max-decisions before training")
-            loss = torch.stack(losses).mean()
             if not torch.isfinite(loss):
                 raise RuntimeError("Non-finite policy loss")
             optimizer.zero_grad()
             loss.backward()
+            validate_gradients(model.parameters())
             optimizer.step()
             logs["train/loss"] = loss.detach().item()
-            with torch.no_grad():
-                policy_losses = [reinforce_loss(ep.log_probs, ep.reward) for ep in episodes if ep.reward is not None]
-                logs["train/policy_loss"] = torch.stack(policy_losses).mean().item()
+            assert policy_loss is not None
+            logs["train/policy_loss"] = policy_loss.detach().item()
             logs["train/entropy_bonus"] = logs["train/policy_loss"] - logs["train/loss"]
             run.log(logs, step=update)
             print(
@@ -385,7 +425,7 @@ def main() -> None:
                 f"win_rate={logs['train/win_rate_completed']:.2f} truncated={int(logs['train/truncated'])}"
             )
             # Release trajectory graphs before collecting the next update.
-            del episodes, losses, loss
+            del episodes, loss, policy_loss, trajectories
         model.eval()
         final = [play_combat(root, model, max_decisions=args.max_decisions, rng=rng) for _ in range(args.eval_episodes)]
         run.log({f"final/{key}": value for key, value in metrics(final).items()}, step=args.updates + 1)

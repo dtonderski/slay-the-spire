@@ -381,7 +381,8 @@ Training takes one backward pass on the mean completed-episode REINFORCE loss.
 Truncations contribute neither loss nor denominator; all-truncated multi-root
 batches skip the optimizer. Graphs are shared across episodes and retained until
 the whole group finishes, so memory grows with batch size and combat length.
-There is no multiprocessing, baseline, entropy bonus, or reward change.
+There is no multiprocessing, baseline, or reward change. Both training CLIs now
+accept `--entropy-coef` (default `0.01`); use `0` for unregularized REINFORCE.
 Evaluation keeps its fixed per-episode sampling seeds and runs batches of one.
 
 Quick training smoke test (CPU or `--device cuda`):
@@ -402,8 +403,9 @@ Rust batches existing **fair** decisions into raw signed-integer tables and a
 public-string dictionary. There is no observation JSON transport, typed Python
 observation construction, or intermediate view format on this path. Python makes
 read-only NumPy views; each encoder owns categorical remapping, normalization,
-embeddings, and projections. Groups stay flat until one vectorized layout gathers
-complete padded sequences. Only action-feature rows are split by observation.
+embeddings, and projections. Groups and reusable action features stay flat. Unique-destination `index_copy`
+assembles numeric observation/action padding without a shared padding gradient row.
+The typed reference retains its list/gather/padding path.
 The simulator has no torch/NumPy/RL dependency and does not export hidden state.
 See the [numeric API contract](../simulator/docs/python_api.md#numeric-combat-batches).
 
@@ -439,6 +441,39 @@ Frozen multi-root benchmark trials also matched all logged metrics, including lo
 These tests establish implementation equivalence, not real-game parity by themselves.
 The reviewed corpus replay passed 433/433 traces (642,896 actions).
 
+### Batched trajectory bookkeeping
+
+Numeric training retains one `DecisionRound` per policy call: original episode
+indices, candidate counts, and batched log probabilities/entropies. It does not
+create a scalar autograd node for every episode/decision. `Trajectories.losses`
+selects completed owners and computes
+
+```text
+L = [sum over completed decisions (-episode_return * log_probability - coefficient * entropy)]
+    / number_of_completed_episodes
+```
+
+This is the same real-number objective as summing each episode first. A defeat
+still contributes entropy and a denominator entry; truncations contribute neither.
+All-truncated batches skip Adam entirely. Metrics still include truncated episodes'
+non-forced choices, but copy detached statistics to CPU once. Finite-gradient
+checks remain elementwise, with one host synchronization rather than one per parameter.
+No critic, clipping, mixed precision, reward, parameter, or sampling change is introduced.
+
+`play_combats` without a collector retains its original per-episode histories.
+With `trajectories=Trajectories()`, histories belong to that collector and episodes
+hold outcomes; use a new collector for each rollout. `train_batch(..., numeric=True)`
+uses this automatically. `batched_loss=False` retains per-episode losses for A/B
+checks but does **not** disable the numeric encoder/padding improvements.
+
+`tests/test_trajectories.py` compares losses, gradients and Adam updates on CPU/CUDA,
+float32/float64, with shrinking groups, defeats, truncations, forced choices and
+multiple entropy coefficients. Real-root tests exercise consecutive Adam updates
+and all-truncated batches. Action tests compare scatter padding and feature gradients;
+the existing exact forward-feature/rollout tests still pass without relaxed tolerances.
+Loss/gradient reduction order can differ in floating point: this is equivalence
+within tested tolerances, not universal bitwise identity or a machine-checked proof.
+
 ## Profiling training batch sizes
 
 ```bash
@@ -466,6 +501,9 @@ feature construction/projection, transformer, action encoding, and backward.
 Device synchronization changes overlap: these diagnostic times include waits,
 not pure GPU kernel time. Use the uninstrumented trials for throughput.
 `--warmups`, `--repeats`, `--max-decisions`, and `--output-dir` are configurable.
+`--entropy-coef` defaults to `0.01`; pass `0` for historical pre-entropy comparisons.
+`--no-batched-loss` isolates trajectory bookkeeping on the numeric path.
+Diagnostics separately measure loss assembly, metrics and gradient checks.
 Each size runs in a fresh process; the sweep stops at the first failure, including
 CUDA OOM. JSON results, root identities, and worker logs are saved incrementally.
 `profile_observations.py --manifest <profiling-pool/roots.json> --output <file.json>`
@@ -477,6 +515,53 @@ Batch 5,120 OOMed. At 2,048 roots, isolated export dropped from 474 ms to 14.3 m
 (~97%), and preparation from 124 ms to 11.4 ms (~91%). These are early-floor,
 initial-policy measurements, not guarantees for later policies. Artifacts are in
 `wandb/numeric-final-{reference,reference-large,direct}/` and `wandb/numeric-micro.json`.
+
+### Trajectory and padding optimization results (2026-09-17)
+
+RTX 5080, release binding, one Torch CPU thread, entropy coefficient `0.01`,
+one warmup and **five** measured full updates, maximum 512 decisions. Each pair
+used the same distinct roots, initial weights and sampling seeds. The reference
+is the frozen **pre-optimization numeric implementation**, not the slower typed API.
+
+| Actual batch | Before decisions/s | After decisions/s | Speedup |
+|---:|---:|---:|---:|
+| 128 | 3,729 | 4,741 | 1.27x |
+| 4,096 | 9,174 | 24,500 | 2.67x |
+
+At 4,096, synchronized diagnostic wall time dropped from 6.304 to 2.334 seconds:
+
+| Stage | Before seconds | After seconds | After share |
+|---|---:|---:|---:|
+| Clone/simulation/public export | 0.846 | 0.846 | 36.3% |
+| Observation preparation | 0.616 | 0.361 | 15.5% |
+| Transformer | 0.150 | 0.153 | 6.5% |
+| Action encoding | 0.459 | 0.223 | 9.6% |
+| Other policy scoring (including padding) | 0.328 | 0.030 | 1.3% |
+| Sampling/log probabilities | 0.030 | 0.029 | 1.2% |
+| Backward | 2.744 | 0.530 | 22.7% |
+| Everything else | 1.131 | 0.161 | 6.9% |
+
+Peak allocated tensors rose from 13,572 to 13,901 MiB (13.58 GiB after);
+4,096 fits, but this is not a memory reduction or a guarantee for longer fights.
+All paired aggregate outcome/decision metrics matched, with maximum absolute
+differences below `1e-5` across logged metrics including loss. This benchmark does
+not independently prove per-action equality; the equivalence tests cover that.
+No new OOM-limit sweep was performed.
+
+Artifacts: `wandb/rounds-final-{reference,fast}-{128,4096}/result.json`; these
+include source/native hashes and root identities. Frozen reference sources and
+the comparison driver are preserved locally under `/tmp/sts-rounds-before/reference`
+and `/tmp/sts-rounds-compare.py`. Large runs used a memory cap and an abort guard
+while a separate run was still in CPU-only beam evaluation; it was not stopped.
+Earlier `rounds-reference`/`rounds-fast` results are intermediate, not this final comparison.
+A trial combining card-pile encoding was reverted because it changed exact
+floating-point forward results; the existing equivalence assertions were retained.
+Validation in the original optimization worktree: 65 RL tests, 23 simulator Python
+tests, Ruff/format/type checks, and CPU/CUDA numeric plus typed-reference CLI smoke
+updates passed. The isolated PR excludes unrelated synthetic-collection and
+simulator changes; its 55 RL tests, 23 simulator Python tests, lint/type/format checks
+and CUDA training smoke test were rerun successfully. Large-batch timings above
+come from the original worktree, not a new benchmark of the isolated PR branch.
 
 ## Multi-root overnight experiment
 
@@ -507,8 +592,8 @@ The simulator and observation decoding remain on CPU. `--episodes-per-update`
 sets the rollout group size. The earlier unbatched loop was slower on the RTX
 5080 than on CPU; batched throughput needs a fresh benchmark. Each episode
 resets to that initial combat; reward is terminal HP divided by starting max HP,
-with defeat worth zero. This is plain REINFORCE without a baseline; win rate is
-logged independently of reward.
+with defeat worth zero. This is entropy-regularized REINFORCE without a baseline (`--entropy-coef 0`
+disables regularization); win rate is logged independently of reward.
 Decision-limit truncations are logged separately and excluded from updates.
 Metrics compare random, initial, and final stochastic policies on that same
 combat; this is a wiring/overfitting experiment, not a generalization result.

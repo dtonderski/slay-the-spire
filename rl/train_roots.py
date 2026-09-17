@@ -25,6 +25,7 @@ from train import (
     play_combats,
     reinforce_loss,
 )
+from trajectories import Trajectories, validate_gradients
 
 
 @dataclass
@@ -200,12 +201,14 @@ def train_batch(
     entropy_coef: float = 0.0,
     *,
     numeric: bool = False,
+    batched_loss: bool = True,
     error_path: Path | None = None,
     root_indices: list[int] | None = None,
 ) -> dict[str, float]:
     """Train one group; optionally log native-step failures and discard the entire group."""
     model.train()
     optimizer.zero_grad(set_to_none=True)
+    trajectories = Trajectories() if numeric and batched_loss else None
     try:
         episodes = play_combats(
             [root.state for root in roots],
@@ -214,6 +217,7 @@ def train_batch(
             training=True,
             rng=random.Random(0),
             numeric=numeric,
+            trajectories=trajectories,
         )
     except SimulatorStepError as error:
         if error_path is None:
@@ -266,25 +270,35 @@ def train_batch(
             "simulator_error_batches": 1.0,
             "discarded_episodes": float(len(roots)),
         }
-    losses = [episode_loss(ep, entropy_coef) for ep in episodes if ep.reward is not None]
-    policy_losses = [reinforce_loss(ep.log_probs, ep.reward) for ep in episodes if ep.reward is not None]
+    if trajectories is not None:
+        loss, policy_loss = trajectories.losses(episodes, entropy_coef)
+    else:
+        losses = [episode_loss(ep, entropy_coef) for ep in episodes if ep.reward is not None]
+        policy_losses = [reinforce_loss(ep.log_probs, ep.reward) for ep in episodes if ep.reward is not None]
+        loss = torch.stack(losses).mean() if losses else None
+        policy_loss = torch.stack(policy_losses).mean() if policy_losses else None
     result = metrics(episodes)
+    if trajectories is not None:
+        result.update(trajectories.metrics())
     result.update(simulator_error_batches=0.0, discarded_episodes=0.0)
     hp_losses = [root.start_hp - ep.hp for root, ep in zip(roots, episodes, strict=True) if ep.reward is not None]
     if hp_losses:
         result["mean_hp_lost_completed"] = sum(hp_losses) / len(hp_losses)
-    result["optimizer_step"] = float(bool(losses))
-    if losses:
-        loss = torch.stack(losses).mean()
+    result["optimizer_step"] = float(loss is not None)
+    if loss is not None:
         if not torch.isfinite(loss):
             raise RuntimeError("Non-finite loss")
         loss.backward()
-        for parameter in model.parameters():
-            if parameter.grad is not None and not torch.isfinite(parameter.grad).all():
-                raise RuntimeError("Non-finite gradient")
+        if trajectories is not None:
+            validate_gradients(model.parameters())
+        else:
+            for parameter in model.parameters():
+                if parameter.grad is not None and not torch.isfinite(parameter.grad).all():
+                    raise RuntimeError("Non-finite gradient")
         optimizer.step()
+        assert policy_loss is not None
         result["loss"] = loss.detach().item()
-        result["policy_loss"] = torch.stack(policy_losses).mean().detach().item()
+        result["policy_loss"] = policy_loss.detach().item()
         result["entropy_bonus"] = result["policy_loss"] - result["loss"]
     return result
 
