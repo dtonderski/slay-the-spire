@@ -4,6 +4,7 @@ import argparse
 import gc
 import hashlib
 import json
+import math
 import random
 import statistics
 import subprocess
@@ -17,11 +18,13 @@ from unittest.mock import patch
 
 import sts_sim
 import torch
+import train_roots as training
 from encoders.numeric import NumericBatch
 from model import CombatModel
 from sts_sim import State
 from torch.distributions import Categorical
 from train_roots import Root, collect_roots, train_batch
+from trajectories import Trajectories
 
 
 class Timings:
@@ -112,6 +115,8 @@ def benchmark(
     output: Path,
     *,
     numeric: bool = False,
+    entropy_coef: float = 0.01,
+    batched_loss: bool = True,
 ) -> None:
     torch.manual_seed(123)
     model = CombatModel().cuda()
@@ -139,7 +144,9 @@ def benchmark(
         torch.cuda.reset_peak_memory_stats()
         torch.cuda.synchronize()
         start = time.perf_counter()
-        logs = train_batch(roots, model, optimizer, max_decisions, numeric=numeric)
+        logs = train_batch(
+            roots, model, optimizer, max_decisions, entropy_coef, numeric=numeric, batched_loss=batched_loss
+        )
         torch.cuda.synchronize()
         seconds = time.perf_counter() - start
         assert logs["episodes"] == batch_size, "Rollout silently changed the requested batch size"
@@ -182,6 +189,10 @@ def benchmark(
     with ExitStack() as stack:
         for owner, method, name, gpu in (
             (State, "clone", "simulator_clone", False),
+            (Trajectories, "losses", "loss_assembly", True),
+            (Trajectories, "metrics", "trajectory_metrics", False),
+            (training, "metrics", "episode_metrics", False),
+            (training, "validate_gradients", "gradient_checks", True),
             (State, "numeric_decisions", "native_initial_public_export", False),
             (State, "numeric_steps", "native_step_and_public_export", False),
             (NumericBatch, "__init__", "public_buffer_views", False),
@@ -218,7 +229,14 @@ def benchmark(
 def run_worker(args) -> None:
     torch.set_num_threads(1)
     output = args.output_dir / f"batch-{args.worker_size}.json"
-    result = {"requested_batch_size": args.worker_size, "status": "running", "stage": "reconstruct_roots"}
+    result = {
+        "requested_batch_size": args.worker_size,
+        "status": "running",
+        "stage": "reconstruct_roots",
+        "numeric_observations": args.numeric_observations,
+        "entropy_coef": args.entropy_coef,
+        "batched_loss": args.batched_loss,
+    }
     save_json(output, result)
     try:
         pool, identities = load_roots(json.loads((args.output_dir / "roots.json").read_text()))
@@ -237,7 +255,15 @@ def run_worker(args) -> None:
             device=torch.cuda.get_device_name(), total_vram_mib=torch.cuda.get_device_properties(0).total_memory / 2**20
         )
         benchmark(
-            roots, args.warmups, args.repeats, args.max_decisions, result, output, numeric=args.numeric_observations
+            roots,
+            args.warmups,
+            args.repeats,
+            args.max_decisions,
+            result,
+            output,
+            numeric=args.numeric_observations,
+            entropy_coef=args.entropy_coef,
+            batched_loss=args.batched_loss,
         )
     except torch.cuda.OutOfMemoryError as error:
         result.update(
@@ -266,6 +292,8 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, default=Path("wandb/multiroot-batch-profile"))
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--numeric-observations", action="store_true")
+    parser.add_argument("--entropy-coef", type=float, default=0.01)
+    parser.add_argument("--batched-loss", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--training-manifest", type=Path, help="Reuse an existing collected training pool")
     parser.add_argument("--worker-size", type=int, help=argparse.SUPPRESS)
     args = parser.parse_args()
@@ -274,6 +302,8 @@ def main() -> None:
         < 1
     ):
         parser.error("Counts and sizes must be positive")
+    if args.entropy_coef < 0 or not math.isfinite(args.entropy_coef):
+        parser.error("entropy-coef must be finite and nonnegative")
     if args.worker_size is not None:
         run_worker(args)
         return
@@ -297,6 +327,8 @@ def main() -> None:
         "max_decisions": args.max_decisions,
         "floors": args.floors,
         "numeric_observations": args.numeric_observations,
+        "entropy_coef": args.entropy_coef,
+        "batched_loss": args.batched_loss,
     }
     manifest_path = args.output_dir / "roots.json"
     summary_path = args.output_dir / "summary.json"
@@ -368,6 +400,9 @@ def main() -> None:
             "--max-decisions",
             str(args.max_decisions),
         ]
+        command.extend(["--entropy-coef", str(args.entropy_coef)])
+        if not args.batched_loss:
+            command.append("--no-batched-loss")
         if args.numeric_observations:
             command.append("--numeric-observations")
         with (args.output_dir / f"batch-{size}.log").open("w") as log:

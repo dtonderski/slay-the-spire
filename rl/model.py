@@ -25,7 +25,12 @@ class CombatModel(nn.Module):
         if any(not candidates for candidates in actions):
             raise ValueError("Batched scoring requires at least one legal action per observation")
         queries, features = self.observation_encoder(observations)
-        vectors = pad_sequence(self.action_encoder(actions, features), batch_first=True)
+        encoded = (
+            self.action_encoder(actions, features, padded=True)
+            if isinstance(observations, NumericBatch)
+            else self.action_encoder(actions, features)
+        )
+        vectors = encoded if isinstance(encoded, Tensor) else pad_sequence(encoded, batch_first=True)
         lengths = torch.tensor([len(candidates) for candidates in actions], device=queries.device)
         valid = torch.arange(vectors.shape[1], device=queries.device).unsqueeze(0) < lengths.unsqueeze(1)
         logits = torch.bmm(vectors, queries.unsqueeze(-1)).squeeze(-1)

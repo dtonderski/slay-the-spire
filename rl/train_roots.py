@@ -3,6 +3,7 @@
 import argparse
 import json
 import logging
+import math
 import random
 import time
 from dataclasses import dataclass
@@ -14,7 +15,15 @@ from beam_search import beam_search
 from combat_task import action_indices, terminal_reward
 from model import CombatModel
 from sts_sim import State
-from train import Episode, metrics, play_combat, play_combats, reinforce_loss
+from train import (
+    Episode,
+    episode_loss,
+    metrics,
+    play_combat,
+    play_combats,
+    reinforce_loss,
+)
+from trajectories import Trajectories, validate_gradients
 
 
 @dataclass
@@ -98,12 +107,15 @@ def train_batch(
     model: CombatModel,
     optimizer: torch.optim.Optimizer,
     max_decisions: int,
+    entropy_coef: float = 0.0,
     *,
     numeric: bool = False,
+    batched_loss: bool = True,
 ) -> dict[str, float]:
     """Roll out a fixed group, then backpropagate once through its shared graphs."""
     model.train()
     optimizer.zero_grad(set_to_none=True)
+    trajectories = Trajectories() if numeric and batched_loss else None
     episodes = play_combats(
         [root.state for root in roots],
         model,
@@ -111,20 +123,37 @@ def train_batch(
         training=True,
         rng=random.Random(0),
         numeric=numeric,
+        trajectories=trajectories,
     )
-    losses = [reinforce_loss(ep.log_probs, ep.reward) for ep in episodes if ep.reward is not None]
+    if trajectories is not None:
+        loss, policy_loss = trajectories.losses(episodes, entropy_coef)
+    else:
+        losses = [episode_loss(ep, entropy_coef) for ep in episodes if ep.reward is not None]
+        policy_losses = [reinforce_loss(ep.log_probs, ep.reward) for ep in episodes if ep.reward is not None]
+        loss = torch.stack(losses).mean() if losses else None
+        policy_loss = torch.stack(policy_losses).mean() if policy_losses else None
     result = metrics(episodes)
-    result["optimizer_step"] = float(bool(losses))
-    if losses:
-        loss = torch.stack(losses).mean()
+    if trajectories is not None:
+        result.update(trajectories.metrics())
+    hp_losses = [root.start_hp - ep.hp for root, ep in zip(roots, episodes, strict=True) if ep.reward is not None]
+    if hp_losses:
+        result["mean_hp_lost_completed"] = sum(hp_losses) / len(hp_losses)
+    result["optimizer_step"] = float(loss is not None)
+    if loss is not None:
         if not torch.isfinite(loss):
             raise RuntimeError("Non-finite loss")
         loss.backward()
-        for parameter in model.parameters():
-            if parameter.grad is not None and not torch.isfinite(parameter.grad).all():
-                raise RuntimeError("Non-finite gradient")
+        if trajectories is not None:
+            validate_gradients(model.parameters())
+        else:
+            for parameter in model.parameters():
+                if parameter.grad is not None and not torch.isfinite(parameter.grad).all():
+                    raise RuntimeError("Non-finite gradient")
         optimizer.step()
+        assert policy_loss is not None
         result["loss"] = loss.detach().item()
+        result["policy_loss"] = policy_loss.detach().item()
+        result["entropy_bonus"] = result["policy_loss"] - result["loss"]
     return result
 
 
@@ -190,6 +219,7 @@ def evaluate_beam(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--hours", type=float, default=8)
+    parser.add_argument("--entropy-coef", type=float, default=0.01)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--train-seeds", type=int, default=40)
     parser.add_argument("--val-seeds", type=int, default=10)
@@ -220,6 +250,8 @@ def main() -> None:
         <= 0
     ):
         parser.error("Counts and durations must be positive")
+    if args.entropy_coef < 0 or not math.isfinite(args.entropy_coef):
+        parser.error("Entropy coefficient must be finite and nonnegative")
     if args.device == "cuda" and not torch.cuda.is_available():
         parser.error("CUDA is not available")
     torch.set_num_threads(1)
@@ -326,6 +358,7 @@ def main() -> None:
                         model,
                         optimizer,
                         args.max_decisions,
+                        args.entropy_coef,
                         numeric=args.numeric_observations,
                     )
                     update += 1

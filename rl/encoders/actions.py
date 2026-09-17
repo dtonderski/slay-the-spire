@@ -1,3 +1,7 @@
+from collections.abc import Iterator
+from dataclasses import dataclass
+
+import numpy as np
 import torch
 from jaxtyping import Float
 from sts_sim import Action
@@ -66,6 +70,40 @@ def tensorize_actions(
     return tuple(result)
 
 
+@dataclass
+class FlatActionFeatures:
+    """Numeric feature groups stay flat; per-observation views are only for inspection."""
+
+    rows: dict[str, Float[Tensor, "?n_rows ?feature_dim"]]
+    lengths: dict[str, list[int]]
+
+    def __len__(self) -> int:
+        return len(self.lengths["hand"])
+
+    def __iter__(self) -> Iterator[dict[str, Tensor]]:
+        offsets = dict.fromkeys(self.rows, 0)
+        for index in range(len(self)):
+            yield {
+                name: rows[offsets[name] : offsets[name] + self.lengths[name][index]]
+                for name, rows in self.rows.items()
+            }
+            for name in offsets:
+                offsets[name] += self.lengths[name][index]
+
+    def __getitem__(self, index: int) -> dict[str, Tensor]:
+        if index < 0:
+            index += len(self)
+        if not 0 <= index < len(self):
+            raise IndexError(index)
+        return {
+            name: rows[sum(self.lengths[name][:index]) : sum(self.lengths[name][: index + 1])]
+            for name, rows in self.rows.items()
+        }
+
+
+type ActionFeatures = list[dict[str, Float[Tensor, "?n_rows ?feature_dim"]]] | FlatActionFeatures
+
+
 class ActionEncoder(nn.Module):
     """Encode legal actions using raw rows already computed by observation slices."""
 
@@ -95,9 +133,29 @@ class ActionEncoder(nn.Module):
     def forward(
         self,
         actions: list[tuple[Action, ...]],
-        features: list[dict[str, Float[Tensor, "?n_rows ?feature_dim"]]],
-    ) -> list[Float[Tensor, "?n_actions action_dim"]]:
-        """Encode once per kind across the batch, then restore per-decision candidate order."""
+        features: ActionFeatures,
+        *,
+        padded: bool = False,
+    ) -> list[Float[Tensor, "?n_actions action_dim"]] | Float[Tensor, "batch n_actions action_dim"]:
+        """Encode by kind; numeric scoring pads with one scatter, not per-observation copies."""
+        vectors = self._flat(actions, features)
+        lengths = [len(candidates) for candidates in actions]
+        if not padded:
+            return list(vectors.split(lengths))
+        if not lengths or min(lengths) == 0:
+            raise ValueError("Padded scoring needs nonempty decisions")
+        counts = np.asarray(lengths)
+        width = int(counts.max())
+        owners = np.repeat(np.arange(len(actions)), counts)
+        starts = np.cumsum(counts) - counts
+        positions = owners * width + np.arange(len(vectors)) - np.repeat(starts, counts)
+        indices = torch.tensor(positions, dtype=torch.long, device=vectors.device)
+        # Unique destinations: backward gathers real rows, never atomically accumulates padding.
+        padded_vectors = vectors.new_zeros((len(actions) * width, self.action_dim)).index_copy(0, indices, vectors)
+        return padded_vectors.reshape(len(actions), width, self.action_dim)
+
+    def _flat(self, actions: list[tuple[Action, ...]], features: ActionFeatures) -> Float[Tensor, "actions action_dim"]:
+        """Gather raw local slots without splitting already-flat numeric feature groups."""
         if len(actions) != len(features):
             raise ValueError("Action and feature batches must have the same length")
         object_groups = {
@@ -110,26 +168,31 @@ class ActionEncoder(nn.Module):
         # Entries are integers only: candidate position, packed object row, packed target row.
         grouped: dict[str, list[tuple[int, int, int]]] = {}
         offsets = {name: 0 for name in ("hand", "potions", "enemies", "selection")}
-        no_target = sum(rows["enemies"].shape[0] for rows in features)
+        sizes = (
+            features.lengths
+            if isinstance(features, FlatActionFeatures)
+            else {name: [rows[name].shape[0] for rows in features] for name in offsets}
+        )
+        no_target = sum(sizes["enemies"])
         position = 0
-        for candidates, rows in zip(actions, features):
+        for row, candidates in enumerate(actions):
             for action in candidates:
                 object_index, target_index = -1, no_target
                 if action.kind in object_groups:
                     group, slot_name = object_groups[action.kind]
-                    object_index = offsets[group] + _slot_index(rows[group].shape[0], getattr(action, slot_name))
+                    object_index = offsets[group] + _slot_index(sizes[group][row], getattr(action, slot_name))
                     if action.kind in ("play_hand_slot", "use_potion_slot") and action.target_slot is not None:
-                        target_index = offsets["enemies"] + _slot_index(rows["enemies"].shape[0], action.target_slot)
+                        target_index = offsets["enemies"] + _slot_index(sizes["enemies"][row], action.target_slot)
                 elif action.kind not in self.constants:
                     raise NotImplementedError(f"Unsupported action kind: {action.kind}")
                 grouped.setdefault(action.kind, []).append((position, object_index, target_index))
                 position += 1
             for name in offsets:
-                offsets[name] += rows[name].shape[0]
+                offsets[name] += sizes[name][row]
 
         reference = next(self.parameters())
         vectors = reference.new_zeros((position, self.action_dim))
-        packed: dict[str, Float[Tensor, "?n_rows ?feature_dim"]] = {}
+        packed = dict(features.rows) if isinstance(features, FlatActionFeatures) else {}
         for kind, entries in grouped.items():
             indices = reference.new_tensor(entries, dtype=torch.long)
             if kind in self.encoders:
@@ -138,14 +201,18 @@ class ActionEncoder(nn.Module):
                     packed[group] = torch.cat([rows[group] for rows in features])
                 inputs = packed[group].index_select(0, indices[:, 1])
                 if kind in ("play_hand_slot", "use_potion_slot"):
-                    if "enemies" not in packed:
-                        enemies = torch.cat([rows["enemies"] for rows in features])
-                        packed["enemies"] = torch.cat((enemies, enemies.new_zeros((1, ENEMY_FEATURE_DIM))))
-                    targets = packed["enemies"].index_select(0, indices[:, 2])
+                    if "targets" not in packed:
+                        enemies = (
+                            packed["enemies"]
+                            if "enemies" in packed
+                            else torch.cat([rows["enemies"] for rows in features])
+                        )
+                        packed["targets"] = torch.cat((enemies, enemies.new_zeros((1, ENEMY_FEATURE_DIM))))
+                    targets = packed["targets"].index_select(0, indices[:, 2])
                     present = (indices[:, 2:3] != no_target).to(inputs.dtype)
                     inputs = torch.cat((inputs, targets, present), dim=1)
                 encoded = self.encoders[kind](inputs)
             else:
                 encoded = self.constants[kind](torch.zeros_like(indices[:, 0]))
             vectors = vectors.index_copy(0, indices[:, 0], encoded)
-        return list(vectors.split([len(candidates) for candidates in actions]))
+        return vectors

@@ -1,8 +1,10 @@
 """REINFORCE v1: deliberately overfit the first combat of one fixed seed."""
 
 import argparse
+import math
 import random
 from dataclasses import dataclass
+from typing import cast
 
 import torch
 import wandb
@@ -12,6 +14,7 @@ from model import CombatModel
 from sts_sim import CombatObservation, State
 from torch import Tensor
 from torch.distributions import Categorical
+from trajectories import DecisionRound, Trajectories, validate_gradients
 
 
 @dataclass
@@ -21,6 +24,9 @@ class Episode:
     hp: int
     decisions: int
     log_probs: tuple[Float[Tensor, ""], ...]
+    entropies: tuple[Float[Tensor, ""], ...] = ()
+    max_probabilities: tuple[float, ...] = ()
+    action_counts: tuple[int, ...] = ()
     escaped: bool = False
 
 
@@ -59,16 +65,26 @@ def play_combats(
     training: bool = False,
     rng: random.Random,
     numeric: bool = False,
+    trajectories: Trajectories | None = None,
 ) -> list[Episode]:
     """Clone initial roots, batch active decisions, and return episodes in root order."""
     if not roots or max_decisions < 0:
         raise ValueError("Rollouts need nonempty roots and a nonnegative decision limit")
+    if trajectories is not None and (not numeric or not training or model is None):
+        raise ValueError("Batched trajectories require numeric training with a policy")
+    if trajectories is not None and trajectories.rounds:
+        raise ValueError("Use an empty trajectory collector for each rollout")
     if numeric:
-        return _play_numeric_combats(roots, model, max_decisions=max_decisions, training=training, rng=rng)
+        return _play_numeric_combats(
+            roots, model, max_decisions=max_decisions, training=training, rng=rng, trajectories=trajectories
+        )
     states = [root.clone() for root in roots]
     decisions = [state.decision() for state in states]
     starting_max_hp = [decision.observation.context.player_max_hp for decision in decisions]
     log_probs: list[list[Float[Tensor, ""]]] = [[] for _ in roots]
+    entropies: list[list[Tensor]] = [[] for _ in roots]
+    max_probs: list[list[float]] = [[] for _ in roots]
+    counts: list[list[int]] = [[] for _ in roots]
     episodes: list[Episode | None] = [None for _ in roots]
     for step in range(max_decisions + 1):
         active: list[int] = []
@@ -92,6 +108,11 @@ def play_combats(
                 active.append(index)
                 observations.append(observation)
                 continue
+            episode = episodes[index]
+            assert episode is not None
+            episode.entropies = tuple(entropies[index])
+            episode.max_probabilities = tuple(max_probs[index])
+            episode.action_counts = tuple(counts[index])
             log_probs[index].clear()
         if not active:
             assert all(episode is not None for episode in episodes)
@@ -107,6 +128,12 @@ def play_combats(
                 logits, _ = model(observations, actions)
                 distribution = Categorical(logits=logits)
                 sampled = distribution.sample()
+                batch_entropy = distribution.entropy()
+                batch_max = cast(Tensor, distribution.probs).max(dim=1).values.detach().tolist()
+                for row, index in enumerate(active):
+                    entropies[index].append(batch_entropy[row])
+                    max_probs[index].append(batch_max[row])
+                    counts[index].append(len(actions[row]))
                 if training:
                     sampled_log_probs = distribution.log_prob(sampled)
                     for row, index in enumerate(active):
@@ -118,7 +145,13 @@ def play_combats(
 
 
 def _play_numeric_combats(
-    roots: list[State], model: CombatModel | None, *, max_decisions: int, training: bool, rng: random.Random
+    roots: list[State],
+    model: CombatModel | None,
+    *,
+    max_decisions: int,
+    training: bool,
+    rng: random.Random,
+    trajectories: Trajectories | None = None,
 ) -> list[Episode]:
     """Same rollout rule with batched native steps and direct public numeric inputs."""
     from encoders.numeric import NumericBatch
@@ -129,6 +162,9 @@ def _play_numeric_combats(
     remaining = list(range(len(roots)))
     episodes: list[Episode | None] = [None] * len(roots)
     log_probs: list[list[Tensor]] = [[] for _ in roots]
+    entropies: list[list[Tensor]] = [[] for _ in roots]
+    max_probs: list[list[float]] = [[] for _ in roots]
+    counts: list[list[int]] = [[] for _ in roots]
     for step in range(max_decisions + 1):
         active = []
         for row, index in enumerate(remaining):
@@ -152,6 +188,11 @@ def _play_numeric_combats(
                     raise RuntimeError("Unsettled combat decision or empty legal-action list")
                 active.append(row)
                 continue
+            episode = episodes[index]
+            assert episode is not None
+            episode.entropies = tuple(entropies[index])
+            episode.max_probabilities = tuple(max_probs[index])
+            episode.action_counts = tuple(counts[index])
             log_probs[index].clear()
         if not active:
             assert all(episode is not None for episode in episodes)
@@ -163,11 +204,11 @@ def _play_numeric_combats(
         for length in batch.lengths(potions):
             offsets.append(offsets[-1] + length)
         actions = []
-        for row in active:
+        for position, row in enumerate(active):
             candidates = []
             for action in batch.actions[row]:
                 if action.kind == "use_potion_slot" and action.potion_slot is not None:
-                    code = potions[offsets[row] + action.potion_slot, 1]
+                    code = potions[offsets[position] + action.potion_slot, 1]
                     if code >= 0 and batch.symbols[code] == "smoke_bomb":
                         continue
                 candidates.append(action)
@@ -181,10 +222,29 @@ def _play_numeric_combats(
                 logits, _ = model(batch, actions)
                 distribution = Categorical(logits=logits)
                 sampled = distribution.sample()
-                if training:
-                    values = distribution.log_prob(sampled)
-                    for row, value in zip(active, values):
-                        log_probs[remaining[row]].append(value)
+                batch_entropy = distribution.entropy()
+                batch_max = cast(Tensor, distribution.probs).max(dim=1).values.detach()
+                if trajectories is not None:
+                    trajectories.rounds.append(
+                        DecisionRound(
+                            tuple(remaining[row] for row in active),
+                            tuple(len(candidates) for candidates in actions),
+                            distribution.log_prob(sampled),
+                            batch_entropy,
+                            batch_max,
+                        )
+                    )
+                else:
+                    max_values = batch_max.tolist()
+                    for position, row in enumerate(active):
+                        index = remaining[row]
+                        entropies[index].append(batch_entropy[position])
+                        max_probs[index].append(max_values[position])
+                        counts[index].append(len(actions[position]))
+                    if training:
+                        values = distribution.log_prob(sampled)
+                        for row, value in zip(active, values):
+                            log_probs[remaining[row]].append(value)
                 choices = sampled.tolist()
         remaining = [remaining[row] for row in active]
         chosen = [candidates[choice] for candidates, choice in zip(actions, choices)]
@@ -199,6 +259,16 @@ def reinforce_loss(log_probs: tuple[Float[Tensor, ""], ...], reward: float) -> F
     return -reward * torch.stack(log_probs).sum()
 
 
+def episode_loss(episode: Episode, entropy_coef: float) -> Float[Tensor, ""]:
+    """REINFORCE minus coefficient * summed valid-action entropy; completed episodes only."""
+    if episode.reward is None or entropy_coef < 0 or not math.isfinite(entropy_coef):
+        raise ValueError("Loss needs a completed episode and nonnegative entropy coefficient")
+    loss = reinforce_loss(episode.log_probs, episode.reward)
+    if entropy_coef and episode.entropies:
+        loss = loss - entropy_coef * torch.stack(episode.entropies).sum()
+    return loss
+
+
 def metrics(episodes: list[Episode]) -> dict[str, float]:
     completed = [episode for episode in episodes if episode.reward is not None]
     result = {
@@ -209,6 +279,19 @@ def metrics(episodes: list[Episode]) -> dict[str, float]:
         "defeated": float(sum(episode.won is False and not episode.escaped for episode in completed)),
         "mean_decisions": sum(episode.decisions for episode in episodes) / len(episodes),
     }
+    choices = [
+        (entropy.detach().item(), probability, count)
+        for episode in episodes
+        for entropy, probability, count in zip(episode.entropies, episode.max_probabilities, episode.action_counts)
+        if count > 1
+    ]
+    if choices:
+        result.update(
+            policy_entropy=sum(h for h, _, _ in choices) / len(choices),
+            normalized_policy_entropy=sum(h / math.log(n) for h, _, n in choices) / len(choices),
+            mean_max_action_probability=sum(p for _, p, _ in choices) / len(choices),
+            mean_action_count=sum(n for _, _, n in choices) / len(choices),
+        )
     if completed:
         result.update(
             {
@@ -231,6 +314,7 @@ def main() -> None:
     parser.add_argument("--eval-episodes", type=int, default=8)
     parser.add_argument("--max-decisions", type=int, default=256)
     parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--entropy-coef", type=float, default=0.01)
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--numeric-observations", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--wandb-project", default="sts-combat-v1")
@@ -240,6 +324,8 @@ def main() -> None:
     if min(args.updates, args.episodes_per_update, args.eval_episodes, args.max_decisions) < 1 or args.lr <= 0:
         parser.error("Counts and learning rate must be positive")
 
+    if args.entropy_coef < 0 or not math.isfinite(args.entropy_coef):
+        parser.error("Entropy coefficient must be nonnegative")
     if args.device == "cuda" and not torch.cuda.is_available():
         parser.error("CUDA is not available")
 
@@ -276,6 +362,7 @@ def main() -> None:
         )
         for update in range(1, args.updates + 1):
             model.train()
+            trajectories = Trajectories() if args.numeric_observations else None
             episodes = play_combats(
                 [root] * args.episodes_per_update,
                 model,
@@ -283,26 +370,43 @@ def main() -> None:
                 training=True,
                 rng=rng,
                 numeric=args.numeric_observations,
+                trajectories=trajectories,
             )
-            losses = [reinforce_loss(ep.log_probs, ep.reward) for ep in episodes if ep.reward is not None]
-            logs = {f"train/{key}": value for key, value in metrics(episodes).items()}
-            if not losses:
+            if trajectories is not None:
+                loss, policy_loss = trajectories.losses(episodes, args.entropy_coef)
+            else:
+                losses = [episode_loss(ep, args.entropy_coef) for ep in episodes if ep.reward is not None]
+                loss = torch.stack(losses).mean() if losses else None
+                with torch.no_grad():
+                    policy_losses = [
+                        reinforce_loss(ep.log_probs, ep.reward) for ep in episodes if ep.reward is not None
+                    ]
+                    policy_loss = torch.stack(policy_losses).mean() if policy_losses else None
+                del losses, policy_losses
+            values = metrics(episodes)
+            if trajectories is not None:
+                values.update(trajectories.metrics())
+            logs = {f"train/{key}": value for key, value in values.items()}
+            if loss is None:
                 run.log(logs, step=update)
                 raise RuntimeError("Every episode was truncated; increase --max-decisions before training")
-            loss = torch.stack(losses).mean()
             if not torch.isfinite(loss):
                 raise RuntimeError("Non-finite policy loss")
             optimizer.zero_grad()
             loss.backward()
+            validate_gradients(model.parameters())
             optimizer.step()
             logs["train/loss"] = loss.detach().item()
+            assert policy_loss is not None
+            logs["train/policy_loss"] = policy_loss.detach().item()
+            logs["train/entropy_bonus"] = logs["train/policy_loss"] - logs["train/loss"]
             run.log(logs, step=update)
             print(
                 f"update={update} loss={logs['train/loss']:.3f} "
                 f"win_rate={logs['train/win_rate_completed']:.2f} truncated={int(logs['train/truncated'])}"
             )
             # Release trajectory graphs before collecting the next update.
-            del episodes, losses, loss
+            del episodes, loss, policy_loss, trajectories
         model.eval()
         final = [play_combat(root, model, max_decisions=args.max_decisions, rng=rng) for _ in range(args.eval_episodes)]
         run.log({f"final/{key}": value for key, value in metrics(final).items()}, step=args.updates + 1)

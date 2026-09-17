@@ -3,7 +3,7 @@ from contextlib import ExitStack
 from unittest.mock import patch
 
 import torch
-from encoders.actions import ActionEncoder
+from encoders.actions import ActionEncoder, FlatActionFeatures
 from encoders.cards import CARD_FEATURE_DIM
 from encoders.enemies import ENEMY_FEATURE_DIM
 from encoders.potions import POTION_EMBEDDING_DIM
@@ -109,6 +109,28 @@ class ActionBatchTests(unittest.TestCase):
                 actual = rows.grad if rows.grad is not None else torch.zeros_like(rows)
                 wanted = expected[name] if expected[name] is not None else torch.zeros_like(rows)
                 torch.testing.assert_close(actual, wanted)
+
+    def test_flat_padding_matches_reference_and_gradients(self) -> None:
+        actions = [self.actions[0], self.actions[2]]
+        rows = [self.features[0], self.features[2]]
+        packed = FlatActionFeatures(
+            {name: torch.cat([item[name] for item in rows]) for name in rows[0]},
+            {name: [len(item[name]) for item in rows] for name in rows[0]},
+        )
+        expected = torch.nn.utils.rnn.pad_sequence(self.encoder(actions, rows), batch_first=True)
+        actual = self.encoder(actions, packed, padded=True)
+        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+        self.assertTrue(torch.equal(actual[1, 5:], torch.zeros_like(actual[1, 5:])))
+        parameters = list(self.encoder.parameters()) + [value for item in rows for value in item.values()]
+        reference_grads = torch.autograd.grad(expected.sum(), parameters, allow_unused=True, retain_graph=True)
+        actual_grads = torch.autograd.grad(actual.sum(), parameters, allow_unused=True)
+        for a, b in zip(actual_grads, reference_grads):
+            torch.testing.assert_close(a, b)
+        small = FlatActionFeatures({**packed.rows, "hand": packed.rows["hand"][:3]}, {**packed.lengths, "hand": [1, 2]})
+        with self.assertRaises(ValueError):
+            self.encoder([(action("play_hand_slot", hand_slot=1),), actions[1]], small, padded=True)
+        with self.assertRaises(ValueError):
+            self.encoder(self.actions, self.features, padded=True)
 
     def test_empty_batches_and_local_slot_validation(self) -> None:
         self.assertEqual(self.encoder([], []), [])

@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from encoders.actions import ActionFeatures, FlatActionFeatures
 from encoders.cards import CardEncoder
 from encoders.enemies import EnemyEncoder
 from encoders.numeric import NumericBatch, tensor
@@ -54,7 +55,7 @@ class ObservationEncoder(nn.Module):
     ) -> tuple[
         Float[Tensor, "batch n_tokens d_model"],
         Bool[Tensor, "batch n_tokens"],
-        list[dict[str, Float[Tensor, "?n_rows ?feature_dim"]]],
+        ActionFeatures,
     ]:
         """Concatenate real tokens per observation, then pad once; True marks padding."""
         if not observations:
@@ -85,49 +86,52 @@ class ObservationEncoder(nn.Module):
     ) -> tuple[
         Float[Tensor, "batch n_tokens d_model"],
         Bool[Tensor, "batch n_tokens"],
-        list[dict[str, Float[Tensor, "?n_rows ?feature_dim"]]],
+        FlatActionFeatures,
     ]:
         """Keep groups flat through projection; build the final padded layout in arrays."""
         groups = {}
         feature_rows = {}
+        feature_lengths = {}
         for name, encoder in (("player", self.player), ("relics", self.relics), ("potions", self.potions)):
             features, tokens, lengths = encoder.numeric(batch)
             groups[name] = (tokens, lengths)
             if name == "potions":
-                feature_rows[name] = features.split(lengths)
+                feature_rows[name] = features
+                feature_lengths[name] = lengths
         for name in ("hand", "draw", "discard", "exhaust"):
             features, tokens, lengths = self.cards.numeric(batch, name)
             groups[name] = (tokens, lengths)
             if name == "hand":
-                feature_rows[name] = features.split(lengths)
+                feature_rows[name] = features
+                feature_lengths[name] = lengths
         features, tokens, lengths = self.enemies.numeric(batch, self.cards)
         groups["enemies"] = (tokens, lengths)
-        feature_rows["enemies"] = features.split(lengths)
+        feature_rows["enemies"] = features
+        feature_lengths["enemies"] = lengths
         features, context, tokens, lengths = self.selection.numeric(batch, self.cards)
         groups["selection_context"] = (context, [1] * batch.size)
         groups["selection_options"] = (tokens, lengths)
-        feature_rows["selection"] = features.split(lengths)
+        feature_rows["selection"] = features
+        feature_lengths["selection"] = lengths
         counts = np.array([groups[name][1] for name in OBSERVATION_GROUPS]).T
         width = int(counts.sum(axis=1).max()) + 1
-        layout = np.ones((batch.size, width), dtype=np.int64)
-        layout[:, 0] = 0
         positions = np.ones(batch.size, dtype=np.int64)
         reference = self.summary_embedding.weight
-        packed = [reference, reference.new_zeros(reference.shape)]
-        offset = 2
+        packed = [reference.expand(batch.size, -1)]
+        destinations = [np.arange(batch.size) * width]
         for index, name in enumerate(OBSERVATION_GROUPS):
             tokens, lengths = groups[name]
             owners = np.repeat(np.arange(batch.size), lengths)
             starts = np.cumsum(lengths) - lengths
             local = np.arange(len(owners)) - np.repeat(starts, lengths)
-            layout[owners, positions[owners] + local] = offset + np.arange(len(owners))
+            destinations.append(owners * width + positions[owners] + local)
             positions += lengths
-            offset += len(owners)
             packed.append(tokens + self.group_embedding.weight[index])
-        indices = tensor(reference, layout, integer=True)
-        tokens = torch.cat(packed).index_select(0, indices.flatten()).reshape(batch.size, width, -1)
-        features = [{name: rows[index] for name, rows in feature_rows.items()} for index in range(batch.size)]
-        return tokens, indices == 1, features
+        indices = tensor(reference, np.concatenate(destinations), integer=True)
+        # Each real row has one destination; padding has no source row or backward accumulation.
+        tokens = reference.new_zeros((batch.size * width, reference.shape[1])).index_copy(0, indices, torch.cat(packed))
+        padding = torch.tensor(np.arange(width)[None, :] >= positions[:, None], device=reference.device)
+        return tokens.reshape(batch.size, width, -1), padding, FlatActionFeatures(feature_rows, feature_lengths)
 
     def _assemble(self, groups, hand, enemies, potions, selection):
         # TODO: Represent meaningful public hand/enemy/relic/potion slot order; attention currently
@@ -159,7 +163,7 @@ class ObservationEncoder(nn.Module):
 
     def forward(
         self, observations: list[CombatObservation] | NumericBatch
-    ) -> tuple[Float[Tensor, "batch action_dim"], list[dict[str, Float[Tensor, "?n_rows ?feature_dim"]]]]:
+    ) -> tuple[Float[Tensor, "batch action_dim"], ActionFeatures]:
         """Return one summary query per observation; padding never participates as a key/value."""
         tokens, padding_mask, features = self.prepare_batch(observations)
         encoded = self.transformer(tokens, src_key_padding_mask=padding_mask)
