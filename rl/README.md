@@ -38,6 +38,62 @@ in `simulator/crates/sts_env`, and Python policy code installs
 `simulator/python` as its upstream package. RL dependencies must never flow back
 into the simulator workspace.
 
+## Combat-only task and privileged reference
+
+Training, random evaluation, root collection, and beam search exclude **Smoke Bomb
+use** through `combat_task.py`. The inventory/observation and simulator rules stay
+unchanged; the filter is recomputed at each decision, including after Entropic
+Brew. Existing saved action prefixes are not rewritten.
+
+Completed fights score **terminal HP / starting max HP**, with defeat scoring zero.
+Unfinished fights have no terminal reward, rather than an invented loss.
+
+```bash
+cd rl
+uv run python beam_search.py --seed HUMAN1 --width 64 --max-decisions 128 --max-transitions 10000
+```
+
+`beam_search.py` is a deliberately small **privileged** reference built from scratch.
+It explores clones of the actual state, so its simulated futures exploit actual
+hidden draw order and RNG. Never pass that state or search outputs into the fair
+policy as observations. It returns the best completed action sequence found,
+its reward, transition count, and whether a search limit was reached. No completed
+path means `reward: null`, not a defeat. The root is not modified.
+
+Only terminal return ranks completed paths—no potion or gold bonuses. To prune
+unfinished paths, the beam scores HP minus estimated unblocked incoming damage
+(5×), enemy HP (1.75×), enemy block (0.25×), and living enemies (12×), plus
+useful block (0.75×) and energy (0.25×). Visible multi-hit intents are included;
+hidden intents contribute no damage estimate. Card damage values are not exposed
+by this API, so there is no hand-damage term. The beam reserves one path per
+opening action when width permits, then fills remaining slots by score.
+This heuristic, beam pruning, and finite budget make this
+an approximate reference, **not an upper bound or proof of optimal play**. There
+is no deduplication, caching, or replanning machinery. Search errors propagate.
+
+### Baselines during frozen-root training
+
+`train_roots.py` evaluates random and privileged beam references on the same frozen
+validation roots before training. Beam runs once per root (deterministic); random
+uses `--eval-repeats`. Set search effort with `--beam-width` (default 64),
+`--beam-transitions` (default 10000), and the shared `--max-decisions` limit.
+
+W&B logs `random_val/*` and `beam_val/*` initially and repeats these cached
+reference scores at every periodic/final policy evaluation. Compare their
+`mean_return_completed`, `mean_hp_completed`, and `win_rate_completed` with the
+policy's `val/*` metrics. **Check coverage first:** beam `unfinished` and `errors`
+are separate from defeats; completed-only averages exclude those roots and are
+not directly comparable if coverage differs. `found_win_rate_all_roots` reports
+wins found divided by all validation roots, not a claim that unresolved fights
+are losses. Search transitions, budget/depth-limit hits, and total reference
+runtime are logged too.
+
+Per-root beam outcomes and replay-verified native action indices are saved in
+`wandb/<run-id>/baselines.json`. Search failures retain error details and print
+tracebacks. Collection and initial reference evaluation do not consume `--hours`;
+that clock starts when training begins. Reference computation adds startup time
+but is not repeated during training.
+
 ## Relic and potion identity embeddings
 
 Run Python from `rl/` with `uv run`. Each identity-bearing encoder creates its

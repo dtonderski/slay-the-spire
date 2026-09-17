@@ -6,9 +6,10 @@ from dataclasses import dataclass
 
 import torch
 import wandb
+from combat_task import action_indices, combat_outcome, terminal_reward
 from jaxtyping import Float
 from model import CombatModel
-from sts_sim import CombatObservation, Observation, State
+from sts_sim import CombatObservation, State
 from torch import Tensor
 from torch.distributions import Categorical
 
@@ -35,21 +36,6 @@ def first_combat(seed: str, ascension: int) -> State:
             raise RuntimeError("No actions available before reaching combat")
         state.step(decision.actions[0])
     raise RuntimeError("Could not reach the first combat within 100 setup decisions")
-
-
-def combat_outcome(observation: Observation) -> bool | None:
-    """Recognize combat outcomes before selecting any postcombat action."""
-    if observation.kind == "combat":
-        if observation.screen.phase == "won":
-            return True
-        if observation.screen.phase == "lost":
-            return False
-        return None
-    if observation.phase == "reward":
-        return True
-    if observation.kind == "complete" and observation.context.player_hp <= 0:
-        return False
-    raise RuntimeError(f"Unexpected screen after combat: {observation.kind}/{observation.phase}")
 
 
 def play_combat(
@@ -90,7 +76,9 @@ def play_combats(
             won = combat_outcome(observation)
             if won is not None:
                 hp = observation.context.player_hp if won else 0
-                episodes[index] = Episode(hp / starting_max_hp[index], won, hp, step, tuple(log_probs[index]))
+                episodes[index] = Episode(
+                    terminal_reward(observation, starting_max_hp[index]), won, hp, step, tuple(log_probs[index])
+                )
             elif step == max_decisions:
                 # Discard truncations, never treat them as terminal defeats.
                 episodes[index] = Episode(None, None, observation.context.player_hp, step, ())
@@ -104,7 +92,10 @@ def play_combats(
         if not active:
             assert all(episode is not None for episode in episodes)
             return [episode for episode in episodes if episode is not None]
-        actions = [decisions[index].actions for index in active]
+        indices = [action_indices(decisions[index]) for index in active]
+        actions = [[decisions[index].actions[i] for i in allowed] for index, allowed in zip(active, indices)]
+        if any(not candidates for candidates in actions):
+            raise RuntimeError("No allowed combat actions after disabling escape")
         if model is None:
             choices = [rng.randrange(len(candidates)) for candidates in actions]
         else:
@@ -117,8 +108,8 @@ def play_combats(
                     for row, index in enumerate(active):
                         log_probs[index].append(sampled_log_probs[row])
                 choices = sampled.tolist()
-        for index, choice in zip(active, choices):
-            decisions[index] = states[index].step(decisions[index].actions[choice])
+        for index, candidates, choice in zip(active, actions, choices):
+            decisions[index] = states[index].step(candidates[choice])
     raise AssertionError("Unreachable")
 
 
@@ -180,7 +171,12 @@ def main() -> None:
         project=args.wandb_project,
         mode=args.wandb_mode,
         settings=wandb.Settings(base_url=args.wandb_base_url),
-        config={**vars(args), "reward": "terminal_hp_over_starting_max_hp", "baseline": "none"},
+        config={
+            **vars(args),
+            "reward": "terminal_hp_over_starting_max_hp",
+            "baseline": "none",
+            "smoke_bomb_use": False,
+        },
     ) as run:
         baseline = [
             play_combat(root, None, max_decisions=args.max_decisions, rng=rng) for _ in range(args.eval_episodes)

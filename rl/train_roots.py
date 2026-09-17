@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import logging
 import random
 import time
 from dataclasses import dataclass
@@ -9,6 +10,8 @@ from pathlib import Path
 
 import torch
 import wandb
+from beam_search import beam_search
+from combat_task import action_indices, terminal_reward
 from model import CombatModel
 from sts_sim import State
 from train import Episode, metrics, play_combat, play_combats, reinforce_loss
@@ -23,7 +26,7 @@ class Root:
 
 
 def collect_roots(seeds: list[str], floors: int, rng_seed: int) -> tuple[list[Root], list[dict]]:
-    """Uniform random legal collector; retain deaths/cutoffs, never replace seeds."""
+    """Random collector with escape disabled; retain deaths/cutoffs, never replace seeds."""
     roots: list[Root] = []
     manifest: list[dict] = []
     for seed in seeds:
@@ -53,7 +56,10 @@ def collect_roots(seeds: list[str], floors: int, rng_seed: int) -> tuple[list[Ro
                 in_combat = False
             if not decision.actions:
                 raise RuntimeError(f"No legal actions during collection: seed={seed}, screen={obs.kind}")
-            index = rng.randrange(len(decision.actions))
+            allowed = action_indices(decision)
+            if not allowed:
+                raise RuntimeError(f"No allowed collection actions: seed={seed}, screen={obs.kind}")
+            index = rng.choice(allowed)
             decision = state.step(decision.actions[index])
             choices.append(index)
         manifest.append({"seed": seed, "status": status, "roots": entries, "accepted_action_indices": choices})
@@ -112,6 +118,65 @@ def train_batch(
     return result
 
 
+def evaluate_beam(
+    roots: list[Root], *, width: int, max_decisions: int, max_transitions: int
+) -> tuple[dict, list[dict]]:
+    """Privileged deterministic reference, once per root; never silently discard failures."""
+    if not roots:
+        raise ValueError("Beam evaluation needs nonempty roots")
+    records: list[dict] = []
+    start = time.monotonic()
+    for index, root in enumerate(roots):
+        record: dict = {"root_index": index, "seed": root.seed, "floor": root.floor}
+        try:
+            result = beam_search(root.state, width=width, max_decisions=max_decisions, max_transitions=max_transitions)
+            record.update(
+                reward=result.reward,
+                hp=result.hp,
+                won=result.won,
+                transitions=result.transitions,
+                limit_reached=result.limit_reached,
+                status="completed" if result.reward is not None else "unfinished",
+            )
+            # Verify the reported terminal result against the actual accepted-action path.
+            replay = root.state.clone()
+            indices = []
+            for action in result.actions:
+                decision = replay.decision()
+                choice = next(i for i in action_indices(decision) if repr(decision.actions[i]) == repr(action))
+                replay.step(decision.actions[choice])
+                indices.append(choice)
+            record["action_indices"] = indices
+            if result.reward is not None:
+                starting_max_hp = root.state.decision().observation.context.player_max_hp
+                if terminal_reward(replay.decision().observation, starting_max_hp) != result.reward:
+                    raise RuntimeError("Beam plan replay reward mismatch")
+        except Exception as error:
+            logging.getLogger(__name__).exception("Beam evaluation failed for root %s", index)
+            record.update(status="error", error=f"{type(error).__name__}: {error}")
+        records.append(record)
+        print(f"BEAM {index + 1}/{len(roots)} status={record['status']}", flush=True)
+    completed = [record for record in records if record["status"] == "completed"]
+    scores = {
+        "roots": len(roots),
+        "completed": len(completed),
+        "unfinished": sum(record["status"] == "unfinished" for record in records),
+        "errors": sum(record["status"] == "error" for record in records),
+        "completion_rate": len(completed) / len(roots),
+        "found_win_rate_all_roots": sum(record["won"] is True for record in completed) / len(roots),
+        "transitions": sum(record.get("transitions", 0) for record in records),
+        "limit_reached": sum(record.get("limit_reached", False) for record in records),
+        "seconds": time.monotonic() - start,
+    }
+    if completed:
+        scores.update(
+            mean_return_completed=sum(record["reward"] for record in completed) / len(completed),
+            mean_hp_completed=sum(record["hp"] for record in completed) / len(completed),
+            win_rate_completed=sum(record["won"] is True for record in completed) / len(completed),
+        )
+    return scores, records
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--hours", type=float, default=8)
@@ -122,6 +187,8 @@ def main() -> None:
     parser.add_argument("--eval-repeats", type=int, default=3)
     parser.add_argument("--eval-minutes", type=float, default=20)
     parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--beam-width", type=int, default=64)
+    parser.add_argument("--beam-transitions", type=int, default=10000)
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--max-decisions", type=int, default=512)
     parser.add_argument("--wandb-mode", choices=("online", "offline", "disabled"), default="online")
@@ -136,6 +203,8 @@ def main() -> None:
             args.eval_minutes,
             args.batch_size,
             args.max_decisions,
+            args.beam_width,
+            args.beam_transitions,
         )
         <= 0
     ):
@@ -156,7 +225,7 @@ def main() -> None:
     epoch, update = 0, 0
     with wandb.init(
         id=args.run_id,
-        name="overnight-40train-10val-hp",
+        name=f"overnight-{args.train_seeds}train-{args.val_seeds}val-hp",
         project="sts-combat-v1",
         mode=args.wandb_mode,
         settings=wandb.Settings(base_url="http://localhost:8080"),
@@ -167,7 +236,10 @@ def main() -> None:
             "lr": 1e-4,
             "reward": "terminal_hp_over_starting_max_hp",
             "baseline": "none",
-            "collector": "uniform_random_legal",
+            "collector": "uniform_random_no_escape",
+            "smoke_bomb_use": False,
+            "beam_reference": "privileged_weighted_beam",
+            "beam_repeats": 1,
             "train_seeds_list": train_seeds,
             "val_seeds_list": val_seeds,
         },
@@ -194,12 +266,33 @@ def main() -> None:
                 }
             )
             print(f"ROOTS train={len(train)} val={len(val)}", flush=True)
+            random_scores = evaluate(val, None, args.eval_repeats, args.max_decisions)
+            beam_scores, beam_records = evaluate_beam(
+                val, width=args.beam_width, max_decisions=args.max_decisions, max_transitions=args.beam_transitions
+            )
+            (output / "baselines.json").write_text(
+                json.dumps(
+                    {
+                        "random_val": random_scores,
+                        "beam_val": beam_scores,
+                        "beam_roots": beam_records,
+                        "config": {
+                            "privileged": True,
+                            "width": args.beam_width,
+                            "max_decisions": args.max_decisions,
+                            "max_transitions": args.beam_transitions,
+                        },
+                    },
+                    indent=2,
+                )
+            )
+            references = {
+                **{f"random_val/{k}": v for k, v in random_scores.items()},
+                **{f"beam_val/{k}": v for k, v in beam_scores.items()},
+            }
             run.log(
                 {
-                    **{
-                        f"random_val/{k}": v
-                        for k, v in evaluate(val, None, args.eval_repeats, args.max_decisions).items()
-                    },
+                    **references,
                     **{
                         f"initial_val/{k}": v
                         for k, v in evaluate(val, model, args.eval_repeats, args.max_decisions).items()
@@ -207,7 +300,9 @@ def main() -> None:
                 },
                 step=0,
             )
-            next_eval = time.monotonic() + args.eval_minutes * 60
+            # Collection and one-time references do not consume the training time budget.
+            start = time.monotonic()
+            next_eval = start + args.eval_minutes * 60
             while time.monotonic() - start < args.hours * 3600:
                 order = list(train)
                 shuffle_rng.shuffle(order)
@@ -223,7 +318,7 @@ def main() -> None:
                         scores = evaluate(val, model, args.eval_repeats, args.max_decisions)
                         # Distinct W&B step avoids dropping metrics after the training log.
                         update += 1
-                        run.log({f"val/{k}": v for k, v in scores.items()}, step=update)
+                        run.log({**references, **{f"val/{k}": v for k, v in scores.items()}}, step=update)
                         torch.save(
                             {
                                 "model": model.state_dict(),
@@ -237,7 +332,7 @@ def main() -> None:
                         print(f"VALIDATION {scores}", flush=True)
                         next_eval = time.monotonic() + args.eval_minutes * 60
             final = evaluate(val, model, args.eval_repeats, args.max_decisions)
-            run.log({f"final_val/{k}": v for k, v in final.items()}, step=update + 1)
+            run.log({**references, **{f"final_val/{k}": v for k, v in final.items()}}, step=update + 1)
             print(f"FINAL {final}", flush=True)
         finally:
             torch.save(

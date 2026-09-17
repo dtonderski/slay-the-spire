@@ -17,13 +17,18 @@ from train import (
 class TrainingTests(unittest.TestCase):
     def test_hp_reward_and_defeat(self) -> None:
         root = first_combat("HUMAN1", 0)
-        hp = root.decision().observation.context.player_hp
-        max_hp = root.decision().observation.context.player_max_hp
-        with patch("train.combat_outcome", return_value=True):
+        decision = root.decision()
+        obs = decision.observation
+        assert obs.kind == "combat"
+        hp = obs.context.player_hp
+        max_hp = obs.context.player_max_hp
+        won_decision = replace(decision, observation=replace(obs, screen=replace(obs.screen, phase="won")))
+        lost_decision = replace(decision, observation=replace(obs, screen=replace(obs.screen, phase="lost")))
+        with patch("sts_sim.State.decision", return_value=won_decision):
             won = play_combat(root, None, max_decisions=1, rng=random.Random(0))
         self.assertEqual(won.reward, hp / max_hp)
         self.assertTrue(won.won)
-        with patch("train.combat_outcome", return_value=False):
+        with patch("sts_sim.State.decision", return_value=lost_decision):
             lost = play_combat(root, None, max_decisions=1, rng=random.Random(0))
         self.assertEqual(lost.reward, 0)
         self.assertFalse(lost.won)
