@@ -21,6 +21,7 @@ class Episode:
     hp: int
     decisions: int
     log_probs: tuple[Float[Tensor, ""], ...]
+    escaped: bool = False
 
 
 def first_combat(seed: str, ascension: int) -> State:
@@ -57,10 +58,13 @@ def play_combats(
     max_decisions: int,
     training: bool = False,
     rng: random.Random,
+    numeric: bool = False,
 ) -> list[Episode]:
     """Clone initial roots, batch active decisions, and return episodes in root order."""
     if not roots or max_decisions < 0:
         raise ValueError("Rollouts need nonempty roots and a nonnegative decision limit")
+    if numeric:
+        return _play_numeric_combats(roots, model, max_decisions=max_decisions, training=training, rng=rng)
     states = [root.clone() for root in roots]
     decisions = [state.decision() for state in states]
     starting_max_hp = [decision.observation.context.player_max_hp for decision in decisions]
@@ -113,6 +117,81 @@ def play_combats(
     raise AssertionError("Unreachable")
 
 
+def _play_numeric_combats(
+    roots: list[State], model: CombatModel | None, *, max_decisions: int, training: bool, rng: random.Random
+) -> list[Episode]:
+    """Same rollout rule with batched native steps and direct public numeric inputs."""
+    from encoders.numeric import NumericBatch
+
+    states = [root.clone() for root in roots]
+    batch = NumericBatch(State.numeric_decisions(states))
+    starting_max_hp = batch.table("header", 5)[:, 4].tolist()
+    remaining = list(range(len(roots)))
+    episodes: list[Episode | None] = [None] * len(roots)
+    log_probs: list[list[Tensor]] = [[] for _ in roots]
+    for step in range(max_decisions + 1):
+        active = []
+        for row, index in enumerate(remaining):
+            kind, phase, combat_phase, hp, _ = batch.table("header", 5)[row]
+            kind, phase = batch.symbols[kind], batch.symbols[phase]
+            combat_phase = batch.symbols[combat_phase] if combat_phase >= 0 else None
+            won = (
+                True
+                if phase == "reward" or combat_phase == "won"
+                else (False if combat_phase == "lost" or (kind == "complete" and hp <= 0) else None)
+            )
+            if won is not None:
+                hp = int(hp) if won else 0
+                episodes[index] = Episode(hp / starting_max_hp[index], won, hp, step, tuple(log_probs[index]))
+            elif kind != "combat":
+                raise RuntimeError(f"Unexpected screen after combat: {kind}/{phase}")
+            elif step == max_decisions:
+                episodes[index] = Episode(None, None, int(hp), step, ())
+            else:
+                if not batch.actions[row]:
+                    raise RuntimeError("Unsettled combat decision or empty legal-action list")
+                active.append(row)
+                continue
+            log_probs[index].clear()
+        if not active:
+            assert all(episode is not None for episode in episodes)
+            return [episode for episode in episodes if episode is not None]
+        if active != batch.model_rows:
+            raise RuntimeError("Numeric combat rows do not match settled decisions")
+        potions = batch.table("potions", 3)
+        offsets = [0]
+        for length in batch.lengths(potions):
+            offsets.append(offsets[-1] + length)
+        actions = []
+        for row in active:
+            candidates = []
+            for action in batch.actions[row]:
+                if action.kind == "use_potion_slot" and action.potion_slot is not None:
+                    code = potions[offsets[row] + action.potion_slot, 1]
+                    if code >= 0 and batch.symbols[code] == "smoke_bomb":
+                        continue
+                candidates.append(action)
+            if not candidates:
+                raise RuntimeError("No allowed combat actions after disabling escape")
+            actions.append(tuple(candidates))
+        if model is None:
+            choices = [rng.randrange(len(candidates)) for candidates in actions]
+        else:
+            with torch.set_grad_enabled(training):
+                logits, _ = model(batch, actions)
+                distribution = Categorical(logits=logits)
+                sampled = distribution.sample()
+                if training:
+                    values = distribution.log_prob(sampled)
+                    for row, value in zip(active, values):
+                        log_probs[remaining[row]].append(value)
+                choices = sampled.tolist()
+        remaining = [remaining[row] for row in active]
+        chosen = [candidates[choice] for candidates, choice in zip(actions, choices)]
+        batch = NumericBatch(State.numeric_steps([states[index] for index in remaining], chosen))
+    raise AssertionError("Unreachable")
+
+
 def reinforce_loss(log_probs: tuple[Float[Tensor, ""], ...], reward: float) -> Float[Tensor, ""]:
     """Undiscounted terminal return: -reward * sum(log pi(action | state))."""
     if not log_probs:
@@ -126,6 +205,8 @@ def metrics(episodes: list[Episode]) -> dict[str, float]:
         "episodes": float(len(episodes)),
         "completed": float(len(completed)),
         "truncated": float(len(episodes) - len(completed)),
+        "escaped": float(sum(episode.escaped for episode in completed)),
+        "defeated": float(sum(episode.won is False and not episode.escaped for episode in completed)),
         "mean_decisions": sum(episode.decisions for episode in episodes) / len(episodes),
     }
     if completed:
@@ -151,6 +232,7 @@ def main() -> None:
     parser.add_argument("--max-decisions", type=int, default=256)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    parser.add_argument("--numeric-observations", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--wandb-project", default="sts-combat-v1")
     parser.add_argument("--wandb-base-url", default="http://localhost:8080")
     parser.add_argument("--wandb-mode", choices=("online", "offline", "disabled"), default="online")
@@ -195,7 +277,12 @@ def main() -> None:
         for update in range(1, args.updates + 1):
             model.train()
             episodes = play_combats(
-                [root] * args.episodes_per_update, model, max_decisions=args.max_decisions, training=True, rng=rng
+                [root] * args.episodes_per_update,
+                model,
+                max_decisions=args.max_decisions,
+                training=True,
+                rng=rng,
+                numeric=args.numeric_observations,
             )
             losses = [reinforce_loss(ep.log_probs, ep.reward) for ep in episodes if ep.reward is not None]
             logs = {f"train/{key}": value for key, value in metrics(episodes).items()}

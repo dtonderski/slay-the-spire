@@ -1,5 +1,6 @@
 import torch
 from encoders.actions import ActionEncoder
+from encoders.numeric import NumericBatch
 from jaxtyping import Bool, Float
 from observation_encoder import ObservationEncoder
 from sts_sim import Action, CombatObservation
@@ -16,7 +17,7 @@ class CombatModel(nn.Module):
         self.action_encoder = ActionEncoder(action_dim)
 
     def forward(
-        self, observations: list[CombatObservation], actions: list[tuple[Action, ...]]
+        self, observations: list[CombatObservation] | NumericBatch, actions: list[tuple[Action, ...]]
     ) -> tuple[Float[Tensor, "batch n_actions"], Bool[Tensor, "batch n_actions"]]:
         """Return padded logits and a valid-action mask; every decision needs a candidate."""
         if not observations or len(observations) != len(actions):

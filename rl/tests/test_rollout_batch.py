@@ -7,9 +7,10 @@ from unittest.mock import patch
 
 import torch
 from model import CombatModel
-from sts_sim import CombatObservation, State
+from sts_sim import CombatObservation, PotionKey, State
+from sts_sim.observations import PotionSlot
 from test_model import action
-from train import first_combat, play_combats, reinforce_loss
+from train import first_combat, metrics, play_combats, reinforce_loss
 from train_roots import Root, evaluate, train_batch
 
 
@@ -22,7 +23,9 @@ class ScriptedCombat:
         self.actions = (action("end_turn"), action("skip_selection"))
 
     def clone(self):
-        return ScriptedCombat(self.observations)
+        clone = ScriptedCombat(self.observations)
+        clone.actions = self.actions
+        return clone
 
     def decision(self):
         return SimpleNamespace(observation=self.observations[self.index], actions=self.actions)
@@ -90,6 +93,32 @@ class BatchedRolloutTests(unittest.TestCase):
         loss.backward()
         torch.testing.assert_close(self.policy.weight.grad, 0.25 * self.policy.weight.detach().sigmoid())
         self.assertTrue(all(cast(ScriptedCombat, root).index == 0 for root in self.roots))
+
+    def test_smoke_bomb_escape_is_terminal_not_a_win_or_defeat(self) -> None:
+        obs = cast(ScriptedCombat, self.roots[0]).observations[0]
+        obs = replace(
+            obs, context=replace(obs.context, potion_slots=(PotionSlot(slot=0, content_key=PotionKey.SMOKE_BOMB),))
+        )
+        escaped = cast(
+            CombatObservation, SimpleNamespace(kind="map", phase="idle", context=replace(obs.context, player_hp=46))
+        )
+        root = ScriptedCombat([obs, escaped])
+        root.actions = (action("use_potion_slot", potion_slot=0), action("end_turn"))
+        with patch("train.Categorical.sample", autospec=True, side_effect=choose_first):
+            episode = play_combats(
+                [cast(State, root)], self.model, max_decisions=1, training=True, rng=random.Random(0)
+            )[0]
+        self.assertTrue(episode.escaped)
+        self.assertFalse(episode.won)
+        self.assertEqual(episode.hp, 46)
+        self.assertEqual(episode.reward, 46 / 80)
+        self.assertEqual(episode.decisions, 1)
+        self.assertEqual(len(episode.log_probs), 1)
+        logs = metrics([episode])
+        self.assertEqual(logs["escaped"], 1)
+        self.assertEqual(logs["defeated"], 0)
+        self.assertEqual(logs["truncated"], 0)
+        self.assertEqual(logs["win_rate_completed"], 0)
 
     def test_training_update_excludes_truncation_and_uses_one_backward(self) -> None:
         optimizer = torch.optim.SGD(self.model.parameters(), lr=0.1)

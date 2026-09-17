@@ -106,6 +106,13 @@ class Decision:
     @property
     def actions(self) -> list[Action]: ...
 
+def numeric_decisions(
+    states: list[State],
+) -> tuple[int, list[str], dict[str, tuple[int, bytes]], list[list[Action]], list[int]]: ...
+def numeric_steps(
+    states: list[State], actions: list[Action]
+) -> tuple[int, list[str], dict[str, tuple[int, bytes]], list[list[Action]], list[int]]: ...
+
 class State:
     @staticmethod
     def new(seed: str, ascension: int = ...) -> State: ...

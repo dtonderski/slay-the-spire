@@ -4,6 +4,8 @@ from sts_sim import PotionKey
 from sts_sim.observations import PotionSlot
 from torch import Tensor, nn
 
+from .numeric import NumericBatch, tensor
+
 POTION_EMBEDDING_DIM = 16
 
 # Current-catalog indices only. Checkpoint compatibility is not implemented yet.
@@ -25,6 +27,15 @@ class PotionEncoder(nn.Module):
             device=self.embedding.weight.device,
         )
         return self.embedding(indices)
+
+    def numeric(
+        self, batch: NumericBatch
+    ) -> tuple[Float[Tensor, "n_potions potion_features"], Float[Tensor, "n_potions d_model"], list[int]]:
+        """Embed raw potion keys, including real empty slots."""
+        rows = batch.table("potions", 3)
+        features = self.embedding(tensor(self.embedding.weight, batch.codes(rows[:, 1], POTION_TO_INDEX), integer=True))
+        lengths = batch.lengths(rows)
+        return features, self.projection(features), lengths
 
     def forward(
         self, batch: list[tuple[PotionSlot, ...]]

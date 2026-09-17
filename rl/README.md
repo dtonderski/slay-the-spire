@@ -300,6 +300,54 @@ cd rl
 uv run python train.py --updates 2 --episodes-per-update 4 --eval-episodes 2 --wandb-mode disabled
 ```
 
+## Direct numeric observation path
+
+Training CLIs default to `--numeric-observations`; use `--no-numeric-observations`
+for the original typed reference. Programmatic `play_combats`/`train_batch` retain
+`numeric=False` by default; pass `numeric=True` explicitly. Evaluation remains on
+the typed path. Model parameters, rewards, and optimizer rules are unchanged.
+
+Rust batches existing **fair** decisions into raw signed-integer tables and a
+public-string dictionary. There is no observation JSON transport, typed Python
+observation construction, or intermediate view format on this path. Python makes
+read-only NumPy views; each encoder owns categorical remapping, normalization,
+embeddings, and projections. Groups stay flat until one vectorized layout gathers
+complete padded sequences. Only action-feature rows are split by observation.
+The simulator has no torch/NumPy/RL dependency and does not export hidden state.
+See the [numeric API contract](../simulator/docs/python_api.md#numeric-combat-batches).
+
+### Correctness argument and evidence
+
+For the fields consumed by the policy, the required relation is
+`numeric_encode(public_export(state)) == typed_encode(fair_observation(state))`.
+This is a refinement argument, not a machine-checked formal proof:
+
+1. The exporter consumes `FairDecision`, never authoritative state. Batch methods
+   call the same `FairEnvironment.decision/step` as the typed API, with the same
+   revision-bound actions. Export does not draw RNG or alter state.
+2. Integer values, optional-presence flags, categorical public keys, and row order
+   are preserved. Batch-local dictionary numbers are mapped back through the
+   encoder vocabularies; they are never numeric policy features. Dead/escaped
+   enemies and empty potion slots are retained.
+3. Each encoder performs the same field selection, scaling, one-hot encoding,
+   counter ordering, and shared-card lookup. Group layout preserves summary/group
+   order and pads only complete sequences. Owner offsets cannot cross observations.
+4. Therefore the policy inputs and mathematical gradients agree. With matching
+   sampling inputs, the unchanged transition rule gives the same next state;
+   this extends inductively through a rollout. Floating-point accumulation order
+   can differ, so tests check gradients with explicit tolerances rather than
+   claiming universal bitwise equality.
+
+`tests/numeric_reference.py` independently extracts tables from the original typed
+API. `tests/test_numeric_observations.py` checks native trajectories against it,
+RNG noninterference, stale-action rejection, buffer lifetime/read-only ownership,
+CPU/CUDA float32/float64 features/masks/logits/gradients, category-code permutation,
+Stasis/selection/optional-zero fixtures, and escape at the truncation boundary.
+Rust unit tests separately check optional values and raw Stasis/selection references.
+Frozen multi-root benchmark trials also matched all logged metrics, including loss.
+These tests establish implementation equivalence, not real-game parity by themselves.
+The reviewed corpus replay passed 433/433 traces (642,896 actions).
+
 ## Profiling training batch sizes
 
 ```bash
@@ -307,20 +355,37 @@ cd rl
 uv run python profile_batches.py --batch-sizes 128 256 512 1024 2048
 ```
 
-CUDA-only fixed-HUMAN1 probe: one full-update warmup per size, then three timed
-updates. Each measurement starts from identical policy weights and reset warmed
-Adam buffers; setup/reset and W&B are excluded. End-to-end decisions/second
-includes simulator clone/decision/step, Python observation construction, policy,
-sampling, backward, optimizer, and cleanup. This is not a multi-root benchmark.
+CUDA-only multi-root probe: one full-update warmup per size, then three timed
+updates. Additional seeds supply distinct roots; batches are never silently capped
+or filled with duplicates. Each measurement starts from identical policy weights
+and reset warmed Adam buffers; collection/setup/reset and W&B are excluded.
+End-to-end decisions/second includes simulation, public export, feature assembly,
+policy, sampling, backward, optimizer, and cleanup.
+
+For an A/B comparison, pass the **same existing profiling pool** using
+`--training-manifest <profiling-pool/roots.json>` to both runs, together with its
+`--held-out-manifest <original-training-run/roots.json>`. Give each run a fresh
+`--output-dir`; add `--numeric-observations` only to the numeric run. Without a
+fixed pool, collection grows the dataset during a sweep and small batches from
+separate sweeps need not select the same roots.
 
 A separate synchronized pass reports exclusive phase wall times, splitting
 native-step/wrapper work, decision getters/mapping, Python decoding, observation
 feature construction/projection, transformer, action encoding, and backward.
 Device synchronization changes overlap: these diagnostic times include waits,
 not pure GPU kernel time. Use the uninstrumented trials for throughput.
-`--warmups`, `--repeats`, `--max-decisions`, and `--output` are configurable.
-Results overwrite `wandb/batch-profile.json` by default. CUDA OOMs are reported
-without reducing the requested batch size.
+`--warmups`, `--repeats`, `--max-decisions`, and `--output-dir` are configurable.
+Each size runs in a fresh process; the sweep stops at the first failure, including
+CUDA OOM. JSON results, root identities, and worker logs are saved incrementally.
+`profile_observations.py --manifest <profiling-pool/roots.json> --output <file.json>`
+separately measures export and observation preparation with paired randomized order.
+
+On the RTX 5080, the numeric path measured about 7,793 / 8,996 / 10,284 decisions/s
+at batches 512 / 2,048 / 4,096, versus 2,151 / 2,113 / 2,151 for the typed reference.
+Batch 5,120 OOMed. At 2,048 roots, isolated export dropped from 474 ms to 14.3 ms
+(~97%), and preparation from 124 ms to 11.4 ms (~91%). These are early-floor,
+initial-policy measurements, not guarantees for later policies. Artifacts are in
+`wandb/numeric-final-{reference,reference-large,direct}/` and `wandb/numeric-micro.json`.
 
 ## Multi-root overnight experiment
 
