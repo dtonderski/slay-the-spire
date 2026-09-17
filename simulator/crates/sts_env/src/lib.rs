@@ -8,6 +8,8 @@ mod fair_catalog;
 #[cfg(test)]
 mod fair_json_allowlist;
 mod run_observation;
+mod synthetic;
+pub use synthetic::{SyntheticCard, SyntheticCombatSpec, SyntheticCounters};
 
 pub use action::{DecisionRevision, FairError, PublicChoice, PublicChoiceRequest};
 pub use combat_observation::{

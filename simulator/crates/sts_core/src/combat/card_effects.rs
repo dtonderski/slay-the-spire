@@ -633,13 +633,14 @@ pub(super) fn play_card_queue_in_place(
     let copied_effects = snapshot_copied_card_effects(&queue, card_id);
     let duplication_effects = snapshot_duplication_potion_effects(&queue, card_id);
     if state.duplication_potion_pending || state.duplication_potion_stacks > 0 {
-        queue = apply_duplication_potion_to_queue(queue, card_id, duplication_effects);
+        queue =
+            apply_duplication_potion_to_queue(queue, card_id, definition.id, duplication_effects);
     }
     if should_apply_necronomicon(state, card, definition)? {
-        queue = apply_necronomicon_to_queue(queue, card_id, copied_effects.clone());
+        queue = apply_necronomicon_to_queue(queue, card_id, definition.id, copied_effects.clone());
     }
     if definition.card_type == CardType::Attack && state.double_tap_pending > 0 {
-        queue = apply_double_tap_to_queue(queue, card_id, copied_effects);
+        queue = apply_double_tap_to_queue(queue, card_id, definition.id, copied_effects);
     }
     // Pen Nib doubles at damage resolution when the 10th attack play wraps the
     // counter (see apply_on_card_play_relics + pen_nib_double_active). Build-time
@@ -1167,6 +1168,7 @@ fn snapshot_duplication_potion_effects(
 fn apply_duplication_potion_to_queue(
     mut queue: VecDeque<InternalAction>,
     card_id: CardId,
+    content_id: ContentId,
     mut duplicated_effects: VecDeque<InternalAction>,
 ) -> VecDeque<InternalAction> {
     let final_move = queue
@@ -1193,7 +1195,7 @@ fn apply_duplication_potion_to_queue(
     if let Some(action) = final_move {
         queue.push_back(action);
     }
-    append_copied_card_effects(&mut queue, card_id, &mut duplicated_effects);
+    append_copied_card_effects(&mut queue, card_id, content_id, &mut duplicated_effects);
 
     queue
 }
@@ -1201,6 +1203,7 @@ fn apply_duplication_potion_to_queue(
 fn apply_double_tap_to_queue(
     mut queue: VecDeque<InternalAction>,
     card_id: CardId,
+    content_id: ContentId,
     mut duplicated_effects: VecDeque<InternalAction>,
 ) -> VecDeque<InternalAction> {
     let rampage_growth = duplicated_effects
@@ -1245,7 +1248,7 @@ fn apply_double_tap_to_queue(
     if let Some(action) = final_move {
         queue.push_back(action);
     }
-    append_copied_card_effects(&mut queue, card_id, &mut duplicated_effects);
+    append_copied_card_effects(&mut queue, card_id, content_id, &mut duplicated_effects);
 
     queue
 }
@@ -1253,6 +1256,7 @@ fn apply_double_tap_to_queue(
 fn apply_necronomicon_to_queue(
     mut queue: VecDeque<InternalAction>,
     card_id: CardId,
+    content_id: ContentId,
     mut duplicated_effects: VecDeque<InternalAction>,
 ) -> VecDeque<InternalAction> {
     let final_move = queue
@@ -1267,7 +1271,7 @@ fn apply_necronomicon_to_queue(
     if let Some(action) = final_move {
         queue.push_back(action);
     }
-    append_copied_card_effects(&mut queue, card_id, &mut duplicated_effects);
+    append_copied_card_effects(&mut queue, card_id, content_id, &mut duplicated_effects);
 
     queue
 }
@@ -1275,6 +1279,7 @@ fn apply_necronomicon_to_queue(
 fn append_copied_card_effects(
     queue: &mut VecDeque<InternalAction>,
     card_id: CardId,
+    content_id: ContentId,
     duplicated_effects: &mut VecDeque<InternalAction>,
 ) {
     let required_target = copied_card_required_living_target(duplicated_effects);
@@ -1285,7 +1290,10 @@ fn append_copied_card_effects(
     // A copied card is a new action-manager boundary. Resolve reactions queued
     // by the original card before the copy's effects begin.
     queue.push_back(InternalAction::ResolvePendingMonsterReactions);
-    queue.push_back(InternalAction::PlayCardCopy { card_id });
+    queue.push_back(InternalAction::PlayCardCopy {
+        card_id,
+        content_id,
+    });
     queue.append(duplicated_effects);
     queue.push_back(InternalAction::EndCopiedCardEffects);
 }
@@ -1353,6 +1361,10 @@ fn unplayable_relic_queue(
 }
 
 fn is_duplicated_card_effect(action: InternalAction, card_id: CardId) -> bool {
+    // A purge-on-use copy must not remove the original Power from hand again.
+    if matches!(action, InternalAction::RemoveCard { card_id: removed, .. } if removed == card_id) {
+        return false;
+    }
     !matches!(
         action,
         InternalAction::ConsumeDuplicationPotion
@@ -6736,6 +6748,37 @@ mod tests {
         assert_eq!(crate::combat::cost::printed_card_cost(streamline), Ok(1));
         assert!(streamline.temp_cost_turn_only);
         assert_eq!(streamline.combat_cost_under_turn_override, Some(1));
+    }
+
+    #[test]
+    fn copied_power_retains_identity_after_original_removal() {
+        // Regression for the existing purge-on-use copy contract: retain its
+        // metadata, but never remove the original Power twice or put it back.
+        for (content_id, rupture) in [(RUPTURE_ID, 2), (RUPTURE_PLUS_ID, 4)] {
+            let mut state = CombatState::initial_fixture();
+            let power = CardInstance::new(CardId::new(100), content_id);
+            state.piles.hand = vec![power];
+            state.duplication_potion_pending = true;
+            let (_, queue) = play_card_queue(&state, power.id, None).expect("power queue");
+            let restored =
+                serde_json::from_str(&serde_json::to_string(&queue).expect("serialize queue"))
+                    .expect("restore queued copy metadata");
+            let next = crate::combat::transition::process_internal_queue(&state, restored)
+                .expect("power copy resolves after original leaves all piles")
+                .state;
+            assert_eq!(next.player.powers.rupture, rupture);
+            assert_eq!(next.player.energy, state.player.energy - 1);
+            assert_eq!(next.relic_counters.cards_played_this_turn, 2);
+            assert!(!next.duplication_potion_pending);
+            assert!(next.piles.hand.is_empty());
+            assert!(!next
+                .piles
+                .discard_pile
+                .iter()
+                .chain(&next.piles.exhaust_pile)
+                .chain(&next.piles.draw_pile)
+                .any(|card| card.id == power.id));
+        }
     }
 
     #[test]

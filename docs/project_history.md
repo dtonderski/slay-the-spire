@@ -94,6 +94,25 @@ must earn complexity from a concrete experiment.
 - Large speculative subsystems and per-fix design documents age poorly. Keep
   code, tests, traces, and a small set of current contracts.
 
+## Synthetic HP curriculum (September 2026)
+
+The operator authorized a temporary, opt-in Act 1 experiment: initialize collection
+runs at 10000/10000 HP, take random accepted actions, and create independent combat
+roots at 100/100 HP for both seed-disjoint training and frozen validation. These
+are synthetic initial scenarios, not normal-game parity evidence. The source run
+is never repaired from observations; scenario creation does not mutate it, consume
+RNG, or recompute already-applied combat-start effects. Captured traces and verifier
+replay are unchanged. High HP does not guarantee collector survival; deaths,
+cutoffs, and unsupported transitions remain reported rather than replaced.
+
+The subsequent Act 4 extension retains 100/100 independent combat roots and
+10000/10000 collection starts. It enables the existing final-act profile only at
+run creation, using the implemented named-map-RNG burning-elite selection. Keys
+are earned through legal actions, with a public-map/key-priority collector rather
+than unmodified uniform random collection. Schema 5 exposes the burning marker
+and boss chest category; it does not reveal hidden encounters or rewards. Earlier
+Act 1 artifacts retain their original constructor inputs and are not rewritten.
+
 ## Open questions
 
 - What trace coverage is sufficient before large simulator-only training runs?

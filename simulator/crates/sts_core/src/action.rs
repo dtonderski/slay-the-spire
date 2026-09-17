@@ -3,7 +3,7 @@ use crate::{
         damage::DamageInfo, DiscardSelectPurpose, DrawSelectPurpose, ExhaustSelectPurpose,
         HandSelectPurpose,
     },
-    ids::{CardId, MonsterId},
+    ids::{CardId, ContentId, MonsterId},
     CardInstance,
 };
 use serde::{Deserialize, Serialize};
@@ -38,6 +38,8 @@ pub enum InternalAction {
     ApplyDeferredTimeWarpCardPlay,
     PlayCardCopy {
         card_id: CardId,
+        /// Retain the source identity after a played Power leaves all piles.
+        content_id: ContentId,
     },
     SkipCopiedCardEffectsIfTargetDead {
         target: MonsterId,

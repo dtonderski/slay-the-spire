@@ -85,7 +85,11 @@ policy's `val/*` metrics. **Check coverage first:** beam `unfinished` and `error
 are separate from defeats; completed-only averages exclude those roots and are
 not directly comparable if coverage differs. `found_win_rate_all_roots` reports
 wins found divided by all validation roots, not a claim that unresolved fights
-are losses. Search transitions, budget/depth-limit hits, and total reference
+are losses. Training, policy validation (initial/periodic/final), random, and beam
+also log `mean_hp_lost_completed`: starting HP minus terminal HP, averaged over
+completed fights. This is **net** loss including healing (negative means net HP
+gain), not total damage taken. Defeats end at zero HP; truncations and search errors
+are excluded. Beam per-root records additionally contain `starting_hp` and `hp_lost`. Search transitions, budget/depth-limit hits, and total reference
 runtime are logged too.
 
 Per-root beam outcomes and replay-verified native action indices are saved in
@@ -93,6 +97,93 @@ Per-root beam outcomes and replay-verified native action indices are saved in
 tracebacks. Collection and initial reference evaluation do not consume `--hours`;
 that clock starts when training begins. Reference computation adds startup time
 but is not repeated during training.
+
+### Entropy and temporary synthetic Act 1 curriculum
+
+Both trainers accept `--entropy-coef` (default `0.01`; `0` restores plain REINFORCE).
+Completed-episode loss is `-return * sum(log_probs) - coefficient * sum(entropies)`,
+then averaged across completed episodes. Truncations contribute neither term.
+The task reward and evaluation remain unchanged. Summed entropy can favor longer
+trajectories; monitor truncations and held-out performance rather than maximizing
+entropy. `policy_entropy`, `normalized_policy_entropy` (divided by log candidate
+count), `mean_max_action_probability`, and `mean_action_count` exclude forced
+choices. These are raw candidate diagnostics, not equivalent-action-group entropy.
+The trainers also log `policy_loss`, `entropy_bonus`, and combined `loss`.
+
+For the explicitly synthetic overnight experiment:
+
+```bash
+cd rl
+uv run python train_roots.py --run-id "act1-entropy-$(date +%Y%m%d-%H%M%S)" \
+  --synthetic-act1 --train-seeds 500 --val-seeds 50 --batch-size 128 \
+  --device cuda --entropy-coef 0.01 --hours 8
+```
+
+`--synthetic-act1` overrides `--floors`: collection starts at 10000/10000 HP,
+uses random allowed actions, and stops after the Act 1 boss (before boss rewards).
+Every encountered combat is cloned into a 100/100 HP scenario; the collection
+run retains its own HP. Train/validation seeds are disjoint, and roots remain
+fixed throughout training. `roots.json` records accepted prefixes and both HP
+construction parameters: reconstruct using `State.new_synthetic`, replay the
+prefix, then call `synthetic_combat_root(100)`. Never load these prefixes as
+ordinary 80-HP runs. This is not a real-game trace or representative normal-HP
+evaluation. Already-applied combat-start effects are not recalculated. Collection
+deaths, cutoffs, and errors remain reported; high HP does not guarantee survival.
+
+### Simulator-step failures during frozen-root training
+
+The CLI logs a **CRITICAL** warning and continues if a native simulator step
+raises `ValueError`. It discards the **entire affected batch**, including any
+already completed episodes: numeric steps are not batch-atomic, so partially
+advanced clones are never retried. Frozen roots remain unchanged and available
+for subsequent epochs. No gradient, reward, defeat, or truncation is assigned to
+the discarded batch. This reduces training coverage and can bias which episodes
+contribute; it is not a simulator fix or evidence of parity.
+
+W&B logs `train/simulator_error_batches`, `train/discarded_episodes`, their
+`_total` counterparts, and `train/optimizer_step=0` for failed batches. The run's
+`simulator_errors/update-XXXXXX.json` saves the traceback, dataset root indices,
+seed/act/floor, and native action prefixes (including the attempted current
+step, whose acceptance may be unknown). Reconstruct from the immutable
+`roots.json` plus those prefixes, not from partially advanced clones. Diagnostic
+write failures remain fatal rather than silently losing evidence.
+
+Only errors raised at simulator-step boundaries are caught. Model errors, CUDA
+failures, non-finite losses/gradients, and other programming errors still stop
+training. Direct `train_batch` calls remain fail-fast unless supplied an
+`error_path`; validation keeps its existing error accounting.
+
+### Extending the synthetic curriculum through Act 4
+
+Replace `--synthetic-act1` with `--synthetic-act4` to collect all four acts:
+
+```bash
+cd rl
+uv run python train_roots.py --run-id "act4-entropy-$(date +%Y%m%d-%H%M%S)" \
+  --synthetic-act4 --numeric-observations --train-seeds 500 --val-seeds 50 \
+  --batch-size 1024 --device cuda --entropy-coef 0.01 --hours 8
+```
+
+The new flag enables the simulator's existing final-act profile at initial run
+creation. It does **not** grant keys: the collector follows publicly visible
+routes to the burning elite, takes legal key choices, and opens ordinary chests
+until it obtains the sapphire key. Other decisions remain random. Victory screens
+with a legal Proceed are traversed, including the Act 3-to-Act 4 transition.
+Collection still starts at 10000/10000 and freezes roots at 100/100. `--floors`
+is ignored; death, run completion, unsupported transitions, and the 5000-action
+cap terminate a collection seed without replacement. Coverage is not balanced or
+guaranteed: W&B reports `train_roots_act_1` through `train_roots_act_4` and matching
+validation counts. Training fails explicitly if either split has no Act 4 roots.
+
+New manifests record each root's act, the final-act profile, key-priority policy,
+and failed action details. Reconstruct Act 4 runs using
+`State.new_synthetic(seed, final_act=True)` before replaying their prefixes; older
+Act 1 artifacts keep the default `final_act=False`. Existing frozen datasets are
+not rewritten or extended in place. Later fights/decks increase GPU memory use:
+three 1024-episode CUDA updates on a mixed-act probe passed at about 9.5 GiB peak
+tensor allocation, but this does not guarantee headroom for every future batch.
+The first Colosseum fight ends at its event dialog; rollout and beam evaluation
+score that fight before the separate choice to enter its second fight.
 
 ## Relic and potion identity embeddings
 

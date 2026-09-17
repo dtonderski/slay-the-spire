@@ -166,6 +166,20 @@ class State:
     def new(seed: str, ascension: int = 0) -> State:
         return State(_native.State.new(seed, ascension))
 
+    @staticmethod
+    def new_synthetic(seed: str, ascension: int = 0, hp: int = 10000, *, final_act: bool = False) -> State:
+        """Opt-in synthetic initial HP/max HP; not a real-game replay constructor."""
+        return State(_native.State.new_synthetic(seed, ascension, hp, final_act))
+
+    @staticmethod
+    def from_synthetic_spec(spec_json: str) -> State:
+        """Create an A0 combat from explicit JSON inputs, before combat-start effects."""
+        return State(_native.State.from_synthetic_spec(spec_json))
+
+    def synthetic_combat_root(self, hp: int = 100) -> State:
+        """Independent HP/max-HP-normalized combat root; does not mutate this state."""
+        return State(self._native.synthetic_combat_root(hp))
+
     def clone(self) -> State:
         return State(self._native.clone())
 

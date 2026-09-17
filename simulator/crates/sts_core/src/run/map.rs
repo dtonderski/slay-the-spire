@@ -170,6 +170,106 @@ pub(crate) fn apply_validated_map_action_on_run(
     Ok(next)
 }
 
+/// Explicit synthetic entry, not a replay/import path. Loadout must already be installed.
+/// Uses the same spawn helpers and combat-start pipeline as ordinary room entry.
+pub fn enter_synthetic_combat(
+    run: &mut RunState,
+    kind: RoomKind,
+    encounter: &str,
+) -> SimResult<()> {
+    if run.combat.is_some() || run.phase != RunPhase::Idle {
+        return Err(SimError::InvalidState(
+            "synthetic entry requires a fresh map state",
+        ));
+    }
+    run.current_room_override = Some(kind);
+    run.reinit_room_rngs_for_floor();
+    let monsters = if run.current_act == 4 {
+        match (kind, encounter) {
+            (RoomKind::Elite, "Shield and Spear") => elite_combat_monsters_for_run(run)?,
+            (RoomKind::Boss, "Corrupt Heart") => boss_combat_monsters_for_run(run)?,
+            _ => return Err(SimError::InvalidState("unknown act four encounter")),
+        }
+    } else if kind == RoomKind::Boss {
+        match (run.current_act, encounter) {
+            (1, "Hexaghost") => run.act1_boss = crate::run::Act1Boss::Hexaghost,
+            (1, "Slime Boss") => run.act1_boss = crate::run::Act1Boss::SlimeBoss,
+            (1, "The Guardian") => run.act1_boss = crate::run::Act1Boss::Guardian,
+            (3, "Awakened One") => run.act3_boss = crate::run::Act3Boss::AwakenedOne,
+            (3, "Time Eater") => run.act3_boss = crate::run::Act3Boss::TimeEater,
+            (3, "Donu and Deca") => run.act3_boss = crate::run::Act3Boss::DonuAndDeca,
+            (2, "Automaton" | "Collector" | "Champ") => {}
+            _ => return Err(SimError::InvalidState("unknown synthetic boss")),
+        }
+        if run.current_act == 2 {
+            let id = content_id_from_game_monster_id(encounter)
+                .ok_or(SimError::InvalidState("unknown synthetic boss identity"))?;
+            let definition = get_monster_definition(id).ok_or(SimError::UnknownContent(id))?;
+            vec![monster_state_for_ascension(
+                definition,
+                crate::MonsterId::new(1),
+                run.ascension,
+            )]
+        } else {
+            boss_combat_monsters_for_run(run)?
+        }
+    } else if matches!(kind, RoomKind::Combat | RoomKind::Elite) {
+        use crate::content::encounters::*;
+        type Pool = &'static [(&'static str, f32)];
+        let (weak, strong, elites): (Pool, Pool, Pool) = match run.current_act {
+            1 => (
+                &EXORDIUM_WEAK_ENCOUNTERS,
+                &EXORDIUM_STRONG_ENCOUNTERS,
+                &EXORDIUM_ELITE_ENCOUNTERS,
+            ),
+            2 => (
+                &CITY_WEAK_ENCOUNTERS,
+                &CITY_STRONG_ENCOUNTERS,
+                &CITY_ELITE_ENCOUNTERS,
+            ),
+            3 => (
+                &BEYOND_WEAK_ENCOUNTERS,
+                &BEYOND_STRONG_ENCOUNTERS,
+                &BEYOND_ELITE_ENCOUNTERS,
+            ),
+            _ => return Err(SimError::InvalidState("unknown synthetic act")),
+        };
+        let valid = if kind == RoomKind::Elite {
+            elites.iter().any(|(key, _)| *key == encounter)
+        } else {
+            weak.iter().chain(strong).any(|(key, _)| *key == encounter)
+        };
+        if !valid {
+            return Err(SimError::InvalidState("encounter does not match room kind"));
+        }
+        let floor = encounter_floor(run)?;
+        let spawns = match run.current_act {
+            1 => crate::content::monsters::target_encounter_spawn_for_key(
+                run.event_rng_seed as i64,
+                floor,
+                encounter,
+                run.ascension,
+                false,
+            ),
+            2 => target_city_encounter_spawn_for_run(run, floor, encounter, false),
+            3 => target_beyond_encounter_spawn_for_run(run, floor, encounter, false),
+            _ => None,
+        }
+        .ok_or(SimError::InvalidState("unknown synthetic encounter"))?;
+        let mut monsters = spawns
+            .iter()
+            .enumerate()
+            .map(|(index, spawn)| target_spawn_monster_state(spawn, index, run.ascension))
+            .collect::<SimResult<Vec<_>>>()?;
+        assign_initial_gremlin_leader_slots(&mut monsters);
+        assign_initial_reptomancer_dagger_slots(&mut monsters);
+        monsters
+    } else {
+        return Err(SimError::InvalidState("synthetic room is not a combat"));
+    };
+    enter_combat_with_monsters(run, monsters)
+}
+
 fn enter_normal_combat(run: &mut RunState) -> SimResult<()> {
     let next_combat_count = run
         .normal_combat_count

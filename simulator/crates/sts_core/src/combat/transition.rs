@@ -303,8 +303,12 @@ fn process_internal_queue_owned(
     let mut event_log = record_events.then(Vec::new);
 
     while let Some(internal_action) = queue.pop_front() {
-        if let InternalAction::PlayCardCopy { card_id } = internal_action {
-            if copied_card_cannot_use(&next, card_id)? {
+        if let InternalAction::PlayCardCopy {
+            card_id,
+            content_id,
+        } = internal_action
+        {
+            if copied_card_cannot_use(&next, card_id, content_id)? {
                 record_event(&mut event_log, internal_action);
                 while let Some(skipped_action) = queue.pop_front() {
                     record_event(&mut event_log, skipped_action);
@@ -705,8 +709,12 @@ fn record_event(event_log: &mut Option<Vec<InternalAction>>, action: InternalAct
     }
 }
 
-fn copied_card_cannot_use(state: &CombatState, card_id: CardId) -> SimResult<bool> {
-    let definition = card_content_definition(state, card_id)?;
+fn copied_card_cannot_use(
+    state: &CombatState,
+    card_id: CardId,
+    content_id: ContentId,
+) -> SimResult<bool> {
+    let definition = copied_card_content_definition(state, card_id, content_id)?;
     let normality_blocks = state
         .piles
         .hand
@@ -1303,7 +1311,10 @@ fn apply_internal_action_with_defer(
             card_actions::play_card(state, card_id, defer_time_warp_card_play)
         }
         InternalAction::ApplyDeferredTimeWarpCardPlay => apply_deferred_time_warp_card_play(state),
-        InternalAction::PlayCardCopy { card_id } => card_actions::play_card_copy(state, card_id),
+        InternalAction::PlayCardCopy {
+            card_id,
+            content_id,
+        } => card_actions::play_card_copy(state, card_id, content_id),
         InternalAction::SkipCopiedCardEffectsIfTargetDead { .. }
         | InternalAction::SkipCopiedCardEffectsIfCombatDone => Ok(Vec::new()),
         InternalAction::ResolvePendingMonsterReactions => {
@@ -7007,6 +7018,20 @@ fn card_content_definition(
         .find(|card| card.id == card_id)
         .and_then(|card| get_card_definition(card.content_id))
         .ok_or(SimError::UnknownCard(card_id))
+}
+
+fn copied_card_content_definition(
+    state: &CombatState,
+    card_id: CardId,
+    content_id: ContentId,
+) -> SimResult<&'static crate::card::CardDefinition> {
+    // Keep existing live-pile lookup for cards that remain in combat. Powers
+    // leave every pile before the queued copy starts, so retain their identity
+    // in the copy action rather than reinserting or delaying the original.
+    card_content_definition(state, card_id).or_else(|error| match get_card_definition(content_id) {
+        Some(definition) if definition.card_type == CardType::Power => Ok(definition),
+        _ => Err(error),
+    })
 }
 
 fn find_hand_card_mut(state: &mut CombatState, card_id: CardId) -> SimResult<&mut CardInstance> {

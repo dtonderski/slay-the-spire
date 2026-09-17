@@ -26,8 +26,12 @@ def combat_outcome(observation: Observation) -> bool | None:
         return None
     if observation.phase == "reward":
         return True
-    if observation.kind == "complete" and observation.context.player_hp <= 0:
-        return False
+    if observation.kind == "event" and observation.screen.event == "Colosseum":
+        # The first Colosseum victory returns to the event, before choosing fight two.
+        return True
+    if observation.kind == "complete":
+        # Act 3 / Heart victory screens end the fight even if the run can Proceed.
+        return observation.context.player_hp > 0
     raise RuntimeError(f"Unexpected screen after combat: {observation.kind}/{observation.phase}")
 
 

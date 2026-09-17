@@ -227,6 +227,7 @@ const MAP_NODE: Schema = Schema::Object(&[
     ("slot", Schema::Leaf),
     ("act", Schema::Leaf),
     ("room_kind", Schema::Leaf),
+    ("burning_elite", Schema::Leaf),
     ("children", Schema::Array(&Schema::Leaf)),
 ]);
 const MAP_SCREEN: Schema = Schema::Object(&[

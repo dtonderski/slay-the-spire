@@ -226,6 +226,32 @@ impl PyState {
         Ok(Self { env })
     }
 
+    #[staticmethod]
+    #[pyo3(signature = (seed, ascension=0, hp=10000, final_act=false))]
+    fn new_synthetic(seed: &str, ascension: u8, hp: i32, final_act: bool) -> PyResult<Self> {
+        let seed = parse_seed(seed).map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let env = FairEnvironment::new_synthetic_ironclad(seed, ascension, hp, final_act)
+            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        Ok(Self { env })
+    }
+
+    #[staticmethod]
+    fn from_synthetic_spec(spec_json: &str) -> PyResult<Self> {
+        let spec = serde_json::from_str(spec_json)
+            .map_err(|e| PyValueError::new_err(format!("invalid synthetic specification: {e}")))?;
+        let env = FairEnvironment::from_synthetic_spec(spec).map_err(PyValueError::new_err)?;
+        Ok(Self { env })
+    }
+
+    fn synthetic_combat_root(&self, hp: i32) -> PyResult<Self> {
+        Ok(Self {
+            env: self
+                .env
+                .synthetic_combat_root(hp)
+                .map_err(|error| PyValueError::new_err(error.to_string()))?,
+        })
+    }
+
     fn clone(&self) -> Self {
         Clone::clone(self)
     }

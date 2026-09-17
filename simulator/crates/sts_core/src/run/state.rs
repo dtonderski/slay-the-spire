@@ -84,7 +84,8 @@ fn checked_run_sub(value: i32, amount: i32) -> SimResult<i32> {
     ))
 }
 
-fn relic_pickup_energy(key: Relic) -> Option<i32> {
+/// Persistent energy bonus from ownership, excluding combat-start bonuses.
+pub fn relic_pickup_energy(key: Relic) -> Option<i32> {
     Some(match key {
         Relic::VelvetChoker => VELVET_CHOKER_ENERGY,
         Relic::CoffeeDripper => COFFEE_DRIPPER_ENERGY,

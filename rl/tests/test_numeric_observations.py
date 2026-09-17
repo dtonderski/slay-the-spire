@@ -4,7 +4,9 @@ import copy
 import random
 import unittest
 from dataclasses import replace
+from types import SimpleNamespace
 from typing import cast
+from unittest.mock import Mock, patch
 
 import numpy as np
 import torch
@@ -20,11 +22,35 @@ from sts_sim.observations import (
     VisibleIntent,
 )
 from test_model import action
-from train import first_combat, play_combats, reinforce_loss
+from train import episode_loss, first_combat, play_combats
 from train_roots import collect_roots
 
 
 class NumericObservationTests(unittest.TestCase):
+    def test_colosseum_event_return_is_terminal_in_both_transports(self) -> None:
+        # Infrastructure fixture for the source-backed first-fight event return.
+        root = Mock()
+        root.clone.return_value = root
+        obs = SimpleNamespace(
+            kind="event",
+            phase="event",
+            screen=SimpleNamespace(event="Colosseum"),
+            context=SimpleNamespace(player_hp=60, player_max_hp=100),
+        )
+        root.decision.return_value = SimpleNamespace(observation=obs, actions=())
+        payload = (1, ("event",), {"header": (5, np.array([[0, 0, -1, 60, 100]], dtype=np.int64).tobytes())}, [()], [])
+        with patch.object(State, "numeric_decisions", return_value=payload):
+            for numeric in (False, True):
+                episode = play_combats(
+                    [cast(State, root)], None, max_decisions=0, rng=random.Random(0), numeric=numeric
+                )[0]
+                self.assertTrue(episode.won)
+                self.assertEqual(episode.reward, 0.6)
+            obs.screen.event = "Neow"
+            for numeric in (False, True):
+                with self.assertRaises(RuntimeError):
+                    play_combats([cast(State, root)], None, max_decisions=0, rng=random.Random(0), numeric=numeric)
+
     def test_native_tables_actions_and_rng_noninterference(self) -> None:
         for seed in ("HUMAN1", "2000001", "2000014", "2000140", "1000009"):
             left = State.new(seed)
@@ -176,7 +202,7 @@ class NumericObservationTests(unittest.TestCase):
         torch.testing.assert_close(a, b, rtol=0, atol=0)
         self.assertTrue(torch.equal(mask_a, mask_b))
 
-    def test_escape_on_last_allowed_action_and_mixed_truncation(self) -> None:
+    def test_generated_smoke_is_excluded_in_both_rollout_paths(self) -> None:
         # Accepted public-action fixture from the simulator collector, not a captured game trace.
         smoke = State.new("2000140")
         prefix = [0, 1, 0, 3, 4, 8, 6, 5, 4, 3, 3, 2, 0, 4, 3, 0, 0, 3, 5, 0, 1, 0, 3, 2, 8, 8, 1, 6, 10, 0, 0]
@@ -203,11 +229,25 @@ class NumericObservationTests(unittest.TestCase):
         actual = play_combats(roots, policy, max_decisions=1, rng=random.Random(0), numeric=True)
         self.assertEqual(expected, actual)
         self.assertIsNone(actual[0].reward)
-        self.assertTrue(actual[1].escaped)
-        self.assertFalse(actual[1].won)
+        self.assertFalse(actual[1].escaped)
+        self.assertIsNone(actual[1].won)
+        self.assertIsNone(actual[1].reward)
         self.assertEqual(actual[1].decisions, 1)
-        assert actual[1].reward is not None
-        self.assertGreater(actual[1].reward, 0)
+
+        # Headers include completed rows, but potion features contain only compact model rows.
+        from beam_search import beam_search
+
+        finished = roots[0].clone()
+        result = beam_search(finished, width=16, max_transitions=5000)
+        self.assertTrue(result.won)
+        for candidate in result.actions:
+            finished.step(candidate)
+        mixed = [finished, smoke]
+        expected = play_combats(mixed, policy, max_decisions=1, rng=random.Random(0))
+        actual = play_combats(mixed, policy, max_decisions=1, rng=random.Random(0), numeric=True)
+        self.assertEqual(expected, actual)
+        self.assertTrue(actual[0].won)
+        self.assertIsNone(actual[1].reward)
 
     def test_native_rollout_loss_and_gradients(self) -> None:
         roots = [r.state for r in collect_roots(["2000000", "2000001", "2000002"], 3, 123)[0]]
@@ -228,7 +268,7 @@ class NumericObservationTests(unittest.TestCase):
                     ]
                 )
                 torch.stack(
-                    [reinforce_loss(e.log_probs, e.reward) for e in episodes if e.reward is not None and e.log_probs]
+                    [episode_loss(e, 0.01) for e in episodes if e.reward is not None and e.log_probs]
                 ).mean().backward()
                 gradients.append([p.grad.clone() if p.grad is not None else None for p in model.parameters()])
             self.assertEqual(results[0], results[1])

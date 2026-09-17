@@ -18,7 +18,7 @@ from ._decode import (
     _seq,
 )
 
-FAIR_RUN_OBSERVATION_SCHEMA_VERSION = 4
+FAIR_RUN_OBSERVATION_SCHEMA_VERSION = 5
 
 Phase = Literal["combat", "reward", "treasure", "rest", "event", "shop", "idle", "complete"]
 ObservationKind = Literal[

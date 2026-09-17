@@ -2,8 +2,8 @@ import unittest
 from unittest.mock import patch
 
 from beam_search import SearchResult
-from train import first_combat
-from train_roots import Root, evaluate_beam
+from train import Episode, first_combat
+from train_roots import Root, evaluate, evaluate_beam
 
 
 class BaselineLoggingTests(unittest.TestCase):
@@ -22,6 +22,7 @@ class BaselineLoggingTests(unittest.TestCase):
         self.assertEqual(scores["unfinished"], 1)
         self.assertEqual(scores["errors"], 1)
         self.assertNotIn("mean_return_completed", scores)
+        self.assertNotIn("mean_hp_lost_completed", scores)
         self.assertEqual([r["status"] for r in records], ["unfinished", "error"])
         self.assertIn("test failure", records[1]["error"])
 
@@ -37,6 +38,18 @@ class BaselineLoggingTests(unittest.TestCase):
         self.assertTrue(records[0]["action_indices"])
         self.assertEqual(scores["mean_return_completed"], records[0]["reward"])
         self.assertEqual(state.decision().observation, before)
+        self.assertEqual(scores["mean_hp_lost_completed"], 80 - records[0]["hp"])
+        self.assertEqual(records[0]["hp_lost"], scores["mean_hp_lost_completed"])
+
+    def test_hp_loss_includes_deaths_and_healing_but_not_truncations(self) -> None:
+        root = Root(first_combat("HUMAN1", 0), "HUMAN1", 1, 80)
+        episodes = [Episode(1.0, True, 90, 1, ()), Episode(0.0, False, 0, 1, ()), Episode(None, None, 30, 1, ())]
+        with patch("train_roots.play_combat", side_effect=episodes):
+            scores = evaluate([root], None, repeats=3, max_decisions=1)
+        self.assertEqual(scores["mean_hp_lost_completed"], 35.0)
+        self.assertEqual(scores["mean_hp_change_completed"], -35.0)
+        self.assertEqual(scores["completed"], 2)
+        self.assertEqual(scores["truncated"], 1)
 
 
 if __name__ == "__main__":

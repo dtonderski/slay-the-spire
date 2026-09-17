@@ -31,7 +31,7 @@ from .common import (
 )
 
 RoomKind = Literal["combat", "elite", "event", "rest", "shop", "treasure", "boss", "victory"]
-ChestSize = Literal["small", "medium", "large"]
+ChestSize = Literal["small", "medium", "large", "boss"]
 CardRewardFlow = Literal["none", "pending", "active"]
 GridPurpose = Literal[
     "rest_smith",
@@ -60,6 +60,7 @@ class MapNode:
     slot: int
     act: int
     room_kind: RoomKind
+    burning_elite: bool
     children: tuple[int, ...]
 
 
@@ -319,6 +320,7 @@ def decode_map_node(value: object, path: str) -> MapNode:
         slot=_int(data["slot"], f"{path}.slot"),
         act=_int(data["act"], f"{path}.act"),
         room_kind=_literal(data["room_kind"], f"{path}.room_kind", get_args(RoomKind)),
+        burning_elite=_bool(data["burning_elite"], f"{path}.burning_elite"),
         children=_seq(data["children"], f"{path}.children", _int),
     )
 

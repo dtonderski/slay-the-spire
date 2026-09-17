@@ -1,13 +1,13 @@
 use super::{
     apply_copied_card_play_triggers, apply_enrage_on_card_type, apply_hand_card_play_triggers,
     apply_mummified_hand_on_power_play, apply_on_card_play_powers, apply_rage_on_card_type,
-    card_content_definition, find_hand_card, find_hand_card_mut,
+    copied_card_content_definition, find_hand_card, find_hand_card_mut,
 };
 use crate::{
     action::InternalAction,
     combat::{cost::effective_card_cost_with_corruption, CombatState},
     content::cards::get_card_definition,
-    ids::CardId,
+    ids::{CardId, ContentId},
     SimError, SimResult,
 };
 
@@ -68,8 +68,9 @@ pub(super) fn play_card(
 pub(super) fn play_card_copy(
     state: &mut CombatState,
     card_id: CardId,
+    content_id: ContentId,
 ) -> SimResult<Vec<InternalAction>> {
-    let definition = card_content_definition(state, card_id)?;
+    let definition = copied_card_content_definition(state, card_id, content_id)?;
     apply_enrage_on_card_type(state, definition.card_type)?;
     let mut follow_ups = apply_rage_on_card_type(state, definition.card_type, definition.id)?;
     follow_ups.extend(crate::relic::apply_on_card_play_relics(

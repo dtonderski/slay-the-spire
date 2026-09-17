@@ -42,6 +42,10 @@ pub fn fair_content_catalog() -> FairContentCatalog {
     }
 }
 
+pub(crate) fn potion_from_key(key: &str) -> Option<Potion> {
+    ALL_POTIONS.iter().copied().find(|p| potion_key(*p) == key)
+}
+
 fn unique_sorted(values: impl IntoIterator<Item = &'static str>) -> Vec<&'static str> {
     let mut values: Vec<&'static str> = values.into_iter().collect();
     values.sort_unstable();

@@ -28,6 +28,16 @@ pub struct FairEnvironment {
 }
 
 impl FairEnvironment {
+    /// Build a new synthetic A0 combat, installing inputs before combat-start rules.
+    pub fn from_synthetic_spec(spec: crate::SyntheticCombatSpec) -> Result<Self, String> {
+        let env = Self {
+            state: crate::synthetic::build(spec)?,
+            revision: DecisionRevision::new(0),
+        };
+        env.decision().map_err(|e| e.to_string())?;
+        Ok(env)
+    }
+
     pub fn new_ironclad(seed: u64, ascension: u8) -> Result<Self, FairError> {
         let state = RunState::try_seeded_ironclad(seed, ascension)
             .map_err(|_| FairError::DecisionUnavailable)?;
@@ -35,6 +45,44 @@ impl FairEnvironment {
             state,
             revision: DecisionRevision::new(0),
         })
+    }
+
+    /// Explicit synthetic experiment constructor; never a replay/trace repair path.
+    pub fn new_synthetic_ironclad(
+        seed: u64,
+        ascension: u8,
+        hp: i32,
+        final_act: bool,
+    ) -> Result<Self, FairError> {
+        if hp <= 0 {
+            return Err(FairError::InvalidChoice);
+        }
+        let mut env = Self::new_ironclad(seed, ascension)?;
+        env.state.hp = hp;
+        env.state.max_hp = hp;
+        if final_act {
+            env.state
+                .set_final_act_available(Some(true))
+                .map_err(|_| FairError::DecisionUnavailable)?;
+        }
+        Ok(env)
+    }
+
+    /// Create an independent synthetic combat scenario. The source is unchanged.
+    /// This changes HP only, not already-resolved combat-start effects or RNG.
+    pub fn synthetic_combat_root(&self, hp: i32) -> Result<Self, FairError> {
+        if hp <= 0 || self.state.phase != sts_core::adapter_internals::RunPhase::Combat {
+            return Err(FairError::InvalidChoice);
+        }
+        let mut root = self.clone();
+        root.state.hp = hp;
+        root.state.max_hp = hp;
+        root.revision = self
+            .revision
+            .checked_next()
+            .ok_or(FairError::RevisionExhausted)?;
+        root.decision()?;
+        Ok(root)
     }
 
     #[must_use]

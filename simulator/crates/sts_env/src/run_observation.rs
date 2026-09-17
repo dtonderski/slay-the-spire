@@ -12,7 +12,7 @@ use sts_core::adapter_internals::{
     CardInstance, RestAction, RunPhase,
 };
 
-pub const FAIR_RUN_OBSERVATION_SCHEMA_VERSION: u32 = 4;
+pub const FAIR_RUN_OBSERVATION_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FairRunObservation {
@@ -102,6 +102,8 @@ pub struct FairMapNode {
     pub slot: usize,
     pub act: u8,
     pub room_kind: String,
+    /// Public burning-elite map marker, never a hidden encounter identity.
+    pub burning_elite: bool,
     pub children: Vec<usize>,
 }
 
@@ -312,6 +314,7 @@ fn map_screen(run: &RunState) -> Result<FairMapObservation, FairObservationError
                 slot,
                 act: node.act,
                 room_kind: room_kind_name(node.room_kind).to_owned(),
+                burning_elite: !run.has_emerald_key && run.emerald_key_node == Some(node.id),
                 children: node
                     .children
                     .iter()
@@ -418,10 +421,15 @@ fn reward_screen(run: &RunState) -> Result<FairRewardObservation, FairObservatio
 }
 
 fn treasure_screen(run: &RunState) -> Result<FairTreasureObservation, FairObservationError> {
-    let room = run
-        .treasure_room
-        .as_ref()
-        .ok_or(FairObservationError::InvalidAuthoritativeState)?;
+    let Some(room) = run.treasure_room.as_ref() else {
+        if run.current_room_kind() == Some(RoomKind::Boss) {
+            return Ok(FairTreasureObservation {
+                chest_size: "boss".to_owned(),
+                opened: run.boss_chest_opened,
+            });
+        }
+        return Err(FairObservationError::InvalidAuthoritativeState);
+    };
     Ok(FairTreasureObservation {
         chest_size: match room.chest_size {
             ChestSize::Small => "small",
@@ -686,6 +694,50 @@ mod tests {
     }
 
     #[test]
+    fn boss_chest_and_burning_elite_are_public() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Treasure;
+        run.current_room_override = Some(RoomKind::Boss);
+        run.treasure_room = None;
+        let screen = treasure_screen(&run).expect("boss chest projects without an ordinary chest");
+        assert_eq!(screen.chest_size, "boss");
+        run.boss_chest_opened = true;
+        assert!(treasure_screen(&run).expect("opened boss chest").opened);
+        run.current_room_override = Some(RoomKind::Treasure);
+        assert!(treasure_screen(&run).is_err());
+
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.set_final_act_available(Some(true))
+            .expect("profile enables keys");
+        let burning = run.emerald_key_node.expect("burning elite selected");
+        let screen = map_screen(&run).expect("map");
+        assert_eq!(
+            screen
+                .nodes
+                .iter()
+                .filter(|node| node.burning_elite)
+                .count(),
+            1
+        );
+        let slot = run
+            .map
+            .as_ref()
+            .expect("map")
+            .map
+            .nodes
+            .iter()
+            .position(|node| node.id == burning)
+            .expect("visible node");
+        assert!(screen.nodes[slot].burning_elite);
+        run.has_emerald_key = true;
+        assert!(map_screen(&run)
+            .expect("map")
+            .nodes
+            .iter()
+            .all(|node| !node.burning_elite));
+    }
+
+    #[test]
     fn owned_relics_live_only_in_context_with_public_state() {
         let mut run =
             RunState::combat_fixture_with_relics(vec![Relic::InkBottle, Relic::OrnamentalFan]);
@@ -699,7 +751,7 @@ mod tests {
         run.empty_potion_slots = vec![1];
 
         let observation = fair_run_observation(&run).expect("combat projects");
-        assert_eq!(observation.schema_version, 4);
+        assert_eq!(observation.schema_version, 5);
         assert_eq!(observation.context.relics.len(), 2);
         assert_eq!(relic_counter(&observation, "Ink Bottle", "cards"), Some(7));
         assert_eq!(

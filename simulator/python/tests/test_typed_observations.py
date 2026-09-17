@@ -237,7 +237,7 @@ class TypedObservationRuntimeTest(unittest.TestCase):
                     "floor": 1,
                     "current_node": 0,
                     "reachable_nodes": (1,),
-                    "nodes": ({"slot": 0, "act": 1, "room_kind": "combat", "children": (1,)},),
+                    "nodes": ({"slot": 0, "act": 1, "room_kind": "combat", "burning_elite": False, "children": (1,)},),
                 },
             )
         )
