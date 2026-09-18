@@ -241,10 +241,13 @@ def train_batch(
     *,
     numeric: bool = False,
     batched_loss: bool = True,
+    reward_baseline: float = 0.0,
     error_path: Path | None = None,
     root_indices: list[int] | None = None,
 ) -> dict[str, float]:
     """Train one group; optionally log native-step failures and discard the entire group."""
+    if reward_baseline != 0.0 and not (numeric and batched_loss):
+        raise ValueError("Reward baseline currently requires numeric batched loss")
     model.train()
     optimizer.zero_grad(set_to_none=True)
     trajectories = Trajectories() if numeric and batched_loss else None
@@ -310,7 +313,7 @@ def train_batch(
             "discarded_episodes": float(len(roots)),
         }
     if trajectories is not None:
-        loss, policy_loss = trajectories.losses(episodes, entropy_coef)
+        loss, policy_loss = trajectories.losses(episodes, entropy_coef, reward_baseline)
     else:
         losses = [episode_loss(ep, entropy_coef) for ep in episodes if ep.reward is not None]
         policy_losses = [reinforce_loss(ep.log_probs, ep.reward) for ep in episodes if ep.reward is not None]

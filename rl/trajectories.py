@@ -29,10 +29,17 @@ class Trajectories:
     def __init__(self) -> None:
         self.rounds: list[DecisionRound] = []
 
-    def losses(self, episodes: list["Episode"], entropy_coef: float) -> tuple[Tensor | None, Tensor | None]:
+    def losses(
+        self,
+        episodes: list["Episode"],
+        entropy_coef: float,
+        reward_baseline: float = 0.0,
+    ) -> tuple[Tensor | None, Tensor | None]:
         """Mean completed-episode objective; defeats count, truncations do not."""
         if entropy_coef < 0 or not math.isfinite(entropy_coef):
             raise ValueError("Entropy coefficient must be finite and nonnegative")
+        if not math.isfinite(reward_baseline):
+            raise ValueError("Reward baseline must be finite")
         completed = [episode.reward is not None for episode in episodes]
         count = sum(completed)
         if not count:
@@ -44,7 +51,7 @@ class Trajectories:
         log_probs = torch.cat([row.log_probs for row in self.rounds])
         indices = torch.tensor(keep, dtype=torch.long, device=log_probs.device)
         rewards = np.asarray([episode.reward if episode.reward is not None else 0.0 for episode in episodes])
-        weights = log_probs.new_tensor(rewards[owners[keep]])
+        weights = log_probs.new_tensor(rewards[owners[keep]] - reward_baseline)
         policy_loss = -(log_probs.index_select(0, indices) * weights).sum() / count
         loss = policy_loss
         if entropy_coef:

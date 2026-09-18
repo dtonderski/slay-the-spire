@@ -7,6 +7,7 @@ import logging
 import math
 import random
 import time
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import torch
@@ -16,8 +17,50 @@ from model import CombatModel
 from rollout_errors import SimulatorStepError
 from scenarios import ScenarioConfig
 from synthetic_roots import SyntheticRoot, sample_root
-from train_roots import Root, evaluate, train_batch
+from train_roots import Root, evaluate, evaluate_beam, train_batch
 from validation_set import load_validation
+
+
+@dataclass
+class RewardBaseline:
+    """Action-independent reward estimate from PREVIOUS successful batches only."""
+
+    decay: float = 0.95
+    value: float = 0.0
+    updates: int = 0
+
+    def observe(self, scores: dict[str, float]) -> None:
+        if not scores.get("optimizer_step") or not scores.get("completed"):
+            return
+        mean = scores["mean_return_completed"]
+        self.value = mean if self.updates == 0 else self.decay * self.value + (1 - self.decay) * mean
+        self.updates += 1
+
+
+def cached_references(source: Path, output: Path, settings: dict) -> dict[str, float]:
+    """Reuse only references with matching fixed inputs and evaluation budgets."""
+    previous = json.loads((source / "config.json").read_text())
+    for key in (
+        "validation_sha256",
+        "validation_native_sha256",
+        "evaluation_repeats",
+        "evaluation_max_decisions",
+        "beam_width",
+        "beam_transitions",
+    ):
+        if previous[key] != settings[key]:
+            raise ValueError(f"Reference run mismatch: {key}")
+    payload = (source / "baselines.json").read_bytes()
+    document = json.loads(payload)
+    if set(document["sets"]) != {"main", "stress"} or document.get("beam_privileged") is not True:
+        raise ValueError("Incomplete reference cache")
+    (output / "baselines.json").write_bytes(payload)
+    return {
+        f"{prefix}_{label}/{key}": value
+        for label, records in document["sets"].items()
+        for prefix in ("random", "privileged_beam")
+        for key, value in records[prefix].items()
+    }
 
 
 def evaluate_sets(
@@ -39,6 +82,46 @@ def evaluate_sets(
             error_path=error_dir / f"{label}.jsonl" if error_dir is not None else None,
         ).items()
     }
+
+
+def evaluate_baselines(
+    groups: dict[str, list[Root]],
+    repeats: int,
+    max_decisions: int,
+    output: Path,
+    *,
+    beam_width: int,
+    beam_transitions: int,
+) -> dict[str, float]:
+    """Persist fixed random and privileged search references; never feed them to the policy."""
+    references: dict[str, float] = {}
+    records: dict = {
+        "beam_privileged": True,
+        "beam_width": beam_width,
+        "beam_max_transitions_per_root": beam_transitions,
+        "max_decisions": max_decisions,
+        "random_repeats": repeats,
+        "sets": {},
+    }
+    for label, roots in groups.items():
+        print(f"Computing random baseline: {label}", flush=True)
+        random_scores = evaluate(
+            roots, None, repeats, max_decisions, error_path=output / "errors" / "random-baseline" / f"{label}.jsonl"
+        )
+        print(f"Computing privileged beam reference: {label}", flush=True)
+        beam_scores, beam_records = evaluate_beam(
+            roots,
+            width=beam_width,
+            max_decisions=max_decisions,
+            max_transitions=beam_transitions,
+        )
+        references.update({f"random_{label}/{key}": value for key, value in random_scores.items()})
+        references.update({f"privileged_beam_{label}/{key}": value for key, value in beam_scores.items()})
+        records["sets"][label] = {"random": random_scores, "privileged_beam": beam_scores, "beam_roots": beam_records}
+        temporary = output / "baselines.tmp"
+        temporary.write_text(json.dumps(records, indent=2))
+        temporary.replace(output / "baselines.json")
+    return references
 
 
 def fresh_batch(
@@ -77,10 +160,13 @@ def update(
     failure_path: Path,
     *,
     continue_on_error: bool = False,
+    reward_baseline: float = 0.0,
 ) -> dict[str, float]:
     """Never retry partially advanced states; preserve failed batch inputs for diagnosis."""
     try:
-        return train_batch(roots, model, optimizer, max_decisions, entropy_coef, numeric=True)
+        return train_batch(
+            roots, model, optimizer, max_decisions, entropy_coef, numeric=True, reward_baseline=reward_baseline
+        )
     except SimulatorStepError as error:
         failure_path.parent.mkdir(parents=True, exist_ok=True)
         with failure_path.open("x") as handle:
@@ -117,6 +203,11 @@ def main() -> None:
     parser.add_argument("--updates", type=int, default=10000)
     parser.add_argument("--batch-size", type=int, default=2048)
     parser.add_argument("--eval-every", type=int, default=100)
+    parser.add_argument("--reward-baseline", choices=("none", "ema"), default="none")
+    parser.add_argument("--baseline-decay", type=float, default=0.95)
+    parser.add_argument("--reference-run", type=Path)
+    parser.add_argument("--beam-width", type=int, default=64)
+    parser.add_argument("--beam-transitions", type=int, default=10000)
     parser.add_argument("--max-decisions", type=int, default=512)
     parser.add_argument("--min-floor", type=int, default=1)
     parser.add_argument("--max-floor", type=int, default=55)
@@ -128,10 +219,15 @@ def main() -> None:
     parser.add_argument("--wandb-project", default="sts-combat-v1")
     parser.add_argument("--wandb-mode", choices=("online", "offline", "disabled"), default="online")
     args = parser.parse_args()
-    if min(args.updates, args.batch_size, args.eval_every, args.max_decisions) < 1:
+    if (
+        min(args.updates, args.batch_size, args.eval_every, args.max_decisions, args.beam_width, args.beam_transitions)
+        < 1
+    ):
         parser.error("Counts must be positive")
     if not math.isfinite(args.lr) or args.lr <= 0 or not math.isfinite(args.entropy_coef) or args.entropy_coef < 0:
         parser.error("Expected positive finite learning rate and nonnegative finite entropy coefficient")
+    if not 0 <= args.baseline_decay < 1:
+        parser.error("Baseline decay must be in [0, 1)")
     config = ScenarioConfig(min_floor=args.min_floor, max_floor=args.max_floor)
     if args.device == "cuda" and not torch.cuda.is_available():
         parser.error("CUDA is unavailable")
@@ -164,6 +260,7 @@ def main() -> None:
     model = CombatModel().to(args.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     iteration = 0
+    baseline = RewardBaseline(decay=args.baseline_decay)
 
     def checkpoint() -> None:
         torch.save(
@@ -171,6 +268,7 @@ def main() -> None:
                 "model": model.state_dict(),
                 "optimizer": optimizer.state_dict(),
                 "iteration": iteration,
+                "reward_baseline_state": asdict(baseline),
                 "sampling_rng": rng.getstate(),
                 "torch_rng": torch.get_rng_state(),
                 "cuda_rng": torch.cuda.get_rng_state_all() if args.device == "cuda" else [],
@@ -183,6 +281,19 @@ def main() -> None:
         project=args.wandb_project, id=args.run_id, name=args.run_id, config=settings, mode=args.wandb_mode
     ) as run:
         try:
+            if args.reference_run is not None:
+                references = cached_references(args.reference_run, output, settings)
+                print(f"Loaded matching random/privileged references from {args.reference_run}", flush=True)
+            else:
+                references = evaluate_baselines(
+                    groups,
+                    repeats,
+                    eval_limit,
+                    output,
+                    beam_width=args.beam_width,
+                    beam_transitions=args.beam_transitions,
+                )
+            run.log(references, step=0, commit=False)
             print("Starting fixed initial validation", flush=True)
             run.log(
                 evaluate_sets(groups, model, repeats, eval_limit, output / "errors" / "validation-00000000"), step=0
@@ -202,13 +313,19 @@ def main() -> None:
                     args.entropy_coef,
                     output / "errors" / f"update-{iteration:08d}.json",
                     continue_on_error=args.continue_on_simulator_error,
+                    reward_baseline=baseline.value,
                 )
+                scores["reward_baseline_used"] = baseline.value
+                if args.reward_baseline == "ema":
+                    baseline.observe(scores)
+                scores["reward_baseline_next"] = baseline.value
+                scores["baseline_updates"] = float(baseline.updates)
                 scores.update(
                     sampling_seconds=sampling_seconds,
                     rejected_loadouts=float(sum(len(root.rejected_loadouts) for root in specs)),
                     update_seconds=time.monotonic() - started,
                 )
-                logs = {f"train/{key}": value for key, value in scores.items()}
+                logs = {**references, **{f"train/{key}": value for key, value in scores.items()}}
                 if iteration % args.eval_every == 0 or iteration == args.updates:
                     logs.update(
                         evaluate_sets(

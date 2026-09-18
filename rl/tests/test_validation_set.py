@@ -12,7 +12,7 @@ from loadout_sampling import LoadoutSampler, band_for
 from model import CombatModel
 from rollout_errors import SimulatorStepError
 from scenarios import COMBAT_FLOORS, ScenarioConfig
-from train_synthetic import evaluate_sets, fresh_batch, update
+from train_synthetic import evaluate_baselines, evaluate_sets, fresh_batch, update
 from validation_set import build_validation, load_validation, main
 
 
@@ -147,6 +147,25 @@ class ValidationSetTests(unittest.TestCase):
             self.assertNotIn("val_main/win_rate_completed", scores)
             self.assertNotIn("val_main/defeated", scores)
         self.assertTrue(torch.equal(before, torch.get_rng_state()))
+
+    def test_baselines_cover_both_sets_and_preserve_records(self) -> None:
+        roots, _ = fresh_batch(random.Random(12), sampler(), 1, ScenarioConfig(min_floor=1, max_floor=1))
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                patch("train_synthetic.evaluate", return_value={"episode_coverage": 0.5}) as random_eval,
+                patch("train_synthetic.evaluate_beam", return_value=({"errors": 1}, [{"status": "error"}])) as beam,
+            ):
+                scores = evaluate_baselines(
+                    {"main": roots, "stress": roots}, 3, 512, Path(directory), beam_width=64, beam_transitions=10000
+                )
+            self.assertEqual(random_eval.call_count, 2)
+            self.assertEqual(beam.call_count, 2)
+            self.assertEqual(scores["random_main/episode_coverage"], 0.5)
+            self.assertEqual(scores["privileged_beam_stress/errors"], 1)
+            saved = json.loads((Path(directory) / "baselines.json").read_text())
+            self.assertTrue(saved["beam_privileged"])
+            self.assertEqual(set(saved["sets"]), {"main", "stress"})
+            self.assertEqual(saved["sets"]["main"]["beam_roots"], [{"status": "error"}])
 
     def test_evaluation_labels_and_rng_isolation(self) -> None:
         torch.set_num_threads(1)

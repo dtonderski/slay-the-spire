@@ -590,6 +590,26 @@ policy-sampling seeds per case and a fixed 512-decision limit, with main/stress
 scores logged separately. The decision limit/repeats are part of the dataset,
 not resampled or changed by training settings.
 
+Before training, random-policy and privileged beam-search references are evaluated
+on both sets and saved in `baselines.json`, including per-root beam outcomes/errors.
+W&B logs `random_main/*`, `random_stress/*`, `privileged_beam_main/*`, and
+`privileged_beam_stress/*` at step zero and repeats those fixed references each update.
+Beam defaults to width 64 and 10,000 transitions per root (`--beam-width`,
+`--beam-transitions`); it is a privileged, budget-limited reference, not a guaranteed
+upper bound or a REINFORCE reward baseline. Startup includes this reference computation.
+`--reference-run wandb/PRIOR_RUN` reuses saved references only when validation hashes,
+native version, repeats, and search/decision budgets match.
+
+The optional `--reward-baseline ema --baseline-decay 0.95` experiment subtracts a
+scalar estimate from **previous successful batches** from each completed episode's
+return. The first batch uses zero; the first successful batch initializes the estimate,
+then an exponential moving average updates it. Defeats receive negative advantages
+once the baseline is positive. Skipped batches and truncated episodes do not update
+the estimate. Entropy, reward reporting, model architecture and validation remain
+unchanged. Baseline values/update counts are logged and checkpointed. Default `none`
+retains the raw-return control; this is a small REINFORCE variance-reduction experiment,
+not a critic or search-based policy.
+
 From `rl/`:
 
 ```bash
