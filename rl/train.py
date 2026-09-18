@@ -106,7 +106,12 @@ def play_combats(
                 episodes[index] = Episode(None, None, observation.context.player_hp, step, ())
             else:
                 if observation.kind != "combat" or not decision.actions:
-                    raise RuntimeError("Unsettled combat decision or empty legal-action list")
+                    raise SimulatorStepError(
+                        "Unsettled combat decision or empty legal-action list",
+                        step,
+                        [index],
+                        [list(action_prefixes[index])],
+                    )
                 active.append(index)
                 observations.append(observation)
                 continue
@@ -195,7 +200,12 @@ def _play_numeric_combats(
                 episodes[index] = Episode(None, None, int(hp), step, ())
             else:
                 if not batch.actions[row]:
-                    raise RuntimeError("Unsettled combat decision or empty legal-action list")
+                    raise SimulatorStepError(
+                        "Unsettled combat decision or empty legal-action list",
+                        step,
+                        [index],
+                        [list(action_prefixes[index])],
+                    )
                 active.append(row)
                 continue
             episode = episodes[index]

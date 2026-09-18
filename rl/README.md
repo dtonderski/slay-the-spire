@@ -563,6 +563,66 @@ simulator changes; its 55 RL tests, 23 simulator Python tests, lint/type/format 
 and CUDA training smoke test were rerun successfully. Large-batch timings above
 come from the original worktree, not a new benchmark of the isolated PR branch.
 
+## Fresh synthetic training and frozen validation
+
+`train_synthetic.py` generates a new independent A0 batch for every update. There
+are no training epochs or cached training roots. The earlier frozen-root trainer
+is retained for comparisons.
+
+The local frozen dataset is
+`data/slaythedata/validation-a0-v1.json` (5.3 MB):
+
+- **Main:** 1,024 cases; uniformly sampled combat floors (all 44 represented),
+  empirical max HP, current HP uniform from ceil(10% of max HP) through max HP.
+- **Stress:** 352 cases; 32 in each of 11 act/encounter-kind strata, current HP
+  uniform from ceil(10%) through floor(30%) of sampled max HP.
+- Decks/relics/potions come from independent empirical-fit draws. These are
+  **synthetic validation cases**, not the older high-HP-rollout dataset or a
+  natural-run performance benchmark. Neither wins nor policy difficulty were
+  used to select cases; unwinnable cases are not filtered out.
+
+Each case stores its complete initial specification, seed, label, source band,
+rejection provenance, and initial public-observation hash. HP is installed before
+combat-start effects; healing relics can raise HP above the pre-entry stress band.
+Native binding SHA-256 is pinned; the loader rejects changed versions or mismatched
+initial observations rather than repairing state. Evaluation uses three fixed
+policy-sampling seeds per case and a fixed 512-decision limit, with main/stress
+scores logged separately. The decision limit/repeats are part of the dataset,
+not resampled or changed by training settings.
+
+From `rl/`:
+
+```bash
+# Already generated locally. To create another version, use a NEW output path.
+uv run python validation_set.py \
+  --distributions ../data/slaythedata/loadout-a0-v3/fit.json \
+  --output ../data/slaythedata/validation-a0-v2.json
+
+uv run python train_synthetic.py --run-id synthetic-a0-example \
+  --distributions ../data/slaythedata/loadout-a0-v3/fit.json \
+  --validation-manifest ../data/slaythedata/validation-a0-v1.json \
+  --device cuda --batch-size 2048 --updates 10000 --eval-every 100
+```
+
+Creation refuses to overwrite datasets. The trainer copies the supplied validation
+file into its run directory, records input hashes, excludes validation combat
+seeds from training, and checkpoints model/optimizer/RNG states. Validation never
+resamples cases. Checkpoints are saved for analysis; automatic resume is not yet
+implemented. The dataset is Git-ignored local data: back it up separately from code.
+The older `act4-entropy-*/roots.json` manifests remain unchanged and are explicitly
+not accepted by this new trainer.
+
+Simulator failures are fail-fast by default. Failed training batches save their
+exact synthetic specs and attempted action prefixes; partially advanced clones
+are never retried. `--continue-on-simulator-error` explicitly permits discarding
+an entire failed training batch, with critical logging and no optimizer step or
+fabricated rewards. The new trainer also records failed validation attempts as
+unavailable, with episode coverage and error counts; they are not losses or zero
+rewards. Every scheduled evaluation retries the fixed cases from fresh clones.
+Unexpected errors (including OOM) still abort. Known simulator faults, including
+Duplication Potion / Power Through, can therefore be skipped without gameplay fixes.
+No full validation-combat pass or long training run is claimed by dataset creation.
+
 ## Multi-root overnight experiment
 
 `train_roots.py --run-id <unique-name>` defaults to eight hours on CPU: 50 seeds

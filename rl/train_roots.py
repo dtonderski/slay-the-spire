@@ -166,10 +166,19 @@ def collect_roots(
     return roots, manifest
 
 
-def evaluate(roots: list[Root], model: CombatModel | None, repeats: int, max_decisions: int) -> dict[str, float]:
+def evaluate(
+    roots: list[Root],
+    model: CombatModel | None,
+    repeats: int,
+    max_decisions: int,
+    *,
+    error_path: Path | None = None,
+) -> dict[str, float]:
     """Same validation sampling seeds each time; never consume training RNG state."""
     episodes: list[Episode] = []
     hp_changes: list[int] = []
+    failed_cases: set[int] = set()
+    failures = 0
     if model is not None:
         model.eval()
     # manual_seed also seeds CUDA; preserve its state when a GPU model is evaluated.
@@ -182,11 +191,41 @@ def evaluate(roots: list[Root], model: CombatModel | None, repeats: int, max_dec
                     torch.manual_seed(seed)
                 else:
                     torch.random.default_generator.manual_seed(seed)
-                ep = play_combat(root.state, model, max_decisions=max_decisions, rng=random.Random(seed))
+                try:
+                    ep = play_combat(root.state, model, max_decisions=max_decisions, rng=random.Random(seed))
+                except SimulatorStepError as error:
+                    if error_path is None:
+                        raise
+                    failures += 1
+                    failed_cases.add(index)
+                    error_path.parent.mkdir(parents=True, exist_ok=True)
+                    with error_path.open("a") as handle:
+                        handle.write(
+                            json.dumps(
+                                {
+                                    "root_index": index,
+                                    "combat_seed": root.seed,
+                                    "repeat": repeat,
+                                    "policy_seed": seed,
+                                    "error": str(error),
+                                    "step": error.step,
+                                    "attempted_prefixes": error.action_prefixes,
+                                }
+                            )
+                            + "\n"
+                        )
+                    print(f"VALIDATION SIMULATOR ERROR root={index} repeat={repeat}: {error_path}", flush=True)
+                    continue
                 episodes.append(ep)
                 if ep.reward is not None:
                     hp_changes.append(ep.hp - root.start_hp)
-    result = metrics(episodes)
+    result = metrics(episodes) if episodes else {"episodes": 0.0, "completed": 0.0, "truncated": 0.0}
+    result.update(
+        attempted_episodes=float(len(roots) * repeats),
+        simulator_error_episodes=float(failures),
+        cases_with_errors=float(len(failed_cases)),
+        episode_coverage=len(episodes) / (len(roots) * repeats) if roots and repeats else 0.0,
+    )
     if hp_changes:
         result["mean_hp_change_completed"] = sum(hp_changes) / len(hp_changes)
         result["mean_hp_lost_completed"] = -result["mean_hp_change_completed"]
