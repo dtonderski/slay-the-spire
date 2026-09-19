@@ -106,7 +106,10 @@ target action/effect lifecycle rather than an observed deck snapshot.
 - Random card upgrades seed Java shuffle from `miscRng.randomLong()`; Neow paths
   consume a hidden misc draw before relic equip.
 - Distilled Chaos constructs three PlayTop actions up front. Selected cards stay
-  in limbo and are excluded from an intervening empty-deck shuffle.
+  in limbo and are excluded from an intervening empty-deck shuffle. Combat potions
+  that `addToBot(DrawCardAction)` (Swift Potion) likewise wait behind an open
+  `AttackFromDeckToHandAction` / `SkillFromDeckToHandAction` grid; the draw pile
+  on screen is still the live deck.
 - Boss identity first follows unseen-profile progression; traces requiring it
   carry explicit `boss_unlocks` input.
 - Dead Adventurer searches consume encounter RNG immediately; safe rewards and
@@ -115,6 +118,18 @@ target action/effect lifecycle rather than an observed deck snapshot.
   grid order relative to RNG roll order.
 - Act 4 key acquisition, burning-elite buff selection, Shield/Spear cycles, and
   Heart powers/order are pinned from target bytecode and real traces.
+- Duplication Potion / Double Tap / Echo Form `onUseCard` (`DuplicationPower`,
+  `DoubleTapPower`, `EchoPower`) `makeSameInstanceOf()` a `purgeOnUse` copy into
+  limbo and `addCardQueueItem(..., true)`. `GameActionManager.getNextAction`
+  services that card-queue item only after the action queue drains, so the
+  original's `use()` actions and `UseCardAction` settlement run first. The copy
+  is autoplay/`ignoreEnergyOnUse`; X-cost autoplay sets `freeToPlayOnce`. Copied
+  `DrawCardAction` / `MakeTempCardInHandAction` / `PutOnDeckAction` therefore
+  must not require or relocate the original physical card. Forethought uses
+  `ForethoughtAction`, not `PutOnDeckAction`: empty hand is a no-op; unupgraded
+  singleton auto-places `getTopCard()` and sets `freeToPlayOnce` when `cost > 0`;
+  upgraded opens an any-number/`canPickZero` screen. A copied Forethought must
+  re-read the live hand instead of replaying the original auto-place card id.
 
 ## Collection timing lesson
 

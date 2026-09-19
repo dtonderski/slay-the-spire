@@ -241,6 +241,7 @@ fn combat_decisions_have_one_active_value_and_an_ordered_queue() {
             selected_hand_indices: Vec::new(),
             dual_wield_restore_on_confirm: Vec::new(),
             dual_wield_force_exhaust: false,
+            copy_owned: false,
         },
         pending_actions: Default::default(),
     });

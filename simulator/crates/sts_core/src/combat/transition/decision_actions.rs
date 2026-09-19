@@ -1,4 +1,6 @@
-use super::{finish_warcry_source, remove_card_from_pile};
+use super::{
+    finish_warcry_source, move_forethought_selected_card_to_draw_bottom, remove_card_from_pile,
+};
 use crate::{
     action::CardPile,
     combat::{
@@ -213,6 +215,7 @@ pub(super) fn await_hand_select(
             selected_hand_indices: Vec::new(),
             dual_wield_restore_on_confirm,
             dual_wield_force_exhaust,
+            copy_owned: false,
         },
         pending_actions: VecDeque::new(),
     });
@@ -436,6 +439,70 @@ pub(super) fn await_discard_select(
             selected_discard_index: None,
             pending_actions: VecDeque::new(),
         },
+    });
+    Ok(Vec::new())
+}
+
+pub(super) fn await_copied_hand_select(
+    state: &mut CombatState,
+    purpose: HandSelectPurpose,
+) -> SimResult<Vec<crate::action::InternalAction>> {
+    if matches!(
+        purpose,
+        HandSelectPurpose::WarcryPutOnDraw | HandSelectPurpose::ThinkingAheadPutOnDraw
+    ) {
+        // PutOnDeckAction amount is 1. The original is in cardInUse/exhaust by
+        // the time a DuplicationPower copy runs; every remaining hand card is
+        // eligible. size<=amount auto-places via getRandomCard(cardRandomRng).
+        const PUT_ON_DECK_AMOUNT: usize = 1;
+        if state.piles.hand.len() <= PUT_ON_DECK_AMOUNT {
+            if !state.piles.hand.is_empty() {
+                let mut remaining = state.piles.hand.len();
+                while remaining > 0 {
+                    let pick = state
+                        .rng
+                        .card_random_rng
+                        .random_int((state.piles.hand.len() - 1) as i32)
+                        as usize;
+                    let put_back = state.piles.hand[pick].id;
+                    let card = remove_card_from_pile(state, put_back, CardPile::Hand)?;
+                    state.piles.push_draw_top(card);
+                    remaining -= 1;
+                }
+            }
+            return Ok(Vec::new());
+        }
+    }
+    // ForethoughtAction.update: empty hand is a no-op; unupgraded singleton
+    // auto-places getTopCard without a screen. Upgraded (chooseAny) still
+    // opens even with one card. The copy is purgeOnUse, so this must not
+    // settle the original source.
+    if matches!(
+        purpose,
+        HandSelectPurpose::ForethoughtPutOnDraw | HandSelectPurpose::ForethoughtPutAnyOnDraw
+    ) {
+        if state.piles.hand.is_empty() {
+            return Ok(Vec::new());
+        }
+        if purpose == HandSelectPurpose::ForethoughtPutOnDraw && state.piles.hand.len() == 1 {
+            let card_id = state.piles.hand[0].id;
+            move_forethought_selected_card_to_draw_bottom(state, card_id)?;
+            return Ok(Vec::new());
+        }
+    }
+    state.decision = Some(CombatDecisionState::HandSelect {
+        state: crate::combat::HandSelectState {
+            purpose,
+            // No live source occupies hand. A dummy ID keeps the existing
+            // exclusion check from matching a real card.
+            source_card_id: CardId::new(0),
+            selected_hand_index: None,
+            selected_hand_indices: Vec::new(),
+            dual_wield_restore_on_confirm: Vec::new(),
+            dual_wield_force_exhaust: false,
+            copy_owned: true,
+        },
+        pending_actions: VecDeque::new(),
     });
     Ok(Vec::new())
 }

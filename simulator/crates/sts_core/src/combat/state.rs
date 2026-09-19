@@ -359,6 +359,10 @@ pub struct HandSelectState {
     /// source-specific filtered-hand settlement.
     #[serde(default, skip_serializing_if = "is_false")]
     pub dual_wield_force_exhaust: bool,
+    /// Duplication / Double Tap / Necronomicon copy of a put-on-deck card.
+    /// Confirmation must not settle or exhaust the original source.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub copy_owned: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
