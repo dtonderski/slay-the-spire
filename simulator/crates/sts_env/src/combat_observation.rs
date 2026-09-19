@@ -1782,6 +1782,7 @@ mod tests {
                 selected_hand_indices: Vec::new(),
                 dual_wield_restore_on_confirm: Vec::new(),
                 dual_wield_force_exhaust: false,
+                copy_owned: false,
             },
             pending_actions: Default::default(),
         });

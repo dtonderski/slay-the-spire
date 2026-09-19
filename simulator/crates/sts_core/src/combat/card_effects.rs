@@ -1378,7 +1378,9 @@ fn is_duplicated_card_effect(action: InternalAction, card_id: CardId) -> bool {
             | InternalAction::AwaitDrawSelect { .. }
             | InternalAction::AwaitDiscardSelect { .. }
             | InternalAction::AwaitCopiedDiscardSelect { .. }
+            | InternalAction::AwaitCopiedHandSelect { .. }
             | InternalAction::AwaitExhaustSelect { .. }
+            | InternalAction::ForethoughtAutoMove { .. }
     ) && !is_card_move_for(action, card_id)
 }
 
@@ -1390,6 +1392,30 @@ fn duplicated_card_effect(action: InternalAction, card_id: CardId) -> Option<Int
         } if source_card_id == card_id => Some(InternalAction::AwaitCopiedDiscardSelect {
             purpose: crate::combat::DiscardSelectPurpose::HeadbuttPutOnDraw,
         }),
+        // ForethoughtAction auto-places via getTopCard when hand.size()==1.
+        // Replaying that frozen card id after the original moved it fails;
+        // the copy must re-read the live hand (empty skip / singleton auto).
+        InternalAction::ForethoughtAutoMove { source_card_id, .. } if source_card_id == card_id => {
+            Some(InternalAction::AwaitCopiedHandSelect {
+                purpose: HandSelectPurpose::ForethoughtPutOnDraw,
+            })
+        }
+        // The copy is a purgeOnUse instance; PutOnDeckAction must not settle
+        // the original (Warcry.use / PutOnDeckAction).
+        InternalAction::AwaitHandSelect {
+            source_card_id,
+            purpose,
+        } if source_card_id == card_id
+            && matches!(
+                purpose,
+                HandSelectPurpose::WarcryPutOnDraw
+                    | HandSelectPurpose::ThinkingAheadPutOnDraw
+                    | HandSelectPurpose::ForethoughtPutOnDraw
+                    | HandSelectPurpose::ForethoughtPutAnyOnDraw
+            ) =>
+        {
+            Some(InternalAction::AwaitCopiedHandSelect { purpose })
+        }
         InternalAction::ResolveFollowUpEnergy { .. } => {
             Some(InternalAction::ResolveFollowUpEnergy { should_gain: true })
         }
@@ -2880,18 +2906,13 @@ fn dark_shackles_queue(
 }
 
 fn sword_boomerang_queue(
-    state: &CombatState,
+    _state: &CombatState,
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    state
-        .monsters
-        .iter()
-        .any(|monster| monster.alive)
-        .then_some(())
-        .ok_or(SimError::InvalidState(
-            "Sword Boomerang requires a living monster",
-        ))?;
+    // DamageRandomEnemyAction no-ops when no living target (Awakened One
+    // first-form death is not alive). The card still plays, spends, and
+    // settles. Legal generation already allows AllEnemies vs half-dead AO.
     let damage = required_damage(definition)?;
 
     let hits = if definition.id == SWORD_BOOMERANG_PLUS_ID {

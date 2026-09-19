@@ -1274,6 +1274,7 @@ fn is_player_selection_action(action: &InternalAction) -> bool {
             | InternalAction::AwaitDrawSelect { .. }
             | InternalAction::AwaitDiscardSelect { .. }
             | InternalAction::AwaitCopiedDiscardSelect { .. }
+            | InternalAction::AwaitCopiedHandSelect { .. }
             | InternalAction::AwaitExhaustSelect { .. }
             | InternalAction::OpenDiscoveryCardReward { .. }
     )
@@ -1827,6 +1828,9 @@ fn apply_internal_action_with_defer(
         } => decision_actions::await_discard_select(state, source_card_id, purpose),
         InternalAction::AwaitCopiedDiscardSelect { purpose } => {
             decision_actions::await_copied_discard_select(state, purpose)
+        }
+        InternalAction::AwaitCopiedHandSelect { purpose } => {
+            decision_actions::await_copied_hand_select(state, purpose)
         }
         InternalAction::AwaitExhaustSelect {
             source_card_id,
@@ -3454,7 +3458,12 @@ fn upgrade_hand_cards_except(state: &mut CombatState, excluded_card_id: CardId) 
 
 fn upgrade_hand_card(state: &mut CombatState, card_id: CardId) -> SimResult<()> {
     let card = find_hand_card_mut(state, card_id)?;
-    *card = upgrade_card_instance(*card)?.ok_or(SimError::IllegalAction("card cannot upgrade"))?;
+    // ArmamentsAction / AbstractCard.upgrade() no-op when canUpgrade() is false.
+    // A DuplicationPower copy of singleton Armaments keeps the original target
+    // id after that card is already upgraded.
+    if let Some(upgraded) = upgrade_card_instance(*card)? {
+        *card = upgraded;
+    }
     Ok(())
 }
 
@@ -3986,13 +3995,14 @@ pub fn confirm_hand_select_with_time_warp_policy(
     let (hand_select, pending_actions) = state
         .take_hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
-    let source_settlement_after_pending = matches!(
-        hand_select.purpose,
-        HandSelectPurpose::WarcryPutOnDraw
-            | HandSelectPurpose::ThinkingAheadPutOnDraw
-            | HandSelectPurpose::ForethoughtPutOnDraw
-            | HandSelectPurpose::ForethoughtPutAnyOnDraw
-    );
+    let source_settlement_after_pending = !hand_select.copy_owned
+        && matches!(
+            hand_select.purpose,
+            HandSelectPurpose::WarcryPutOnDraw
+                | HandSelectPurpose::ThinkingAheadPutOnDraw
+                | HandSelectPurpose::ForethoughtPutOnDraw
+                | HandSelectPurpose::ForethoughtPutAnyOnDraw
+        );
     let mut handled_dead_branch_count = 0;
     match hand_select.purpose {
         HandSelectPurpose::WarcryPutOnDraw => {
@@ -4066,6 +4076,7 @@ pub fn confirm_hand_select_with_time_warp_policy(
     } else {
         (pending_actions, VecDeque::new())
     };
+    let (pending_before_source, copied_effects) = split_copied_card_pending(pending_before_source);
     resume_actions_after_hand_select(state, pending_before_source)?;
     if source_settlement_after_pending {
         // UseCardAction exhaust is addToBot Feel No Pain, Dead Branch, then
@@ -4078,8 +4089,12 @@ pub fn confirm_hand_select_with_time_warp_policy(
             hand_select.dual_wield_force_exhaust,
         )?;
         state.defer_time_warp_end_turn = previous_defer_time_warp;
+        // GameActionManager services the DuplicationPower card-queue item only
+        // after UseCardAction drains.
+        resume_actions_after_hand_select(state, copied_effects)?;
     } else {
         resume_actions_after_hand_select(state, pending_after_source)?;
+        resume_actions_after_hand_select(state, copied_effects)?;
     }
     state.activate_next_queued_decision_if_idle();
     if settle_time_warp {
@@ -4355,15 +4370,23 @@ pub fn confirm_hand_select_without_retrieval(state: &mut CombatState) -> SimResu
 
             let (pending_before_source, pending_after_source) =
                 partition_put_on_deck_source_pending(pending_actions);
+            let (pending_before_source, copied_effects) =
+                split_copied_card_pending(pending_before_source);
             resume_actions_after_hand_select(state, pending_before_source)?;
             let previous_defer_time_warp = state.defer_time_warp_end_turn;
             state.defer_time_warp_end_turn = true;
-            let handled_dead_branch_count = move_delayed_played_source_with_bot_exhaust_queue(
-                state,
-                hand_select.source_card_id,
-                pending_after_source,
-                hand_select.dual_wield_force_exhaust,
-            )?;
+            let handled_dead_branch_count = if hand_select.copy_owned {
+                resume_actions_after_hand_select(state, pending_after_source)?;
+                0
+            } else {
+                move_delayed_played_source_with_bot_exhaust_queue(
+                    state,
+                    hand_select.source_card_id,
+                    pending_after_source,
+                    hand_select.dual_wield_force_exhaust,
+                )?
+            };
+            resume_actions_after_hand_select(state, copied_effects)?;
             state.defer_time_warp_end_turn = previous_defer_time_warp;
             state.activate_next_queued_decision_if_idle();
             settle_time_warp_end_turn_if_ready(state)?;
@@ -4457,6 +4480,24 @@ fn resume_actions_after_hand_select(
     let transition = process_internal_queue(state, pending_actions)?;
     *state = transition.state;
     Ok(())
+}
+
+fn split_copied_card_pending(
+    mut pending_actions: VecDeque<InternalAction>,
+) -> (VecDeque<InternalAction>, VecDeque<InternalAction>) {
+    let index = pending_actions.iter().position(|action| {
+        matches!(
+            action,
+            InternalAction::SkipCopiedCardEffectsIfTargetDead { .. }
+                | InternalAction::SkipCopiedCardEffectsIfCombatDone
+                | InternalAction::PlayCardCopy { .. }
+        )
+    });
+    let Some(index) = index else {
+        return (pending_actions, VecDeque::new());
+    };
+    let copied = pending_actions.split_off(index);
+    (pending_actions, copied)
 }
 
 fn partition_put_on_deck_source_pending(
@@ -5214,7 +5255,7 @@ fn forethought_source_definition(
     card_content_definition(state, source_card_id)
 }
 
-fn move_forethought_selected_card_to_draw_bottom(
+pub(super) fn move_forethought_selected_card_to_draw_bottom(
     state: &mut CombatState,
     card_id: CardId,
 ) -> SimResult<()> {
@@ -7015,6 +7056,7 @@ fn card_content_definition(
         .chain(state.piles.discard_pile.iter())
         .chain(state.piles.draw_pile.iter())
         .chain(state.piles.exhaust_pile.iter())
+        .chain(state.piles.limbo.iter())
         .find(|card| card.id == card_id)
         .and_then(|card| get_card_definition(card.content_id))
         .ok_or(SimError::UnknownCard(card_id))
@@ -7025,13 +7067,13 @@ fn copied_card_content_definition(
     card_id: CardId,
     content_id: ContentId,
 ) -> SimResult<&'static crate::card::CardDefinition> {
-    // Keep existing live-pile lookup for cards that remain in combat. Powers
-    // leave every pile before the queued copy starts, so retain their identity
-    // in the copy action rather than reinserting or delaying the original.
-    card_content_definition(state, card_id).or_else(|error| match get_card_definition(content_id) {
-        Some(definition) if definition.card_type == CardType::Power => Ok(definition),
-        _ => Err(error),
-    })
+    // DuplicationPower/DoubleTapPower/EchoPower copies are makeSameInstanceOf
+    // purgeOnUse cards. Identity is the copy's content, not a live original.
+    if let Some(definition) = get_card_definition(content_id) {
+        Ok(definition)
+    } else {
+        card_content_definition(state, card_id)
+    }
 }
 
 fn find_hand_card_mut(state: &mut CombatState, card_id: CardId) -> SimResult<&mut CardInstance> {

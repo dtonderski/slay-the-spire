@@ -566,6 +566,10 @@ pub enum InternalAction {
     AwaitCopiedDiscardSelect {
         purpose: DiscardSelectPurpose,
     },
+    /// Copy-owned PutOnDeck / Forethought select. Does not settle the original source.
+    AwaitCopiedHandSelect {
+        purpose: HandSelectPurpose,
+    },
     AwaitExhaustSelect {
         source_card_id: CardId,
         purpose: ExhaustSelectPurpose,
