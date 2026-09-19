@@ -491,6 +491,11 @@ def main() -> None:
     parser.add_argument("--eval-every", type=int, default=100)
     parser.add_argument("--value-coef", type=float, default=0.1)
     parser.add_argument("--reference-run", type=Path)
+    initialization = parser.add_mutually_exclusive_group()
+    initialization.add_argument("--warm-start", type=Path, help="Trusted checkpoint: weights only; new optimizer/RNG")
+    initialization.add_argument(
+        "--resume-from", type=Path, help="Trusted same-protocol checkpoint: restore optimizer/RNG"
+    )
     parser.add_argument("--beam-width", type=int, default=64)
     parser.add_argument("--beam-transitions", type=int, default=10000)
     parser.add_argument("--max-decisions", type=int, default=512)
@@ -548,6 +553,46 @@ def main() -> None:
     rng = random.Random(args.seed)
     model = CombatValueModel().to(args.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    initial_checkpoint = args.resume_from or args.warm_start
+    if initial_checkpoint is not None:
+        # Always use a new output directory. Cross-native warm starts load weights
+        # only; optimizer/RNG continuation requires the same gameplay/training contract.
+        source = torch.load(initial_checkpoint, map_location="cpu", weights_only=False)
+        if args.resume_from is not None:
+            for key in (
+                "validation_sha256",
+                "validation_native_sha256",
+                "distributions_sha256",
+                "training_protocol",
+                "min_floor",
+                "max_floor",
+                "max_decisions",
+                "lr",
+                "entropy_coef",
+                "value_coef",
+                "device",
+            ):
+                if source["config"].get(key) != settings[key]:
+                    raise ValueError(f"Checkpoint continuation mismatch: {key}")
+        weights = source["model"]
+        if not all(torch.isfinite(value).all() for value in weights.values()):
+            raise ValueError("Warm-start checkpoint contains non-finite weights")
+        model.load_state_dict(weights, strict=True)
+        if args.resume_from is not None:
+            optimizer.load_state_dict(source["optimizer"])
+            rng.setstate(source["sampling_rng"])
+            torch.set_rng_state(source["torch_rng"])
+            if args.device == "cuda":
+                torch.cuda.set_rng_state_all(source["cuda_rng"])
+        settings["initialization"] = {
+            "mode": "optimizer_rng_continuation" if args.resume_from else "weights_only_new_optimizer_and_rng",
+            "checkpoint_sha256": hashlib.sha256(initial_checkpoint.read_bytes()).hexdigest(),
+            "source_iteration": source["iteration"],
+            "source_native_sha256": source["config"].get("validation_native_sha256"),
+        }
+        del source, weights
+        (output / "config.json").write_text(json.dumps(settings, indent=2))
+        print(f"Initialized from {initial_checkpoint}: {settings['initialization']['mode']}", flush=True)
     iteration = 0
 
     def checkpoint() -> None:
@@ -609,6 +654,9 @@ def main() -> None:
                     continue_on_error=args.continue_on_simulator_error,
                     value_coef=args.value_coef,
                 )
+                if args.device == "cuda":
+                    scores["peak_cuda_allocated_gib"] = torch.cuda.max_memory_allocated() / 2**30
+                    scores["peak_cuda_reserved_gib"] = torch.cuda.max_memory_reserved() / 2**30
                 scores.update(
                     sampling_seconds=sampling_seconds,
                     rejected_loadouts=float(sum(len(root.rejected_loadouts) for root in specs)),

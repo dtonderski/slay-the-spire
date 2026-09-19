@@ -81,8 +81,14 @@ and 10,000 transitions per root; it is budget-limited, not an optimal upper boun
 relevant evaluation budgets match.
 
 Checkpoints (`wandb/RUN_ID/latest.pt`) contain policy/value model, optimizer, and
-RNG states. Automatic resume is not implemented. Use `--wandb-mode disabled` for
-local smoke tests; no training starts merely by importing modules.
+RNG states. `--resume-from PATH` restores model, optimizer, and RNG into a new run
+directory, checking native/data hashes and training settings. Iterations restart at
+zero within that new phase; the source iteration/hash is recorded. Changing batch
+size is permitted and recorded, but is not an identical continuation experiment.
+`--warm-start PATH` loads only model weights and starts a fresh optimizer/RNG;
+this is the explicit option for transferring learned weights across a native change.
+Only load trusted local checkpoints. Use `--wandb-mode disabled` for local smoke
+tests; no training starts merely by importing modules.
 
 The active validation artifact is `validation-a0-v2.json`, revalidated after PR #46.
 All 1,376 specifications, initial public-observation hashes, and evaluation settings
