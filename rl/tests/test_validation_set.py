@@ -9,10 +9,10 @@ from unittest.mock import patch
 
 import torch
 from loadout_sampling import LoadoutSampler, band_for
-from model import CombatModel
+from model import CombatValueModel
 from rollout_errors import SimulatorStepError
 from scenarios import COMBAT_FLOORS, ScenarioConfig
-from train_synthetic import evaluate_baselines, evaluate_sets, fresh_batch, update
+from train import evaluate, evaluate_baselines, fresh_batch, update_with_diagnostics
 from validation_set import build_validation, load_validation, main
 
 
@@ -99,34 +99,38 @@ class ValidationSetTests(unittest.TestCase):
         _, repeated = fresh_batch(random.Random(12), sampler(), 2, config)
         self.assertEqual([s.spec_json for s in specs], [s.spec_json for s in repeated])
         self.assertNotEqual([s.spec_json for s in specs], [s.spec_json for s in next_specs])
-        excluded = frozenset([int(first[0].seed)])
+        excluded = frozenset([int(first[0].combat_seed)])
         filtered, _ = fresh_batch(random.Random(12), sampler(), 1, config, excluded)
-        self.assertNotIn(int(filtered[0].seed), excluded)
-        model = CombatModel()
+        self.assertNotIn(int(filtered[0].combat_seed), excluded)
+        model = CombatValueModel()
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
         observations = [r.state.observation() for r in first]
         with tempfile.TemporaryDirectory() as directory:
-            scores = update(first, specs, model, optimizer, 128, 0.01, Path(directory) / "failure.json")
+            scores = update_with_diagnostics(
+                first, specs, model, optimizer, 128, 0.01, Path(directory) / "failure.json"
+            )
         self.assertEqual(scores["optimizer_step"], 1)
         self.assertTrue(optimizer.state)
         self.assertEqual(observations, [r.state.observation() for r in first])
 
     def test_errors_preserve_specs_without_reward_or_update(self) -> None:
         roots, specs = fresh_batch(random.Random(12), sampler(), 1, ScenarioConfig(min_floor=1, max_floor=1))
-        model = CombatModel()
+        model = CombatValueModel()
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
         error = SimulatorStepError("test failure", 0, [0], [[0]])
         with tempfile.TemporaryDirectory() as directory:
             for proceed in (False, True):
                 path = Path(directory) / f"error-{proceed}.json"
-                with patch("train_synthetic.train_batch", side_effect=error), self.assertLogs(level="CRITICAL"):
+                with patch("train.train_batch", side_effect=error), self.assertLogs(level="CRITICAL"):
                     if proceed:
-                        result = update(roots, specs, model, optimizer, 128, 0.01, path, continue_on_error=True)
+                        result = update_with_diagnostics(
+                            roots, specs, model, optimizer, 128, 0.01, path, continue_on_error=True
+                        )
                         self.assertEqual(result["optimizer_step"], 0)
                         self.assertNotIn("defeated", result)
                     else:
                         with self.assertRaises(SimulatorStepError):
-                            update(roots, specs, model, optimizer, 128, 0.01, path)
+                            update_with_diagnostics(roots, specs, model, optimizer, 128, 0.01, path)
                 saved = json.loads(path.read_text())
                 self.assertEqual(saved["specifications"][0], json.loads(specs[0].spec_json))
                 self.assertEqual(saved["attempted_prefixes"], [[0]])
@@ -134,48 +138,45 @@ class ValidationSetTests(unittest.TestCase):
 
     def test_validation_errors_are_unavailable_not_losses(self) -> None:
         roots, _ = fresh_batch(random.Random(12), sampler(), 1, ScenarioConfig(min_floor=1, max_floor=1))
-        model = CombatModel()
+        model = CombatValueModel()
         error = SimulatorStepError("test failure", 0, [0], [[0]])
         before = torch.get_rng_state().clone()
         with tempfile.TemporaryDirectory() as directory:
-            with patch("train_roots.play_combat", side_effect=error):
-                scores = evaluate_sets({"main": roots}, model, 2, 2, Path(directory))
+            with patch("train.play_combats", side_effect=error):
+                scores = evaluate(roots, model, 2, 2, error_path=Path(directory) / "main.jsonl")
             rows = [json.loads(line) for line in (Path(directory) / "main.jsonl").read_text().splitlines()]
             self.assertEqual([row["policy_seed"] for row in rows], [90000, 90001])
-            self.assertEqual(scores["val_main/simulator_error_episodes"], 2)
-            self.assertEqual(scores["val_main/episode_coverage"], 0)
-            self.assertNotIn("val_main/win_rate_completed", scores)
-            self.assertNotIn("val_main/defeated", scores)
+            self.assertEqual(scores["simulator_error_episodes"], 2)
+            self.assertEqual(scores["episode_coverage"], 0)
+            self.assertNotIn("win_rate_completed", scores)
+            self.assertNotIn("defeated", scores)
         self.assertTrue(torch.equal(before, torch.get_rng_state()))
 
-    def test_baselines_cover_both_sets_and_preserve_records(self) -> None:
+    def test_baselines_cover_main_and_preserve_records(self) -> None:
         roots, _ = fresh_batch(random.Random(12), sampler(), 1, ScenarioConfig(min_floor=1, max_floor=1))
         with tempfile.TemporaryDirectory() as directory:
             with (
-                patch("train_synthetic.evaluate", return_value={"episode_coverage": 0.5}) as random_eval,
-                patch("train_synthetic.evaluate_beam", return_value=({"errors": 1}, [{"status": "error"}])) as beam,
+                patch("train.evaluate", return_value={"episode_coverage": 0.5}) as random_eval,
+                patch("train.evaluate_beam", return_value=({"errors": 1}, [{"status": "error"}])) as beam,
             ):
-                scores = evaluate_baselines(
-                    {"main": roots, "stress": roots}, 3, 512, Path(directory), beam_width=64, beam_transitions=10000
-                )
-            self.assertEqual(random_eval.call_count, 2)
-            self.assertEqual(beam.call_count, 2)
+                scores = evaluate_baselines(roots, 3, 512, Path(directory), beam_width=64, beam_transitions=10000)
+            self.assertEqual(random_eval.call_count, 1)
+            self.assertEqual(beam.call_count, 1)
             self.assertEqual(scores["random_main/episode_coverage"], 0.5)
-            self.assertEqual(scores["privileged_beam_stress/errors"], 1)
+            self.assertEqual(scores["privileged_beam_main/errors"], 1)
             saved = json.loads((Path(directory) / "baselines.json").read_text())
             self.assertTrue(saved["beam_privileged"])
-            self.assertEqual(set(saved["sets"]), {"main", "stress"})
+            self.assertEqual(set(saved["sets"]), {"main"})
             self.assertEqual(saved["sets"]["main"]["beam_roots"], [{"status": "error"}])
 
     def test_evaluation_labels_and_rng_isolation(self) -> None:
         torch.set_num_threads(1)
         roots, _ = fresh_batch(random.Random(12), sampler(), 1, ScenarioConfig(min_floor=1, max_floor=1))
-        model = CombatModel()
+        model = CombatValueModel()
         before = torch.get_rng_state().clone()
-        scores = evaluate_sets({"main": roots, "stress": roots}, model, 1, 2)
+        scores = evaluate(roots, model, 1, 2)
         self.assertTrue(torch.equal(before, torch.get_rng_state()))
-        self.assertIn("val_main/episodes", scores)
-        self.assertIn("val_stress/episodes", scores)
+        self.assertIn("episodes", scores)
 
 
 if __name__ == "__main__":

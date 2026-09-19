@@ -1,17 +1,15 @@
 """Numeric export/refinement checks; fixtures are not real-game parity evidence."""
 
-import copy
 import random
 import unittest
 from dataclasses import replace
-from types import SimpleNamespace
 from typing import cast
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import numpy as np
 import torch
 from encoders.numeric import NumericBatch
-from model import CombatModel
+from model import CombatValueModel
 from numeric_reference import CATEGORICAL, reference_batch, semantic_tables
 from sts_sim import CounterKey, PowerKey, State
 from sts_sim.observations import (
@@ -21,35 +19,41 @@ from sts_sim.observations import (
     SelectionOption,
     VisibleIntent,
 )
-from test_model import action
-from train import episode_loss, first_combat, play_combats
-from train_roots import collect_roots
+from test_model import action, combat
+from train import play_combats
 
 
 class NumericObservationTests(unittest.TestCase):
-    def test_colosseum_event_return_is_terminal_in_both_transports(self) -> None:
-        # Infrastructure fixture for the source-backed first-fight event return.
-        root = Mock()
-        root.clone.return_value = root
-        obs = SimpleNamespace(
-            kind="event",
-            phase="event",
-            screen=SimpleNamespace(event="Colosseum"),
-            context=SimpleNamespace(player_hp=60, player_max_hp=100),
-        )
-        root.decision.return_value = SimpleNamespace(observation=obs, actions=())
-        payload = (1, ("event",), {"header": (5, np.array([[0, 0, -1, 60, 100]], dtype=np.int64).tobytes())}, [()], [])
-        with patch.object(State, "numeric_decisions", return_value=payload):
-            for numeric in (False, True):
-                episode = play_combats(
-                    [cast(State, root)], None, max_decisions=0, rng=random.Random(0), numeric=numeric
-                )[0]
-                self.assertTrue(episode.won)
-                self.assertEqual(episode.reward, 0.6)
-            obs.screen.event = "Neow"
-            for numeric in (False, True):
-                with self.assertRaises(RuntimeError):
-                    play_combats([cast(State, root)], None, max_decisions=0, rng=random.Random(0), numeric=numeric)
+    def test_partial_native_step_failure_is_not_retried(self) -> None:
+        from rollout_errors import SimulatorStepError
+
+        roots = [combat(1), combat(2)]
+        before = [root.observation() for root in roots]
+        native_steps = State.numeric_steps
+
+        def partial(states, actions):
+            native_steps(states[:1], actions[:1])
+            raise ValueError("synthetic partial batch failure")
+
+        with patch.object(State, "numeric_steps", side_effect=partial) as steps:
+            with self.assertRaises(SimulatorStepError) as caught:
+                play_combats(roots, None, max_decisions=10, rng=random.Random(0))
+            self.assertEqual(steps.call_count, 1)
+        self.assertEqual(caught.exception.root_indices, [0, 1])
+        self.assertEqual([len(p) for p in caught.exception.action_prefixes], [1, 1])
+        self.assertEqual(before, [root.observation() for root in roots])
+
+    def test_empty_legal_actions_are_reported_as_simulator_error(self) -> None:
+        from rollout_errors import SimulatorStepError
+
+        root = combat()
+        version, symbols, tables, _, rows = State.numeric_decisions([root])
+        with (
+            patch.object(State, "numeric_decisions", return_value=(version, symbols, tables, [()], rows)),
+            self.assertRaises(SimulatorStepError) as caught,
+        ):
+            play_combats([root], None, max_decisions=1, rng=random.Random(0))
+        self.assertEqual(caught.exception.action_prefixes, [[]])
 
     def test_native_tables_actions_and_rng_noninterference(self) -> None:
         for seed in ("HUMAN1", "2000001", "2000014", "2000140", "1000009"):
@@ -75,7 +79,7 @@ class NumericObservationTests(unittest.TestCase):
                 numeric = NumericBatch(State.numeric_steps([right], [chosen]))
 
     def test_immutable_buffer_lifetime_and_rejected_transition(self) -> None:
-        state = first_combat("HUMAN1", 0)
+        state = combat()
         batch = NumericBatch(State.numeric_decisions([state]))
         before = batch.table("hand", 18).copy()
         stale = batch.actions[0][0]
@@ -93,7 +97,7 @@ class NumericObservationTests(unittest.TestCase):
 
     def test_features_masks_logits_and_gradients_on_edge_cases(self) -> None:
         torch.set_num_threads(1)
-        decision = first_combat("HUMAN1", 0).decision()
+        decision = combat().decision()
         obs = decision.observation
         assert obs.kind == "combat"
         base = obs.screen.hand[0].card
@@ -166,28 +170,15 @@ class NumericObservationTests(unittest.TestCase):
             for dtype in (torch.float32, torch.float64):
                 with self.subTest(device=device, dtype=dtype):
                     torch.manual_seed(123)
-                    left = CombatModel(d_model=16, action_dim=8, n_layers=1).to(device=device, dtype=dtype)
-                    right = copy.deepcopy(left)
-                    x = left.observation_encoder.prepare_batch([a, b])
-                    y = right.observation_encoder.prepare_batch(raw)
-                    torch.testing.assert_close(x[0], y[0], rtol=0, atol=0)
-                    self.assertTrue(torch.equal(x[1], y[1]))
-                    for xf, yf in zip(x[2], y[2]):
-                        for name in xf:
-                            torch.testing.assert_close(xf[name], yf[name], rtol=0, atol=0)
-                    logits, mask = left([a, b], actions)
-                    numeric_logits, numeric_mask = right(raw, actions)
-                    torch.testing.assert_close(logits, numeric_logits, rtol=0, atol=0)
-                    self.assertTrue(torch.equal(mask, numeric_mask))
-                    logits[mask].square().sum().backward()
-                    numeric_logits[numeric_mask].square().sum().backward()
-                    for lp, rp in zip(left.parameters(), right.parameters()):
-                        self.assertEqual(lp.grad is None, rp.grad is None)
-                        if lp.grad is not None:
-                            torch.testing.assert_close(lp.grad, rp.grad, rtol=1e-6, atol=1e-7)
+                    model = CombatValueModel(d_model=16, action_dim=8, n_layers=1).to(device=device, dtype=dtype)
+                    logits, values, mask = model(raw, actions)
+                    self.assertTrue(torch.isfinite(logits[mask]).all())
+                    self.assertTrue(torch.isneginf(logits[~mask]).all())
+                    (logits[mask].square().sum() + values.square().sum()).backward()
+                    self.assertTrue(all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None))
 
     def test_dictionary_numbers_are_not_model_features(self) -> None:
-        state = first_combat("HUMAN1", 0)
+        state = combat()
         batch = NumericBatch(State.numeric_decisions([state]))
         tables = {}
         for name, values in batch.tables.items():
@@ -196,13 +187,14 @@ class NumericObservationTests(unittest.TestCase):
                 values[:, column] = np.where(values[:, column] < 0, -1, len(batch.symbols) - 1 - values[:, column])
             tables[name] = (values.shape[1], values.tobytes())
         permuted = NumericBatch((1, batch.symbols[::-1], tables, batch.actions, batch.model_rows))
-        model = CombatModel()
-        a, mask_a = model(batch, [tuple(batch.actions[0])])
-        b, mask_b = model(permuted, [tuple(batch.actions[0])])
+        model = CombatValueModel()
+        a, va, mask_a = model(batch, [tuple(batch.actions[0])])
+        b, vb, mask_b = model(permuted, [tuple(batch.actions[0])])
         torch.testing.assert_close(a, b, rtol=0, atol=0)
+        torch.testing.assert_close(va, vb, rtol=0, atol=0)
         self.assertTrue(torch.equal(mask_a, mask_b))
 
-    def test_generated_smoke_is_excluded_in_both_rollout_paths(self) -> None:
+    def test_generated_smoke_is_excluded_after_rows_finish(self) -> None:
         # Accepted public-action fixture from the simulator collector, not a captured game trace.
         smoke = State.new("2000140")
         prefix = [0, 1, 0, 3, 4, 8, 6, 5, 4, 3, 3, 2, 0, 4, 3, 0, 0, 3, 5, 0, 1, 0, 3, 2, 8, 8, 1, 6, 10, 0, 0]
@@ -221,15 +213,12 @@ class NumericObservationTests(unittest.TestCase):
                     ]
                     index = indices[0] if indices else next(i for i, a in enumerate(candidates) if a.kind == "end_turn")
                     logits[row, index] = 0
-                return logits, logits.isfinite()
+                return logits, torch.zeros((len(actions), 1)), logits.isfinite()
 
-        roots = [first_combat("HUMAN1", 0), smoke]
-        policy = cast(CombatModel, ChoosePotionOrEnd())
-        expected = play_combats(roots, policy, max_decisions=1, rng=random.Random(0))
-        actual = play_combats(roots, policy, max_decisions=1, rng=random.Random(0), numeric=True)
-        self.assertEqual(expected, actual)
+        roots = [combat(), smoke]
+        policy = cast(CombatValueModel, ChoosePotionOrEnd())
+        actual = play_combats(roots, policy, max_decisions=1, rng=random.Random(0))
         self.assertIsNone(actual[0].reward)
-        self.assertFalse(actual[1].escaped)
         self.assertIsNone(actual[1].won)
         self.assertIsNone(actual[1].reward)
         self.assertEqual(actual[1].decisions, 1)
@@ -243,40 +232,9 @@ class NumericObservationTests(unittest.TestCase):
         for candidate in result.actions:
             finished.step(candidate)
         mixed = [finished, smoke]
-        expected = play_combats(mixed, policy, max_decisions=1, rng=random.Random(0))
-        actual = play_combats(mixed, policy, max_decisions=1, rng=random.Random(0), numeric=True)
-        self.assertEqual(expected, actual)
+        actual = play_combats(mixed, policy, max_decisions=1, rng=random.Random(0))
         self.assertTrue(actual[0].won)
         self.assertIsNone(actual[1].reward)
-
-    def test_native_rollout_loss_and_gradients(self) -> None:
-        roots = [r.state for r in collect_roots(["2000000", "2000001", "2000002"], 3, 123)[0]]
-        for device in ("cpu", "cuda") if torch.cuda.is_available() else ("cpu",):
-            torch.manual_seed(123)
-            model = CombatModel().to(device)
-            results, gradients = [], []
-            for numeric in (False, True):
-                torch.manual_seed(30000)
-                model.zero_grad(set_to_none=True)
-                episodes = play_combats(
-                    roots, model, max_decisions=128, training=True, rng=random.Random(0), numeric=numeric
-                )
-                results.append(
-                    [
-                        (e.reward, e.won, e.hp, e.decisions, e.escaped, [float(p.detach()) for p in e.log_probs])
-                        for e in episodes
-                    ]
-                )
-                torch.stack(
-                    [episode_loss(e, 0.01) for e in episodes if e.reward is not None and e.log_probs]
-                ).mean().backward()
-                gradients.append([p.grad.clone() if p.grad is not None else None for p in model.parameters()])
-            self.assertEqual(results[0], results[1])
-            for a, b in zip(*gradients):
-                if a is None:
-                    self.assertIsNone(b)
-                else:
-                    torch.testing.assert_close(a, b, rtol=1e-6, atol=1e-7)
 
 
 if __name__ == "__main__":

@@ -1,8 +1,5 @@
 """Small privileged beam-search reference, not a fair policy or an optimality guarantee."""
 
-import argparse
-import json
-import time
 from dataclasses import dataclass
 
 from combat_task import action_indices, combat_outcome, terminal_reward
@@ -120,33 +117,3 @@ def beam_search(
         frontier = prune(children, width)
     result.limit_reached = True
     return result
-
-
-def main() -> None:
-    from train import first_combat
-
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--seed", default="HUMAN1")
-    parser.add_argument("--ascension", type=int, choices=range(21), default=0)
-    parser.add_argument("--width", type=int, default=64)
-    parser.add_argument("--max-decisions", type=int, default=128)
-    parser.add_argument("--max-transitions", type=int, default=10000)
-    args = parser.parse_args()
-    root = first_combat(args.seed, args.ascension)
-    start = time.perf_counter()
-    result = beam_search(root, width=args.width, max_decisions=args.max_decisions, max_transitions=args.max_transitions)
-    print(
-        json.dumps(
-            {
-                "reference": "privileged_beam",
-                **vars(result),
-                "actions": [repr(action) for action in result.actions],
-                "seconds": time.perf_counter() - start,
-            },
-            indent=2,
-        )
-    )
-
-
-if __name__ == "__main__":
-    main()

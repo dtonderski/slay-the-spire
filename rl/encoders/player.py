@@ -1,7 +1,6 @@
 import numpy as np
-import torch
 from jaxtyping import Float
-from sts_sim import CombatObservation, PowerKey
+from sts_sim import PowerKey
 from torch import Tensor, nn
 
 from .numeric import NumericBatch, tensor
@@ -22,24 +21,6 @@ class PlayerEncoder(nn.Module):
         super().__init__()
         self.projection = nn.Linear(PLAYER_FEATURE_DIM, d_model)
 
-    def tensorize(self, observation: CombatObservation) -> Float[Tensor, " player_features"]:
-        """Return scaled [hp, max_hp, block, energy, max_energy, gold], then raw powers."""
-        player = observation.screen.player
-        stats = [
-            player.hp / HP_SCALE,
-            player.max_hp / HP_SCALE,
-            player.block / BLOCK_SCALE,
-            player.energy / ENERGY_SCALE,
-            player.max_energy / ENERGY_SCALE,
-            observation.context.gold / GOLD_SCALE,
-        ]
-        powers = [0] * len(POWER_TO_INDEX)
-        for power in player.powers:
-            powers[POWER_TO_INDEX[power.key]] = power.amount
-        return torch.tensor(stats + powers, dtype=torch.float32, device=self.projection.weight.device).to(
-            self.projection.weight
-        )
-
     def numeric(
         self, batch: NumericBatch
     ) -> tuple[Float[Tensor, "batch player_features"], Float[Tensor, "batch d_model"], list[int]]:
@@ -52,15 +33,3 @@ class PlayerEncoder(nn.Module):
         values = np.concatenate((stats, powers), axis=1).astype(np.float32)
         features = tensor(self.projection.weight, values)
         return features, self.projection(features), [1] * batch.size
-
-    def forward(
-        self, batch: list[CombatObservation]
-    ) -> tuple[list[Float[Tensor, "1 player_features"]], list[Float[Tensor, "1 d_model"]]]:
-        """Return one player row and token per observation."""
-        features = (
-            torch.stack([self.tensorize(obs) for obs in batch])
-            if batch
-            else self.projection.weight.new_empty((0, PLAYER_FEATURE_DIM))
-        )
-        lengths = [1] * len(batch)
-        return list(features.split(lengths)), list(self.projection(features).split(lengths))

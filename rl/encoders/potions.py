@@ -1,7 +1,5 @@
-import torch
 from jaxtyping import Float
 from sts_sim import PotionKey
-from sts_sim.observations import PotionSlot
 from torch import Tensor, nn
 
 from .numeric import NumericBatch, tensor
@@ -19,15 +17,6 @@ class PotionEncoder(nn.Module):
         self.embedding = nn.Embedding(len(POTION_TO_INDEX), POTION_EMBEDDING_DIM)
         self.projection = nn.Linear(POTION_EMBEDDING_DIM, d_model)
 
-    def tensorize(self, slots: tuple[PotionSlot, ...]) -> Float[Tensor, "n_potion_slots potion_features"]:
-        """Embed potion slots in input order, including empty slots (index 0)."""
-        indices = torch.tensor(
-            [POTION_TO_INDEX[slot.content_key] for slot in slots],
-            dtype=torch.long,
-            device=self.embedding.weight.device,
-        )
-        return self.embedding(indices)
-
     def numeric(
         self, batch: NumericBatch
     ) -> tuple[Float[Tensor, "n_potions potion_features"], Float[Tensor, "n_potions d_model"], list[int]]:
@@ -36,11 +25,3 @@ class PotionEncoder(nn.Module):
         features = self.embedding(tensor(self.embedding.weight, batch.codes(rows[:, 1], POTION_TO_INDEX), integer=True))
         lengths = batch.lengths(rows)
         return features, self.projection(features), lengths
-
-    def forward(
-        self, batch: list[tuple[PotionSlot, ...]]
-    ) -> tuple[list[Float[Tensor, "?n_potion_slots potion_features"]], list[Float[Tensor, "?n_potion_slots d_model"]]]:
-        """Project all slots once and return unpadded per-observation rows."""
-        lengths = [len(slots) for slots in batch]
-        features = self.tensorize(tuple(slot for slots in batch for slot in slots))
-        return list(features.split(lengths)), list(self.projection(features).split(lengths))

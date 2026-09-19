@@ -5,7 +5,7 @@ import hashlib
 import json
 import math
 import random
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 import sts_sim._native as native
@@ -13,7 +13,15 @@ from loadout_sampling import LoadoutSampler
 from scenarios import COMBAT_FLOORS, ScenarioConfig
 from sts_sim import State
 from synthetic_roots import build_root, sample_root
-from train_roots import Root
+
+
+@dataclass
+class Root:
+    state: State
+    combat_seed: str  # Privileged reconstruction metadata; never a policy feature.
+    floor: int
+    start_hp: int
+    act: int = 1
 
 
 def native_sha256() -> str:

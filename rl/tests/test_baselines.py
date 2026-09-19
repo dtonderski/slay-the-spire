@@ -1,18 +1,14 @@
-import random
 import unittest
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import cast
 
-import torch
 from beam_search import Node, beam_search, prune, pruning_score
 from combat_task import action_indices, terminal_reward
-from model import CombatModel
 from sts_sim import Decision, PotionKey, State
 from sts_sim.observations import PotionSlot
 from sts_sim.observations.combat import HiddenIntent, VisibleIntent
-from test_model import action
-from train import first_combat, play_combat
+from test_model import action, combat
 
 
 class Graph:
@@ -36,16 +32,9 @@ class Graph:
         raise AssertionError("Wrong native action index after filtering")
 
 
-class FirstPolicy(torch.nn.Module):
-    def forward(self, observations, actions):
-        assert all(len(candidates) == 1 for candidates in actions)
-        logits = torch.zeros((len(actions), 1), requires_grad=True)
-        return logits, torch.ones_like(logits, dtype=torch.bool)
-
-
 class BaselineTests(unittest.TestCase):
     def setUp(self) -> None:
-        obs = first_combat("HUMAN1", 0).decision().observation
+        obs = combat().decision().observation
         assert obs.kind == "combat"
         self.obs = obs
 
@@ -175,20 +164,12 @@ class BaselineTests(unittest.TestCase):
                 "won": (self.won(60), []),
             }
         )
-        for model in (None, cast(CombatModel, FirstPolicy())):
-            episode = play_combat(
-                cast(State, root), model, max_decisions=2, training=model is not None, rng=random.Random(0)
-            )
-            self.assertEqual(episode.reward, 0.75)
-            self.assertEqual(episode.decisions, 2)
-            if model is not None:
-                self.assertEqual(len(episode.log_probs), 2)
         result = beam_search(cast(State, root), max_decisions=2)
         self.assertEqual(result.reward, 0.75)
         self.assertEqual(result.transitions, 2)
 
     def test_real_search_plan_replays_without_mutating_root(self) -> None:
-        root = first_combat("HUMAN1", 0)
+        root = combat()
         before = root.decision().observation
         result = beam_search(root, width=16, max_decisions=48, max_transitions=5000)
         self.assertIsNotNone(result.reward)
