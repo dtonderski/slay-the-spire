@@ -314,6 +314,17 @@ pub fn validate_discard_select_choice(run: &RunState, index: usize) -> SimResult
         .as_ref()
         .ok_or(SimError::IllegalAction("discard select requires combat"))?;
     discard_select_ui_to_discard_index(combat, index)?;
+    let discard_select = combat
+        .discard_select()
+        .ok_or(SimError::IllegalAction("no discard select is open"))?;
+    // Liquid Memories is a bounded toggle grid. At capacity, deselection and
+    // confirmation stay legal; an additional unselected card is not.
+    if discard_select.purpose == DiscardSelectPurpose::LiquidMemoriesReturnToHand
+        && !discard_select.selected_discard_indices.contains(&index)
+        && discard_select.selected_discard_indices.len() >= discard_select.max_choices
+    {
+        return Err(SimError::IllegalAction("too many discard select choices"));
+    }
     Ok(())
 }
 
@@ -929,6 +940,25 @@ pub(crate) fn apply_validated_combat_card_reward_skip_owned(
     }
 }
 
+fn combat_open_decision_pending_mut(
+    combat: &mut CombatState,
+) -> Option<&mut std::collections::VecDeque<crate::InternalAction>> {
+    match combat.decision.as_mut()? {
+        CombatDecisionState::HandSelect {
+            pending_actions, ..
+        }
+        | CombatDecisionState::DiscoveryCardReward {
+            pending_actions, ..
+        } => Some(pending_actions),
+        CombatDecisionState::DrawSelect { state } => Some(&mut state.pending_actions),
+        CombatDecisionState::DiscardSelect { state } => Some(&mut state.pending_actions),
+        CombatDecisionState::ExhaustSelect { state } => Some(&mut state.pending_actions),
+        CombatDecisionState::PotionCardReward { .. }
+        | CombatDecisionState::ToolboxCardReward { .. }
+        | CombatDecisionState::NilrysCodexCardReward { .. } => None,
+    }
+}
+
 fn distilled_chaos_target(
     combat: &mut CombatState,
     target: TargetRequirement,
@@ -1209,7 +1239,16 @@ pub(crate) fn apply_validated_potion_action_owned(
                 }
                 Potion::Swift => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    player_draw_cards(combat, SWIFT_POTION_DRAW * multiplier as usize)?;
+                    let count = SWIFT_POTION_DRAW * multiplier as usize;
+                    // SwiftPotion.use addToBot's DrawCardAction. While
+                    // AttackFromDeckToHandAction's grid is open, that draw
+                    // waits behind the current action instead of mutating the
+                    // still-visible draw pile.
+                    if let Some(pending) = combat_open_decision_pending_mut(combat) {
+                        pending.push_back(crate::InternalAction::DrawCards { count });
+                    } else {
+                        player_draw_cards(combat, count)?;
+                    }
                 }
                 Potion::SneckoOil => {
                     let mut rng = next.card_random_rng();
@@ -1324,92 +1363,107 @@ pub(crate) fn apply_validated_potion_action_owned(
                     let queued_targets = (0..3 * multiplier)
                         .map(|_| distilled_chaos_target(&mut combat, TargetRequirement::Enemy))
                         .collect::<SimResult<Vec<_>>>()?;
-                    // Each PlayTopCardAction moves its selected card to limbo,
-                    // but the queued cards do not resolve until all three
-                    // actions have selected. If selection finds an empty draw
-                    // pile, it shuffles the discard pile while the earlier
-                    // selections remain held out. Session 35 reaches that
-                    // branch on the third action of a second Distilled Chaos.
-                    let mut queued_cards = Vec::with_capacity((3 * multiplier) as usize);
-                    for _ in 0..3 * multiplier {
-                        if combat.piles.draw_pile.is_empty()
-                            && !combat.piles.discard_pile.is_empty()
-                        {
-                            player_shuffle_discard_into_draw(&mut combat)?;
-                        }
-                        let Some(card) = combat.piles.pop_draw_top() else {
-                            break;
-                        };
-                        combat.piles.limbo.push(card);
-                        queued_cards.push(card);
-                    }
-                    let mut queued_plays = queued_cards
-                        .into_iter()
-                        .zip(queued_targets)
-                        .collect::<std::collections::VecDeque<_>>();
-                    while let Some((card, queued_target)) = queued_plays.pop_front() {
-                        if combat.phase != CombatPhase::WaitingForPlayer {
-                            for (held_card, _) in queued_plays.iter().rev() {
-                                let index = combat
-                                    .piles
-                                    .limbo
-                                    .iter()
-                                    .position(|candidate| candidate.id == held_card.id)
-                                    .ok_or(SimError::InvalidState(
-                                        "Distilled Chaos held card is missing from limbo",
-                                    ))?;
-                                combat.piles.limbo.remove(index);
-                                combat.piles.restore_hidden_draw_top(*held_card);
+                    // DistilledChaosPotion.use addToBot's PlayTopCardAction.
+                    // If a select is already open, those actions wait behind it
+                    // instead of mutating the visible pile under the grid.
+                    if let Some(pending) = combat_open_decision_pending_mut(&mut combat) {
+                        pending.extend(queued_targets.into_iter().map(|target| {
+                            crate::InternalAction::PlayTopDrawCard {
+                                target,
+                                exhaust_played_card: false,
+                                random_living_target: false,
                             }
-                            break;
-                        }
-                        let limbo_index = combat
-                            .piles
-                            .limbo
-                            .iter()
-                            .position(|candidate| candidate.id == card.id)
-                            .ok_or(SimError::InvalidState(
-                                "Distilled Chaos queued card is missing from limbo",
-                            ))?;
-                        combat.piles.limbo.remove(limbo_index);
-                        combat.piles.push_draw_top(card);
-                        let top_definition = top_draw_card_definition(&combat)
-                            .ok_or(SimError::IllegalAction("draw pile is empty"))?;
-                        let target = if top_definition.target == TargetRequirement::Enemy {
-                            queued_target
-                        } else {
-                            None
-                        };
-                        combat = apply_play_top_draw_card_action(&combat, target)?;
-                        victory_healing_applied |= combat.phase == CombatPhase::Won;
-                        if let Some(CombatDecisionState::HandSelect {
-                            pending_actions, ..
-                        }) = combat.decision.as_mut()
-                        {
-                            for (held_card, _) in queued_plays.iter().rev() {
-                                let index = combat
-                                    .piles
-                                    .limbo
-                                    .iter()
-                                    .position(|candidate| candidate.id == held_card.id)
-                                    .ok_or(SimError::InvalidState(
-                                        "Distilled Chaos held card is missing from limbo",
-                                    ))?;
-                                combat.piles.limbo.remove(index);
-                                combat.piles.restore_hidden_draw_top(*held_card);
+                        }));
+                        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+                        next.combat = Some(combat);
+                    } else {
+                        // Each PlayTopCardAction moves its selected card to limbo,
+                        // but the queued cards do not resolve until all three
+                        // actions have selected. If selection finds an empty draw
+                        // pile, it shuffles the discard pile while the earlier
+                        // selections remain held out. Session 35 reaches that
+                        // branch on the third action of a second Distilled Chaos.
+                        let mut queued_cards = Vec::with_capacity((3 * multiplier) as usize);
+                        for _ in 0..3 * multiplier {
+                            if combat.piles.draw_pile.is_empty()
+                                && !combat.piles.discard_pile.is_empty()
+                            {
+                                player_shuffle_discard_into_draw(&mut combat)?;
                             }
-                            pending_actions.extend(queued_plays.drain(..).map(|(_, target)| {
-                                crate::InternalAction::PlayTopDrawCard {
-                                    target,
-                                    exhaust_played_card: false,
-                                    random_living_target: false,
+                            let Some(card) = combat.piles.pop_draw_top() else {
+                                break;
+                            };
+                            combat.piles.limbo.push(card);
+                            queued_cards.push(card);
+                        }
+                        let mut queued_plays = queued_cards
+                            .into_iter()
+                            .zip(queued_targets)
+                            .collect::<std::collections::VecDeque<_>>();
+                        while let Some((card, queued_target)) = queued_plays.pop_front() {
+                            if combat.phase != CombatPhase::WaitingForPlayer {
+                                for (held_card, _) in queued_plays.iter().rev() {
+                                    let index = combat
+                                        .piles
+                                        .limbo
+                                        .iter()
+                                        .position(|candidate| candidate.id == held_card.id)
+                                        .ok_or(SimError::InvalidState(
+                                            "Distilled Chaos held card is missing from limbo",
+                                        ))?;
+                                    combat.piles.limbo.remove(index);
+                                    combat.piles.restore_hidden_draw_top(*held_card);
                                 }
-                            }));
-                            break;
+                                break;
+                            }
+                            let limbo_index = combat
+                                .piles
+                                .limbo
+                                .iter()
+                                .position(|candidate| candidate.id == card.id)
+                                .ok_or(SimError::InvalidState(
+                                    "Distilled Chaos queued card is missing from limbo",
+                                ))?;
+                            combat.piles.limbo.remove(limbo_index);
+                            combat.piles.push_draw_top(card);
+                            let top_definition = top_draw_card_definition(&combat)
+                                .ok_or(SimError::IllegalAction("draw pile is empty"))?;
+                            let target = if top_definition.target == TargetRequirement::Enemy {
+                                queued_target
+                            } else {
+                                None
+                            };
+                            combat = apply_play_top_draw_card_action(&combat, target)?;
+                            victory_healing_applied |= combat.phase == CombatPhase::Won;
+                            if let Some(CombatDecisionState::HandSelect {
+                                pending_actions, ..
+                            }) = combat.decision.as_mut()
+                            {
+                                for (held_card, _) in queued_plays.iter().rev() {
+                                    let index = combat
+                                        .piles
+                                        .limbo
+                                        .iter()
+                                        .position(|candidate| candidate.id == held_card.id)
+                                        .ok_or(SimError::InvalidState(
+                                            "Distilled Chaos held card is missing from limbo",
+                                        ))?;
+                                    combat.piles.limbo.remove(index);
+                                    combat.piles.restore_hidden_draw_top(*held_card);
+                                }
+                                pending_actions.extend(queued_plays.drain(..).map(
+                                    |(_, target)| crate::InternalAction::PlayTopDrawCard {
+                                        target,
+                                        exhaust_played_card: false,
+                                        random_living_target: false,
+                                    },
+                                ));
+                                break;
+                            }
                         }
+                        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+                        next.combat = Some(combat);
                     }
-                    next.card_random_rng_counter = combat.rng.card_random_rng.counter();
-                    next.combat = Some(combat);
                 }
                 Potion::LiquidMemories => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -1559,7 +1613,7 @@ mod tests {
         },
         content::monsters::{monster_state, WRITHING_MASS_A0},
         content::shop_pool::ironclad_combat_discovery_pool,
-        CombatAction, MonsterIntent,
+        legal_run_decision_actions, CombatAction, MonsterIntent,
     };
 
     #[test]
@@ -2357,6 +2411,147 @@ mod tests {
             .any(|card| card.content_id == DUAL_WIELD_ID));
         assert_eq!(combat.piles.draw_pile.len(), 1);
         assert_eq!(combat.piles.draw_pile[0].content_id, WILD_STRIKE_ID);
+    }
+
+    #[test]
+    fn swift_potion_during_secret_weapon_waits_behind_the_grid() {
+        use crate::content::cards::{DEFEND_R_ID, SECRET_WEAPON_ID, STRIKE_R_ID};
+        use crate::CombatAction;
+
+        let mut run = RunState::combat_fixture();
+        run.potions = vec![Potion::Swift];
+        run.empty_potion_slots = vec![1, 2];
+        {
+            let combat = run.combat.as_mut().expect("combat fixture");
+            combat.player.energy = 1;
+            combat.piles.hand = vec![
+                CardInstance::new(CardId::new(1), SECRET_WEAPON_ID),
+                CardInstance::new(CardId::new(2), DEFEND_R_ID),
+            ];
+            combat.piles.draw_pile = vec![
+                CardInstance::new(CardId::new(10), DEFEND_R_ID),
+                CardInstance::new(CardId::new(11), STRIKE_R_ID),
+                CardInstance::new(CardId::new(12), STRIKE_R_ID),
+                CardInstance::new(CardId::new(13), DEFEND_R_ID),
+            ];
+            combat.piles.discard_pile.clear();
+        }
+        let selecting = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Secret Weapon opens a draw select");
+        let draw_before = selecting
+            .combat
+            .as_ref()
+            .expect("combat")
+            .piles
+            .draw_pile
+            .clone();
+        let next = apply_potion_action(
+            &selecting,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("Swift Potion is legal during Secret Weapon");
+        let combat = next.combat.as_ref().expect("combat remains open");
+        assert!(matches!(
+            combat.decision,
+            Some(CombatDecisionState::DrawSelect { .. })
+        ));
+        assert_eq!(combat.piles.draw_pile, draw_before);
+        let pending = match combat.decision.as_ref() {
+            Some(CombatDecisionState::DrawSelect { state }) => &state.pending_actions,
+            _ => panic!("draw select"),
+        };
+        assert_eq!(pending.len(), 1);
+        assert!(
+            matches!(pending[0], crate::InternalAction::DrawCards { count: 3 }),
+            "Swift's DrawCardAction waits behind the grid"
+        );
+        let mut combat = next.combat.clone().expect("combat");
+        choose_draw_select(&mut combat, 0).expect("choose an attack");
+        confirm_draw_select(&mut combat).expect("confirm then draw");
+        assert!(combat.decision.is_none());
+        assert!(
+            combat
+                .piles
+                .hand
+                .iter()
+                .any(|card| card.content_id == STRIKE_R_ID),
+            "selected attack is retrieved before the queued Swift draw"
+        );
+        assert_eq!(
+            combat.piles.hand.len(),
+            5,
+            "Defend remains, retrieved Strike, then Swift draws three"
+        );
+    }
+
+    #[test]
+    fn distilled_chaos_during_secret_technique_waits_behind_the_grid() {
+        use crate::content::cards::{DEFEND_R_ID, SECRET_TECHNIQUE_ID, STRIKE_R_ID};
+        use crate::CombatAction;
+
+        let mut run = RunState::combat_fixture();
+        run.potions = vec![Potion::DistilledChaos];
+        run.empty_potion_slots = vec![1, 2];
+        {
+            let combat = run.combat.as_mut().expect("combat fixture");
+            combat.player.energy = 1;
+            combat.piles.hand = vec![CardInstance::new(CardId::new(1), SECRET_TECHNIQUE_ID)];
+            combat.piles.draw_pile = vec![
+                CardInstance::new(CardId::new(10), DEFEND_R_ID),
+                CardInstance::new(CardId::new(11), DEFEND_R_ID),
+                CardInstance::new(CardId::new(12), STRIKE_R_ID),
+                CardInstance::new(CardId::new(13), DEFEND_R_ID),
+                CardInstance::new(CardId::new(14), DEFEND_R_ID),
+            ];
+            combat.piles.discard_pile.clear();
+        }
+        let selecting = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Secret Technique opens a draw select");
+        let draw_before = selecting
+            .combat
+            .as_ref()
+            .expect("combat")
+            .piles
+            .draw_pile
+            .clone();
+        let next = apply_potion_action(
+            &selecting,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("Distilled Chaos is legal during Secret Technique");
+        let combat = next.combat.as_ref().expect("combat remains open");
+        assert!(matches!(
+            combat.decision,
+            Some(CombatDecisionState::DrawSelect { .. })
+        ));
+        assert_eq!(combat.piles.draw_pile, draw_before);
+        let pending = match combat.decision.as_ref() {
+            Some(CombatDecisionState::DrawSelect { state }) => &state.pending_actions,
+            _ => panic!("draw select"),
+        };
+        assert_eq!(
+            pending.len(),
+            3,
+            "three PlayTop actions wait behind the grid"
+        );
     }
 
     #[test]
@@ -3886,5 +4081,85 @@ mod tests {
             .discard_pile
             .iter()
             .all(|card| card.temp_cost.is_none()));
+    }
+
+    #[test]
+    fn liquid_memories_sacred_bark_does_not_advertise_over_capacity_choices() {
+        let mut run = RunState::combat_fixture();
+        run.relics.push(crate::Relic::SacredBark);
+        run.potions = vec![Potion::LiquidMemories];
+        run.empty_potion_slots = vec![1, 2];
+        {
+            let combat = run.combat.as_mut().expect("combat fixture");
+            combat.piles.discard_pile = vec![
+                CardInstance::new(CardId::new(10_000), STRIKE_R_ID),
+                CardInstance::new(CardId::new(10_001), STRIKE_R_ID),
+                CardInstance::new(CardId::new(10_002), DEFEND_R_ID),
+                CardInstance::new(CardId::new(10_003), BASH_ID),
+            ];
+        }
+
+        let opened = apply_potion_action(
+            &run,
+            RunAction::UsePotion {
+                slot: 0,
+                target: None,
+            },
+        )
+        .expect("Liquid Memories opens a two-card grid with Sacred Bark");
+        let first = apply_discard_select_choice(&opened, 0).expect("select first card");
+        let full = apply_discard_select_choice(&first, 1).expect("select second card");
+        let combat = full.combat.as_ref().expect("combat remains open");
+        let select = combat
+            .discard_select()
+            .expect("grid stays open at capacity");
+        assert_eq!(select.max_choices, 2);
+        assert_eq!(select.selected_discard_indices, vec![0, 1]);
+
+        let legal = legal_run_decision_actions(&full).expect("legal actions");
+        let choose =
+            |index| crate::RunDecisionAction::Run(RunAction::ChooseDiscardSelect { index });
+        assert!(legal.contains(&choose(0)), "deselecting slot 0 stays legal");
+        assert!(legal.contains(&choose(1)), "deselecting slot 1 stays legal");
+        assert!(
+            !legal.contains(&choose(2)),
+            "an unselected third card must not be advertised"
+        );
+        assert!(
+            !legal.contains(&choose(3)),
+            "an unselected fourth card must not be advertised"
+        );
+        assert!(legal.contains(&crate::RunDecisionAction::Run(
+            RunAction::ConfirmDiscardSelect
+        )));
+
+        for action in &legal {
+            if matches!(
+                action,
+                crate::RunDecisionAction::Run(RunAction::ChooseDiscardSelect { .. })
+                    | crate::RunDecisionAction::Run(RunAction::ConfirmDiscardSelect)
+            ) {
+                crate::apply_run_decision_action(&full, *action)
+                    .unwrap_or_else(|_| panic!("advertised action must apply: {action:?}"));
+            }
+        }
+
+        let deselected = apply_discard_select_choice(&full, 1).expect("deselect second card");
+        let reselected = apply_discard_select_choice(&deselected, 2)
+            .expect("after deselect, a different card is legal");
+        let confirmed = apply_discard_select_confirm(&reselected).expect("confirm two cards");
+        let combat = confirmed.combat.expect("combat remains open");
+        assert!(combat.decision.is_none());
+        assert_eq!(combat.piles.discard_pile.len(), 2);
+        assert!(combat
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(10_000) && card.temp_cost == Some(0)));
+        assert!(combat
+            .piles
+            .hand
+            .iter()
+            .any(|card| card.id == CardId::new(10_002) && card.temp_cost == Some(0)));
     }
 }

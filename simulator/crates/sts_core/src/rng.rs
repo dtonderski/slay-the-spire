@@ -561,7 +561,8 @@ impl JavaRng {
     pub fn next_int(&mut self, bound: i32) -> i32 {
         assert!(bound > 0, "Java Random bound must be positive");
 
-        if (bound & -bound) == bound {
+        // Java Random: (n & -n) == n for n > 0, i.e. unsigned power of two.
+        if (bound as u32).is_power_of_two() {
             return (((bound as i64) * (self.next_bits(31) as i64)) >> 31) as i32;
         }
 

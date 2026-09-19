@@ -16,8 +16,8 @@ use sts_core::adapter_internals::{
     content::{
         cards,
         monsters::{
-            monster_state, AWAKENED_ONE_A0, DARKLING_A0, FIXED_SIMPLE_MONSTER, GUARDIAN_A0,
-            GUARDIAN_DEFENSIVE_BLOCK,
+            mark_awakened_one_half_dead, monster_state, AWAKENED_ONE_A0, DARKLING_A0,
+            FIXED_SIMPLE_MONSTER, GUARDIAN_A0, GUARDIAN_DEFENSIVE_BLOCK,
         },
         shop_pool::colorless_discovery_pool,
     },
@@ -3821,6 +3821,47 @@ fn trip_plus_targets_all_enemies_without_selection() {
             "all-enemies card cannot have a target"
         )
     );
+}
+
+#[test]
+fn sword_boomerang_plays_against_half_dead_awakened_one() {
+    let mut state = CombatState::initial_fixture();
+    state.player.energy = 1;
+    state.piles.hand = vec![CardInstance::new(
+        CardId::new(1),
+        cards::SWORD_BOOMERANG_PLUS_ID,
+    )];
+    state.piles.discard_pile.clear();
+    let mut awakened = monster_state(&AWAKENED_ONE_A0, MonsterId::new(1));
+    assert!(mark_awakened_one_half_dead(&mut awakened));
+    state.monsters = vec![awakened];
+
+    assert!(
+        valid_legal_combat_actions(&state).contains(&CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        }),
+        "AllEnemies remains legal during Awakened One first-form death"
+    );
+
+    let next = apply_combat_action(
+        &state,
+        CombatAction::PlayCard {
+            card_id: CardId::new(1),
+            target: None,
+        },
+    )
+    .expect("Sword Boomerang should play and no-op random hits");
+
+    assert!(next.piles.hand.is_empty());
+    assert_eq!(next.piles.discard_pile.len(), 1);
+    assert_eq!(
+        next.piles.discard_pile[0].content_id,
+        cards::SWORD_BOOMERANG_PLUS_ID
+    );
+    assert!(!next.monsters[0].alive);
+    assert_eq!(next.monsters[0].hp, 0);
+    assert_eq!(next.player.energy, 0);
 }
 
 #[test]

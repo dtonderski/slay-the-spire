@@ -274,35 +274,17 @@ pub(super) fn add_generated_cards_to_hand_while_source_in_limbo(
     temp_cost: Option<u8>,
     temp_cost_turn_only: bool,
 ) -> SimResult<Vec<InternalAction>> {
-    let source_index = state
-        .piles
-        .hand
-        .iter()
-        .position(|card| card.id == source_card_id)
-        .ok_or(SimError::UnknownCard(source_card_id))?;
-    // Keep the source on limbo so ID allocation cannot collide with it.
-    let source = state.piles.hand.remove(source_index);
-    state.piles.limbo.push(source);
-    let result = (0..count).try_for_each(|_| {
-        add_generated_card_to_pile(
-            state,
-            content_id,
-            CardPile::Hand,
-            temp_cost,
-            temp_cost_turn_only,
-        )
-    });
-    let source = state.piles.limbo.pop().ok_or(SimError::InvalidState(
-        "limbo source card missing after generate",
-    ))?;
-    if source.id != source_card_id {
-        return Err(SimError::InvalidState("limbo source card id mismatch"));
-    }
-    state
-        .piles
-        .hand
-        .insert(source_index.min(state.piles.hand.len()), source);
-    result?;
+    generate_while_source_not_occupying_hand(state, source_card_id, |state| {
+        (0..count).try_for_each(|_| {
+            add_generated_card_to_pile(
+                state,
+                content_id,
+                CardPile::Hand,
+                temp_cost,
+                temp_cost_turn_only,
+            )
+        })
+    })?;
     Ok(Vec::new())
 }
 
@@ -377,41 +359,52 @@ pub(super) fn add_random_colorless_cards_to_hand_while_source_in_limbo(
     temp_cost: Option<u8>,
     upgrade: bool,
 ) -> SimResult<Vec<InternalAction>> {
+    generate_while_source_not_occupying_hand(state, source_card_id, |state| {
+        (0..count).try_for_each(|_| {
+            state.reserve_card_instance_ids(1)?;
+            let content_id = random_colorless_card(state, upgrade)?;
+            add_generated_card_to_pile(
+                state,
+                content_id,
+                CardPile::Hand,
+                temp_cost,
+                temp_cost.is_some(),
+            )
+        })
+    })?;
+    Ok(Vec::new())
+}
+
+fn generate_while_source_not_occupying_hand(
+    state: &mut CombatState,
+    source_card_id: CardId,
+    generate: impl FnOnce(&mut CombatState) -> SimResult<()>,
+) -> SimResult<()> {
     let source_index = state
         .piles
         .hand
         .iter()
-        .position(|card| card.id == source_card_id)
-        .ok_or(SimError::UnknownCard(source_card_id))?;
-    // Park in limbo (not a bare local) so instance-ID allocation cannot reuse
-    // the source id while it is off the hand.
-    let source = state.piles.hand.remove(source_index);
-    state.piles.limbo.push(source);
-    let result = (0..count).try_for_each(|_| {
-        state.reserve_card_instance_ids(1)?;
-        let content_id = random_colorless_card(state, upgrade)?;
-        add_generated_card_to_pile(
-            state,
-            content_id,
-            CardPile::Hand,
-            temp_cost,
-            temp_cost.is_some(),
-        )
-    });
-    let source = state.piles.limbo.pop().ok_or(SimError::InvalidState(
-        "Transmutation source missing from limbo",
-    ))?;
-    if source.id != source_card_id {
-        return Err(SimError::InvalidState(
-            "Transmutation limbo source id mismatch",
-        ));
+        .position(|card| card.id == source_card_id);
+    if let Some(index) = source_index {
+        // MakeTempCardInHandAction observes the played card in cardInUse/limbo.
+        // Park a live hand source so ID allocation cannot collide with it.
+        let source = state.piles.hand.remove(index);
+        state.piles.limbo.push(source);
     }
-    state
-        .piles
-        .hand
-        .insert(source_index.min(state.piles.hand.len()), source);
-    result?;
-    Ok(Vec::new())
+    let result = generate(state);
+    if let Some(index) = source_index {
+        let source = state.piles.limbo.pop().ok_or(SimError::InvalidState(
+            "limbo source card missing after generate",
+        ))?;
+        if source.id != source_card_id {
+            return Err(SimError::InvalidState("limbo source card id mismatch"));
+        }
+        state
+            .piles
+            .hand
+            .insert(index.min(state.piles.hand.len()), source);
+    }
+    result
 }
 
 pub(super) fn draw_cards(state: &mut CombatState, count: usize) -> SimResult<Vec<InternalAction>> {
@@ -448,22 +441,15 @@ fn draw_cards_while_played_card_is_in_limbo_with_mode(
     count: usize,
     trigger_evolve: bool,
 ) -> SimResult<Vec<InternalAction>> {
-    let played_card = match state.piles.hand.iter().position(|card| card.id == card_id) {
-        Some(hand_index) => Some(state.piles.hand.remove(hand_index)),
-        None if state
-            .piles
-            .discard_pile
-            .iter()
-            .any(|card| card.id == card_id) =>
-        {
-            None
-        }
-        None => {
-            return Err(SimError::IllegalAction(
-                "played card is not in hand or discard",
-            ));
-        }
-    };
+    // DrawCardAction runs while UseCardAction holds the original in cardInUse.
+    // A DuplicationPower copy is a different limbo instance, so a missing
+    // original must not be required or relocated. Park only a live hand source.
+    let played_card = state
+        .piles
+        .hand
+        .iter()
+        .position(|card| card.id == card_id)
+        .map(|hand_index| state.piles.hand.remove(hand_index));
     // EvolvePower.onCardDraw addToBot's DrawCardAction, so status-triggered
     // draws must wait until after this DrawCardAction and the later
     // UseCardAction MoveCard (discard/exhaust). Inline evolve here reshuffled
