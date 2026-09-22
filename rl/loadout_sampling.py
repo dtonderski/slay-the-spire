@@ -138,11 +138,13 @@ class LoadoutSampler:
         if not data["runs"]:
             raise ValueError(f"No training data for ending-floor band {band}; no silent extrapolation")
         size = int(self._table(band, "deck_sizes", data["deck_sizes"]).choose(rng))
-        card_weights = self._table(
-            band,
-            "card_weights",
-            {key: sum(upgrades.values()) for key, upgrades in data["cards"].items()},
-        )
+        card_weights = self._tables.get((band, "card_weights"))
+        if card_weights is None:
+            card_weights = self._table(
+                band,
+                "card_weights",
+                {key: sum(upgrades.values()) for key, upgrades in data["cards"].items()},
+            )
         deck = []
         for _ in range(size):
             key = card_weights.choose(rng)
