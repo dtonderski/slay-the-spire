@@ -107,7 +107,6 @@ class LoadoutSamplingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validated_event(value)
 
-
     def test_prepared_tables_match_choices_draw_order(self) -> None:
         import math
 
@@ -153,7 +152,6 @@ class LoadoutSamplingTests(unittest.TestCase):
                 sample.hp,
             )
             self.assertEqual(actual, expected)
-
 
 
 if __name__ == "__main__":

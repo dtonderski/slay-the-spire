@@ -12,7 +12,14 @@ from loadout_sampling import LoadoutSampler, band_for
 from model import CombatValueModel
 from rollout_errors import SimulatorStepError
 from scenarios import COMBAT_FLOORS, ScenarioConfig
-from train import evaluate, evaluate_baselines, fresh_batch, play_combats, sample_unpadded_action, update_with_diagnostics
+from train import (
+    evaluate,
+    evaluate_baselines,
+    fresh_batch,
+    play_combats,
+    sample_unpadded_action,
+    update_with_diagnostics,
+)
 from validation_set import build_validation, load_validation, main
 
 
@@ -183,7 +190,6 @@ class ValidationSetTests(unittest.TestCase):
         self.assertTrue(torch.equal(before, torch.get_rng_state()))
         self.assertIn("episodes", scores)
 
-
     def test_batched_evaluation_preserves_streams_and_versions_policy_scores(self) -> None:
         torch.set_num_threads(1)
         roots, _ = fresh_batch(random.Random(12), sampler(), 2, ScenarioConfig(min_floor=1, max_floor=1))
@@ -218,8 +224,6 @@ class ValidationSetTests(unittest.TestCase):
             self.assertTrue(torch.equal(before, torch.get_rng_state()))
         with self.assertRaises(ValueError):
             evaluate(roots, None, 1, 1, batch_size=0)
-
-
 
     def test_foreign_padding_does_not_change_per_fight_rng(self) -> None:
         legal = torch.tensor([0.2, -0.4])
@@ -265,7 +269,6 @@ class ValidationSetTests(unittest.TestCase):
         self.assertEqual(rows[0]["attempted_prefixes"], [4])
         self.assertEqual(rows[1]["attempted_prefixes"], [5, 6])
         self.assertEqual(rows[0]["step"], 3)
-
 
 
 if __name__ == "__main__":

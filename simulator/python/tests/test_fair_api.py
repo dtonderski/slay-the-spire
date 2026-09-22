@@ -33,7 +33,6 @@ class FairApiTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "stale"):
             state.step(decision.actions[0])
 
-
     def test_player_hp_matches_public_context_without_mutation(self) -> None:
         state = sts_sim.State.new("HUMAN1")
         revision = state.revision
@@ -41,7 +40,6 @@ class FairApiTest(unittest.TestCase):
         self.assertEqual(state.player_hp(), before.context.player_hp)
         self.assertEqual(state.revision, revision)
         self.assertEqual(state.observation(), before)
-
 
 
 if __name__ == "__main__":

@@ -364,8 +364,7 @@ def evaluate(
                     if error_path is None:
                         raise
                     prefixes = {
-                        local: prefix
-                        for local, prefix in zip(error.root_indices, error.action_prefixes, strict=True)
+                        local: prefix for local, prefix in zip(error.root_indices, error.action_prefixes, strict=True)
                     }
                     for local, (index, repeat, root, seed) in enumerate(chunk):
                         record_error(
@@ -521,9 +520,7 @@ def train_batch(
                 trajectories=trajectories,
                 replays=replays,
             )
-        accumulated = accumulate_replay_loss(
-            model, replays, episodes, entropy_coef, value_coef, chunk_decisions
-        )
+        accumulated = accumulate_replay_loss(model, replays, episodes, entropy_coef, value_coef, chunk_decisions)
         if accumulated is None:
             loss, policy_loss, value_loss = None, None, None
         else:

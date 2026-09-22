@@ -236,7 +236,6 @@ class NumericObservationTests(unittest.TestCase):
         self.assertTrue(actual[0].won)
         self.assertIsNone(actual[1].reward)
 
-
     def test_symbol_codes_are_scoped_to_each_batch_table(self) -> None:
         vocabulary = {"defend": 1, "strike": 3}
 
@@ -251,7 +250,6 @@ class NumericObservationTests(unittest.TestCase):
         np.testing.assert_array_equal(first.codes(np.array([1]), vocabulary), [3])
         with self.assertRaisesRegex(ValueError, "absent from encoder vocabulary"):
             first.codes(np.array([1]), {"defend": 1})
-
 
 
 if __name__ == "__main__":

@@ -50,7 +50,7 @@ class _Weighted:
     skipping the per-draw scan of the catalog.
     """
 
-    __slots__ = ("population", "cum_weights")
+    __slots__ = ("cum_weights", "population")
 
     def __init__(self, counts: dict) -> None:
         if not counts or any(not math.isfinite(n) or n <= 0 for n in counts.values()):
