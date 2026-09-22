@@ -61,15 +61,12 @@ The policy loss detaches this advantage; squared value error trains the value he
 fights and average over completed fights. There is no scalar/EMA reward baseline.
 `--grad-chunk-decisions 0` (the default) retains the rollout graph until one
 backward. A positive value rolls out under `no_grad`, stores the public numeric
-inputs and chosen actions, then recomputes that same objective. Each original
-decision round is forwarded separately; rounds are not stacked into a larger
-matmul. The count is a flush threshold, not a hard maximum: a round is never
-split, so one large round can exceed it. Every flushed chunk is divided by the
-completed-fight count, gradients accumulate, and there is still one optimizer
-step. A positive value rolls out under `no_grad`, then recomputes in flushes. Rounds in a flush
-are grouped by similar token width and action count and stacked, so one flush is a few
-larger forwards rather than one forward per round. Padding, host repacking, and backward
-scheduling still matter; stacking is not automatically faster.
+inputs and chosen actions, then recomputes that same objective. The count is a
+flush threshold, not a hard maximum: a round is never split, so one large round
+can exceed it. Rounds in a flush are grouped by similar token width and action
+count and stacked into fewer forwards. Every group is divided by the completed-fight
+count, gradients accumulate, and there is still one optimizer step. Padding, host
+repacking, and backward scheduling still matter; stacking is not automatically faster.
 Random/beam evaluation references are not learning baselines.
 
 ## Fixed evaluation and references
