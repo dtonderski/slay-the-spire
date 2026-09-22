@@ -11,6 +11,7 @@ epoch-based root collection, typed-model fallback, or alternate loss implementat
    Legal actions are integer rows. A sampled choice is an index into that state's current
    public legal list, paired with the exported revision. Smoke Bomb uses are omitted from
    the policy list and remain legal in the simulator.
+   Card, monster, relic, potion, power, and counter columns are content vocabulary v1 ids, not batch-local symbol positions.
 3. `trajectories.py::Trajectories.losses`: policy loss and entropy regularization.
 4. `train.py::train_batch`: collect → loss → backward → optimizer step.
 5. `train.py::main`: fresh batches, evaluation, logging, checkpoints.

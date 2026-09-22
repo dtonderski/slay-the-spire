@@ -37,14 +37,22 @@ class EnemyEncoder(nn.Module):
     ) -> tuple[Float[Tensor, "n_enemies enemy_features"], Float[Tensor, "n_enemies d_model"], list[int]]:
         """Encode raw enemy tables, retaining dead slots and shared Stasis features."""
         rows = batch.table("enemies", 18)
-        identities = self.embedding(
-            tensor(self.embedding.weight, batch.codes(rows[:, 1], ENEMY_TO_INDEX), integer=True)
-        )
+        raw_ids = rows[:, 1]
+        if len(raw_ids) and (int(raw_ids.min()) < 0 or int(raw_ids.max()) >= len(ENEMY_TO_INDEX)):
+            raise ValueError("Monster id is outside content vocabulary v1")
+        if len(rows) and (
+            int(rows[:, 6].min()) < 0
+            or int(rows[:, 6].max()) >= len(SLIME_SIZE_TO_INDEX)
+            or int(rows[:, 7].min()) < 0
+            or int(rows[:, 7].max()) >= len(INTENT_TO_INDEX)
+        ):
+            raise ValueError("Enemy categorical id is outside content vocabulary v1")
+        identities = self.embedding(tensor(self.embedding.weight, raw_ids, integer=True))
         stats = rows[:, 2:6] / np.array([HP_SCALE, HP_SCALE, BLOCK_SCALE, 1.0])
         powers = batch.powers("enemy_powers", len(rows), POWER_TO_INDEX)
-        intent = np.eye(len(INTENT_TO_INDEX))[batch.codes(rows[:, 7], INTENT_TO_INDEX)]
+        intent = np.eye(len(INTENT_TO_INDEX))[rows[:, 7]]
         numbers = rows[:, 8:12] / np.array([INTENT_DAMAGE_SCALE, 1.0, 1.0, 1.0])
-        slime = np.eye(len(SLIME_SIZE_TO_INDEX))[batch.codes(rows[:, 6], SLIME_SIZE_TO_INDEX)]
+        slime = np.eye(len(SLIME_SIZE_TO_INDEX))[rows[:, 6]]
         extra = rows[:, 12:17] / np.array([1.0, 1.0, 1.0, GOLD_SCALE, 1.0])
         state = tensor(identities, np.concatenate((stats, powers, intent, numbers, slime, extra), axis=1))
         stasis = batch.table("stasis", 18)

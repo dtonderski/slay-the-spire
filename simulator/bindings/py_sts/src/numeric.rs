@@ -1,5 +1,9 @@
 //! Direct numeric transport of the combat policy's PUBLIC input fields.
 //! Export consumes FairDecision only. Stepping indexes the current public legal list.
+use crate::vocabulary::{
+    card_id, counter_id, intent_id, monster_id, potion_id, power_id, relic_id,
+    selection_catalog_id, slime_catalog_id,
+};
 use crate::{public_runtime_error, PyState};
 use pyo3::{prelude::*, types::PyBytes};
 use serde::Serialize;
@@ -11,7 +15,7 @@ use sts_env::{
 
 type Tables = BTreeMap<String, (usize, Py<PyBytes>)>;
 type Batch = (u32, Vec<String>, Tables, Vec<usize>);
-pub const NUMERIC_VERSION: u32 = 2;
+pub const NUMERIC_VERSION: u32 = 3;
 pub const ACTION_ROW_WIDTH: usize = 12;
 /// Fixed public kind order. Codes are vocabulary indices, not batch symbol positions.
 pub const ACTION_KINDS: &[&str] = &[
@@ -202,8 +206,13 @@ impl Export {
         rows.extend_from_slice(values);
         index
     }
-    fn card(&mut self, group: &'static str, owner: i64, card: &FairCard) {
-        let key = self.symbol(&card.content_key);
+    fn card(&mut self, group: &'static str, owner: i64, card: &FairCard) -> Result<(), String> {
+        let key = card_id(&card.content_key).ok_or_else(|| {
+            format!(
+                "card '{}' is absent from content vocabulary v1",
+                card.content_key
+            )
+        })?;
         let d = &card.dynamic;
         let dynamic = [
             d.rampage_damage_bonus,
@@ -228,8 +237,13 @@ impl Export {
             row[13 + index] = i64::from(value.is_some());
         }
         self.row(group, &row);
+        Ok(())
     }
-    fn observation(&mut self, decision: &FairDecision, owner: i64) -> bool {
+    fn enum_name(&self, value: impl Serialize) -> String {
+        let key = serde_json::to_value(value).expect("public enum serialization");
+        key.as_str().expect("public enum key").to_owned()
+    }
+    fn observation(&mut self, decision: &FairDecision, owner: i64) -> Result<bool, String> {
         let obs = &decision.observation;
         let kind = self.symbol(obs.screen.kind());
         let phase = self.category(obs.phase);
@@ -248,10 +262,10 @@ impl Export {
             ],
         );
         let FairRunScreen::Combat(c) = &obs.screen else {
-            return false;
+            return Ok(false);
         };
         if c.phase != FairCombatPhase::WaitingForPlayer {
-            return false;
+            return Ok(false);
         }
         let p = &c.player;
         self.row(
@@ -266,11 +280,13 @@ impl Export {
             ],
         );
         for power in &p.powers {
-            let key = self.symbol(&power.key);
+            let key = power_id(&power.key).ok_or_else(|| {
+                format!("power '{}' is absent from content vocabulary v1", power.key)
+            })?;
             self.row("player_powers", &[owner, key, i64::from(power.amount)]);
         }
         for entry in &c.hand {
-            self.card("hand", owner, &entry.card);
+            self.card("hand", owner, &entry.card)?;
         }
         for (group, pile) in [
             ("draw", &c.draw_pile),
@@ -278,20 +294,39 @@ impl Export {
             ("exhaust", &c.exhaust_pile),
         ] {
             for card in &pile.cards {
-                self.card(group, owner, card);
+                self.card(group, owner, card)?;
             }
         }
         for monster in &c.monsters {
-            let key = self.symbol(&monster.content_key);
-            let slime = monster.slime_size.map_or(-1, |size| self.category(size));
+            let key = monster_id(&monster.content_key).ok_or_else(|| {
+                format!(
+                    "monster '{}' is absent from content vocabulary v1",
+                    monster.content_key
+                )
+            })?;
+            let slime_name = monster.slime_size.map(|size| self.enum_name(size));
+            let slime = slime_catalog_id(slime_name.as_deref()).ok_or_else(|| {
+                format!(
+                    "slime size '{}' is absent from content vocabulary v1",
+                    slime_name.unwrap_or_default()
+                )
+            })?;
             let (intent, damage, hits) = match monster.intent {
-                FairMonsterIntent::Hidden => (self.symbol("hidden"), None, None),
-                FairMonsterIntent::None => (self.symbol("none"), None, None),
+                FairMonsterIntent::Hidden => {
+                    (intent_id("hidden").expect("hidden intent"), None, None)
+                }
+                FairMonsterIntent::None => (intent_id("none").expect("none intent"), None, None),
                 FairMonsterIntent::Visible {
                     category,
                     damage,
                     hits,
-                } => (self.category(category), damage, hits),
+                } => {
+                    let name = self.enum_name(category);
+                    let intent = intent_id(&name).ok_or_else(|| {
+                        format!("intent '{name}' is absent from content vocabulary v1")
+                    })?;
+                    (intent, damage, hits)
+                }
             };
             let enemy = self.row(
                 "enemies",
@@ -317,44 +352,72 @@ impl Export {
                 ],
             );
             for power in &monster.powers {
-                let key = self.symbol(&power.key);
+                let key = power_id(&power.key).ok_or_else(|| {
+                    format!("power '{}' is absent from content vocabulary v1", power.key)
+                })?;
                 self.row("enemy_powers", &[enemy, key, i64::from(power.amount)]);
             }
             if let Some(card) = &monster.stasis_card {
-                self.card("stasis", enemy, card);
+                self.card("stasis", enemy, card)?;
             }
         }
         for relic in &obs.context.relics {
-            let key = self.symbol(&relic.content_key);
+            let key = relic_id(&relic.content_key).ok_or_else(|| {
+                format!(
+                    "relic '{}' is absent from content vocabulary v1",
+                    relic.content_key
+                )
+            })?;
             let index = self.row("relics", &[owner, key]);
             for counter in &relic.state {
-                let key = self.symbol(&counter.key);
+                let key = counter_id(&counter.key).ok_or_else(|| {
+                    format!(
+                        "counter '{}' is absent from content vocabulary v1",
+                        counter.key
+                    )
+                })?;
                 self.row("relic_counters", &[index, key, counter.value]);
             }
         }
         for potion in &obs.context.potion_slots {
-            let key = potion.content_key.as_ref().map_or(-1, |k| self.symbol(k));
+            let key = match potion.content_key.as_deref() {
+                None => 0,
+                Some(name) => potion_id(name).ok_or_else(|| {
+                    format!("potion '{name}' is absent from content vocabulary v1")
+                })?,
+            };
             self.row("potions", &[owner, key, potion.slot as i64]);
         }
-        let selection = c.selection.as_ref().map_or(-1, |s| self.category(s.kind));
+        let selection = match c.selection.as_ref() {
+            None => 0,
+            Some(selection) => {
+                let name = self.enum_name(selection.kind);
+                selection_catalog_id(Some(&name)).ok_or_else(|| {
+                    format!("selection '{name}' is absent from content vocabulary v1")
+                })?
+            }
+        };
         self.row("selection", &[selection]);
         if let Some(s) = &c.selection {
             for option in &s.options {
-                self.card("selection_cards", owner, &option.card);
+                self.card("selection_cards", owner, &option.card)?;
                 self.row("selection_options", &[owner, option.slot as i64]);
             }
             for &slot in &s.selected_slots {
                 self.row("selected_slots", &[owner, slot as i64]);
             }
         }
-        true
+        Ok(true)
     }
 }
 fn export(py: Python<'_>, decisions: Vec<FairDecision>) -> PyResult<Batch> {
     let mut out = Export::default();
     let mut model_rows = Vec::new();
     for (index, decision) in decisions.into_iter().enumerate() {
-        if out.observation(&decision, model_rows.len() as i64) {
+        if out
+            .observation(&decision, model_rows.len() as i64)
+            .map_err(pyo3::exceptions::PyValueError::new_err)?
+        {
             model_rows.push(index);
         }
         let revision = i64::try_from(decision.revision.get()).map_err(|_| {
@@ -453,7 +516,7 @@ pub fn numeric_steps(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::{action_row, ACTION_KINDS};
+    use super::{action_row, card_id, ACTION_KINDS};
     use sts_env::{
         FairCardDynamicValues, FairEnvironment, FairIntentCategory, FairSelection,
         FairSelectionKind, FairSelectionOption, PublicChoice,
@@ -461,7 +524,7 @@ mod tests {
 
     fn card() -> FairCard {
         FairCard {
-            content_key: "strike".to_owned(),
+            content_key: "Strike_R".to_owned(),
             cost: -1,
             upgrade_level: 2,
             cost_is_modified: true,
@@ -481,16 +544,33 @@ mod tests {
     #[test]
     fn raw_card_columns_preserve_signed_values_and_optional_zero() {
         let mut out = Export::default();
-        out.card("hand", 4, &card());
-        assert_eq!(
-            out.tables["hand"].1,
-            [4, 0, -1, 2, 1, 0, 1, 0, 17, 0, 31, 5, 0, 1, 1, 1, 1, 1]
-        );
+        out.card("hand", 4, &card()).unwrap();
+        let expected = vec![
+            4,
+            card_id("Strike_R").unwrap(),
+            -1,
+            2,
+            1,
+            0,
+            1,
+            0,
+            17,
+            0,
+            31,
+            5,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+        ];
+        assert_eq!(out.tables["hand"].1, expected);
         let mut absent = card();
         absent.dynamic = FairCardDynamicValues::default();
-        out.card("draw", 4, &absent);
+        out.card("draw", 4, &absent).unwrap();
         assert_eq!(&out.tables["draw"].1[8..], &[0; 10]);
-        assert_eq!(out.symbols, ["strike"]);
+        assert!(out.symbols.is_empty());
     }
 
     #[test]
@@ -530,7 +610,7 @@ mod tests {
             selected_slots: vec![0],
         });
         let mut out = Export::default();
-        assert!(out.observation(&decision, 0));
+        assert!(out.observation(&decision, 0).unwrap());
         assert_eq!(&out.tables["enemies"].1[8..12], &[0, 0, 1, 0]);
         assert_eq!(out.tables["enemies"].1[2], 0);
         assert_eq!(out.tables["enemies"].1[5], 0);
