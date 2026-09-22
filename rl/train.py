@@ -161,7 +161,7 @@ def play_combats(
                             torch.cuda.set_rng_state(torch_rng_states[owner], logits.device)
                         else:
                             torch.set_rng_state(torch_rng_states[owner])
-                        choice = int(Categorical(logits=logits[position : position + 1]).sample())
+                        choice = sample_unpadded_action(logits[position], len(actions[position]))
                         torch_rng_states[owner] = (
                             torch.cuda.get_rng_state(logits.device) if cuda else torch.get_rng_state()
                         )
@@ -202,6 +202,17 @@ def episode_metrics(episodes: list[Episode]) -> dict[str, float]:
     return result
 
 
+def sample_unpadded_action(logits: Tensor, n_legal: int) -> int:
+    """Sample one legal index. Extra ``-inf`` padding must not affect the draw or RNG."""
+    if n_legal < 1 or n_legal > logits.shape[-1]:
+        raise ValueError("Legal action count is outside the logit row")
+    # Shape [1, n_legal] matches a single-fight forward, which has no foreign padding.
+    row = logits[..., :n_legal]
+    if row.ndim == 1:
+        row = row.unsqueeze(0)
+    return int(Categorical(logits=row).sample())
+
+
 def _policy_seed(index: int, repeats: int, repeat: int) -> int:
     return 90000 + index * repeats + repeat
 
@@ -237,13 +248,23 @@ def evaluate(
     hp_changes: list[int] = []
     failed_cases: set[int] = set()
     failures = 0
+    batched_unavailable = 0
     if model is not None:
         model.eval()
     # manual_seed also seeds CUDA; preserve its state when a GPU model is evaluated.
     cuda = model is not None and next(model.parameters()).is_cuda
     devices = list(range(torch.cuda.device_count())) if cuda else []
 
-    def record_error(index: int, root: Root, repeat: int, seed: int, error: SimulatorStepError) -> None:
+    def record_error(
+        index: int,
+        root: Root,
+        repeat: int,
+        seed: int,
+        error: SimulatorStepError,
+        *,
+        source: str,
+        attempted_prefixes: list | None,
+    ) -> None:
         nonlocal failures
         if error_path is None:
             raise error
@@ -260,12 +281,14 @@ def evaluate(
                         "policy_seed": seed,
                         "error": str(error),
                         "step": error.step,
-                        "attempted_prefixes": error.action_prefixes,
+                        "attempted_prefixes": attempted_prefixes,
+                        "source": source,
+                        "fallback": "none",
                     }
                 )
                 + "\n"
             )
-        print(f"VALIDATION SIMULATOR ERROR root={index} repeat={repeat}: {error_path}", flush=True)
+        print(f"VALIDATION SIMULATOR ERROR root={index} repeat={repeat} source={source}: {error_path}", flush=True)
 
     def accept(index: int, root: Root, episode: Episode) -> None:
         episodes.append(episode)
@@ -280,7 +303,7 @@ def evaluate(
         try:
             episode = play_combats([root.state], model, max_decisions=max_decisions, rng=random.Random(seed))[0]
         except SimulatorStepError as error:
-            record_error(index, root, repeat, seed, error)
+            record_error(index, root, repeat, seed, error, source="serial", attempted_prefixes=error.action_prefixes)
             return
         accept(index, root, episode)
 
@@ -313,11 +336,27 @@ def evaluate(
                             rng=random.Random(0),
                             torch_rng_states=[_capture_policy_rng(seed, cuda) for _, _, _, seed in chunk],
                         )
-                except SimulatorStepError:
-                    # The failed call cloned internally and discarded those clones.
-                    # Replay serially so one bad fight does not drop the rest of the chunk.
-                    for index, repeat, root, seed in chunk:
-                        run_one(index, repeat, root, seed)
+                except SimulatorStepError as error:
+                    # Clones inside the failed call are discarded. Do not replace them with
+                    # serial forwards: those can follow a different trajectory and hide the
+                    # batched-protocol failure. The whole chunk is unavailable.
+                    if error_path is None:
+                        raise
+                    prefixes = {
+                        local: prefix
+                        for local, prefix in zip(error.root_indices, error.action_prefixes, strict=True)
+                    }
+                    for local, (index, repeat, root, seed) in enumerate(chunk):
+                        record_error(
+                            index,
+                            root,
+                            repeat,
+                            seed,
+                            error,
+                            source="batched_chunk",
+                            attempted_prefixes=prefixes.get(local),
+                        )
+                        batched_unavailable += 1
                     continue
                 for (index, _, root, _), episode in zip(chunk, played, strict=True):
                     accept(index, root, episode)
@@ -325,6 +364,7 @@ def evaluate(
     result.update(
         attempted_episodes=float(len(roots) * repeats),
         simulator_error_episodes=float(failures),
+        batched_protocol_unavailable_episodes=float(batched_unavailable),
         cases_with_errors=float(len(failed_cases)),
         episode_coverage=len(episodes) / (len(roots) * repeats) if roots and repeats else 0.0,
     )

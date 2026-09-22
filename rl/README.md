@@ -76,7 +76,10 @@ Main-set outcomes are logged under `val_main/`. `--eval-batch-size 1` is the
 historical single-row protocol. A larger batch keeps the same per-fight seed
 (`90000 + index * repeats + repeat`) but the batched forward is not bit-identical
 to a single-row forward, so those policy scores are `batched_forward_per_episode_rng_v1`
-and are not a continuation of older `val_main` curves. Model-free random evaluation
+and are not a continuation of older `val_main` curves. Sampling uses only that
+fight's legal logits, so another fight's padding does not change its draw.
+A failed batched step marks the whole chunk unavailable and is not replaced
+by a serial rollout. Model-free random evaluation
 stays identical at every batch size. Decision statistics are collected
 only for training, in `Trajectories`, rather than duplicated in each episode.
 Random and **privileged** beam references for the main set are saved in
