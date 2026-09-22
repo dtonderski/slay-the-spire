@@ -72,7 +72,12 @@ fail instead of repairing state. They also pin policy sampling seeds/repeats and
 decision limits. Creation refuses to overwrite existing files. Data is Git-ignored;
 back it up separately. Historical datasets/logs/checkpoints are not deleted by cleanup.
 
-Main-set outcomes are logged under `val_main/`. Decision statistics are collected
+Main-set outcomes are logged under `val_main/`. `--eval-batch-size 1` is the
+historical single-row protocol. A larger batch keeps the same per-fight seed
+(`90000 + index * repeats + repeat`) but the batched forward is not bit-identical
+to a single-row forward, so those policy scores are `batched_forward_per_episode_rng_v1`
+and are not a continuation of older `val_main` curves. Model-free random evaluation
+stays identical at every batch size. Decision statistics are collected
 only for training, in `Trajectories`, rather than duplicated in each episode.
 Random and **privileged** beam references for the main set are saved in
 `baselines.json` and logged throughout training. Beam defaults to width 64

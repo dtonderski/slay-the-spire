@@ -44,14 +44,26 @@ def play_combats(
     training: bool = False,
     rng: random.Random,
     trajectories: Trajectories | None = None,
+    episode_rngs: list[random.Random] | None = None,
+    torch_rng_states: list[Tensor] | None = None,
 ) -> list[Episode]:
-    """One numeric rollout path. Clone roots; errors never retry partially advanced states."""
+    """One numeric rollout path. Clone roots; errors never retry partially advanced states.
+
+    ``episode_rngs`` and ``torch_rng_states`` are per-root evaluation streams. They are
+    indexed by the original root, updated in place, and are not the training sampler.
+    """
     if not roots or max_decisions < 0:
         raise ValueError("Rollouts need roots and a nonnegative decision limit")
     if training and (model is None or trajectories is None):
         raise ValueError("Training requires a model and trajectory collector")
     if trajectories is not None and trajectories.rounds:
         raise ValueError("Use a fresh trajectory collector for each batch")
+    if episode_rngs is not None and torch_rng_states is not None:
+        raise ValueError("Pass only one per-episode RNG stream")
+    if episode_rngs is not None and (model is not None or len(episode_rngs) != len(roots)):
+        raise ValueError("Python episode RNGs are for a model-free rollout of the same length")
+    if torch_rng_states is not None and (model is None or training or len(torch_rng_states) != len(roots)):
+        raise ValueError("Torch episode RNGs are for evaluation rollouts of the same length")
     from encoders.numeric import NumericBatch
 
     states = [root.clone() for root in roots]
@@ -113,24 +125,47 @@ def play_combats(
                 raise RuntimeError("No allowed combat actions after disabling escape")
             actions.append(tuple(candidates))
         if model is None:
-            choices = [rng.randrange(len(candidates)) for candidates in actions]
+            if episode_rngs is None:
+                choices = [rng.randrange(len(candidates)) for candidates in actions]
+            else:
+                choices = [
+                    episode_rngs[remaining[row]].randrange(len(candidates))
+                    for row, candidates in zip(active, actions, strict=True)
+                ]
         else:
             with torch.set_grad_enabled(training):
                 logits, values, _ = model(batch, actions)
-                distribution = Categorical(logits=logits)
-                sampled = distribution.sample()
-                if trajectories is not None:
-                    trajectories.rounds.append(
-                        DecisionRound(
-                            tuple(remaining[row] for row in active),
-                            tuple(len(candidates) for candidates in actions),
-                            distribution.log_prob(sampled),
-                            distribution.entropy(),
-                            cast(Tensor, distribution.probs).max(dim=1).values.detach(),
-                            values.squeeze(-1),
+                if torch_rng_states is None:
+                    distribution = Categorical(logits=logits)
+                    sampled = distribution.sample()
+                    if trajectories is not None:
+                        trajectories.rounds.append(
+                            DecisionRound(
+                                tuple(remaining[row] for row in active),
+                                tuple(len(candidates) for candidates in actions),
+                                distribution.log_prob(sampled),
+                                distribution.entropy(),
+                                cast(Tensor, distribution.probs).max(dim=1).values.detach(),
+                                values.squeeze(-1),
+                            )
                         )
-                    )
-                choices = sampled.tolist()
+                    choices = sampled.tolist()
+                else:
+                    # One draw from each fight's generator. Batched logits are not bit-identical
+                    # to a single-row forward; only the random stream stays independent.
+                    choices = []
+                    cuda = logits.is_cuda
+                    for position, row in enumerate(active):
+                        owner = remaining[row]
+                        if cuda:
+                            torch.cuda.set_rng_state(torch_rng_states[owner], logits.device)
+                        else:
+                            torch.set_rng_state(torch_rng_states[owner])
+                        choice = int(Categorical(logits=logits[position : position + 1]).sample())
+                        torch_rng_states[owner] = (
+                            torch.cuda.get_rng_state(logits.device) if cuda else torch.get_rng_state()
+                        )
+                        choices.append(choice)
         chosen = [candidates[choice] for candidates, choice in zip(actions, choices)]
         for row, action in zip(active, chosen, strict=True):
             action_prefixes[remaining[row]].append(batch.actions[row].index(action))
@@ -167,6 +202,19 @@ def episode_metrics(episodes: list[Episode]) -> dict[str, float]:
     return result
 
 
+def _policy_seed(index: int, repeats: int, repeat: int) -> int:
+    return 90000 + index * repeats + repeat
+
+
+def _capture_policy_rng(seed: int, cuda: bool) -> Tensor:
+    """Match historical per-episode seeding, then snapshot that generator."""
+    if cuda:
+        torch.manual_seed(seed)
+        return torch.cuda.get_rng_state()
+    torch.random.default_generator.manual_seed(seed)
+    return torch.get_rng_state()
+
+
 def evaluate(
     roots: list[Root],
     model: CombatValueModel | None,
@@ -174,8 +222,17 @@ def evaluate(
     max_decisions: int,
     *,
     error_path: Path | None = None,
+    batch_size: int = 1,
 ) -> dict[str, float]:
-    """Same validation sampling seeds each time; never consume training RNG state."""
+    """Same validation sampling seeds each time; never consume training RNG state.
+
+    ``batch_size=1`` is the historical protocol: one forward per fight. Larger batches
+    keep an independent seed per fight, but the batched forward is not bit-identical
+    to that single-row forward. Do not compare those policy scores as one protocol.
+    Model-free evaluation stays identical at every batch size.
+    """
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
     episodes: list[Episode] = []
     hp_changes: list[int] = []
     failed_cases: set[int] = set()
@@ -183,43 +240,87 @@ def evaluate(
     if model is not None:
         model.eval()
     # manual_seed also seeds CUDA; preserve its state when a GPU model is evaluated.
-    devices = list(range(torch.cuda.device_count())) if model is not None and next(model.parameters()).is_cuda else []
+    cuda = model is not None and next(model.parameters()).is_cuda
+    devices = list(range(torch.cuda.device_count())) if cuda else []
+
+    def record_error(index: int, root: Root, repeat: int, seed: int, error: SimulatorStepError) -> None:
+        nonlocal failures
+        if error_path is None:
+            raise error
+        failures += 1
+        failed_cases.add(index)
+        error_path.parent.mkdir(parents=True, exist_ok=True)
+        with error_path.open("a") as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "root_index": index,
+                        "combat_seed": root.combat_seed,
+                        "repeat": repeat,
+                        "policy_seed": seed,
+                        "error": str(error),
+                        "step": error.step,
+                        "attempted_prefixes": error.action_prefixes,
+                    }
+                )
+                + "\n"
+            )
+        print(f"VALIDATION SIMULATOR ERROR root={index} repeat={repeat}: {error_path}", flush=True)
+
+    def accept(index: int, root: Root, episode: Episode) -> None:
+        episodes.append(episode)
+        if episode.reward is not None:
+            hp_changes.append(episode.hp - root.start_hp)
+
+    def run_one(index: int, repeat: int, root: Root, seed: int) -> None:
+        if cuda:
+            torch.manual_seed(seed)
+        else:
+            torch.random.default_generator.manual_seed(seed)
+        try:
+            episode = play_combats([root.state], model, max_decisions=max_decisions, rng=random.Random(seed))[0]
+        except SimulatorStepError as error:
+            record_error(index, root, repeat, seed, error)
+            return
+        accept(index, root, episode)
+
+    jobs = [
+        (index, repeat, root, _policy_seed(index, repeats, repeat))
+        for index, root in enumerate(roots)
+        for repeat in range(repeats)
+    ]
     with torch.random.fork_rng(devices=devices):
-        for index, root in enumerate(roots):
-            for repeat in range(repeats):
-                seed = 90000 + index * repeats + repeat
-                if devices:
-                    torch.manual_seed(seed)
-                else:
-                    torch.random.default_generator.manual_seed(seed)
+        if batch_size == 1:
+            for index, repeat, root, seed in jobs:
+                run_one(index, repeat, root, seed)
+        else:
+            for start in range(0, len(jobs), batch_size):
+                chunk = jobs[start : start + batch_size]
                 try:
-                    ep = play_combats([root.state], model, max_decisions=max_decisions, rng=random.Random(seed))[0]
-                except SimulatorStepError as error:
-                    if error_path is None:
-                        raise
-                    failures += 1
-                    failed_cases.add(index)
-                    error_path.parent.mkdir(parents=True, exist_ok=True)
-                    with error_path.open("a") as handle:
-                        handle.write(
-                            json.dumps(
-                                {
-                                    "root_index": index,
-                                    "combat_seed": root.combat_seed,
-                                    "repeat": repeat,
-                                    "policy_seed": seed,
-                                    "error": str(error),
-                                    "step": error.step,
-                                    "attempted_prefixes": error.action_prefixes,
-                                }
-                            )
-                            + "\n"
+                    if model is None:
+                        played = play_combats(
+                            [root.state for _, _, root, _ in chunk],
+                            None,
+                            max_decisions=max_decisions,
+                            rng=random.Random(0),
+                            episode_rngs=[random.Random(seed) for _, _, _, seed in chunk],
                         )
-                    print(f"VALIDATION SIMULATOR ERROR root={index} repeat={repeat}: {error_path}", flush=True)
+                    else:
+                        played = play_combats(
+                            [root.state for _, _, root, _ in chunk],
+                            model,
+                            max_decisions=max_decisions,
+                            rng=random.Random(0),
+                            torch_rng_states=[_capture_policy_rng(seed, cuda) for _, _, _, seed in chunk],
+                        )
+                except SimulatorStepError:
+                    # The failed call cloned internally and discarded those clones.
+                    # Replay serially so one bad fight does not drop the rest of the chunk.
+                    for index, repeat, root, seed in chunk:
+                        run_one(index, repeat, root, seed)
                     continue
-                episodes.append(ep)
-                if ep.reward is not None:
-                    hp_changes.append(ep.hp - root.start_hp)
+                for (index, _, root, _), episode in zip(chunk, played, strict=True):
+                    accept(index, root, episode)
     result = episode_metrics(episodes) if episodes else {"episodes": 0.0, "completed": 0.0, "truncated": 0.0}
     result.update(
         attempted_episodes=float(len(roots) * repeats),
@@ -380,6 +481,7 @@ def evaluate_baselines(
     *,
     beam_width: int,
     beam_transitions: int,
+    eval_batch_size: int = 1,
 ) -> dict[str, float]:
     """Persist fixed random and privileged search references; never feed them to the policy."""
     references: dict[str, float] = {}
@@ -393,7 +495,12 @@ def evaluate_baselines(
     }
     print("Computing random baseline: main", flush=True)
     random_scores = evaluate(
-        roots, None, repeats, max_decisions, error_path=output / "errors" / "random-baseline" / "main.jsonl"
+        roots,
+        None,
+        repeats,
+        max_decisions,
+        error_path=output / "errors" / "random-baseline" / "main.jsonl",
+        batch_size=eval_batch_size,
     )
     print("Computing privileged beam reference: main", flush=True)
     beam_scores, beam_records = evaluate_beam(
@@ -489,6 +596,12 @@ def main() -> None:
     parser.add_argument("--max-hours", type=float, help="Stop after this training/validation wall-clock budget")
     parser.add_argument("--batch-size", type=int, default=2048)
     parser.add_argument("--eval-every", type=int, default=100)
+    parser.add_argument(
+        "--eval-batch-size",
+        type=int,
+        default=64,
+        help="Policy/random evaluation batch. 1 keeps the historical single-row protocol",
+    )
     parser.add_argument("--value-coef", type=float, default=0.1)
     parser.add_argument("--reference-run", type=Path)
     initialization = parser.add_mutually_exclusive_group()
@@ -510,7 +623,15 @@ def main() -> None:
     parser.add_argument("--wandb-mode", choices=("online", "offline", "disabled"), default="online")
     args = parser.parse_args()
     if (
-        min(args.updates, args.batch_size, args.eval_every, args.max_decisions, args.beam_width, args.beam_transitions)
+        min(
+            args.updates,
+            args.batch_size,
+            args.eval_every,
+            args.eval_batch_size,
+            args.max_decisions,
+            args.beam_width,
+            args.beam_transitions,
+        )
         < 1
     ):
         parser.error("Counts must be positive")
@@ -546,6 +667,9 @@ def main() -> None:
         validation_acts=sorted({root.act for root in validation}),
         training_protocol="fresh_independent_A0_roots_per_update",
         validation_protocol=document["protocol"],
+        evaluation_protocol=(
+            "serial_per_episode_seed" if args.eval_batch_size == 1 else "batched_forward_per_episode_rng_v1"
+        ),
     )
     (output / "config.json").write_text(json.dumps(settings, indent=2))
     torch.set_num_threads(1)
@@ -629,11 +753,17 @@ def main() -> None:
                     output,
                     beam_width=args.beam_width,
                     beam_transitions=args.beam_transitions,
+                    eval_batch_size=args.eval_batch_size,
                 )
             run.log(references, step=0, commit=False)
             print("Starting fixed initial validation", flush=True)
             validation_scores = evaluate(
-                validation, model, repeats, eval_limit, error_path=output / "errors" / "validation-00000000.jsonl"
+                validation,
+                model,
+                repeats,
+                eval_limit,
+                error_path=output / "errors" / "validation-00000000.jsonl",
+                batch_size=args.eval_batch_size,
             )
             run.log({f"val_main/{key}": value for key, value in validation_scores.items()}, step=0)
             checkpoint()
@@ -671,6 +801,7 @@ def main() -> None:
                         repeats,
                         eval_limit,
                         error_path=output / "errors" / f"validation-{iteration:08d}.jsonl",
+                        batch_size=args.eval_batch_size,
                     )
                     logs.update({f"val_main/{key}": value for key, value in validation_scores.items()})
                     checkpoint()

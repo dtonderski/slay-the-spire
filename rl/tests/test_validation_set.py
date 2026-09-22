@@ -12,7 +12,7 @@ from loadout_sampling import LoadoutSampler, band_for
 from model import CombatValueModel
 from rollout_errors import SimulatorStepError
 from scenarios import COMBAT_FLOORS, ScenarioConfig
-from train import evaluate, evaluate_baselines, fresh_batch, update_with_diagnostics
+from train import evaluate, evaluate_baselines, fresh_batch, play_combats, update_with_diagnostics
 from validation_set import build_validation, load_validation, main
 
 
@@ -177,6 +177,43 @@ class ValidationSetTests(unittest.TestCase):
         scores = evaluate(roots, model, 1, 2)
         self.assertTrue(torch.equal(before, torch.get_rng_state()))
         self.assertIn("episodes", scores)
+
+
+    def test_batched_evaluation_preserves_streams_and_versions_policy_scores(self) -> None:
+        torch.set_num_threads(1)
+        roots, _ = fresh_batch(random.Random(12), sampler(), 2, ScenarioConfig(min_floor=1, max_floor=1))
+        serial = [
+            play_combats([root.state], None, max_decisions=12, rng=random.Random(90000 + index))[0]
+            for index, root in enumerate(roots)
+        ]
+        batched = play_combats(
+            [root.state for root in roots],
+            None,
+            max_decisions=12,
+            rng=random.Random(0),
+            episode_rngs=[random.Random(90000 + index) for index in range(len(roots))],
+        )
+        fields = lambda episodes: [(ep.reward, ep.won, ep.hp, ep.decisions) for ep in episodes]
+        self.assertEqual(fields(serial), fields(batched))
+        self.assertEqual(
+            evaluate(roots, None, 2, 12, batch_size=1),
+            evaluate(roots, None, 2, 12, batch_size=4),
+        )
+        devices = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+        for device in devices:
+            model = CombatValueModel().to(device)
+            before = torch.get_rng_state().clone()
+            first = evaluate(roots, model, 2, 8, batch_size=4)
+            second = evaluate(roots, model, 2, 8, batch_size=4)
+            self.assertEqual(first, second)
+            self.assertEqual(
+                evaluate(roots, model, 2, 8, batch_size=1),
+                evaluate(roots, model, 2, 8, batch_size=1),
+            )
+            self.assertTrue(torch.equal(before, torch.get_rng_state()))
+        with self.assertRaises(ValueError):
+            evaluate(roots, None, 1, 1, batch_size=0)
+
 
 
 if __name__ == "__main__":
