@@ -66,7 +66,10 @@ decision round is forwarded separately; rounds are not stacked into a larger
 matmul. The count is a flush threshold, not a hard maximum: a round is never
 split, so one large round can exceed it. Every flushed chunk is divided by the
 completed-fight count, gradients accumulate, and there is still one optimizer
-step. The chunked path uses less memory and is not faster at the current batch size.
+step. A positive value rolls out under `no_grad`, then recomputes in flushes. Rounds in a flush
+are grouped by similar token width and action count and stacked, so one flush is a few
+larger forwards rather than one forward per round. Padding, host repacking, and backward
+scheduling still matter; stacking is not automatically faster.
 Random/beam evaluation references are not learning baselines.
 
 ## Fixed evaluation and references

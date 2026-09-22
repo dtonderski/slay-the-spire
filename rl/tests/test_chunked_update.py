@@ -53,6 +53,25 @@ class ChunkedUpdateTests(unittest.TestCase):
                 compared += 1
             self.assertGreater(compared, 0)
 
+    def test_similar_rounds_share_a_stacked_forward(self) -> None:
+        torch.set_num_threads(1)
+        model = CombatValueModel()
+        states = [combat(1).clone() for _ in range(3)]
+        episodes, replays = _collect(model, states)
+        self.assertGreater(len(replays), 1)
+        calls = []
+        original = model.forward
+
+        def wrapped(observations, candidates):
+            calls.append(len(observations))
+            return original(observations, candidates)
+
+        model.forward = wrapped
+        accumulated = accumulate_replay_loss(model, replays, episodes, 0.01, 0.1, chunk_decisions=10**9)
+        self.assertIsNotNone(accumulated)
+        self.assertLess(len(calls), len(replays))
+        self.assertGreater(max(calls), 1)
+
     def test_train_batch_takes_one_step_without_retaining_rollout_graph(self) -> None:
         torch.set_num_threads(1)
         model = CombatValueModel()
