@@ -237,5 +237,22 @@ class NumericObservationTests(unittest.TestCase):
         self.assertIsNone(actual[1].reward)
 
 
+    def test_symbol_codes_are_scoped_to_each_batch_table(self) -> None:
+        vocabulary = {"defend": 1, "strike": 3}
+
+        def batch(symbols):
+            return NumericBatch((1, symbols, {}, [], [0]))
+
+        first = batch(["defend", "strike"])
+        second = batch(["strike", "defend"])
+        np.testing.assert_array_equal(first.codes(np.array([0, 1]), vocabulary), [1, 3])
+        np.testing.assert_array_equal(second.codes(np.array([0, 1]), vocabulary), [3, 1])
+        # A repeated call uses this batch's cached lookup, not the other batch's positions.
+        np.testing.assert_array_equal(first.codes(np.array([1]), vocabulary), [3])
+        with self.assertRaisesRegex(ValueError, "absent from encoder vocabulary"):
+            first.codes(np.array([1]), {"defend": 1})
+
+
+
 if __name__ == "__main__":
     unittest.main()

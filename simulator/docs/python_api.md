@@ -50,6 +50,10 @@ samplers with this constructor; see `rl/tools/README.md` for priors and limitati
 
 ## Numeric combat batches
 
+`State.player_hp()` returns the public context HP (`observation().context.player_hp`)
+without projecting the screen or drawing RNG. Combat-start healing is included;
+this is not the pre-entry loadout HP.
+
 `State.numeric_decisions(states)` and `State.numeric_steps(states, actions)` expose
 an alternative transport for combat training. The typed API above is unchanged.
 Both call the same fair environment; no gameplay or replay rules are changed.

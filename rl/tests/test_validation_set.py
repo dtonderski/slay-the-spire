@@ -112,6 +112,11 @@ class ValidationSetTests(unittest.TestCase):
         self.assertEqual(scores["optimizer_step"], 1)
         self.assertTrue(optimizer.state)
         self.assertEqual(observations, [r.state.observation() for r in first])
+        self.assertEqual([root.start_hp for root in first], [root.state.player_hp() for root in first])
+        self.assertEqual(
+            [root.start_hp for root in first],
+            [root.state.observation().context.player_hp for root in first],
+        )
 
     def test_errors_preserve_specs_without_reward_or_update(self) -> None:
         roots, specs = fresh_batch(random.Random(12), sampler(), 1, ScenarioConfig(min_floor=1, max_floor=1))
