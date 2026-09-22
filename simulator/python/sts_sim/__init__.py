@@ -200,6 +200,10 @@ class State:
     def observation(self) -> Observation:
         return decode_observation(self._native.observation()._to_mapping())
 
+    def player_hp(self) -> int:
+        """Public context HP, identical to ``observation().context.player_hp``."""
+        return self._native.player_hp()
+
     def legal_actions(self) -> list[Action]:
         return self._native.legal_actions()
 

@@ -427,9 +427,14 @@ def fresh_batch(
         seed = json.loads(sampled.spec_json)["seed"]
         if seed in excluded_seeds:
             continue
-        obs = sampled.state.observation()
         roots.append(
-            Root(sampled.state, str(seed), sampled.encounter.floor, obs.context.player_hp, sampled.encounter.act)
+            Root(
+                sampled.state,
+                str(seed),
+                sampled.encounter.floor,
+                sampled.state.player_hp(),
+                sampled.encounter.act,
+            )
         )
         specifications.append(sampled)
         if len(roots) == batch_size:

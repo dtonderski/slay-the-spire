@@ -11,6 +11,7 @@ import json
 import math
 import random
 from dataclasses import dataclass
+from itertools import accumulate
 from pathlib import Path
 
 # Ending-floor cohorts. Floor 56 endings supply templates for the final fight.
@@ -41,10 +42,48 @@ def band_for(floor: int) -> str:
     raise ValueError("Only standard A0 floors 1–56 are supported")
 
 
+class _Weighted:
+    """One validated table. Population order is the dict's insertion order.
+
+    ``random.choices`` consumes one ``random()`` draw per selection. Caching the
+    cumulative weights keeps that draw and the selected key identical while
+    skipping the per-draw scan of the catalog.
+    """
+
+    __slots__ = ("population", "cum_weights")
+
+    def __init__(self, counts: dict) -> None:
+        if not counts or any(not math.isfinite(n) or n <= 0 for n in counts.values()):
+            raise ValueError("Expected a nonempty positive finite frequency table")
+        self.population = tuple(counts)
+        self.cum_weights = tuple(accumulate(counts.values()))
+
+    def choose(self, rng: random.Random):
+        return rng.choices(self.population, cum_weights=self.cum_weights, k=1)[0]
+
+
 def choose(rng: random.Random, counts: dict):
-    if not counts or any(not math.isfinite(n) or n <= 0 for n in counts.values()):
-        raise ValueError("Expected a nonempty positive finite frequency table")
-    return rng.choices(list(counts), weights=list(counts.values()), k=1)[0]
+    """Draw one key. Equivalent to ``rng.choices(list(counts), weights=...)``."""
+    return _Weighted(counts).choose(rng)
+
+
+def _choose_without_replacement(rng: random.Random, counts: dict, count: int) -> list:
+    """Match repeated ``choose`` plus deletion, including dict insertion order."""
+    if count > len(counts):
+        raise ValueError("Relic count exceeds available distinct identities")
+    if count == 0:
+        return []
+    # Validate once. Every remaining subset of a valid table stays valid.
+    population = list(_Weighted(counts).population)
+    weights = [counts[key] for key in population]
+    chosen = []
+    for _ in range(count):
+        pick = rng.choices(population, weights=weights, k=1)[0]
+        chosen.append(pick)
+        index = population.index(pick)
+        del population[index]
+        del weights[index]
+    return chosen
 
 
 @dataclass(frozen=True)
@@ -74,10 +113,21 @@ class LoadoutSampler:
         if distributions.get("split_role") != "fit":
             raise ValueError("Only fit-split distributions may drive training sampling")
         self.distributions = distributions
+        # Lazily filled from the unmodified distribution dicts. Keys are band
+        # names; values are static tables only. Shrinking relic sets are not cached.
+        self._tables: dict[tuple[str, str], _Weighted] = {}
 
     @classmethod
     def load(cls, path: Path) -> "LoadoutSampler":
         return cls(json.loads(path.read_text()))
+
+    def _table(self, band: str, name: str, counts: dict) -> _Weighted:
+        key = (band, name)
+        table = self._tables.get(key)
+        if table is None:
+            table = _Weighted(counts)
+            self._tables[key] = table
+        return table
 
     def sample(self, rng: random.Random, floor: int, *, minimum_hp_fraction: float = 0.1) -> LoadoutSpec:
         """Sample components independently; occupancy and HP fractions are explicit priors."""
@@ -87,22 +137,23 @@ class LoadoutSampler:
         data = self.distributions["bands"][band]
         if not data["runs"]:
             raise ValueError(f"No training data for ending-floor band {band}; no silent extrapolation")
-        size = int(choose(rng, data["deck_sizes"]))
-        card_weights = {key: sum(upgrades.values()) for key, upgrades in data["cards"].items()}
+        size = int(self._table(band, "deck_sizes", data["deck_sizes"]).choose(rng))
+        card_weights = self._tables.get((band, "card_weights"))
+        if card_weights is None:
+            card_weights = self._table(
+                band,
+                "card_weights",
+                {key: sum(upgrades.values()) for key, upgrades in data["cards"].items()},
+            )
         deck = []
         for _ in range(size):
-            key = choose(rng, card_weights)
-            deck.append(SampledCard(key, int(choose(rng, data["cards"][key]))))
-        starter = choose(rng, data["starters"])
+            key = card_weights.choose(rng)
+            upgrades = self._table(band, f"card:{key}", data["cards"][key]).choose(rng)
+            deck.append(SampledCard(key, int(upgrades)))
+        starter = self._table(band, "starters", data["starters"]).choose(rng)
         relics = [] if starter == "none" else [starter]
-        count = int(choose(rng, data["other_relic_counts"]))
-        candidates = dict(data["other_relics"])
-        if count > len(candidates):
-            raise ValueError("Relic count exceeds available distinct identities")
-        for _ in range(count):
-            relic = choose(rng, candidates)
-            relics.append(relic)
-            del candidates[relic]
+        count = int(self._table(band, "other_relic_counts", data["other_relic_counts"]).choose(rng))
+        relics.extend(_choose_without_replacement(rng, data["other_relics"], count))
         # A0 has 3 slots; Potion Belt adds 2 (sts_core relic::POTION_BELT_EXTRA_SLOTS).
         capacity = 3 + 2 * ("Potion Belt" in relics)
         # Logs omit discards and complete inventories. This is NOT a fitted occupancy distribution.
@@ -111,8 +162,8 @@ class LoadoutSampler:
         if occupied and not data["potions_obtained"]:
             raise ValueError(f"No observed potion identities for band {band}")
         for slot in rng.sample(range(capacity), occupied):
-            potions[slot] = choose(rng, data["potions_obtained"])
+            potions[slot] = self._table(band, "potions_obtained", data["potions_obtained"]).choose(rng)
         # Sozu blocks future acquisition, not possession of previously acquired potions.
-        maximum = int(choose(rng, data["max_hp"]))
+        maximum = int(self._table(band, "max_hp", data["max_hp"]).choose(rng))
         hp = rng.randint(max(1, math.ceil(maximum * minimum_hp_fraction)), maximum)
         return LoadoutSpec(floor, tuple(deck), tuple(relics), tuple(potions), maximum, hp, band)

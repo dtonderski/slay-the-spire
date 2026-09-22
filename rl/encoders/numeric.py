@@ -16,6 +16,10 @@ class NumericBatch:
             name: np.frombuffer(data, dtype=np.int64).reshape(-1, width) for name, (width, data) in tables.items()
         }
         self.size = len(self.model_rows)
+        # Lookups are local to this batch's symbol table. Vocabulary identity
+        # selects the catalog; symbol positions are never assumed stable across batches.
+        self._code_lookups: dict[int, np.ndarray] = {}
+        self._code_vocabularies: list[dict[Any, int]] = []
 
     def __len__(self) -> int:
         return self.size
@@ -29,8 +33,16 @@ class NumericBatch:
         return value
 
     def codes(self, values: np.ndarray, vocabulary: dict[Any, int]) -> np.ndarray:
-        # Transport-local dictionary indices never enter the model as numbers.
-        lookup = np.array([vocabulary.get(None, -1), *(vocabulary.get(key, -1) for key in self.symbols)])
+        """Map this batch's symbol ids through one catalog. Ids are not model features."""
+        key = id(vocabulary)
+        lookup = self._code_lookups.get(key)
+        if lookup is None:
+            lookup = np.empty(len(self.symbols) + 1, dtype=np.int64)
+            lookup[0] = vocabulary.get(None, -1)
+            for index, symbol in enumerate(self.symbols, start=1):
+                lookup[index] = vocabulary.get(symbol, -1)
+            self._code_lookups[key] = lookup
+            self._code_vocabularies.append(vocabulary)
         mapped = lookup[values + 1]
         if np.any(mapped < 0):
             raise ValueError("Public categorical value is absent from encoder vocabulary")

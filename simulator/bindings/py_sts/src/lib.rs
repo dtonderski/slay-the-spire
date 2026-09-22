@@ -268,6 +268,11 @@ impl PyState {
             .and_then(py_observation)
     }
 
+    /// Public context HP, without building a typed observation.
+    fn player_hp(&self) -> i32 {
+        self.env.public_player_hp()
+    }
+
     fn legal_actions(&self) -> PyResult<Vec<PyAction>> {
         let revision = self.env.revision();
         self.env

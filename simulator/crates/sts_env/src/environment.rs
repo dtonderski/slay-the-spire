@@ -94,6 +94,13 @@ impl FairEnvironment {
         fair_run_observation(&self.state).map_err(|_| FairError::DecisionUnavailable)
     }
 
+    /// Public context HP. This is the same field as `FairRunContext.player_hp`
+    /// and does not project the screen, enumerate choices, or draw RNG.
+    #[must_use]
+    pub fn public_player_hp(&self) -> i32 {
+        self.state.hp
+    }
+
     pub fn legal_choices(&self) -> Result<Vec<PublicChoice>, FairError> {
         projected_choices(&self.state)
             .map(|choices| choices.into_iter().map(|(choice, _)| choice).collect())
@@ -181,6 +188,17 @@ mod tests {
             .expect("step");
         assert_eq!(second.revision.get(), first.revision.get() + 1);
         assert_eq!(env.revision(), second.revision);
+    }
+
+    #[test]
+    fn public_player_hp_matches_observation_context_without_rng() {
+        let env = FairEnvironment::new_ironclad(7, 0).expect("environment");
+        let before = env.clone();
+        assert_eq!(
+            env.public_player_hp(),
+            env.observation().expect("observation").context.player_hp
+        );
+        assert_eq!(env.decision(), before.decision());
     }
 
     #[test]
