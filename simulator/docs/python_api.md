@@ -60,6 +60,8 @@ Both call the same fair environment; no gameplay or replay rules are changed.
 Steps are sequential and individually checked, **not atomic across the batch**:
 if a later action fails, earlier accepted steps remain accepted, as in a Python loop.
 Each index addresses the current public legal-action list, not an internal action id.
+The indexed step uses one `projected_choices` scan of the current state and the existing
+successor projection. It does not add a second observation contract or parallel execution.
 The paired revision must be the revision exported with that list; a mismatch is rejected
 before the index is applied.
 
