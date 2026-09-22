@@ -36,6 +36,16 @@ class Episode:
     decisions: int
 
 
+@dataclass
+class ReplayRound:
+    """Public inputs needed to recompute one decision round after a no-grad rollout."""
+
+    observations: object
+    actions: list
+    owners: tuple[int, ...]
+    choices: tuple[int, ...]
+
+
 def play_combats(
     roots: list[State],
     model: CombatValueModel | None,
@@ -46,6 +56,7 @@ def play_combats(
     trajectories: Trajectories | None = None,
     episode_rngs: list[random.Random] | None = None,
     torch_rng_states: list[Tensor] | None = None,
+    replays: list[ReplayRound] | None = None,
 ) -> list[Episode]:
     """One numeric rollout path. Clone roots; errors never retry partially advanced states.
 
@@ -56,6 +67,7 @@ def play_combats(
         raise ValueError("Rollouts need roots and a nonnegative decision limit")
     if training and (model is None or trajectories is None):
         raise ValueError("Training requires a model and trajectory collector")
+    # ReplayRound stores public inputs and chosen indices, not autograd tensors.
     if trajectories is not None and trajectories.rounds:
         raise ValueError("Use a fresh trajectory collector for each batch")
     if episode_rngs is not None and torch_rng_states is not None:
@@ -166,6 +178,15 @@ def play_combats(
                             torch.cuda.get_rng_state(logits.device) if cuda else torch.get_rng_state()
                         )
                         choices.append(choice)
+                if replays is not None:
+                    replays.append(
+                        ReplayRound(
+                            batch,
+                            actions,
+                            tuple(remaining[row] for row in active),
+                            tuple(choices),
+                        )
+                    )
         chosen = [candidates[choice] for candidates, choice in zip(actions, choices)]
         for row, action in zip(active, chosen, strict=True):
             action_prefixes[remaining[row]].append(batch.actions[row].index(action))
@@ -374,6 +395,88 @@ def evaluate(
     return result
 
 
+def replay_storage_bytes(replays: list[ReplayRound]) -> int:
+    """CPU bytes retained so the update can recompute without the rollout graph."""
+    total = 0
+    for replay in replays:
+        tables = getattr(replay.observations, "tables", {})
+        total += sum(table.nbytes for table in tables.values())
+    return total
+
+
+def accumulate_replay_loss(
+    model: CombatValueModel,
+    replays: list[ReplayRound],
+    episodes: list[Episode],
+    entropy_coef: float,
+    value_coef: float,
+    chunk_decisions: int,
+) -> tuple[Tensor, Tensor, Tensor] | None:
+    """Recompute the existing objective in chunks and accumulate one gradient.
+
+    Each stored round is forwarded separately; this does not stack rounds into a
+    larger matmul. ``chunk_decisions`` is a flush threshold, not a hard maximum:
+    a round is never split, so one large round can exceed it. Each flushed chunk
+    is divided by the completed-fight count, not by the chunk count. Parameters
+    stay fixed until the caller takes the optimizer step.
+    """
+    if chunk_decisions < 1:
+        raise ValueError("chunk_decisions must be positive")
+    completed = sum(episode.reward is not None for episode in episodes)
+    if not completed or not replays:
+        return None
+    policy_total = None
+    value_total = None
+    loss_total = None
+    chunk: list[ReplayRound] = []
+    pending = 0
+
+    def flush() -> None:
+        nonlocal policy_total, value_total, loss_total, pending
+        if not chunk:
+            return
+        rounds = []
+        for replay in chunk:
+            logits, values, _ = model(replay.observations, replay.actions)
+            distribution = Categorical(logits=logits)
+            choices = torch.tensor(replay.choices, dtype=torch.long, device=logits.device)
+            rounds.append(
+                DecisionRound(
+                    replay.owners,
+                    tuple(len(candidates) for candidates in replay.actions),
+                    distribution.log_prob(choices),
+                    distribution.entropy(),
+                    cast(Tensor, distribution.probs).max(dim=1).values.detach(),
+                    values.squeeze(-1),
+                )
+            )
+        trajectories = Trajectories()
+        trajectories.rounds = rounds
+        loss, policy_loss = trajectories.losses(episodes, entropy_coef, value_coef=value_coef)
+        if loss is None or policy_loss is None or trajectories.value_loss is None:
+            chunk.clear()
+            pending = 0
+            return
+        if not torch.isfinite(loss):
+            raise RuntimeError("Non-finite loss")
+        loss.backward()
+        policy_total = policy_loss.detach() if policy_total is None else policy_total + policy_loss.detach()
+        value_total = trajectories.value_loss if value_total is None else value_total + trajectories.value_loss
+        loss_total = loss.detach() if loss_total is None else loss_total + loss.detach()
+        chunk.clear()
+        pending = 0
+
+    for replay in replays:
+        chunk.append(replay)
+        pending += len(replay.owners)
+        if pending >= chunk_decisions:
+            flush()
+    flush()
+    if loss_total is None or policy_total is None or value_total is None:
+        return None
+    return loss_total, policy_total, value_total
+
+
 def train_batch(
     roots: list[Root],
     model: CombatValueModel,
@@ -382,40 +485,67 @@ def train_batch(
     entropy_coef: float = 0.0,
     *,
     value_coef: float = 0.1,
+    chunk_decisions: int = 0,
 ) -> dict[str, float]:
     """Collect one batch, calculate the batched loss, and take one optimizer step.
 
+    ``chunk_decisions=0`` retains every rollout graph until one backward.
+    A positive value rolls out under ``no_grad`` and recomputes gradients in chunks.
     Simulator errors propagate to the experiment's diagnostic/skip handler.
     """
+    if chunk_decisions < 0:
+        raise ValueError("chunk_decisions must be nonnegative")
     model.train()
     optimizer.zero_grad(set_to_none=True)
     trajectories = Trajectories()
-    episodes = play_combats(
-        [root.state for root in roots],
-        model,
-        max_decisions=max_decisions,
-        training=True,
-        rng=random.Random(0),
-        trajectories=trajectories,
-    )
-    loss, policy_loss = trajectories.losses(episodes, entropy_coef, value_coef=value_coef)
+    replays: list[ReplayRound] = []
+    if chunk_decisions == 0:
+        episodes = play_combats(
+            [root.state for root in roots],
+            model,
+            max_decisions=max_decisions,
+            training=True,
+            rng=random.Random(0),
+            trajectories=trajectories,
+        )
+        loss, policy_loss = trajectories.losses(episodes, entropy_coef, value_coef=value_coef)
+        value_loss = None if trajectories.value_loss is None else trajectories.value_loss
+    else:
+        with torch.no_grad():
+            episodes = play_combats(
+                [root.state for root in roots],
+                model,
+                max_decisions=max_decisions,
+                training=False,
+                rng=random.Random(0),
+                trajectories=trajectories,
+                replays=replays,
+            )
+        accumulated = accumulate_replay_loss(
+            model, replays, episodes, entropy_coef, value_coef, chunk_decisions
+        )
+        if accumulated is None:
+            loss, policy_loss, value_loss = None, None, None
+        else:
+            loss, policy_loss, value_loss = accumulated
     result = episode_metrics(episodes)
     result.update(trajectories.metrics())
     result.update(simulator_error_batches=0.0, discarded_episodes=0.0, optimizer_step=float(loss is not None))
+    result["replay_storage_mib"] = replay_storage_bytes(replays) / 2**20
     hp_losses = [root.start_hp - ep.hp for root, ep in zip(roots, episodes, strict=True) if ep.reward is not None]
     if hp_losses:
         result["mean_hp_lost_completed"] = sum(hp_losses) / len(hp_losses)
     if loss is not None:
         if not torch.isfinite(loss):
             raise RuntimeError("Non-finite loss")
-        loss.backward()
+        if chunk_decisions == 0:
+            loss.backward()
         validate_gradients(model.parameters())
         optimizer.step()
-        assert policy_loss is not None
-        result["loss"] = loss.detach().item()
-        result["policy_loss"] = policy_loss.detach().item()
-        assert trajectories.value_loss is not None
-        result["value_loss"] = trajectories.value_loss.item()
+        assert policy_loss is not None and value_loss is not None
+        result["loss"] = loss.detach().item() if chunk_decisions == 0 else float(loss)
+        result["policy_loss"] = policy_loss.detach().item() if chunk_decisions == 0 else float(policy_loss)
+        result["value_loss"] = value_loss.item() if chunk_decisions == 0 else float(value_loss)
         result["entropy_bonus"] = result["policy_loss"] + value_coef * result["value_loss"] - result["loss"]
     return result
 
@@ -600,10 +730,19 @@ def update_with_diagnostics(
     *,
     continue_on_error: bool = False,
     value_coef: float = 0.1,
+    chunk_decisions: int = 0,
 ) -> dict[str, float]:
     """Never retry partially advanced states; preserve failed batch inputs for diagnosis."""
     try:
-        return train_batch(roots, model, optimizer, max_decisions, entropy_coef, value_coef=value_coef)
+        return train_batch(
+            roots,
+            model,
+            optimizer,
+            max_decisions,
+            entropy_coef,
+            value_coef=value_coef,
+            chunk_decisions=chunk_decisions,
+        )
     except SimulatorStepError as error:
         failure_path.parent.mkdir(parents=True, exist_ok=True)
         with failure_path.open("x") as handle:
@@ -648,6 +787,15 @@ def main() -> None:
         help="Policy/random evaluation batch. 1 keeps the historical single-row protocol",
     )
     parser.add_argument("--value-coef", type=float, default=0.1)
+    parser.add_argument(
+        "--grad-chunk-decisions",
+        type=int,
+        default=0,
+        help=(
+            "Flush a backward after at least this many decisions. Rounds are not split, "
+            "so one large round can exceed it. 0 retains the rollout graph"
+        ),
+    )
     parser.add_argument("--reference-run", type=Path)
     initialization = parser.add_mutually_exclusive_group()
     initialization.add_argument("--warm-start", type=Path, help="Trusted checkpoint: weights only; new optimizer/RNG")
@@ -684,6 +832,8 @@ def main() -> None:
         parser.error("Expected positive finite learning rate and nonnegative finite entropy coefficient")
     if not math.isfinite(args.value_coef) or args.value_coef < 0:
         parser.error("Value coefficient must be finite and nonnegative")
+    if args.grad_chunk_decisions < 0:
+        parser.error("Gradient chunk size must be nonnegative")
     if args.max_hours is not None and (not math.isfinite(args.max_hours) or args.max_hours <= 0):
         parser.error("Maximum hours must be finite and positive")
     config = ScenarioConfig(min_floor=args.min_floor, max_floor=args.max_floor)
@@ -828,6 +978,7 @@ def main() -> None:
                     output / "errors" / f"update-{iteration:08d}.json",
                     continue_on_error=args.continue_on_simulator_error,
                     value_coef=args.value_coef,
+                    chunk_decisions=args.grad_chunk_decisions,
                 )
                 if args.device == "cuda":
                     scores["peak_cuda_allocated_gib"] = torch.cuda.max_memory_allocated() / 2**30
