@@ -3,7 +3,8 @@
 from collections import defaultdict
 
 import numpy as np
-from encoders.numeric import NumericBatch
+from encoders.numeric import NUMERIC_VERSION, NumericBatch
+from sts_sim import ACTION_KINDS
 
 
 def reference_batch(decisions):
@@ -43,8 +44,30 @@ def reference_batch(decisions):
             ]
         )
 
+    kind_code = {name: index for index, name in enumerate(ACTION_KINDS)}
+
+    def missing(value):
+        return -1 if value is None else int(value)
+
     for index, decision in enumerate(decisions):
         obs = decision.observation
+        for legal_index, action in enumerate(decision.actions):
+            tables["action_rows"].append(
+                [
+                    index,
+                    legal_index,
+                    kind_code[action.kind],
+                    missing(action.hand_slot),
+                    missing(action.potion_slot),
+                    missing(action.option_slot),
+                    missing(action.target_slot),
+                    missing(action.card_slot),
+                    missing(action.node_slot),
+                    missing(action.reward_slot),
+                    missing(action.shop_slot),
+                    decision.revision,
+                ]
+            )
         tables["header"].append(
             [
                 code(obs.kind),
@@ -114,7 +137,7 @@ def reference_batch(decisions):
             for slot in s.selected_slots:
                 tables["selected_slots"].append([owner, slot])
     packed = {name: (len(rows[0]), np.array(rows, dtype=np.int64).tobytes()) for name, rows in tables.items() if rows}
-    return NumericBatch((1, symbols, packed, [d.actions for d in decisions], active))
+    return NumericBatch((NUMERIC_VERSION, symbols, packed, active))
 
 
 CATEGORICAL = {

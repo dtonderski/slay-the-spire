@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import math
+import numpy as np
 import random
 import shutil
 import time
@@ -16,11 +17,22 @@ import torch
 import wandb
 from beam_search import beam_search
 from combat_task import action_indices, combat_outcome, terminal_reward
+from encoders.numeric import (
+    ACTION_HAND,
+    ACTION_KIND,
+    ACTION_LEGAL_INDEX,
+    ACTION_OPTION,
+    ACTION_OWNER,
+    ACTION_POTION,
+    ACTION_REVISION,
+    ACTION_TARGET,
+    NumericBatch,
+)
 from loadout_sampling import LoadoutSampler
 from model import CombatValueModel
 from rollout_errors import SimulatorStepError
 from scenarios import ScenarioConfig
-from sts_sim import State
+from sts_sim import ACTION_KINDS, State
 from synthetic_roots import SyntheticRoot, sample_root
 from torch import Tensor
 from torch.distributions import Categorical
@@ -41,9 +53,62 @@ class ReplayRound:
     """Public inputs needed to recompute one decision round after a no-grad rollout."""
 
     observations: object
-    actions: list
+    candidates: np.ndarray
     owners: tuple[int, ...]
     choices: tuple[int, ...]
+    counts: tuple[int, ...]
+
+
+
+def _policy_candidates(batch: NumericBatch, active: list[int]) -> tuple[np.ndarray, list[list[int]], list[int], list[int]]:
+    """Filter escape potions without changing public legal indices.
+
+    Returned candidate owners are positions in ``active``, matching model rows.
+    Legal indices still address each state's full public action list.
+    """
+    rows = batch.action_rows
+    use_potion = ACTION_KINDS.index("use_potion_slot")
+    potions = batch.table("potions", 3)
+    offsets = np.cumsum(np.concatenate((np.zeros(1, dtype=np.int64), np.asarray(batch.lengths(potions), dtype=np.int64))))
+    pieces = []
+    legal: list[list[int]] = []
+    revisions: list[int] = []
+    counts: list[int] = []
+    for position, row in enumerate(active):
+        owned = rows[rows[:, ACTION_OWNER] == row]
+        if len(owned) == 0:
+            raise RuntimeError("No allowed combat actions after disabling escape")
+        keep = np.ones(len(owned), dtype=bool)
+        potion_slots = owned[:, ACTION_POTION]
+        potion_uses = (owned[:, ACTION_KIND] == use_potion) & (potion_slots >= 0)
+        if np.any(potion_uses):
+            codes = potions[offsets[position] + potion_slots[potion_uses].astype(np.int64), 1]
+            smoke = np.zeros(len(owned), dtype=bool)
+            smoke[np.flatnonzero(potion_uses)] = [
+                code >= 0 and batch.symbols[int(code)] == "smoke_bomb" for code in codes
+            ]
+            keep &= ~smoke
+        kept = owned[keep]
+        if len(kept) == 0:
+            raise RuntimeError("No allowed combat actions after disabling escape")
+        if np.any(kept[:, ACTION_REVISION] != kept[0, ACTION_REVISION]):
+            raise RuntimeError("Legal actions for one state have mixed revisions")
+        pieces.append(
+            np.column_stack(
+                (
+                    np.full(len(kept), position, dtype=np.int64),
+                    kept[:, ACTION_KIND],
+                    kept[:, ACTION_HAND],
+                    kept[:, ACTION_POTION],
+                    kept[:, ACTION_OPTION],
+                    kept[:, ACTION_TARGET],
+                )
+            )
+        )
+        legal.append([int(value) for value in kept[:, ACTION_LEGAL_INDEX]])
+        revisions.append(int(kept[0, ACTION_REVISION]))
+        counts.append(len(kept))
+    return np.concatenate(pieces), legal, revisions, counts
 
 
 def play_combats(
@@ -76,8 +141,6 @@ def play_combats(
         raise ValueError("Python episode RNGs are for a model-free rollout of the same length")
     if torch_rng_states is not None and (model is None or training or len(torch_rng_states) != len(roots)):
         raise ValueError("Torch episode RNGs are for evaluation rollouts of the same length")
-    from encoders.numeric import NumericBatch
-
     states = [root.clone() for root in roots]
     batch = NumericBatch(State.numeric_decisions(states))
     starting_max_hp = batch.table("header", 5)[:, 4].tolist()
@@ -106,7 +169,8 @@ def play_combats(
             elif step == max_decisions:
                 episodes[index] = Episode(None, None, int(hp), step)
             else:
-                if not batch.actions[row]:
+                owned = batch.action_rows
+                if len(owned) == 0 or not np.any(owned[:, ACTION_OWNER] == row):
                     raise SimulatorStepError(
                         "Unsettled combat decision or empty legal-action list",
                         step,
@@ -120,33 +184,18 @@ def play_combats(
             return [episode for episode in episodes if episode is not None]
         if active != batch.model_rows:
             raise RuntimeError("Numeric combat rows do not match settled decisions")
-        potions = batch.table("potions", 3)
-        offsets = [0]
-        for length in batch.lengths(potions):
-            offsets.append(offsets[-1] + length)
-        actions = []
-        for position, row in enumerate(active):
-            candidates = []
-            for action in batch.actions[row]:
-                if action.kind == "use_potion_slot" and action.potion_slot is not None:
-                    code = potions[offsets[position] + action.potion_slot, 1]
-                    if code >= 0 and batch.symbols[code] == "smoke_bomb":
-                        continue
-                candidates.append(action)
-            if not candidates:
-                raise RuntimeError("No allowed combat actions after disabling escape")
-            actions.append(tuple(candidates))
+        candidates, legal_indices, revisions, counts = _policy_candidates(batch, active)
         if model is None:
             if episode_rngs is None:
-                choices = [rng.randrange(len(candidates)) for candidates in actions]
+                choices = [rng.randrange(count) for count in counts]
             else:
                 choices = [
-                    episode_rngs[remaining[row]].randrange(len(candidates))
-                    for row, candidates in zip(active, actions, strict=True)
+                    episode_rngs[remaining[row]].randrange(count)
+                    for row, count in zip(active, counts, strict=True)
                 ]
         else:
             with torch.set_grad_enabled(training):
-                logits, values, _ = model(batch, actions)
+                logits, values, _ = model(batch, candidates)
                 if torch_rng_states is None:
                     distribution = Categorical(logits=logits)
                     sampled = distribution.sample()
@@ -154,7 +203,7 @@ def play_combats(
                         trajectories.rounds.append(
                             DecisionRound(
                                 tuple(remaining[row] for row in active),
-                                tuple(len(candidates) for candidates in actions),
+                                tuple(counts),
                                 distribution.log_prob(sampled),
                                 distribution.entropy(),
                                 cast(Tensor, distribution.probs).max(dim=1).values.detach(),
@@ -173,7 +222,7 @@ def play_combats(
                             torch.cuda.set_rng_state(torch_rng_states[owner], logits.device)
                         else:
                             torch.set_rng_state(torch_rng_states[owner])
-                        choice = sample_unpadded_action(logits[position], len(actions[position]))
+                        choice = sample_unpadded_action(logits[position], counts[position])
                         torch_rng_states[owner] = (
                             torch.cuda.get_rng_state(logits.device) if cuda else torch.get_rng_state()
                         )
@@ -182,17 +231,20 @@ def play_combats(
                     replays.append(
                         ReplayRound(
                             batch,
-                            actions,
+                            candidates,
                             tuple(remaining[row] for row in active),
                             tuple(choices),
+                            tuple(counts),
                         )
                     )
-        chosen = [candidates[choice] for candidates, choice in zip(actions, choices)]
-        for row, action in zip(active, chosen, strict=True):
-            action_prefixes[remaining[row]].append(batch.actions[row].index(action))
+        chosen_indices = [legal_indices[position][choice] for position, choice in enumerate(choices)]
+        for row, legal_index in zip(active, chosen_indices, strict=True):
+            action_prefixes[remaining[row]].append(legal_index)
         remaining = [remaining[row] for row in active]
         try:
-            payload = State.numeric_steps([states[index] for index in remaining], chosen)
+            payload = State.numeric_steps(
+                [states[index] for index in remaining], chosen_indices, [revisions[position] for position in range(len(active))]
+            )
         except ValueError as error:
             # Native batches are not atomic. Never retry/reapply actions to these clones.
             raise SimulatorStepError(
@@ -436,13 +488,13 @@ def accumulate_replay_loss(
             return
         rounds = []
         for replay in chunk:
-            logits, values, _ = model(replay.observations, replay.actions)
+            logits, values, _ = model(replay.observations, replay.candidates)
             distribution = Categorical(logits=logits)
             choices = torch.tensor(replay.choices, dtype=torch.long, device=logits.device)
             rounds.append(
                 DecisionRound(
                     replay.owners,
-                    tuple(len(candidates) for candidates in replay.actions),
+                    replay.counts,
                     distribution.log_prob(choices),
                     distribution.entropy(),
                     cast(Tensor, distribution.probs).max(dim=1).values.detach(),
