@@ -61,8 +61,7 @@ def play_combats(
         raise ValueError("Rollouts need roots and a nonnegative decision limit")
     if training and (model is None or trajectories is None):
         raise ValueError("Training requires a model and trajectory collector")
-    if training and replays is not None:
-        raise ValueError("Replay collection must not retain the rollout graph")
+    # ReplayRound stores public inputs and chosen indices, not autograd tensors.
     if trajectories is not None and trajectories.rounds:
         raise ValueError("Use a fresh trajectory collector for each batch")
     from encoders.numeric import NumericBatch
@@ -274,8 +273,11 @@ def accumulate_replay_loss(
 ) -> tuple[Tensor, Tensor, Tensor] | None:
     """Recompute the existing objective in chunks and accumulate one gradient.
 
-    Each chunk is divided by the completed-fight count, not by the chunk count.
-    Parameters stay fixed until the caller takes the optimizer step.
+    Each stored round is forwarded separately; this does not stack rounds into a
+    larger matmul. ``chunk_decisions`` is a flush threshold, not a hard maximum:
+    a round is never split, so one large round can exceed it. Each flushed chunk
+    is divided by the completed-fight count, not by the chunk count. Parameters
+    stay fixed until the caller takes the optimizer step.
     """
     if chunk_decisions < 1:
         raise ValueError("chunk_decisions must be positive")
@@ -631,7 +633,10 @@ def main() -> None:
         "--grad-chunk-decisions",
         type=int,
         default=0,
-        help="Recompute this many decisions per backward. 0 retains the rollout graph",
+        help=(
+            "Flush a backward after at least this many decisions. Rounds are not split, "
+            "so one large round can exceed it. 0 retains the rollout graph"
+        ),
     )
     parser.add_argument("--reference-run", type=Path)
     initialization = parser.add_mutually_exclusive_group()

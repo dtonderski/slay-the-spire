@@ -4,6 +4,7 @@ import unittest
 import torch
 from model import CombatValueModel
 from test_model import combat
+from trajectories import Trajectories
 from train import ReplayRound, accumulate_replay_loss, play_combats, train_batch
 from validation_set import Root
 
@@ -61,6 +62,46 @@ class ChunkedUpdateTests(unittest.TestCase):
         self.assertEqual(scores["optimizer_step"], 1.0)
         self.assertTrue(optimizer.state)
         self.assertGreaterEqual(scores["replay_storage_mib"], 0.0)
+
+
+    def test_chunked_recompute_matches_retained_graph_on_the_same_samples(self) -> None:
+        torch.set_num_threads(1)
+        devices = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+        for device in devices:
+            torch.manual_seed(5)
+            model = CombatValueModel().to(device).train()
+            trajectories = Trajectories()
+            replays: list[ReplayRound] = []
+            episodes = play_combats(
+                [combat(index) for index in range(3)],
+                model,
+                max_decisions=64,
+                training=True,
+                rng=random.Random(0),
+                trajectories=trajectories,
+                replays=replays,
+            )
+            self.assertTrue(replays)
+            retained_loss, _ = trajectories.losses(episodes, 0.01, value_coef=0.1)
+            assert retained_loss is not None
+            retained_grads = torch.autograd.grad(
+                retained_loss, list(model.parameters()), allow_unused=True
+            )
+            recomputed = CombatValueModel().to(device).train()
+            recomputed.load_state_dict(model.state_dict())
+            accumulated = accumulate_replay_loss(recomputed, replays, episodes, 0.01, 0.1, chunk_decisions=1)
+            assert accumulated is not None
+            torch.testing.assert_close(accumulated[0], retained_loss.detach(), rtol=1e-5, atol=1e-6)
+            compared = 0
+            for left, right in zip(retained_grads, (parameter.grad for parameter in recomputed.parameters()), strict=True):
+                if left is None and right is None:
+                    continue
+                self.assertIsNotNone(left)
+                self.assertIsNotNone(right)
+                torch.testing.assert_close(left, right, rtol=1e-4, atol=1e-5)
+                compared += 1
+            self.assertGreater(compared, 0)
+
 
 
 if __name__ == "__main__":
