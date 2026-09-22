@@ -241,6 +241,21 @@ class ValidationSetTests(unittest.TestCase):
         for state in states[1:]:
             self.assertTrue(torch.equal(states[0], state))
 
+    def test_per_fight_generator_matches_historical_global_draws(self) -> None:
+        from train import _policy_generator
+
+        logits = torch.tensor([0.2, -0.4, 1.5, -2.0])
+        for seed in (1, 12345, 90000, 2**31 - 1):
+            torch.manual_seed(seed)
+            historical = [sample_unpadded_action(logits, 3) for _ in range(6)]
+            generator = _policy_generator(seed, torch.device("cpu"))
+            actual = [sample_unpadded_action(logits, 3, generator) for _ in range(6)]
+            self.assertEqual(actual, historical)
+        before = torch.get_rng_state().clone()
+        generator = _policy_generator(99, torch.device("cpu"))
+        sample_unpadded_action(logits, 3, generator)
+        self.assertTrue(torch.equal(before, torch.get_rng_state()))
+
     def test_batched_simulator_failure_is_not_replaced_by_serial_success(self) -> None:
         roots, _ = fresh_batch(random.Random(12), sampler(), 2, ScenarioConfig(min_floor=1, max_floor=1))
         calls = []
