@@ -9,6 +9,7 @@ from unittest.mock import patch
 import numpy as np
 import torch
 from encoders.numeric import ACTION_KIND, ACTION_LEGAL_INDEX, ACTION_OWNER, ACTION_REVISION, NUMERIC_VERSION, NumericBatch
+from encoders.cards import CARD_TO_INDEX
 from model import CombatValueModel
 from numeric_reference import CATEGORICAL, reference_batch, semantic_tables
 from sts_sim import ACTION_KINDS, CounterKey, PowerKey, State
@@ -40,6 +41,16 @@ def _candidates(groups):
                 ]
             )
     return np.asarray(rows, dtype=np.int64)
+
+
+
+def _candidates_from_batch(batch):
+    from test_model import candidates_from_rows
+
+    groups = []
+    for index in batch.model_rows:
+        groups.append(batch.action_rows[batch.action_rows[:, ACTION_OWNER] == index])
+    return candidates_from_rows(groups)
 
 
 class NumericObservationTests(unittest.TestCase):
@@ -273,6 +284,21 @@ class NumericObservationTests(unittest.TestCase):
         actual = play_combats(mixed, policy, max_decisions=1, rng=random.Random(0))
         self.assertTrue(actual[0].won)
         self.assertIsNone(actual[1].reward)
+
+    def test_catalog_ids_match_typed_keys_and_logits(self) -> None:
+        state = combat()
+        native = NumericBatch(State.numeric_decisions([state]))
+        typed = state.decision()
+        hand = native.table("hand", 18)
+        for row, entry in zip(hand, typed.observation.screen.hand, strict=True):
+            self.assertEqual(int(row[1]), CARD_TO_INDEX[entry.card.content_key])
+        reference = reference_batch([typed])
+        candidates = _candidates_from_batch(native)
+        model = CombatValueModel()
+        left = model(native, candidates)
+        right = model(reference, candidates)
+        for actual, expected in zip(left, right, strict=True):
+            torch.testing.assert_close(actual, expected, rtol=0, atol=0)
 
     def test_symbol_codes_are_scoped_to_each_batch_table(self) -> None:
         vocabulary = {"defend": 1, "strike": 3}

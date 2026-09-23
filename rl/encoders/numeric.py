@@ -6,7 +6,8 @@ import numpy as np
 import torch
 from torch import Tensor
 
-NUMERIC_VERSION = 2
+NUMERIC_VERSION = 3
+CONTENT_VOCABULARY_VERSION = 1
 ACTION_ROW_WIDTH = 12
 ACTION_OWNER = 0
 ACTION_LEGAL_INDEX = 1
@@ -76,9 +77,13 @@ class NumericBatch:
         return np.bincount(table[:, 0], minlength=self.size).tolist()
 
     def powers(self, name: str, count: int, vocabulary: dict[Any, int]) -> np.ndarray:
+        """Scatter catalog ids. ``vocabulary`` supplies the width; ids are not symbol positions."""
         rows = self.table(name, 3)
+        if len(rows) and (int(rows[:, 1].min()) < 0 or int(rows[:, 1].max()) >= len(vocabulary)):
+            raise ValueError("Power id is outside content vocabulary v1")
         output = np.zeros((count, len(vocabulary)), dtype=np.float64)
-        output[rows[:, 0], self.codes(rows[:, 1], vocabulary)] = rows[:, 2]
+        if len(rows):
+            output[rows[:, 0], rows[:, 1]] = rows[:, 2]
         return output
 
 

@@ -1,4 +1,5 @@
 mod numeric;
+mod vocabulary;
 
 use pyo3::exceptions::{PyAttributeError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -307,6 +308,10 @@ impl PyState {
 #[pymodule]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(numeric::action_kind_vocabulary, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        vocabulary::content_vocabulary_version,
+        module
+    )?)?;
     module.add_function(wrap_pyfunction!(numeric::numeric_decisions, module)?)?;
     module.add_function(wrap_pyfunction!(numeric::numeric_steps, module)?)?;
     module.add_class::<PyState>()?;

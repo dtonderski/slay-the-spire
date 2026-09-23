@@ -63,10 +63,11 @@ Each index addresses the current public legal-action list, not an internal actio
 The paired revision must be the revision exported with that list; a mismatch is rejected
 before the index is applied.
 
-The version-2 payload is `(version, symbols, tables, model_rows)`:
+The version-3 payload is `(version, symbols, tables, model_rows)`:
 
-- `symbols`: public strings. Integer codes are batch-local dictionary references,
-  not stable content IDs or model features. `-1` means an absent optional category.
+- `symbols`: public strings for header/screen fields that are still batch-local.
+  Content-key columns are vocabulary v1 catalog ids, not symbol positions or instance ids.
+  `-1` means an absent optional category in the remaining symbol columns.
 - `tables[name] = (width, bytes)`: row-major native-endian signed int64 columns.
   Bytes are immutable, independently owned, and remain valid after stepping/cloning.
   Empty tables may be omitted. Normalization and embedding vocabularies belong to RL.
