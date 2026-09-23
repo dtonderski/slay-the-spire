@@ -8,9 +8,10 @@ use crate::{public_runtime_error, PyState};
 use pyo3::{prelude::*, types::PyBytes};
 use serde::Serialize;
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 use sts_env::{
-    DecisionRevision, FairCard, FairCombatPhase, FairDecision, FairMonsterIntent, FairRunScreen,
-    PublicChoice,
+    DecisionRevision, FairCard, FairCombatPhase, FairDecision, FairEnvironment, FairMonsterIntent,
+    FairRunScreen, PublicChoice,
 };
 
 type Tables = BTreeMap<String, (usize, Py<PyBytes>)>;
@@ -197,6 +198,10 @@ impl Export {
         self.symbol(key.as_str().expect("public enum key"))
     }
     fn row(&mut self, name: &'static str, values: &[i64]) -> i64 {
+        debug_assert!(
+            row_reference(name).is_some(),
+            "numeric table {name} has no merge rule"
+        );
         let (width, rows) = self
             .tables
             .entry(name)
@@ -410,29 +415,150 @@ impl Export {
         Ok(true)
     }
 }
-fn export(py: Python<'_>, decisions: Vec<FairDecision>) -> PyResult<Batch> {
-    let mut out = Export::default();
-    let mut model_rows = Vec::new();
+/// Tables whose first column is a model-row owner.
+const MODEL_OWNED_TABLES: [&str; 11] = [
+    "player_powers",
+    "hand",
+    "draw",
+    "discard",
+    "exhaust",
+    "selection_cards",
+    "enemies",
+    "relics",
+    "potions",
+    "selection_options",
+    "selected_slots",
+];
+/// Header columns holding batch-local symbol ids (kind, phase, combat phase).
+const HEADER_SYMBOL_COLUMNS: usize = 3;
+
+/// What a table's first column refers to, which decides how `merge` shifts it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RowReference {
+    /// One row per model row, in model-row order; nothing to shift.
+    Aligned,
+    /// Header rows: the first columns are batch-local symbol ids.
+    HeaderSymbols,
+    Decision,
+    ModelRow,
+    Enemy,
+    Relic,
+}
+
+/// Every table `Export` writes must have a rule; `Export::row` checks this in debug builds.
+fn row_reference(name: &str) -> Option<RowReference> {
+    Some(match name {
+        "header" => RowReference::HeaderSymbols,
+        "player" | "selection" => RowReference::Aligned,
+        "action_rows" => RowReference::Decision,
+        "enemy_powers" | "stasis" => RowReference::Enemy,
+        "relic_counters" => RowReference::Relic,
+        name if MODEL_OWNED_TABLES.contains(&name) => RowReference::ModelRow,
+        _ => return None,
+    })
+}
+
+/// Tables and model rows for one contiguous run of decisions, indexed locally.
+#[derive(Default)]
+struct Part {
+    out: Export,
+    model_rows: Vec<usize>,
+    decisions: usize,
+}
+
+fn build(decisions: Vec<FairDecision>) -> Result<Part, String> {
+    let mut part = Part {
+        decisions: decisions.len(),
+        ..Part::default()
+    };
     for (index, decision) in decisions.into_iter().enumerate() {
-        if out
-            .observation(&decision, model_rows.len() as i64)
-            .map_err(pyo3::exceptions::PyValueError::new_err)?
+        if part
+            .out
+            .observation(&decision, part.model_rows.len() as i64)?
         {
-            model_rows.push(index);
+            part.model_rows.push(index);
         }
-        let revision = i64::try_from(decision.revision.get()).map_err(|_| {
-            pyo3::exceptions::PyValueError::new_err(
-                "decision revision does not fit the numeric transport",
-            )
-        })?;
+        let revision = i64::try_from(decision.revision.get())
+            .map_err(|_| "decision revision does not fit the numeric transport".to_owned())?;
         for (legal_index, choice) in decision.choices.into_iter().enumerate() {
-            out.row(
+            part.out.row(
                 "action_rows",
                 &action_row(index as i64, legal_index as i64, revision, choice),
             );
         }
     }
-    let tables = out
+    Ok(part)
+}
+
+/// Concatenate parts in order. The result is identical to one serial `build`:
+/// symbols are interned in first-appearance order and every row reference is
+/// shifted by the rows that precede its part.
+fn merge(parts: Vec<Part>) -> Part {
+    let mut merged = Part::default();
+    for part in parts {
+        let remap: Vec<i64> = part
+            .out
+            .symbols
+            .iter()
+            .map(|symbol| merged.out.symbol(symbol))
+            .collect();
+        let row_count = |name| {
+            merged
+                .out
+                .tables
+                .get(name)
+                .map_or(0, |(width, rows): &(usize, Vec<i64>)| rows.len() / width)
+                as i64
+        };
+        let (enemies, relics) = (row_count("enemies"), row_count("relics"));
+        let (decisions, models) = (merged.decisions as i64, merged.model_rows.len() as i64);
+        for (name, (width, mut rows)) in part.out.tables {
+            // Every row reference is the first column.
+            let reference = row_reference(name)
+                .unwrap_or_else(|| panic!("numeric table {name} has no merge rule"));
+            let shift = match reference {
+                RowReference::HeaderSymbols => {
+                    for row in rows.chunks_exact_mut(width) {
+                        for value in &mut row[..HEADER_SYMBOL_COLUMNS] {
+                            if *value >= 0 {
+                                *value = remap[*value as usize];
+                            }
+                        }
+                    }
+                    0
+                }
+                RowReference::Aligned => 0,
+                RowReference::Decision => decisions,
+                RowReference::Enemy => enemies,
+                RowReference::Relic => relics,
+                RowReference::ModelRow => models,
+            };
+            if shift != 0 {
+                for row in rows.chunks_exact_mut(width) {
+                    row[0] += shift;
+                }
+            }
+            let (merged_width, merged_rows) = merged
+                .out
+                .tables
+                .entry(name)
+                .or_insert_with(|| (width, Vec::new()));
+            assert_eq!(*merged_width, width);
+            merged_rows.extend(rows);
+        }
+        merged.model_rows.extend(
+            part.model_rows
+                .into_iter()
+                .map(|row| row + merged.decisions),
+        );
+        merged.decisions += part.decisions;
+    }
+    merged
+}
+
+fn to_python(py: Python<'_>, part: Part) -> PyResult<Batch> {
+    let tables = part
+        .out
         .tables
         .into_iter()
         .map(|(key, (width, values))| {
@@ -445,8 +571,9 @@ fn export(py: Python<'_>, decisions: Vec<FairDecision>) -> PyResult<Batch> {
             Ok((key.to_owned(), (width, bytes.unbind())))
         })
         .collect::<PyResult<Tables>>()?;
-    Ok((NUMERIC_VERSION, out.symbols, tables, model_rows))
+    Ok((NUMERIC_VERSION, part.out.symbols, tables, part.model_rows))
 }
+
 #[pyfunction]
 pub fn numeric_decisions(py: Python<'_>, states: Vec<Py<PyState>>) -> PyResult<Batch> {
     let decisions = states
@@ -459,8 +586,118 @@ pub fn numeric_decisions(py: Python<'_>, states: Vec<Py<PyState>>) -> PyResult<B
                 .map_err(public_runtime_error)
         })
         .collect::<PyResult<_>>()?;
-    export(py, decisions)
+    let part = build(decisions).map_err(pyo3::exceptions::PyValueError::new_err)?;
+    to_python(py, part)
 }
+
+/// Every worker gets at least this many states; below it, thread startup costs more than it saves.
+const MIN_STATES_PER_WORKER: usize = 64;
+
+/// Contiguous chunk sizes, one per worker: as even as possible, each at least
+/// `MIN_STATES_PER_WORKER` when there is more than one, and never more than
+/// `max_workers` chunks. A batch too small to split is one chunk.
+fn chunk_sizes(states: usize, max_workers: usize) -> Vec<usize> {
+    let workers = max_workers.min(states / MIN_STATES_PER_WORKER).max(1);
+    let (base, extra) = (states / workers, states % workers);
+    (0..workers)
+        .map(|index| base + usize::from(index < extra))
+        .collect()
+}
+
+/// Most worker threads one batch may use.
+///
+/// Stepping clones whole run states and is memory-bound. On a 12-core/24-thread
+/// Ryzen 9 7900X, more than one worker per physical core was slower, so the default
+/// is half the logical CPUs. `STS_NUMERIC_THREADS` overrides it (read once), e.g. when
+/// several training processes share a machine. The count never changes results.
+fn max_workers() -> Result<usize, String> {
+    static WORKERS: OnceLock<Result<usize, String>> = OnceLock::new();
+    WORKERS
+        .get_or_init(|| match std::env::var("STS_NUMERIC_THREADS") {
+            Ok(value) => match value.trim().parse::<usize>() {
+                Ok(count) if count > 0 => Ok(count),
+                _ => Err(format!(
+                    "STS_NUMERIC_THREADS must be a positive integer, got {value:?}"
+                )),
+            },
+            Err(std::env::VarError::NotPresent) => Ok(std::thread::available_parallelism()
+                .map_or(1, usize::from)
+                .div_ceil(2)),
+            Err(error) => Err(format!("STS_NUMERIC_THREADS is unreadable: {error}")),
+        })
+        .clone()
+}
+
+fn step(
+    environment: &mut FairEnvironment,
+    (revision, index): (u64, i64),
+) -> Result<FairDecision, String> {
+    if index < 0 {
+        return Err("choice is invalid".to_owned());
+    }
+    // One public legality scan, then the existing successor projection.
+    // No second observation contract.
+    environment
+        .step_at_public_index(DecisionRevision::new(revision), index as usize)
+        .map_err(|error| error.to_string())
+}
+
+/// Step and export one chunk. The outer error is a step error, the inner one an
+/// export error, so step errors can take precedence across chunks as they do serially.
+fn step_chunk(
+    chunk: Vec<(&mut FairEnvironment, (u64, i64))>,
+) -> Result<Result<Part, String>, String> {
+    let decisions = chunk
+        .into_iter()
+        .map(|(environment, action)| step(environment, action))
+        .collect::<Vec<_>>();
+    // Every state in the chunk is attempted before an error is reported.
+    let decisions = decisions.into_iter().collect::<Result<Vec<_>, _>>()?;
+    Ok(build(decisions))
+}
+
+/// Step independent environments and export their successors, in input order.
+///
+/// Environments share no gameplay state, and nothing a step reads is thread-local
+/// in production: RNG trace capture and the clone/validation counters exist only in
+/// test builds, and the outer-transaction depth guard is balanced within each step,
+/// starting from zero on every thread. A worker therefore produces the same decision
+/// as the calling thread, and `merge` reproduces the serial tables.
+fn step_independent(
+    environments: Vec<&mut FairEnvironment>,
+    actions: Vec<(u64, i64)>,
+    max_workers: usize,
+) -> Result<Part, String> {
+    let mut jobs = environments.into_iter().zip(actions);
+    let chunks: Vec<Vec<_>> = chunk_sizes(jobs.len(), max_workers)
+        .into_iter()
+        .map(|size| jobs.by_ref().take(size).collect())
+        .collect();
+    let results = if chunks.len() <= 1 {
+        chunks.into_iter().map(step_chunk).collect::<Vec<_>>()
+    } else {
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = chunks
+                .into_iter()
+                .map(|chunk| scope.spawn(move || step_chunk(chunk)))
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().expect("numeric step worker panicked"))
+                .collect()
+        })
+    };
+    // Any step error wins over any export error, matching step-all-then-export.
+    let exported = results.into_iter().collect::<Result<Vec<_>, _>>()?;
+    let mut parts = exported.into_iter().collect::<Result<Vec<_>, _>>()?;
+    // One part is already the serial export; merging it would only copy it.
+    Ok(if parts.len() == 1 {
+        parts.pop().expect("one part")
+    } else {
+        merge(parts)
+    })
+}
+
 #[pyfunction]
 pub fn numeric_steps(
     py: Python<'_>,
@@ -473,24 +710,28 @@ pub fn numeric_steps(
             "State/action batch lengths differ",
         ));
     }
-    let decisions = states
+    // Every borrow is held for the whole batch, so a repeated state is rejected
+    // before any state is stepped.
+    let mut borrowed = states
         .iter()
-        .zip(indices)
-        .zip(revisions)
-        .map(|((state, index), revision)| {
-            if index < 0 {
-                return Err(pyo3::exceptions::PyValueError::new_err("choice is invalid"));
-            }
-            // One public legality scan, then the existing successor projection.
-            // No second observation contract and no parallel step.
-            state
-                .borrow_mut(py)
-                .env
-                .step_at_public_index(DecisionRevision::new(revision), index as usize)
-                .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))
+        .map(|state| {
+            state.try_borrow_mut(py).map_err(|_| {
+                pyo3::exceptions::PyValueError::new_err(
+                    "state is repeated in the batch or already borrowed",
+                )
+            })
         })
-        .collect::<PyResult<_>>()?;
-    export(py, decisions)
+        .collect::<PyResult<Vec<_>>>()?;
+    let workers = max_workers().map_err(pyo3::exceptions::PyValueError::new_err)?;
+    let environments = borrowed.iter_mut().map(|state| &mut state.env).collect();
+    let actions = revisions.into_iter().zip(indices).collect();
+    // Not atomic: every state is attempted and the first error in input order is
+    // reported. Callers discard the whole batch on any error.
+    let part = py
+        .detach(|| step_independent(environments, actions, workers))
+        .map_err(pyo3::exceptions::PyValueError::new_err)?;
+    drop(borrowed);
+    to_python(py, part)
 }
 
 #[cfg(test)]
@@ -598,6 +839,193 @@ mod tests {
         assert_eq!(out.tables["stasis"].1[0], 0);
         assert_eq!(out.tables["selection_options"].1, [0, 0]);
         assert_eq!(out.tables["selected_slots"].1, [0, 0]);
+    }
+
+    /// Environments walked by a fixed index pattern, one per seed, with their
+    /// visited decisions. Covers map/event screens as well as combat.
+    fn walked(steps: usize) -> (Vec<FairEnvironment>, Vec<FairDecision>) {
+        let mut environments = Vec::new();
+        let mut decisions = Vec::new();
+        for seed in 1..=12_u64 {
+            let mut env = FairEnvironment::new_ironclad(seed, 0).unwrap();
+            let mut decision = env.decision().unwrap();
+            for step in 0..steps {
+                decisions.push(decision.clone());
+                if decision.choices.is_empty() {
+                    break;
+                }
+                let index = (step * 7 + seed as usize) % decision.choices.len();
+                decision = env.step_at_public_index(decision.revision, index).unwrap();
+            }
+            environments.push(env);
+        }
+        (environments, decisions)
+    }
+
+    fn assert_same(left: &Part, right: &Part) {
+        assert_eq!(left.out.symbols, right.out.symbols);
+        assert_eq!(left.out.tables, right.out.tables);
+        assert_eq!(left.model_rows, right.model_rows);
+        assert_eq!(left.decisions, right.decisions);
+    }
+
+    #[test]
+    fn merged_chunks_equal_one_serial_export() {
+        let (_, decisions) = walked(120);
+        let serial = build(decisions.clone()).unwrap();
+        for tables in ["enemies", "enemy_powers", "relics", "action_rows"] {
+            assert!(
+                serial.out.tables.contains_key(tables),
+                "fixture lacks {tables}"
+            );
+        }
+        assert!(!serial.model_rows.is_empty() && serial.model_rows.len() < decisions.len());
+        for size in [1, 7, 64, decisions.len()] {
+            let parts = decisions
+                .chunks(size)
+                .map(|chunk| build(chunk.to_vec()).unwrap())
+                .collect();
+            assert_same(&serial, &merge(parts));
+        }
+    }
+
+    #[test]
+    fn parallel_steps_match_serial_steps() {
+        let (environments, _) = walked(40);
+        // Enough states that the batch is split across workers.
+        let mut serial: Vec<_> = (0..MIN_STATES_PER_WORKER * 4)
+            .map(|index| environments[index % environments.len()].clone())
+            .collect();
+        let actions: Vec<_> = serial
+            .iter()
+            .enumerate()
+            .map(|(index, env)| {
+                let decision = env.decision().unwrap();
+                let count = decision.choices.len().max(1);
+                (decision.revision.get(), (index % count) as i64)
+            })
+            .collect();
+        let expected = build(
+            serial
+                .iter_mut()
+                .zip(actions.iter().copied())
+                .map(|(env, action)| step(env, action).unwrap())
+                .collect(),
+        )
+        .unwrap();
+        // 1 is the calling-thread path; the others split the batch unevenly.
+        for workers in [1, 2, 3, 8] {
+            let mut parallel = environments_before(&environments, MIN_STATES_PER_WORKER * 4);
+            let actual =
+                step_independent(parallel.iter_mut().collect(), actions.clone(), workers).unwrap();
+            assert_same(&expected, &actual);
+            for (left, right) in serial.iter().zip(&parallel) {
+                assert_eq!(left.decision().unwrap(), right.decision().unwrap());
+            }
+        }
+    }
+
+    fn environments_before(environments: &[FairEnvironment], count: usize) -> Vec<FairEnvironment> {
+        (0..count)
+            .map(|index| environments[index % environments.len()].clone())
+            .collect()
+    }
+
+    #[test]
+    fn chunks_are_balanced_and_never_below_the_minimum() {
+        assert_eq!(chunk_sizes(0, 12), [0]);
+        assert_eq!(chunk_sizes(127, 12), [127]);
+        assert_eq!(chunk_sizes(128, 12), [64, 64]);
+        // div_ceil sizing would have left a final chunk of 57 here.
+        assert_eq!(
+            chunk_sizes(651, 10),
+            [66, 65, 65, 65, 65, 65, 65, 65, 65, 65]
+        );
+        for states in 0..3000 {
+            for max_workers in 1..=24 {
+                let sizes = chunk_sizes(states, max_workers);
+                assert_eq!(sizes.iter().sum::<usize>(), states);
+                assert!(sizes.len() <= max_workers);
+                if sizes.len() > 1 {
+                    assert!(sizes.iter().all(|&size| size >= MIN_STATES_PER_WORKER));
+                    assert!(sizes.iter().max().unwrap() - sizes.iter().min().unwrap() <= 1);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn merge_shifts_every_row_reference() {
+        // Two hand-built parts that write every table; the first column of each row is
+        // a local reference, the second a marker that must survive unchanged.
+        fn part(symbols: &[&str], decisions: usize) -> Part {
+            let mut part = Part {
+                decisions,
+                ..Part::default()
+            };
+            let ids: Vec<i64> = symbols.iter().map(|s| part.out.symbol(s)).collect();
+            for decision in 0..decisions as i64 {
+                part.out.row("header", &[ids[0], ids[1], -1, 7, 9]);
+                part.out.row("action_rows", &[decision, 100 + decision]);
+            }
+            part.model_rows = (0..decisions).collect();
+            for table in MODEL_OWNED_TABLES {
+                part.out.row(table, &[1, 200]);
+            }
+            for table in ["player", "selection"] {
+                part.out.row(table, &[300, 301]);
+            }
+            for (table, reference) in [("enemy_powers", 0), ("stasis", 0), ("relic_counters", 0)] {
+                part.out.row(table, &[reference, 400]);
+            }
+            part
+        }
+        let first = part(&["combat", "turn"], 2);
+        let second = part(&["reward", "combat"], 3);
+        for name in first.out.tables.keys() {
+            assert!(row_reference(name).is_some(), "{name}");
+        }
+        let merged = merge(vec![first, second]);
+        assert_eq!(merged.out.symbols, ["combat", "turn", "reward"]);
+        assert_eq!(merged.decisions, 5);
+        assert_eq!(merged.model_rows, [0, 1, 2, 3, 4]);
+        let column = |name: &str, column: usize| -> Vec<i64> {
+            let (width, rows) = &merged.out.tables[name];
+            rows.chunks_exact(*width).map(|row| row[column]).collect()
+        };
+        assert_eq!(column("header", 0), [0, 0, 2, 2, 2]);
+        assert_eq!(column("header", 1), [1, 1, 0, 0, 0]);
+        assert_eq!(column("header", 2), [-1; 5]);
+        assert_eq!(column("action_rows", 0), [0, 1, 2, 3, 4]);
+        assert_eq!(column("action_rows", 1), [100, 101, 100, 101, 102]);
+        for table in MODEL_OWNED_TABLES {
+            // Shifted by the first part's two model rows.
+            assert_eq!(column(table, 0), [1, 3], "{table}");
+            assert_eq!(column(table, 1), [200, 200], "{table}");
+        }
+        assert_eq!(column("player", 0), [300, 300]);
+        // One enemy and one relic row in the first part.
+        assert_eq!(column("enemy_powers", 0), [0, 1]);
+        assert_eq!(column("stasis", 0), [0, 1]);
+        assert_eq!(column("relic_counters", 0), [0, 1]);
+    }
+
+    #[test]
+    fn parallel_step_errors_report_the_first_state_in_input_order() {
+        let (environments, _) = walked(10);
+        let mut states: Vec<_> = (0..MIN_STATES_PER_WORKER * 3)
+            .map(|index| environments[index % environments.len()].clone())
+            .collect();
+        let mut actions: Vec<_> = states
+            .iter()
+            .map(|env| (env.decision().unwrap().revision.get(), 0))
+            .collect();
+        actions[MIN_STATES_PER_WORKER * 2].1 = -1;
+        actions[MIN_STATES_PER_WORKER + 1].0 += 1;
+        let error = step_independent(states.iter_mut().collect(), actions, 4)
+            .err()
+            .unwrap();
+        assert!(error.contains("stale"), "{error}");
     }
 
     #[test]

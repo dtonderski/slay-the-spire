@@ -57,13 +57,21 @@ this is not the pre-entry loadout HP.
 `State.numeric_decisions(states)` and `State.numeric_steps(states, indices, revisions)`
 expose an alternative transport for combat training. The typed API above is unchanged.
 Both call the same fair environment; no gameplay or replay rules are changed.
-Steps are sequential and individually checked, **not atomic across the batch**:
-if a later action fails, earlier accepted steps remain accepted, as in a Python loop.
 Each index addresses the current public legal-action list, not an internal action id.
 The indexed step uses one `projected_choices` scan of the current state and the existing
-successor projection. It does not add a second observation contract or parallel execution.
+successor projection. It does not add a second observation contract.
 The paired revision must be the revision exported with that list; a mismatch is rejected
 before the index is applied.
+
+`numeric_steps` releases the GIL and, for larger batches, steps and exports contiguous
+chunks of states on worker threads, each with at least 64 states. States are independent,
+and chunk tables are merged in input order, so the payload is identical to a serial step
+for any thread count. Steps are individually checked and **not atomic across the batch**:
+every state is attempted, accepted steps stay accepted even if another state fails, and the
+first error in input order is raised. Callers must discard the whole batch on error. A state
+passed more than once, or borrowed elsewhere (e.g. by another Python thread), is rejected
+before any state is stepped. The worker cap defaults to half the logical CPUs; set
+`STS_NUMERIC_THREADS` to a positive integer to override it (read once per process).
 
 The version-3 payload is `(version, symbols, tables, model_rows)`:
 

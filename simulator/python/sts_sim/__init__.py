@@ -199,7 +199,9 @@ class State:
         """Step by index into each state's current public legal-action list.
 
         ``revisions`` are the revisions exported with those indices. A mismatch is
-        rejected and does not apply the action. The batch is not atomic.
+        rejected and does not apply the action. The batch is not atomic: every state is
+        attempted (possibly on worker threads), the first error in input order is raised,
+        and a state passed twice (or borrowed elsewhere) is rejected before any step.
         """
         if not (len(states) == len(indices) == len(revisions)):
             raise ValueError("State/action batch lengths differ")
