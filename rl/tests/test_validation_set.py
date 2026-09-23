@@ -244,13 +244,31 @@ class ValidationSetTests(unittest.TestCase):
     def test_per_fight_generator_matches_historical_global_draws(self) -> None:
         from train import _policy_generator
 
-        logits = torch.tensor([0.2, -0.4, 1.5, -2.0])
-        for seed in (1, 12345, 90000, 2**31 - 1):
-            torch.manual_seed(seed)
-            historical = [sample_unpadded_action(logits, 3) for _ in range(6)]
-            generator = _policy_generator(seed, torch.device("cpu"))
-            actual = [sample_unpadded_action(logits, 3, generator) for _ in range(6)]
-            self.assertEqual(actual, historical)
+        cases = [
+            (torch.tensor([0.2, -0.4, 1.5, -2.0]), 3),
+            # softmax(raw logits) rounds differently from Categorical normalization.
+            (torch.tensor([0.9145662784576416, -2.2833824157714844], dtype=torch.float32), 2),
+        ]
+        for logits, n_legal in cases:
+            for seed in (1, 2, 12345, 90000, 2**31 - 1):
+                torch.manual_seed(seed)
+                historical = [sample_unpadded_action(logits, n_legal) for _ in range(6)]
+                generator = _policy_generator(seed, logits.device)
+                actual = [sample_unpadded_action(logits, n_legal, generator) for _ in range(6)]
+                self.assertEqual(actual, historical)
+        if torch.cuda.is_available():
+            cuda_cases = [
+                (cases[1][0].to(device="cuda"), 2),
+                (torch.tensor([0.2, -0.4, 1.5, -2.0, 0.05], dtype=torch.float32, device="cuda"), 5),
+            ]
+            for logits, n_legal in cuda_cases:
+                for seed in (1, 2, 12345):
+                    torch.manual_seed(seed)
+                    historical = [sample_unpadded_action(logits, n_legal) for _ in range(4)]
+                    generator = _policy_generator(seed, logits.device)
+                    actual = [sample_unpadded_action(logits, n_legal, generator) for _ in range(4)]
+                    self.assertEqual(actual, historical, f"CUDA seed {seed}")
+        logits = cases[0][0]
         before = torch.get_rng_state().clone()
         generator = _policy_generator(99, torch.device("cpu"))
         sample_unpadded_action(logits, 3, generator)

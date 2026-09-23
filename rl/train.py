@@ -230,9 +230,9 @@ def sample_unpadded_action(logits: Tensor, n_legal: int, generator: torch.Genera
         row = row.unsqueeze(0)
     if generator is None:
         return int(Categorical(logits=row).sample())
-    # Same Philox draws as Categorical.sample() after seeding the global generator,
-    # without installing that generator as process-global state.
-    return int(torch.multinomial(torch.softmax(row, dim=-1), 1, generator=generator))
+    # Categorical normalizes before drawing. softmax(raw logits) is not the same
+    # rounding, so the generator must consume Categorical.probs.
+    return int(torch.multinomial(Categorical(logits=row).probs, 1, generator=generator))
 
 
 def _policy_seed(index: int, repeats: int, repeat: int) -> int:

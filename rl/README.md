@@ -87,8 +87,9 @@ to a single-row forward, so those policy scores are `batched_forward_per_episode
 and are not a continuation of older `val_main` curves. Sampling uses only that
 fight's legal logits, so another fight's padding does not change its draw.
 Batched policy evaluation draws from an explicit per-fight generator instead of
-swapping the process-global RNG. The draw sequence matches the previous global
-sampler for the same seed, so the protocol name is unchanged.
+swapping the process-global RNG. The generator draws from ``Categorical`` probabilities, not a raw softmax, so the
+draw sequence matches the previous global sampler for the same seed on CPU and CUDA.
+The protocol name is unchanged.
 A failed batched step marks the whole chunk unavailable and is not replaced
 by a serial rollout. Model-free random evaluation
 stays identical at every batch size. Decision statistics are collected
@@ -140,4 +141,4 @@ uv run --no-sync ty check model.py observation_encoder.py encoders train.py \
 
 Tests cover the supported numeric path, loss/gradient behavior, error handling,
 frozen inputs and reference logging. Unit/synthetic tests do not establish real-game
-parity; simulator changes require the repository's reviewed trace-corpus checks.
+parity; simulator
