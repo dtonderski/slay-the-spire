@@ -94,6 +94,13 @@ impl FairEnvironment {
         fair_run_observation(&self.state).map_err(|_| FairError::DecisionUnavailable)
     }
 
+    /// Public context HP. This is the same field as `FairRunContext.player_hp`
+    /// and does not project the screen, enumerate choices, or draw RNG.
+    #[must_use]
+    pub fn public_player_hp(&self) -> i32 {
+        self.state.hp
+    }
+
     pub fn legal_choices(&self) -> Result<Vec<PublicChoice>, FairError> {
         projected_choices(&self.state)
             .map(|choices| choices.into_iter().map(|(choice, _)| choice).collect())
@@ -143,6 +150,36 @@ impl FairEnvironment {
         self.revision = next_revision;
         Ok(decision)
     }
+
+    /// Apply one index into the current public legal list.
+    ///
+    /// Uses the same `projected_choices` pairing as [`Self::step`], then the same
+    /// successor projection. It does not invent a second legality or observation
+    /// contract, and it does not scan the pre-state twice.
+    pub fn step_at_public_index(
+        &mut self,
+        revision: DecisionRevision,
+        index: usize,
+    ) -> Result<FairDecision, FairError> {
+        if revision != self.revision {
+            return Err(FairError::StaleDecision);
+        }
+        let next_revision = self
+            .revision
+            .checked_next()
+            .ok_or(FairError::RevisionExhausted)?;
+        let action = projected_choices(&self.state)?
+            .into_iter()
+            .nth(index)
+            .map(|(_, action)| action)
+            .ok_or(FairError::InvalidChoice)?;
+        let next = sts_core::adapter_internals::apply_run_decision_action(&self.state, action)
+            .map_err(|_| FairError::InvalidChoice)?;
+        let decision = Self::decision_for(&next, next_revision)?;
+        self.state = next;
+        self.revision = next_revision;
+        Ok(decision)
+    }
 }
 
 #[cfg(test)]
@@ -169,6 +206,42 @@ mod tests {
     }
 
     #[test]
+    fn public_index_step_matches_choice_step_and_rejects_without_advancing() {
+        let mut by_choice = FairEnvironment::new_ironclad(1, 0).expect("environment");
+        let mut by_index = by_choice.clone();
+        for _ in 0..30 {
+            let decision = by_choice.decision().expect("decision");
+            if decision.choices.is_empty() {
+                break;
+            }
+            let index = decision.choices.len() / 2;
+            let choice = decision.choices[index];
+            let left = by_choice
+                .step(PublicChoiceRequest {
+                    revision: decision.revision,
+                    choice,
+                })
+                .expect("choice step");
+            let right = by_index
+                .step_at_public_index(decision.revision, index)
+                .expect("index step");
+            assert_eq!(left, right);
+        }
+        let mut stale = FairEnvironment::new_ironclad(3, 0).expect("environment");
+        let before = stale.decision().expect("decision");
+        assert_eq!(
+            stale.step_at_public_index(DecisionRevision::new(99), 0),
+            Err(FairError::StaleDecision)
+        );
+        assert_eq!(stale.decision().expect("unchanged"), before);
+        assert_eq!(
+            stale.step_at_public_index(before.revision, 10_000),
+            Err(FairError::InvalidChoice)
+        );
+        assert_eq!(stale.decision().expect("unchanged"), before);
+    }
+
+    #[test]
     fn accepted_choice_increments_revision_once() {
         let mut env = FairEnvironment::new_ironclad(1, 0).expect("environment");
         let first = env.decision().expect("decision");
@@ -181,6 +254,17 @@ mod tests {
             .expect("step");
         assert_eq!(second.revision.get(), first.revision.get() + 1);
         assert_eq!(env.revision(), second.revision);
+    }
+
+    #[test]
+    fn public_player_hp_matches_observation_context_without_rng() {
+        let env = FairEnvironment::new_ironclad(7, 0).expect("environment");
+        let before = env.clone();
+        assert_eq!(
+            env.public_player_hp(),
+            env.observation().expect("observation").context.player_hp
+        );
+        assert_eq!(env.decision(), before.decision());
     }
 
     #[test]

@@ -3,8 +3,17 @@ import unittest
 from types import SimpleNamespace
 from typing import cast
 
+import numpy as np
 import torch
-from encoders.numeric import NumericBatch
+from encoders.numeric import (
+    ACTION_HAND,
+    ACTION_KIND,
+    ACTION_OPTION,
+    ACTION_OWNER,
+    ACTION_POTION,
+    ACTION_TARGET,
+    NumericBatch,
+)
 from model import CombatValueModel
 from sts_sim import Action, State
 
@@ -20,6 +29,24 @@ def action(kind: str, **slots: int | None) -> Action:
             option_slot=slots.get("option_slot", 0),
         ),
     )
+
+
+def candidates_from_rows(groups: list[np.ndarray]) -> np.ndarray:
+    pieces = []
+    for owner, rows in enumerate(groups):
+        pieces.append(
+            np.column_stack(
+                (
+                    np.full(len(rows), owner, dtype=np.int64),
+                    rows[:, ACTION_KIND],
+                    rows[:, ACTION_HAND],
+                    rows[:, ACTION_POTION],
+                    rows[:, ACTION_OPTION],
+                    rows[:, ACTION_TARGET],
+                )
+            )
+        )
+    return np.concatenate(pieces)
 
 
 def combat(seed: int = 1, hp: int = 80) -> State:
@@ -47,16 +74,18 @@ class ModelTests(unittest.TestCase):
         torch.set_num_threads(1)
         states = [combat(1), combat(2)]
         batch = NumericBatch(State.numeric_decisions(states))
-        actions = [tuple(batch.actions[0][:-2]), tuple(batch.actions[1])]
+        groups = [batch.action_rows[batch.action_rows[:, ACTION_OWNER] == index] for index in range(2)]
+        groups[0] = groups[0][:-2]
+        actions = candidates_from_rows(groups)
         for device in ("cpu", "cuda") if torch.cuda.is_available() else ("cpu",):
             model = CombatValueModel(d_model=16, action_dim=8, n_layers=1).to(device)
             logits, _, mask = model(batch, actions)
-            self.assertEqual(tuple(logits.shape), (2, len(actions[1])))
+            self.assertEqual(tuple(logits.shape), (2, len(groups[1])))
             self.assertTrue(torch.isneginf(logits[~mask]).all())
             for i, state in enumerate(states):
                 single = NumericBatch(State.numeric_decisions([state]))
-                scores, _, _ = model(single, [actions[i]])
-                torch.testing.assert_close(logits[i, : len(actions[i])], scores[0], atol=1e-6, rtol=1e-5)
+                scores, _, _ = model(single, candidates_from_rows([groups[i]]))
+                torch.testing.assert_close(logits[i, : len(groups[i])], scores[0], atol=1e-6, rtol=1e-5)
             logits[mask].square().sum().backward()
             self.assertTrue(all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None))
 
@@ -64,7 +93,9 @@ class ModelTests(unittest.TestCase):
         torch.set_num_threads(1)
         states = [combat(1), combat(2)]
         batch = NumericBatch(State.numeric_decisions(states))
-        actions = [tuple(batch.actions[0][:-2]), tuple(batch.actions[1])]
+        groups = [batch.action_rows[batch.action_rows[:, ACTION_OWNER] == index] for index in range(2)]
+        groups[0] = groups[0][:-2]
+        actions = candidates_from_rows(groups)
         for device in ("cpu", "cuda") if torch.cuda.is_available() else ("cpu",):
             model = CombatValueModel(d_model=16, action_dim=8, n_layers=1).to(device)
             logits, values, mask = model(batch, actions)
@@ -73,8 +104,8 @@ class ModelTests(unittest.TestCase):
             self.assertTrue(torch.isneginf(logits[~mask]).all())
             for i, state in enumerate(states):
                 single = NumericBatch(State.numeric_decisions([state]))
-                scores, value, _ = model(single, [actions[i]])
-                torch.testing.assert_close(logits[i, : len(actions[i])], scores[0], atol=1e-6, rtol=1e-5)
+                scores, value, _ = model(single, candidates_from_rows([groups[i]]))
+                torch.testing.assert_close(logits[i, : len(groups[i])], scores[0], atol=1e-6, rtol=1e-5)
                 torch.testing.assert_close(values[i], value[0], atol=1e-6, rtol=1e-5)
             (logits[mask].square().sum() + values.square().sum()).backward()
             for head in (model.policy_head, model.value_head, model.observation_encoder.query):
@@ -83,12 +114,12 @@ class ModelTests(unittest.TestCase):
                 self.assertTrue(torch.isfinite(head.weight.grad).all())
                 self.assertGreater(head.weight.grad.abs().sum().item(), 0)
             with self.assertRaises(ValueError):
-                model(batch, [(), actions[1]])
+                model(batch, candidates_from_rows([groups[1]]))
 
     def test_empty_candidate_rejected(self) -> None:
         batch = NumericBatch(State.numeric_decisions([combat()]))
         with self.assertRaises(ValueError):
-            CombatValueModel()(batch, [()])
+            CombatValueModel()(batch, np.zeros((0, 6), dtype=np.int64))
 
 
 if __name__ == "__main__":

@@ -50,20 +50,29 @@ samplers with this constructor; see `rl/tools/README.md` for priors and limitati
 
 ## Numeric combat batches
 
-`State.numeric_decisions(states)` and `State.numeric_steps(states, actions)` expose
-an alternative transport for combat training. The typed API above is unchanged.
+`State.player_hp()` returns the public context HP (`observation().context.player_hp`)
+without projecting the screen or drawing RNG. Combat-start healing is included;
+this is not the pre-entry loadout HP.
+
+`State.numeric_decisions(states)` and `State.numeric_steps(states, indices, revisions)`
+expose an alternative transport for combat training. The typed API above is unchanged.
 Both call the same fair environment; no gameplay or replay rules are changed.
 Steps are sequential and individually checked, **not atomic across the batch**:
 if a later action fails, earlier accepted steps remain accepted, as in a Python loop.
+Each index addresses the current public legal-action list, not an internal action id.
+The indexed step uses one `projected_choices` scan of the current state and the existing
+successor projection. It does not add a second observation contract or parallel execution.
+The paired revision must be the revision exported with that list; a mismatch is rejected
+before the index is applied.
 
-The version-1 payload is `(version, symbols, tables, actions, model_rows)`:
+The version-3 payload is `(version, symbols, tables, model_rows)`:
 
-- `symbols`: public strings. Integer codes are batch-local dictionary references,
-  not stable content IDs or model features. `-1` means an absent optional category.
+- `symbols`: public strings for header/screen fields that are still batch-local.
+  Content-key columns are vocabulary v1 catalog ids, not symbol positions or instance ids.
+  `-1` means an absent optional category in the remaining symbol columns.
 - `tables[name] = (width, bytes)`: row-major native-endian signed int64 columns.
   Bytes are immutable, independently owned, and remain valid after stepping/cloning.
   Empty tables may be omitted. Normalization and embedding vocabularies belong to RL.
-- `actions`: existing revision-bound action objects per input state, in legal order.
 - `model_rows`: input-state indices with a waiting-for-player combat, in input order.
   An observation owner below indexes this compact list, not all input states.
 
@@ -83,6 +92,7 @@ Columns (zero-based row references are transport offsets, never instance IDs):
 | `potions` | owner, potion key code or -1, visible slot |
 | `selection` | kind code or -1; one row per model observation |
 | `selection_options`, `selected_slots` | owner, visible option slot |
+| `action_rows` | batch-state owner, legal-list index, fixed public kind code, hand slot, potion slot, option slot, target slot, card slot, node slot, reward slot, shop slot, revision. Absent slots are -1. Kind codes index `ACTION_KINDS`, not this batch's symbol table. Order within an owner is public legal order. |
 
 Card dynamic order is Rampage, Ritual Dagger, Windmill Strike, Steam Barrier,
 and underlying combat cost. Absent optional integers have zero payload and a

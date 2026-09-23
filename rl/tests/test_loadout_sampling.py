@@ -107,6 +107,52 @@ class LoadoutSamplingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validated_event(value)
 
+    def test_prepared_tables_match_choices_draw_order(self) -> None:
+        import math
+
+        def legacy_choose(rng, counts):
+            if not counts or any(not math.isfinite(n) or n <= 0 for n in counts.values()):
+                raise ValueError("Expected a nonempty positive finite frequency table")
+            return rng.choices(list(counts), weights=list(counts.values()), k=1)[0]
+
+        def legacy_sample(rng, data, floor):
+            size = int(legacy_choose(rng, data["deck_sizes"]))
+            card_weights = {key: sum(upgrades.values()) for key, upgrades in data["cards"].items()}
+            deck = []
+            for _ in range(size):
+                key = legacy_choose(rng, card_weights)
+                deck.append((key, int(legacy_choose(rng, data["cards"][key]))))
+            starter = legacy_choose(rng, data["starters"])
+            relics = [] if starter == "none" else [starter]
+            count = int(legacy_choose(rng, data["other_relic_counts"]))
+            candidates = dict(data["other_relics"])
+            for _ in range(count):
+                relic = legacy_choose(rng, candidates)
+                relics.append(relic)
+                del candidates[relic]
+            capacity = 3 + 2 * ("Potion Belt" in relics)
+            occupied = rng.randrange(capacity + 1)
+            potions = [None] * capacity
+            for slot in rng.sample(range(capacity), occupied):
+                potions[slot] = legacy_choose(rng, data["potions_obtained"])
+            maximum = int(legacy_choose(rng, data["max_hp"]))
+            hp = rng.randint(max(1, math.ceil(maximum * 0.1)), maximum)
+            return deck, relics, potions, maximum, hp
+
+        sampler = self.sampler()
+        data = sampler.distributions["bands"]["1-5"]
+        for seed in range(40):
+            expected = legacy_sample(random.Random(seed), data, 3)
+            sample = sampler.sample(random.Random(seed), 3)
+            actual = (
+                [(card.content_key, card.upgrades) for card in sample.deck],
+                list(sample.relics),
+                list(sample.potions),
+                sample.max_hp,
+                sample.hp,
+            )
+            self.assertEqual(actual, expected)
+
 
 if __name__ == "__main__":
     unittest.main()

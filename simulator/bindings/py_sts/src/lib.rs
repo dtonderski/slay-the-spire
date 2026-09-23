@@ -1,4 +1,5 @@
 mod numeric;
+mod vocabulary;
 
 use pyo3::exceptions::{PyAttributeError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -268,6 +269,11 @@ impl PyState {
             .and_then(py_observation)
     }
 
+    /// Public context HP, without building a typed observation.
+    fn player_hp(&self) -> i32 {
+        self.env.public_player_hp()
+    }
+
     fn legal_actions(&self) -> PyResult<Vec<PyAction>> {
         let revision = self.env.revision();
         self.env
@@ -301,6 +307,11 @@ impl PyState {
 
 #[pymodule]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(numeric::action_kind_vocabulary, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        vocabulary::content_vocabulary_version,
+        module
+    )?)?;
     module.add_function(wrap_pyfunction!(numeric::numeric_decisions, module)?)?;
     module.add_function(wrap_pyfunction!(numeric::numeric_steps, module)?)?;
     module.add_class::<PyState>()?;

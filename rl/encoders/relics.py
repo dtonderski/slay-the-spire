@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from jaxtyping import Float
-from sts_sim import RelicKey
+from sts_sim import CounterKey, RelicKey
 from torch import Tensor, nn
 
 from .numeric import NumericBatch, tensor
@@ -25,15 +25,20 @@ class RelicEncoder(nn.Module):
     ) -> tuple[Float[Tensor, "n_relics relic_features"], Float[Tensor, "n_relics d_model"], list[int]]:
         """Embed raw relic keys and assemble alphabetically ordered counter slots."""
         rows = batch.table("relics", 2)
-        identities = self.embedding(
-            tensor(self.embedding.weight, batch.codes(rows[:, 1], RELIC_TO_INDEX), integer=True)
-        )
+        raw_ids = rows[:, 1]
+        if len(raw_ids) and (int(raw_ids.min()) < 0 or int(raw_ids.max()) >= len(RELIC_TO_INDEX)):
+            raise ValueError("Relic id is outside content vocabulary v1")
+        identities = self.embedding(tensor(self.embedding.weight, raw_ids, integer=True))
         counters = batch.table("relic_counters", 3)
-        counts = np.bincount(counters[:, 0], minlength=len(rows))
-        if np.any(counts > RELIC_COUNTER_SLOTS):
+        counts = (
+            np.bincount(counters[:, 0], minlength=len(rows)) if len(counters) else np.zeros(len(rows), dtype=np.int64)
+        )
+        if len(counts) and np.any(counts > RELIC_COUNTER_SLOTS):
             raise ValueError("Too many public relic counters")
-        ranks = np.argsort(np.argsort(np.array(batch.symbols)))
-        order = np.lexsort((ranks[counters[:, 1]], counters[:, 0]))
+        labels = np.array([key.value for key in CounterKey])
+        if len(counters) and (int(counters[:, 1].min()) < 0 or int(counters[:, 1].max()) >= len(labels)):
+            raise ValueError("Counter id is outside content vocabulary v1")
+        order = np.lexsort((labels[counters[:, 1]], counters[:, 0])) if len(counters) else np.array([], dtype=np.int64)
         counters = counters[order]
         slots = np.arange(len(counters)) - np.repeat(np.cumsum(counts) - counts, counts)
         values = np.zeros((len(rows), RELIC_COUNTER_SLOTS))

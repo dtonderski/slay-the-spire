@@ -1,15 +1,181 @@
 //! Direct numeric transport of the combat policy's PUBLIC input fields.
-//! Consumes FairDecision only; has no access to authoritative state or RL code.
-use crate::{public_runtime_error, py_action, PyAction, PyState};
+//! Export consumes FairDecision only. Stepping indexes the current public legal list.
+use crate::vocabulary::{
+    card_id, counter_id, intent_id, monster_id, potion_id, power_id, relic_id,
+    selection_catalog_id, slime_catalog_id,
+};
+use crate::{public_runtime_error, PyState};
 use pyo3::{prelude::*, types::PyBytes};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use sts_env::{
-    FairCard, FairCombatPhase, FairDecision, FairMonsterIntent, FairRunScreen, PublicChoiceRequest,
+    DecisionRevision, FairCard, FairCombatPhase, FairDecision, FairMonsterIntent, FairRunScreen,
+    PublicChoice,
 };
 
 type Tables = BTreeMap<String, (usize, Py<PyBytes>)>;
-type Batch = (u32, Vec<String>, Tables, Vec<Vec<PyAction>>, Vec<usize>);
+type Batch = (u32, Vec<String>, Tables, Vec<usize>);
+pub const NUMERIC_VERSION: u32 = 3;
+pub const ACTION_ROW_WIDTH: usize = 12;
+/// Fixed public kind order. Codes are vocabulary indices, not batch symbol positions.
+pub const ACTION_KINDS: &[&str] = &[
+    "play_hand_slot",
+    "end_turn",
+    "choose_event_option",
+    "toggle_grid_card",
+    "confirm_grid",
+    "cancel_grid",
+    "choose_map_node",
+    "rest_heal",
+    "rest_open_smith",
+    "rest_open_remove",
+    "rest_smith",
+    "rest_remove_card",
+    "rest_lift",
+    "rest_dig",
+    "rest_recall",
+    "rest_proceed",
+    "skip_reward",
+    "close_card_reward",
+    "take_card_reward",
+    "take_singing_bowl_reward",
+    "take_gold_reward",
+    "take_stolen_gold_reward",
+    "take_potion_reward",
+    "take_relic_reward",
+    "take_relic_reward_at",
+    "take_sapphire_key",
+    "take_emerald_key",
+    "choose_boss_relic_reward",
+    "proceed",
+    "open_chest",
+    "open_card_reward",
+    "open_queued_card_reward",
+    "skip_potion_reward",
+    "buy_shop_card",
+    "buy_shop_relic",
+    "buy_shop_potion",
+    "use_potion_slot",
+    "discard_potion_slot",
+    "toggle_visible_card",
+    "choose_visible_option",
+    "confirm_selection",
+    "confirm_selection_without_retrieval",
+    "skip_selection",
+    "enter_shop",
+    "leave_shop",
+    "open_shop_remove",
+];
+
+fn kind_code(choice: PublicChoice) -> i64 {
+    let code: i64 = match choice {
+        PublicChoice::PlayHandSlot { .. } => 0,
+        PublicChoice::EndTurn => 1,
+        PublicChoice::ChooseEventOption { .. } => 2,
+        PublicChoice::ToggleGridCard { .. } => 3,
+        PublicChoice::ConfirmGrid => 4,
+        PublicChoice::CancelGrid => 5,
+        PublicChoice::ChooseMapNode { .. } => 6,
+        PublicChoice::RestHeal => 7,
+        PublicChoice::RestOpenSmith => 8,
+        PublicChoice::RestOpenRemove => 9,
+        PublicChoice::RestSmith { .. } => 10,
+        PublicChoice::RestRemoveCard { .. } => 11,
+        PublicChoice::RestLift => 12,
+        PublicChoice::RestDig => 13,
+        PublicChoice::RestRecall => 14,
+        PublicChoice::RestProceed => 15,
+        PublicChoice::SkipReward => 16,
+        PublicChoice::CloseCardReward => 17,
+        PublicChoice::TakeCardReward { .. } => 18,
+        PublicChoice::TakeSingingBowlReward => 19,
+        PublicChoice::TakeGoldReward => 20,
+        PublicChoice::TakeStolenGoldReward => 21,
+        PublicChoice::TakePotionReward { .. } => 22,
+        PublicChoice::TakeRelicReward => 23,
+        PublicChoice::TakeRelicRewardAt { .. } => 24,
+        PublicChoice::TakeSapphireKey => 25,
+        PublicChoice::TakeEmeraldKey => 26,
+        PublicChoice::ChooseBossRelicReward { .. } => 27,
+        PublicChoice::Proceed => 28,
+        PublicChoice::OpenChest => 29,
+        PublicChoice::OpenCardReward => 30,
+        PublicChoice::OpenQueuedCardReward { .. } => 31,
+        PublicChoice::SkipPotionReward => 32,
+        PublicChoice::BuyShopCard { .. } => 33,
+        PublicChoice::BuyShopRelic { .. } => 34,
+        PublicChoice::BuyShopPotion { .. } => 35,
+        PublicChoice::UsePotionSlot { .. } => 36,
+        PublicChoice::DiscardPotionSlot { .. } => 37,
+        PublicChoice::ToggleVisibleCard { .. } => 38,
+        PublicChoice::ChooseVisibleOption { .. } => 39,
+        PublicChoice::ConfirmSelection => 40,
+        PublicChoice::ConfirmSelectionWithoutRetrieval => 41,
+        PublicChoice::SkipSelection => 42,
+        PublicChoice::EnterShop => 43,
+        PublicChoice::LeaveShop => 44,
+        PublicChoice::OpenShopRemove => 45,
+    };
+    debug_assert_eq!(ACTION_KINDS[code as usize], choice.kind());
+    code
+}
+
+fn optional_slot(value: Option<u16>) -> i64 {
+    value.map(i64::from).unwrap_or(-1)
+}
+
+/// Public legal-list index plus visible slots. No internal action or instance ids.
+fn action_row(
+    owner: i64,
+    legal_index: i64,
+    revision: i64,
+    choice: PublicChoice,
+) -> [i64; ACTION_ROW_WIDTH] {
+    let mut row = [-1; ACTION_ROW_WIDTH];
+    row[0] = owner;
+    row[1] = legal_index;
+    row[2] = kind_code(choice);
+    row[11] = revision;
+    match choice {
+        PublicChoice::PlayHandSlot {
+            hand_slot,
+            target_slot,
+        } => {
+            row[3] = i64::from(hand_slot);
+            row[6] = optional_slot(target_slot);
+        }
+        PublicChoice::UsePotionSlot {
+            potion_slot,
+            target_slot,
+        } => {
+            row[4] = i64::from(potion_slot);
+            row[6] = optional_slot(target_slot);
+        }
+        PublicChoice::DiscardPotionSlot { potion_slot } => row[4] = i64::from(potion_slot),
+        PublicChoice::ChooseEventOption { option_slot }
+        | PublicChoice::ToggleVisibleCard { option_slot }
+        | PublicChoice::ChooseVisibleOption { option_slot } => row[5] = i64::from(option_slot),
+        PublicChoice::ToggleGridCard { card_slot }
+        | PublicChoice::RestSmith { card_slot }
+        | PublicChoice::RestRemoveCard { card_slot } => row[7] = i64::from(card_slot),
+        PublicChoice::ChooseMapNode { node_slot } => row[8] = i64::from(node_slot),
+        PublicChoice::TakeCardReward { reward_slot }
+        | PublicChoice::TakePotionReward { reward_slot }
+        | PublicChoice::TakeRelicRewardAt { reward_slot }
+        | PublicChoice::ChooseBossRelicReward { reward_slot }
+        | PublicChoice::OpenQueuedCardReward { reward_slot } => row[9] = i64::from(reward_slot),
+        PublicChoice::BuyShopCard { shop_slot }
+        | PublicChoice::BuyShopRelic { shop_slot }
+        | PublicChoice::BuyShopPotion { shop_slot } => row[10] = i64::from(shop_slot),
+        _ => {}
+    }
+    row
+}
+
+#[pyfunction]
+pub fn action_kind_vocabulary() -> Vec<&'static str> {
+    ACTION_KINDS.to_vec()
+}
 #[derive(Default)]
 struct Export {
     symbols: Vec<String>,
@@ -40,8 +206,13 @@ impl Export {
         rows.extend_from_slice(values);
         index
     }
-    fn card(&mut self, group: &'static str, owner: i64, card: &FairCard) {
-        let key = self.symbol(&card.content_key);
+    fn card(&mut self, group: &'static str, owner: i64, card: &FairCard) -> Result<(), String> {
+        let key = card_id(&card.content_key).ok_or_else(|| {
+            format!(
+                "card '{}' is absent from content vocabulary v1",
+                card.content_key
+            )
+        })?;
         let d = &card.dynamic;
         let dynamic = [
             d.rampage_damage_bonus,
@@ -66,8 +237,13 @@ impl Export {
             row[13 + index] = i64::from(value.is_some());
         }
         self.row(group, &row);
+        Ok(())
     }
-    fn observation(&mut self, decision: &FairDecision, owner: i64) -> bool {
+    fn enum_name(&self, value: impl Serialize) -> String {
+        let key = serde_json::to_value(value).expect("public enum serialization");
+        key.as_str().expect("public enum key").to_owned()
+    }
+    fn observation(&mut self, decision: &FairDecision, owner: i64) -> Result<bool, String> {
         let obs = &decision.observation;
         let kind = self.symbol(obs.screen.kind());
         let phase = self.category(obs.phase);
@@ -86,10 +262,10 @@ impl Export {
             ],
         );
         let FairRunScreen::Combat(c) = &obs.screen else {
-            return false;
+            return Ok(false);
         };
         if c.phase != FairCombatPhase::WaitingForPlayer {
-            return false;
+            return Ok(false);
         }
         let p = &c.player;
         self.row(
@@ -104,11 +280,13 @@ impl Export {
             ],
         );
         for power in &p.powers {
-            let key = self.symbol(&power.key);
+            let key = power_id(&power.key).ok_or_else(|| {
+                format!("power '{}' is absent from content vocabulary v1", power.key)
+            })?;
             self.row("player_powers", &[owner, key, i64::from(power.amount)]);
         }
         for entry in &c.hand {
-            self.card("hand", owner, &entry.card);
+            self.card("hand", owner, &entry.card)?;
         }
         for (group, pile) in [
             ("draw", &c.draw_pile),
@@ -116,20 +294,39 @@ impl Export {
             ("exhaust", &c.exhaust_pile),
         ] {
             for card in &pile.cards {
-                self.card(group, owner, card);
+                self.card(group, owner, card)?;
             }
         }
         for monster in &c.monsters {
-            let key = self.symbol(&monster.content_key);
-            let slime = monster.slime_size.map_or(-1, |size| self.category(size));
+            let key = monster_id(&monster.content_key).ok_or_else(|| {
+                format!(
+                    "monster '{}' is absent from content vocabulary v1",
+                    monster.content_key
+                )
+            })?;
+            let slime_name = monster.slime_size.map(|size| self.enum_name(size));
+            let slime = slime_catalog_id(slime_name.as_deref()).ok_or_else(|| {
+                format!(
+                    "slime size '{}' is absent from content vocabulary v1",
+                    slime_name.unwrap_or_default()
+                )
+            })?;
             let (intent, damage, hits) = match monster.intent {
-                FairMonsterIntent::Hidden => (self.symbol("hidden"), None, None),
-                FairMonsterIntent::None => (self.symbol("none"), None, None),
+                FairMonsterIntent::Hidden => {
+                    (intent_id("hidden").expect("hidden intent"), None, None)
+                }
+                FairMonsterIntent::None => (intent_id("none").expect("none intent"), None, None),
                 FairMonsterIntent::Visible {
                     category,
                     damage,
                     hits,
-                } => (self.category(category), damage, hits),
+                } => {
+                    let name = self.enum_name(category);
+                    let intent = intent_id(&name).ok_or_else(|| {
+                        format!("intent '{name}' is absent from content vocabulary v1")
+                    })?;
+                    (intent, damage, hits)
+                }
             };
             let enemy = self.row(
                 "enemies",
@@ -155,54 +352,85 @@ impl Export {
                 ],
             );
             for power in &monster.powers {
-                let key = self.symbol(&power.key);
+                let key = power_id(&power.key).ok_or_else(|| {
+                    format!("power '{}' is absent from content vocabulary v1", power.key)
+                })?;
                 self.row("enemy_powers", &[enemy, key, i64::from(power.amount)]);
             }
             if let Some(card) = &monster.stasis_card {
-                self.card("stasis", enemy, card);
+                self.card("stasis", enemy, card)?;
             }
         }
         for relic in &obs.context.relics {
-            let key = self.symbol(&relic.content_key);
+            let key = relic_id(&relic.content_key).ok_or_else(|| {
+                format!(
+                    "relic '{}' is absent from content vocabulary v1",
+                    relic.content_key
+                )
+            })?;
             let index = self.row("relics", &[owner, key]);
             for counter in &relic.state {
-                let key = self.symbol(&counter.key);
+                let key = counter_id(&counter.key).ok_or_else(|| {
+                    format!(
+                        "counter '{}' is absent from content vocabulary v1",
+                        counter.key
+                    )
+                })?;
                 self.row("relic_counters", &[index, key, counter.value]);
             }
         }
         for potion in &obs.context.potion_slots {
-            let key = potion.content_key.as_ref().map_or(-1, |k| self.symbol(k));
+            let key = match potion.content_key.as_deref() {
+                None => 0,
+                Some(name) => potion_id(name).ok_or_else(|| {
+                    format!("potion '{name}' is absent from content vocabulary v1")
+                })?,
+            };
             self.row("potions", &[owner, key, potion.slot as i64]);
         }
-        let selection = c.selection.as_ref().map_or(-1, |s| self.category(s.kind));
+        let selection = match c.selection.as_ref() {
+            None => 0,
+            Some(selection) => {
+                let name = self.enum_name(selection.kind);
+                selection_catalog_id(Some(&name)).ok_or_else(|| {
+                    format!("selection '{name}' is absent from content vocabulary v1")
+                })?
+            }
+        };
         self.row("selection", &[selection]);
         if let Some(s) = &c.selection {
             for option in &s.options {
-                self.card("selection_cards", owner, &option.card);
+                self.card("selection_cards", owner, &option.card)?;
                 self.row("selection_options", &[owner, option.slot as i64]);
             }
             for &slot in &s.selected_slots {
                 self.row("selected_slots", &[owner, slot as i64]);
             }
         }
-        true
+        Ok(true)
     }
 }
 fn export(py: Python<'_>, decisions: Vec<FairDecision>) -> PyResult<Batch> {
     let mut out = Export::default();
-    let mut actions = Vec::new();
     let mut model_rows = Vec::new();
     for (index, decision) in decisions.into_iter().enumerate() {
-        if out.observation(&decision, model_rows.len() as i64) {
+        if out
+            .observation(&decision, model_rows.len() as i64)
+            .map_err(pyo3::exceptions::PyValueError::new_err)?
+        {
             model_rows.push(index);
         }
-        actions.push(
-            decision
-                .choices
-                .into_iter()
-                .map(|choice| py_action(choice, decision.revision))
-                .collect(),
-        );
+        let revision = i64::try_from(decision.revision.get()).map_err(|_| {
+            pyo3::exceptions::PyValueError::new_err(
+                "decision revision does not fit the numeric transport",
+            )
+        })?;
+        for (legal_index, choice) in decision.choices.into_iter().enumerate() {
+            out.row(
+                "action_rows",
+                &action_row(index as i64, legal_index as i64, revision, choice),
+            );
+        }
     }
     let tables = out
         .tables
@@ -217,7 +445,7 @@ fn export(py: Python<'_>, decisions: Vec<FairDecision>) -> PyResult<Batch> {
             Ok((key.to_owned(), (width, bytes.unbind())))
         })
         .collect::<PyResult<Tables>>()?;
-    Ok((1, out.symbols, tables, actions, model_rows))
+    Ok((NUMERIC_VERSION, out.symbols, tables, model_rows))
 }
 #[pyfunction]
 pub fn numeric_decisions(py: Python<'_>, states: Vec<Py<PyState>>) -> PyResult<Batch> {
@@ -237,26 +465,29 @@ pub fn numeric_decisions(py: Python<'_>, states: Vec<Py<PyState>>) -> PyResult<B
 pub fn numeric_steps(
     py: Python<'_>,
     states: Vec<Py<PyState>>,
-    actions: Vec<Py<PyAction>>,
+    indices: Vec<i64>,
+    revisions: Vec<u64>,
 ) -> PyResult<Batch> {
-    if states.len() != actions.len() {
+    if states.len() != indices.len() || states.len() != revisions.len() {
         return Err(pyo3::exceptions::PyValueError::new_err(
             "State/action batch lengths differ",
         ));
     }
     let decisions = states
         .iter()
-        .zip(actions)
-        .map(|(state, action)| {
-            let action = action.borrow(py);
+        .zip(indices)
+        .zip(revisions)
+        .map(|((state, index), revision)| {
+            if index < 0 {
+                return Err(pyo3::exceptions::PyValueError::new_err("choice is invalid"));
+            }
+            // One public legality scan, then the existing successor projection.
+            // No second observation contract and no parallel step.
             state
                 .borrow_mut(py)
                 .env
-                .step(PublicChoiceRequest {
-                    revision: action.revision,
-                    choice: action.choice,
-                })
-                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+                .step_at_public_index(DecisionRevision::new(revision), index as usize)
+                .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))
         })
         .collect::<PyResult<_>>()?;
     export(py, decisions)
@@ -265,14 +496,15 @@ pub fn numeric_steps(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::{action_row, card_id, ACTION_KINDS};
     use sts_env::{
         FairCardDynamicValues, FairEnvironment, FairIntentCategory, FairSelection,
-        FairSelectionKind, FairSelectionOption,
+        FairSelectionKind, FairSelectionOption, PublicChoice, PublicChoiceRequest,
     };
 
     fn card() -> FairCard {
         FairCard {
-            content_key: "strike".to_owned(),
+            content_key: "Strike_R".to_owned(),
             cost: -1,
             upgrade_level: 2,
             cost_is_modified: true,
@@ -292,16 +524,33 @@ mod tests {
     #[test]
     fn raw_card_columns_preserve_signed_values_and_optional_zero() {
         let mut out = Export::default();
-        out.card("hand", 4, &card());
-        assert_eq!(
-            out.tables["hand"].1,
-            [4, 0, -1, 2, 1, 0, 1, 0, 17, 0, 31, 5, 0, 1, 1, 1, 1, 1]
-        );
+        out.card("hand", 4, &card()).unwrap();
+        let expected = vec![
+            4,
+            card_id("Strike_R").unwrap(),
+            -1,
+            2,
+            1,
+            0,
+            1,
+            0,
+            17,
+            0,
+            31,
+            5,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
+        ];
+        assert_eq!(out.tables["hand"].1, expected);
         let mut absent = card();
         absent.dynamic = FairCardDynamicValues::default();
-        out.card("draw", 4, &absent);
+        out.card("draw", 4, &absent).unwrap();
         assert_eq!(&out.tables["draw"].1[8..], &[0; 10]);
-        assert_eq!(out.symbols, ["strike"]);
+        assert!(out.symbols.is_empty());
     }
 
     #[test]
@@ -341,7 +590,7 @@ mod tests {
             selected_slots: vec![0],
         });
         let mut out = Export::default();
-        assert!(out.observation(&decision, 0));
+        assert!(out.observation(&decision, 0).unwrap());
         assert_eq!(&out.tables["enemies"].1[8..12], &[0, 0, 1, 0]);
         assert_eq!(out.tables["enemies"].1[2], 0);
         assert_eq!(out.tables["enemies"].1[5], 0);
@@ -349,5 +598,94 @@ mod tests {
         assert_eq!(out.tables["stasis"].1[0], 0);
         assert_eq!(out.tables["selection_options"].1, [0, 0]);
         assert_eq!(out.tables["selected_slots"].1, [0, 0]);
+    }
+
+    #[test]
+    fn action_kind_codes_match_public_names_and_slots() {
+        let samples = [
+            PublicChoice::PlayHandSlot {
+                hand_slot: 3,
+                target_slot: Some(1),
+            },
+            PublicChoice::EndTurn,
+            PublicChoice::ChooseEventOption { option_slot: 2 },
+            PublicChoice::ToggleGridCard { card_slot: 4 },
+            PublicChoice::ConfirmGrid,
+            PublicChoice::CancelGrid,
+            PublicChoice::ChooseMapNode { node_slot: 5 },
+            PublicChoice::RestHeal,
+            PublicChoice::RestOpenSmith,
+            PublicChoice::RestOpenRemove,
+            PublicChoice::RestSmith { card_slot: 6 },
+            PublicChoice::RestRemoveCard { card_slot: 7 },
+            PublicChoice::RestLift,
+            PublicChoice::RestDig,
+            PublicChoice::RestRecall,
+            PublicChoice::RestProceed,
+            PublicChoice::SkipReward,
+            PublicChoice::CloseCardReward,
+            PublicChoice::TakeCardReward { reward_slot: 1 },
+            PublicChoice::TakeSingingBowlReward,
+            PublicChoice::TakeGoldReward,
+            PublicChoice::TakeStolenGoldReward,
+            PublicChoice::TakePotionReward { reward_slot: 2 },
+            PublicChoice::TakeRelicReward,
+            PublicChoice::TakeRelicRewardAt { reward_slot: 3 },
+            PublicChoice::TakeSapphireKey,
+            PublicChoice::TakeEmeraldKey,
+            PublicChoice::ChooseBossRelicReward { reward_slot: 0 },
+            PublicChoice::Proceed,
+            PublicChoice::OpenChest,
+            PublicChoice::OpenCardReward,
+            PublicChoice::OpenQueuedCardReward { reward_slot: 8 },
+            PublicChoice::SkipPotionReward,
+            PublicChoice::BuyShopCard { shop_slot: 1 },
+            PublicChoice::BuyShopRelic { shop_slot: 2 },
+            PublicChoice::BuyShopPotion { shop_slot: 3 },
+            PublicChoice::UsePotionSlot {
+                potion_slot: 1,
+                target_slot: None,
+            },
+            PublicChoice::DiscardPotionSlot { potion_slot: 2 },
+            PublicChoice::ToggleVisibleCard { option_slot: 0 },
+            PublicChoice::ChooseVisibleOption { option_slot: 1 },
+            PublicChoice::ConfirmSelection,
+            PublicChoice::ConfirmSelectionWithoutRetrieval,
+            PublicChoice::SkipSelection,
+            PublicChoice::EnterShop,
+            PublicChoice::LeaveShop,
+            PublicChoice::OpenShopRemove,
+        ];
+        assert_eq!(samples.len(), ACTION_KINDS.len());
+        for (expected, choice) in samples.into_iter().enumerate() {
+            let row = action_row(9, 4, 7, choice);
+            assert_eq!(row[0], 9);
+            assert_eq!(row[1], 4);
+            assert_eq!(row[2], expected as i64);
+            assert_eq!(ACTION_KINDS[expected], choice.kind());
+            assert_eq!(row[11], 7);
+        }
+        let targeted = action_row(
+            0,
+            0,
+            1,
+            PublicChoice::PlayHandSlot {
+                hand_slot: 3,
+                target_slot: Some(1),
+            },
+        );
+        assert_eq!(targeted[3], 3);
+        assert_eq!(targeted[6], 1);
+        let untargeted = action_row(
+            0,
+            0,
+            1,
+            PublicChoice::UsePotionSlot {
+                potion_slot: 2,
+                target_slot: None,
+            },
+        );
+        assert_eq!(untargeted[4], 2);
+        assert_eq!(untargeted[6], -1);
     }
 }

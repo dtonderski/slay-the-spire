@@ -8,6 +8,10 @@ epoch-based root collection, typed-model fallback, or alternate loss implementat
 
 1. `model.py`: encode the observation and each legal action, then dot-product score them.
 2. `train.py::play_combats`: clone roots, sample actions, step the simulator, collect decisions.
+   Legal actions are integer rows. A sampled choice is an index into that state's current
+   public legal list, paired with the exported revision. Smoke Bomb uses are omitted from
+   the policy list and remain legal in the simulator.
+   Card, monster, relic, potion, power, and counter columns are content vocabulary v1 ids, not batch-local symbol positions.
 3. `trajectories.py::Trajectories.losses`: policy loss and entropy regularization.
 4. `train.py::train_batch`: collect → loss → backward → optimizer step.
 5. `train.py::main`: fresh batches, evaluation, logging, checkpoints.
@@ -57,6 +61,14 @@ The policy advantage is final return minus the current state's value prediction.
 The policy loss detaches this advantage; squared value error trains the value head.
 `--value-coef` weights that error (default 0.1). Both objectives sum decisions within
 fights and average over completed fights. There is no scalar/EMA reward baseline.
+`--grad-chunk-decisions 0` (the default) retains the rollout graph until one
+backward. A positive value rolls out under `no_grad`, stores the public numeric
+inputs and chosen actions, then recomputes that same objective. The count is a
+flush threshold, not a hard maximum: a round is never split, so one large round
+can exceed it. Rounds in a flush are grouped by similar token width and action
+count and stacked into fewer forwards. Every group is divided by the completed-fight
+count, gradients accumulate, and there is still one optimizer step. Padding, host
+repacking, and backward scheduling still matter; stacking is not automatically faster.
 Random/beam evaluation references are not learning baselines.
 
 ## Fixed evaluation and references
@@ -74,7 +86,19 @@ fail instead of repairing state. They also pin policy sampling seeds/repeats and
 decision limits. Creation refuses to overwrite existing files. Data is Git-ignored;
 back it up separately. Historical datasets/logs/checkpoints are not deleted by cleanup.
 
-Main-set outcomes are logged under `val_main/`. Decision statistics are collected
+Main-set outcomes are logged under `val_main/`. `--eval-batch-size 1` is the
+historical single-row protocol. A larger batch keeps the same per-fight seed
+(`90000 + index * repeats + repeat`) but the batched forward is not bit-identical
+to a single-row forward, so those policy scores are `batched_forward_per_episode_rng_v1`
+and are not a continuation of older `val_main` curves. Sampling uses only that
+fight's legal logits, so another fight's padding does not change its draw.
+Batched policy evaluation draws from an explicit per-fight generator instead of
+swapping the process-global RNG. The generator draws from ``Categorical`` probabilities, not a raw softmax, so the
+draw sequence matches the previous global sampler for the same seed on CPU and CUDA.
+The protocol name is unchanged.
+A failed batched step marks the whole chunk unavailable and is not replaced
+by a serial rollout. Model-free random evaluation
+stays identical at every batch size. Decision statistics are collected
 only for training, in `Trajectories`, rather than duplicated in each episode.
 Random and **privileged** beam references for the main set are saved in
 `baselines.json` and logged throughout training. Beam defaults to width 64

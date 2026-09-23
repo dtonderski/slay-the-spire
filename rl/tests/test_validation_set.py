@@ -12,7 +12,14 @@ from loadout_sampling import LoadoutSampler, band_for
 from model import CombatValueModel
 from rollout_errors import SimulatorStepError
 from scenarios import COMBAT_FLOORS, ScenarioConfig
-from train import evaluate, evaluate_baselines, fresh_batch, update_with_diagnostics
+from train import (
+    evaluate,
+    evaluate_baselines,
+    fresh_batch,
+    play_combats,
+    sample_unpadded_action,
+    update_with_diagnostics,
+)
 from validation_set import build_validation, load_validation, main
 
 
@@ -112,6 +119,11 @@ class ValidationSetTests(unittest.TestCase):
         self.assertEqual(scores["optimizer_step"], 1)
         self.assertTrue(optimizer.state)
         self.assertEqual(observations, [r.state.observation() for r in first])
+        self.assertEqual([root.start_hp for root in first], [root.state.player_hp() for root in first])
+        self.assertEqual(
+            [root.start_hp for root in first],
+            [root.state.observation().context.player_hp for root in first],
+        )
 
     def test_errors_preserve_specs_without_reward_or_update(self) -> None:
         roots, specs = fresh_batch(random.Random(12), sampler(), 1, ScenarioConfig(min_floor=1, max_floor=1))
@@ -177,6 +189,119 @@ class ValidationSetTests(unittest.TestCase):
         scores = evaluate(roots, model, 1, 2)
         self.assertTrue(torch.equal(before, torch.get_rng_state()))
         self.assertIn("episodes", scores)
+
+    def test_batched_evaluation_preserves_streams_and_versions_policy_scores(self) -> None:
+        torch.set_num_threads(1)
+        roots, _ = fresh_batch(random.Random(12), sampler(), 2, ScenarioConfig(min_floor=1, max_floor=1))
+        serial = [
+            play_combats([root.state], None, max_decisions=12, rng=random.Random(90000 + index))[0]
+            for index, root in enumerate(roots)
+        ]
+        batched = play_combats(
+            [root.state for root in roots],
+            None,
+            max_decisions=12,
+            rng=random.Random(0),
+            episode_rngs=[random.Random(90000 + index) for index in range(len(roots))],
+        )
+        fields = lambda episodes: [(ep.reward, ep.won, ep.hp, ep.decisions) for ep in episodes]
+        self.assertEqual(fields(serial), fields(batched))
+        self.assertEqual(
+            evaluate(roots, None, 2, 12, batch_size=1),
+            evaluate(roots, None, 2, 12, batch_size=4),
+        )
+        devices = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+        for device in devices:
+            model = CombatValueModel().to(device)
+            before = torch.get_rng_state().clone()
+            first = evaluate(roots, model, 2, 8, batch_size=4)
+            second = evaluate(roots, model, 2, 8, batch_size=4)
+            self.assertEqual(first, second)
+            self.assertEqual(
+                evaluate(roots, model, 2, 8, batch_size=1),
+                evaluate(roots, model, 2, 8, batch_size=1),
+            )
+            self.assertTrue(torch.equal(before, torch.get_rng_state()))
+        with self.assertRaises(ValueError):
+            evaluate(roots, None, 1, 1, batch_size=0)
+
+    def test_foreign_padding_does_not_change_per_fight_rng(self) -> None:
+        legal = torch.tensor([0.2, -0.4])
+        choices = []
+        states = []
+        for width in (2, 8, 64):
+            padded = torch.full((width,), float("-inf"))
+            padded[:2] = legal
+            torch.manual_seed(12345)
+            choices.append(sample_unpadded_action(padded, 2))
+            choices.append(sample_unpadded_action(padded, 2))
+            states.append(torch.get_rng_state().clone())
+        self.assertEqual(choices[0::2], [choices[0]] * 3)
+        self.assertEqual(choices[1::2], [choices[1]] * 3)
+        for state in states[1:]:
+            self.assertTrue(torch.equal(states[0], state))
+
+    def test_per_fight_generator_matches_historical_global_draws(self) -> None:
+        from train import _policy_generator
+
+        cases = [
+            (torch.tensor([0.2, -0.4, 1.5, -2.0]), 3),
+            # softmax(raw logits) rounds differently from Categorical normalization.
+            (torch.tensor([0.9145662784576416, -2.2833824157714844], dtype=torch.float32), 2),
+        ]
+        for logits, n_legal in cases:
+            for seed in (1, 2, 12345, 90000, 2**31 - 1):
+                torch.manual_seed(seed)
+                historical = [sample_unpadded_action(logits, n_legal) for _ in range(6)]
+                generator = _policy_generator(seed, logits.device)
+                actual = [sample_unpadded_action(logits, n_legal, generator) for _ in range(6)]
+                self.assertEqual(actual, historical)
+        if torch.cuda.is_available():
+            cuda_cases = [
+                (cases[1][0].to(device="cuda"), 2),
+                (torch.tensor([0.2, -0.4, 1.5, -2.0, 0.05], dtype=torch.float32, device="cuda"), 5),
+            ]
+            for logits, n_legal in cuda_cases:
+                for seed in (1, 2, 12345):
+                    torch.manual_seed(seed)
+                    historical = [sample_unpadded_action(logits, n_legal) for _ in range(4)]
+                    generator = _policy_generator(seed, logits.device)
+                    actual = [sample_unpadded_action(logits, n_legal, generator) for _ in range(4)]
+                    self.assertEqual(actual, historical, f"CUDA seed {seed}")
+        logits = cases[0][0]
+        before = torch.get_rng_state().clone()
+        generator = _policy_generator(99, torch.device("cpu"))
+        sample_unpadded_action(logits, 3, generator)
+        self.assertTrue(torch.equal(before, torch.get_rng_state()))
+
+    def test_batched_simulator_failure_is_not_replaced_by_serial_success(self) -> None:
+        roots, _ = fresh_batch(random.Random(12), sampler(), 2, ScenarioConfig(min_floor=1, max_floor=1))
+        calls = []
+
+        def batch_only_failure(states, *args, **kwargs):
+            calls.append(len(states))
+            if len(states) > 1:
+                raise SimulatorStepError("batch only", 3, [0, 1], [[4], [5, 6]])
+            return [Episode(1.0, True, 70, 1)]
+
+        from train import Episode
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "errors.jsonl"
+            with patch("train.play_combats", side_effect=batch_only_failure):
+                scores = evaluate(roots, CombatValueModel(), 1, 4, error_path=path, batch_size=2)
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+        self.assertEqual(calls, [2])
+        self.assertEqual(scores["simulator_error_episodes"], 2)
+        self.assertEqual(scores["batched_protocol_unavailable_episodes"], 2)
+        self.assertEqual(scores["episode_coverage"], 0)
+        self.assertNotIn("win_rate_completed", scores)
+        self.assertEqual([row["source"] for row in rows], ["batched_chunk", "batched_chunk"])
+        self.assertEqual([row["fallback"] for row in rows], ["none", "none"])
+        self.assertEqual(rows[0]["error"], "batch only")
+        self.assertEqual(rows[0]["attempted_prefixes"], [4])
+        self.assertEqual(rows[1]["attempted_prefixes"], [5, 6])
+        self.assertEqual(rows[0]["step"], 3)
 
 
 if __name__ == "__main__":

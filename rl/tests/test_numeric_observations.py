@@ -8,10 +8,18 @@ from unittest.mock import patch
 
 import numpy as np
 import torch
-from encoders.numeric import NumericBatch
+from encoders.cards import CARD_TO_INDEX
+from encoders.numeric import (
+    ACTION_KIND,
+    ACTION_LEGAL_INDEX,
+    ACTION_OWNER,
+    ACTION_REVISION,
+    NUMERIC_VERSION,
+    NumericBatch,
+)
 from model import CombatValueModel
 from numeric_reference import CATEGORICAL, reference_batch, semantic_tables
-from sts_sim import CounterKey, PowerKey, State
+from sts_sim import ACTION_KINDS, CounterKey, PowerKey, State
 from sts_sim.observations import (
     Counter,
     Power,
@@ -23,6 +31,33 @@ from test_model import action, combat
 from train import play_combats
 
 
+def _candidates(groups):
+    rows = []
+    codes = {name: index for index, name in enumerate(ACTION_KINDS)}
+    for owner, group in enumerate(groups):
+        for candidate in group:
+            rows.append(
+                [
+                    owner,
+                    codes[candidate.kind],
+                    -1 if candidate.hand_slot is None else candidate.hand_slot,
+                    -1 if candidate.potion_slot is None else candidate.potion_slot,
+                    -1 if candidate.option_slot is None else candidate.option_slot,
+                    -1 if candidate.target_slot is None else candidate.target_slot,
+                ]
+            )
+    return np.asarray(rows, dtype=np.int64)
+
+
+def _candidates_from_batch(batch):
+    from test_model import candidates_from_rows
+
+    groups = []
+    for index in batch.model_rows:
+        groups.append(batch.action_rows[batch.action_rows[:, ACTION_OWNER] == index])
+    return candidates_from_rows(groups)
+
+
 class NumericObservationTests(unittest.TestCase):
     def test_partial_native_step_failure_is_not_retried(self) -> None:
         from rollout_errors import SimulatorStepError
@@ -31,8 +66,8 @@ class NumericObservationTests(unittest.TestCase):
         before = [root.observation() for root in roots]
         native_steps = State.numeric_steps
 
-        def partial(states, actions):
-            native_steps(states[:1], actions[:1])
+        def partial(states, indices, revisions):
+            native_steps(states[:1], indices[:1], revisions[:1])
             raise ValueError("synthetic partial batch failure")
 
         with patch.object(State, "numeric_steps", side_effect=partial) as steps:
@@ -47,9 +82,11 @@ class NumericObservationTests(unittest.TestCase):
         from rollout_errors import SimulatorStepError
 
         root = combat()
-        version, symbols, tables, _, rows = State.numeric_decisions([root])
+        version, symbols, tables, rows = State.numeric_decisions([root])
+        tables = dict(tables)
+        tables.pop("action_rows", None)
         with (
-            patch.object(State, "numeric_decisions", return_value=(version, symbols, tables, [()], rows)),
+            patch.object(State, "numeric_decisions", return_value=(version, symbols, tables, rows)),
             self.assertRaises(SimulatorStepError) as caught,
         ):
             play_combats([root], None, max_decisions=1, rng=random.Random(0))
@@ -66,7 +103,14 @@ class NumericObservationTests(unittest.TestCase):
                 expected = reference_batch([decision])
                 self.assertEqual(semantic_tables(expected), semantic_tables(numeric))
                 self.assertEqual(expected.model_rows, numeric.model_rows)
-                self.assertEqual([repr(a) for a in decision.actions], [repr(a) for a in numeric.actions[0]])
+                owned = numeric.action_rows[numeric.action_rows[:, ACTION_OWNER] == 0]
+                self.assertEqual(
+                    [action.kind for action in decision.actions],
+                    [ACTION_KINDS[int(code)] for code in owned[:, ACTION_KIND]],
+                )
+                self.assertEqual(
+                    [int(value) for value in owned[:, ACTION_LEGAL_INDEX]], list(range(len(decision.actions)))
+                )
                 self.assertEqual(left.revision, right.revision)
                 self.assertEqual(
                     semantic_tables(numeric), semantic_tables(NumericBatch(State.numeric_decisions([right])))
@@ -74,21 +118,29 @@ class NumericObservationTests(unittest.TestCase):
                 if not decision.actions:
                     break
                 index = rng.randrange(len(decision.actions))
-                chosen = numeric.actions[0][index]
+                legal = int(owned[index, ACTION_LEGAL_INDEX])
+                revision = int(owned[index, ACTION_REVISION])
                 decision = left.step(decision.actions[index])
-                numeric = NumericBatch(State.numeric_steps([right], [chosen]))
+                numeric = NumericBatch(State.numeric_steps([right], [legal], [revision]))
 
     def test_immutable_buffer_lifetime_and_rejected_transition(self) -> None:
         state = combat()
         batch = NumericBatch(State.numeric_decisions([state]))
         before = batch.table("hand", 18).copy()
-        stale = batch.actions[0][0]
-        State.numeric_steps([state], [stale])
-        revision = state.revision
+        legal = int(batch.action_rows[0, ACTION_LEGAL_INDEX])
+        revision = int(batch.action_rows[0, ACTION_REVISION])
+        State.numeric_steps([state], [legal], [revision])
+        advanced = state.revision
         observation = state.observation()
-        with self.assertRaises(ValueError):
-            State.numeric_steps([state], [stale])
-        self.assertEqual(revision, state.revision)
+        with self.assertRaisesRegex(ValueError, "decision is stale"):
+            State.numeric_steps([state], [legal], [revision])
+        self.assertEqual(advanced, state.revision)
+        fresh = state.clone()
+        with self.assertRaisesRegex(ValueError, "choice is invalid"):
+            State.numeric_steps([fresh], [-1], [fresh.revision])
+        with self.assertRaisesRegex(ValueError, "choice is invalid"):
+            State.numeric_steps([fresh], [10_000], [fresh.revision])
+        self.assertEqual(fresh.revision, advanced)
         self.assertEqual(observation, state.observation())
         del state
         np.testing.assert_array_equal(before, batch.table("hand", 18))
@@ -171,7 +223,7 @@ class NumericObservationTests(unittest.TestCase):
                 with self.subTest(device=device, dtype=dtype):
                     torch.manual_seed(123)
                     model = CombatValueModel(d_model=16, action_dim=8, n_layers=1).to(device=device, dtype=dtype)
-                    logits, values, mask = model(raw, actions)
+                    logits, values, mask = model(raw, _candidates(actions))
                     self.assertTrue(torch.isfinite(logits[mask]).all())
                     self.assertTrue(torch.isneginf(logits[~mask]).all())
                     (logits[mask].square().sum() + values.square().sum()).backward()
@@ -186,10 +238,13 @@ class NumericObservationTests(unittest.TestCase):
             for column in CATEGORICAL.get(name, ()):
                 values[:, column] = np.where(values[:, column] < 0, -1, len(batch.symbols) - 1 - values[:, column])
             tables[name] = (values.shape[1], values.tobytes())
-        permuted = NumericBatch((1, batch.symbols[::-1], tables, batch.actions, batch.model_rows))
+        permuted = NumericBatch((NUMERIC_VERSION, batch.symbols[::-1], tables, batch.model_rows))
         model = CombatValueModel()
-        a, va, mask_a = model(batch, [tuple(batch.actions[0])])
-        b, vb, mask_b = model(permuted, [tuple(batch.actions[0])])
+        from test_model import candidates_from_rows
+
+        selected = candidates_from_rows([batch.action_rows[batch.action_rows[:, ACTION_OWNER] == 0]])
+        a, va, mask_a = model(batch, selected)
+        b, vb, mask_b = model(permuted, selected)
         torch.testing.assert_close(a, b, rtol=0, atol=0)
         torch.testing.assert_close(va, vb, rtol=0, atol=0)
         self.assertTrue(torch.equal(mask_a, mask_b))
@@ -205,15 +260,19 @@ class NumericObservationTests(unittest.TestCase):
         self.assertEqual(after.observation.context.potion_slots[0].content_key, "smoke_bomb")
 
         class ChoosePotionOrEnd(torch.nn.Module):
-            def forward(self, observations, actions):
-                logits = torch.full((len(actions), max(map(len, actions))), -torch.inf)
-                for row, candidates in enumerate(actions):
-                    indices = [
-                        i for i, a in enumerate(candidates) if a.kind == "use_potion_slot" and a.potion_slot == 0
-                    ]
-                    index = indices[0] if indices else next(i for i, a in enumerate(candidates) if a.kind == "end_turn")
-                    logits[row, index] = 0
-                return logits, torch.zeros((len(actions), 1)), logits.isfinite()
+            def forward(self, observations, candidates):
+                use = ACTION_KINDS.index("use_potion_slot")
+                end = ACTION_KINDS.index("end_turn")
+                counts = np.bincount(candidates[:, 0].astype(np.int64), minlength=len(observations))
+                width = int(counts.max())
+                logits = torch.full((len(observations), width), -torch.inf)
+                offsets = np.cumsum(counts) - counts
+                for row, count in enumerate(counts):
+                    block = candidates[offsets[row] : offsets[row] + count]
+                    hits = np.flatnonzero((block[:, 1] == use) & (block[:, 3] == 0))
+                    choice = int(hits[0]) if len(hits) else int(np.flatnonzero(block[:, 1] == end)[0])
+                    logits[row, choice] = 0
+                return logits, torch.zeros((len(observations), 1)), logits.isfinite()
 
         roots = [combat(), smoke]
         policy = cast(CombatValueModel, ChoosePotionOrEnd())
@@ -235,6 +294,37 @@ class NumericObservationTests(unittest.TestCase):
         actual = play_combats(mixed, policy, max_decisions=1, rng=random.Random(0))
         self.assertTrue(actual[0].won)
         self.assertIsNone(actual[1].reward)
+
+    def test_catalog_ids_match_typed_keys_and_logits(self) -> None:
+        state = combat()
+        native = NumericBatch(State.numeric_decisions([state]))
+        typed = state.decision()
+        assert typed.observation.kind == "combat"
+        hand = native.table("hand", 18)
+        for row, entry in zip(hand, typed.observation.screen.hand, strict=True):
+            self.assertEqual(int(row[1]), CARD_TO_INDEX[entry.card.content_key])
+        reference = reference_batch([typed])
+        candidates = _candidates_from_batch(native)
+        model = CombatValueModel()
+        left = model(native, candidates)
+        right = model(reference, candidates)
+        for actual, expected in zip(left, right, strict=True):
+            torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+    def test_symbol_codes_are_scoped_to_each_batch_table(self) -> None:
+        vocabulary = {"defend": 1, "strike": 3}
+
+        def batch(symbols):
+            return NumericBatch((NUMERIC_VERSION, symbols, {}, [0]))
+
+        first = batch(["defend", "strike"])
+        second = batch(["strike", "defend"])
+        np.testing.assert_array_equal(first.codes(np.array([0, 1]), vocabulary), [1, 3])
+        np.testing.assert_array_equal(second.codes(np.array([0, 1]), vocabulary), [3, 1])
+        # A repeated call uses this batch's cached lookup, not the other batch's positions.
+        np.testing.assert_array_equal(first.codes(np.array([1]), vocabulary), [3])
+        with self.assertRaisesRegex(ValueError, "absent from encoder vocabulary"):
+            first.codes(np.array([1]), {"defend": 1})
 
 
 if __name__ == "__main__":

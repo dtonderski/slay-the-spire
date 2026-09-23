@@ -3,19 +3,21 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 from jaxtyping import Float
-from sts_sim import Action
+from sts_sim import ACTION_KINDS
 from torch import Tensor, nn
 
 from .cards import CARD_FEATURE_DIM
 from .enemies import ENEMY_FEATURE_DIM
+from .numeric import CANDIDATE_KIND, CANDIDATE_OWNER, CANDIDATE_TARGET, CANDIDATE_WIDTH
 from .potions import POTION_EMBEDDING_DIM
 
+KIND_CODE = {name: index for index, name in enumerate(ACTION_KINDS)}
 
-def _slot_index(size: int, slot: int | None) -> int:
-    """Validate local slots before translating them into packed-batch indices."""
-    if slot is None or not 0 <= slot < size:
-        raise ValueError(f"Invalid action slot {slot} for {size} feature rows")
-    return slot
+
+def _require_slots(kind: str, slots: np.ndarray, limits: np.ndarray) -> None:
+    if np.any((slots < 0) | (slots >= limits)):
+        bad = int(slots[np.flatnonzero((slots < 0) | (slots >= limits))[0]])
+        raise ValueError(f"Invalid action slot {bad} for {int(limits.max()) if len(limits) else 0} feature rows")
 
 
 @dataclass
@@ -57,75 +59,82 @@ class ActionEncoder(nn.Module):
 
     def forward(
         self,
-        actions: list[tuple[Action, ...]],
+        candidates: np.ndarray,
         features: FlatActionFeatures,
     ) -> Float[Tensor, "batch n_actions action_dim"]:
-        """Encode by kind; numeric scoring pads with one scatter, not per-observation copies."""
-        vectors = self._flat(actions, features)
-        lengths = [len(candidates) for candidates in actions]
-        if not lengths or min(lengths) == 0:
+        """Encode by kind. ``candidates`` are grouped by forward-local observation index."""
+        vectors = self._flat(candidates, features)
+        counts = np.bincount(candidates[:, CANDIDATE_OWNER].astype(np.int64), minlength=len(features))
+        if int(counts.sum()) != len(candidates) or np.any(counts == 0):
             raise ValueError("Padded scoring needs nonempty decisions")
-        counts = np.asarray(lengths)
         width = int(counts.max())
-        owners = np.repeat(np.arange(len(actions)), counts)
+        owners = np.repeat(np.arange(len(features)), counts)
         starts = np.cumsum(counts) - counts
         positions = owners * width + np.arange(len(vectors)) - np.repeat(starts, counts)
         indices = torch.tensor(positions, dtype=torch.long, device=vectors.device)
-        # Unique destinations: backward gathers real rows, never atomically accumulates padding.
-        padded_vectors = vectors.new_zeros((len(actions) * width, self.action_dim)).index_copy(0, indices, vectors)
-        return padded_vectors.reshape(len(actions), width, self.action_dim)
+        padded_vectors = vectors.new_zeros((len(features) * width, self.action_dim)).index_copy(0, indices, vectors)
+        return padded_vectors.reshape(len(features), width, self.action_dim)
 
-    def _flat(
-        self, actions: list[tuple[Action, ...]], features: FlatActionFeatures
-    ) -> Float[Tensor, "actions action_dim"]:
-        """Gather raw local slots without splitting already-flat numeric feature groups."""
-        if len(actions) != len(features):
+    def _flat(self, candidates: np.ndarray, features: FlatActionFeatures) -> Float[Tensor, "actions action_dim"]:
+        """Gather raw local slots from integer candidate rows, not Python action objects."""
+        if candidates.ndim != 2 or candidates.shape[1] != CANDIDATE_WIDTH:
+            raise ValueError("Action candidates must be integer rows")
+        if len(candidates) == 0 or len(features) == 0:
             raise ValueError("Action and feature batches must have the same length")
-        object_groups = {
-            "play_hand_slot": ("hand", "hand_slot"),
-            "use_potion_slot": ("potions", "potion_slot"),
-            "discard_potion_slot": ("potions", "potion_slot"),
-            "toggle_visible_card": ("selection", "option_slot"),
-            "choose_visible_option": ("selection", "option_slot"),
-        }
-        # Entries are integers only: candidate position, packed object row, packed target row.
-        grouped: dict[str, list[tuple[int, int, int]]] = {}
-        offsets = {name: 0 for name in ("hand", "potions", "enemies", "selection")}
-        sizes = features.lengths
-        no_target = sum(sizes["enemies"])
-        position = 0
-        for row, candidates in enumerate(actions):
-            for action in candidates:
-                object_index, target_index = -1, no_target
-                if action.kind in object_groups:
-                    group, slot_name = object_groups[action.kind]
-                    object_index = offsets[group] + _slot_index(sizes[group][row], getattr(action, slot_name))
-                    if action.kind in ("play_hand_slot", "use_potion_slot") and action.target_slot is not None:
-                        target_index = offsets["enemies"] + _slot_index(sizes["enemies"][row], action.target_slot)
-                elif action.kind not in self.constants:
-                    raise NotImplementedError(f"Unsupported action kind: {action.kind}")
-                grouped.setdefault(action.kind, []).append((position, object_index, target_index))
-                position += 1
-            for name in offsets:
-                offsets[name] += sizes[name][row]
-
+        owners = candidates[:, CANDIDATE_OWNER].astype(np.int64)
+        if int(owners.min()) < 0 or int(owners.max()) >= len(features) or np.any(np.diff(owners) < 0):
+            raise ValueError("Action candidates must be grouped by observation")
+        kinds = candidates[:, CANDIDATE_KIND].astype(np.int64)
+        known = {KIND_CODE[name] for name in (*self.encoders, *self.constants)}
+        if np.any(~np.isin(kinds, list(known))):
+            missing = int(kinds[~np.isin(kinds, list(known))][0])
+            name = ACTION_KINDS[missing] if 0 <= missing < len(ACTION_KINDS) else str(missing)
+            raise NotImplementedError(f"Unsupported action kind: {name}")
+        sizes = {name: np.asarray(lengths, dtype=np.int64) for name, lengths in features.lengths.items()}
+        bases = {name: np.cumsum(values) - values for name, values in sizes.items()}
+        no_target = int(sizes["enemies"].sum())
         reference = next(self.parameters())
-        vectors = reference.new_zeros((position, self.action_dim))
+        vectors = reference.new_zeros((len(candidates), self.action_dim))
         packed = dict(features.rows)
-        for kind, entries in grouped.items():
-            indices = reference.new_tensor(entries, dtype=torch.long)
-            if kind in self.encoders:
-                group, _ = object_groups[kind]
-                inputs = packed[group].index_select(0, indices[:, 1])
-                if kind in ("play_hand_slot", "use_potion_slot"):
-                    if "targets" not in packed:
-                        enemies = packed["enemies"]
-                        packed["targets"] = torch.cat((enemies, enemies.new_zeros((1, ENEMY_FEATURE_DIM))))
-                    targets = packed["targets"].index_select(0, indices[:, 2])
-                    present = (indices[:, 2:3] != no_target).to(inputs.dtype)
-                    inputs = torch.cat((inputs, targets, present), dim=1)
-                encoded = self.encoders[kind](inputs)
-            else:
-                encoded = self.constants[kind](torch.zeros_like(indices[:, 0]))
-            vectors = vectors.index_copy(0, indices[:, 0], encoded)
+        object_column = {
+            "play_hand_slot": (2, "hand"),
+            "use_potion_slot": (3, "potions"),
+            "discard_potion_slot": (3, "potions"),
+            "toggle_visible_card": (4, "selection"),
+            "choose_visible_option": (4, "selection"),
+        }
+        for kind, (column, group) in object_column.items():
+            selected = np.flatnonzero(kinds == KIND_CODE[kind])
+            if len(selected) == 0:
+                continue
+            slots = candidates[selected, column].astype(np.int64)
+            limits = sizes[group][owners[selected]]
+            _require_slots(kind, slots, limits)
+            inputs = packed[group].index_select(
+                0, torch.tensor(bases[group][owners[selected]] + slots, dtype=torch.long, device=reference.device)
+            )
+            if kind in ("play_hand_slot", "use_potion_slot"):
+                target_slots = candidates[selected, CANDIDATE_TARGET].astype(np.int64)
+                present = target_slots >= 0
+                if np.any(present):
+                    _require_slots(kind, target_slots[present], sizes["enemies"][owners[selected][present]])
+                target_index = np.full(len(selected), no_target, dtype=np.int64)
+                if np.any(present):
+                    target_index[present] = bases["enemies"][owners[selected][present]] + target_slots[present]
+                if "targets" not in packed:
+                    enemies = packed["enemies"]
+                    packed["targets"] = torch.cat((enemies, enemies.new_zeros((1, ENEMY_FEATURE_DIM))))
+                targets = packed["targets"].index_select(
+                    0, torch.tensor(target_index, dtype=torch.long, device=reference.device)
+                )
+                flag = torch.tensor(present, dtype=inputs.dtype, device=reference.device).unsqueeze(1)
+                inputs = torch.cat((inputs, targets, flag), dim=1)
+            encoded = self.encoders[kind](inputs)
+            vectors = vectors.index_copy(0, torch.tensor(selected, dtype=torch.long, device=reference.device), encoded)
+        for kind in self.constants:
+            selected = np.flatnonzero(kinds == KIND_CODE[kind])
+            if len(selected) == 0:
+                continue
+            encoded = self.constants[kind](torch.zeros(len(selected), dtype=torch.long, device=reference.device))
+            vectors = vectors.index_copy(0, torch.tensor(selected, dtype=torch.long, device=reference.device), encoded)
         return vectors
