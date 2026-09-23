@@ -10,7 +10,7 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use sts_env::{
     DecisionRevision, FairCard, FairCombatPhase, FairDecision, FairMonsterIntent, FairRunScreen,
-    PublicChoice, PublicChoiceRequest,
+    PublicChoice,
 };
 
 type Tables = BTreeMap<String, (usize, Py<PyBytes>)>;
@@ -461,27 +461,6 @@ pub fn numeric_decisions(py: Python<'_>, states: Vec<Py<PyState>>) -> PyResult<B
         .collect::<PyResult<_>>()?;
     export(py, decisions)
 }
-fn resolve_public_index(
-    env: &sts_env::FairEnvironment,
-    index: i64,
-    revision: u64,
-) -> PyResult<PublicChoice> {
-    // Reject the exported revision before interpreting the index against a newer list.
-    if env.revision().get() != revision {
-        return Err(pyo3::exceptions::PyValueError::new_err("decision is stale"));
-    }
-    if index < 0 {
-        return Err(pyo3::exceptions::PyValueError::new_err("choice is invalid"));
-    }
-    let choices = env
-        .legal_choices()
-        .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))?;
-    choices
-        .get(index as usize)
-        .copied()
-        .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("choice is invalid"))
-}
-
 #[pyfunction]
 pub fn numeric_steps(
     py: Python<'_>,
@@ -499,14 +478,15 @@ pub fn numeric_steps(
         .zip(indices)
         .zip(revisions)
         .map(|((state, index), revision)| {
-            let choice = resolve_public_index(&state.borrow(py).env, index, revision)?;
+            if index < 0 {
+                return Err(pyo3::exceptions::PyValueError::new_err("choice is invalid"));
+            }
+            // One public legality scan, then the existing successor projection.
+            // No second observation contract and no parallel step.
             state
                 .borrow_mut(py)
                 .env
-                .step(PublicChoiceRequest {
-                    revision: DecisionRevision::new(revision),
-                    choice,
-                })
+                .step_at_public_index(DecisionRevision::new(revision), index as usize)
                 .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))
         })
         .collect::<PyResult<_>>()?;
@@ -519,7 +499,7 @@ mod tests {
     use super::{action_row, card_id, ACTION_KINDS};
     use sts_env::{
         FairCardDynamicValues, FairEnvironment, FairIntentCategory, FairSelection,
-        FairSelectionKind, FairSelectionOption, PublicChoice,
+        FairSelectionKind, FairSelectionOption, PublicChoice, PublicChoiceRequest,
     };
 
     fn card() -> FairCard {
