@@ -22,6 +22,9 @@ class PotionEncoder(nn.Module):
     ) -> tuple[Float[Tensor, "n_potions potion_features"], Float[Tensor, "n_potions d_model"], list[int]]:
         """Embed raw potion keys, including real empty slots."""
         rows = batch.table("potions", 3)
-        features = self.embedding(tensor(self.embedding.weight, batch.codes(rows[:, 1], POTION_TO_INDEX), integer=True))
+        raw_ids = rows[:, 1]
+        if len(raw_ids) and (int(raw_ids.min()) < 0 or int(raw_ids.max()) >= len(POTION_TO_INDEX)):
+            raise ValueError("Potion id is outside content vocabulary v1")
+        features = self.embedding(tensor(self.embedding.weight, raw_ids, integer=True))
         lengths = batch.lengths(rows)
         return features, self.projection(features), lengths

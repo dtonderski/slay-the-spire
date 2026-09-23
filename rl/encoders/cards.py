@@ -21,7 +21,10 @@ class CardEncoder(nn.Module):
 
     def numeric_features(self, batch: NumericBatch, name: str) -> Float[Tensor, "n_cards card_features"]:
         rows = batch.table(name, 18)
-        ids = tensor(self.embedding.weight, batch.codes(rows[:, 1], CARD_TO_INDEX), integer=True)
+        raw_ids = rows[:, 1]
+        if len(raw_ids) and (int(raw_ids.min()) < 0 or int(raw_ids.max()) >= len(CARD_TO_INDEX)):
+            raise ValueError("Card id is outside content vocabulary v1")
+        ids = tensor(self.embedding.weight, raw_ids, integer=True)
         identities = self.embedding(ids)
         state = tensor(identities, rows[:, [2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 17]])
         return torch.cat((identities, state), dim=1)

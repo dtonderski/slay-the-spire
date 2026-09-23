@@ -3,8 +3,14 @@
 from collections import defaultdict
 
 import numpy as np
+from encoders.cards import CARD_TO_INDEX
+from encoders.enemies import ENEMY_TO_INDEX, INTENT_TO_INDEX, SLIME_SIZE_TO_INDEX
 from encoders.numeric import NUMERIC_VERSION, NumericBatch
-from sts_sim import ACTION_KINDS
+from encoders.player import POWER_TO_INDEX
+from encoders.potions import POTION_TO_INDEX
+from encoders.relics import RELIC_TO_INDEX
+from encoders.selection import SELECTION_TO_INDEX
+from sts_sim import ACTION_KINDS, CounterKey
 
 
 def reference_batch(decisions):
@@ -32,7 +38,7 @@ def reference_batch(decisions):
         tables[name].append(
             [
                 owner,
-                code(value.content_key),
+                CARD_TO_INDEX[value.content_key],
                 value.cost,
                 value.upgrade_level,
                 value.cost_is_modified,
@@ -84,7 +90,7 @@ def reference_batch(decisions):
         p = obs.screen.player
         tables["player"].append([p.hp, p.max_hp, p.block, p.energy, p.max_energy, obs.context.gold])
         for power in p.powers:
-            tables["player_powers"].append([owner, code(power.key), power.amount])
+            tables["player_powers"].append([owner, POWER_TO_INDEX[power.key], power.amount])
         for entry in obs.screen.hand:
             card("hand", owner, entry.card)
         for name in ("draw", "discard", "exhaust"):
@@ -98,13 +104,13 @@ def reference_batch(decisions):
             tables["enemies"].append(
                 [
                     owner,
-                    code(m.content_key),
+                    ENEMY_TO_INDEX[m.content_key],
                     m.hp,
                     m.max_hp,
                     m.block,
                     m.alive,
-                    code(m.slime_size),
-                    code(intent.category if intent.visibility == "visible" else intent.visibility),
+                    SLIME_SIZE_TO_INDEX[m.slime_size],
+                    INTENT_TO_INDEX[intent.category if intent.visibility == "visible" else intent.visibility],
                     damage if damage is not None else 0,
                     hits if hits is not None else 0,
                     damage is not None,
@@ -118,18 +124,18 @@ def reference_batch(decisions):
                 ]
             )
             for power in m.powers:
-                tables["enemy_powers"].append([enemy, code(power.key), power.amount])
+                tables["enemy_powers"].append([enemy, POWER_TO_INDEX[power.key], power.amount])
             if m.stasis_card is not None:
                 card("stasis", enemy, m.stasis_card)
         for relic in obs.context.relics:
             row = len(tables["relics"])
-            tables["relics"].append([owner, code(relic.content_key)])
+            tables["relics"].append([owner, RELIC_TO_INDEX[relic.content_key]])
             for counter in relic.state:
-                tables["relic_counters"].append([row, code(counter.key), counter.value])
+                tables["relic_counters"].append([row, {key: index for index, key in enumerate(CounterKey)}[counter.key], counter.value])
         for potion in obs.context.potion_slots:
-            tables["potions"].append([owner, code(potion.content_key), potion.slot])
+            tables["potions"].append([owner, POTION_TO_INDEX[potion.content_key], potion.slot])
         s = obs.screen.selection
-        tables["selection"].append([code(s.kind if s is not None else None)])
+        tables["selection"].append([SELECTION_TO_INDEX[s.kind if s is not None else None]])
         if s is not None:
             for option in s.options:
                 card("selection_cards", owner, option.card)
@@ -140,17 +146,8 @@ def reference_batch(decisions):
     return NumericBatch((NUMERIC_VERSION, symbols, packed, active))
 
 
-CATEGORICAL = {
-    "header": (0, 1, 2),
-    "enemies": (1, 6, 7),
-    "player_powers": (1,),
-    "enemy_powers": (1,),
-    "relics": (1,),
-    "relic_counters": (1,),
-    "potions": (1,),
-    "selection": (0,),
-    **{name: (1,) for name in ("hand", "draw", "discard", "exhaust", "stasis", "selection_cards")},
-}
+# Content columns are vocabulary v1 ids, not symbol positions, so they are compared raw.
+CATEGORICAL = {"header": (0, 1, 2)}
 
 
 def semantic_tables(batch):

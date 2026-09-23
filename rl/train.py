@@ -17,6 +17,7 @@ import torch
 import wandb
 from beam_search import beam_search
 from combat_task import action_indices, combat_outcome, terminal_reward
+from encoders.potions import POTION_TO_INDEX
 from encoders.numeric import (
     ACTION_HAND,
     ACTION_KIND,
@@ -84,9 +85,7 @@ def _policy_candidates(batch: NumericBatch, active: list[int]) -> tuple[np.ndarr
         if np.any(potion_uses):
             codes = potions[offsets[position] + potion_slots[potion_uses].astype(np.int64), 1]
             smoke = np.zeros(len(owned), dtype=bool)
-            smoke[np.flatnonzero(potion_uses)] = [
-                code >= 0 and batch.symbols[int(code)] == "smoke_bomb" for code in codes
-            ]
+            smoke[np.flatnonzero(potion_uses)] = codes == POTION_TO_INDEX["smoke_bomb"]
             keep &= ~smoke
         kept = owned[keep]
         if len(kept) == 0:

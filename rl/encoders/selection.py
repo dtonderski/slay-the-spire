@@ -41,9 +41,10 @@ class SelectionEncoder(nn.Module):
         values[starts[selected[:, 0]] + selected[:, 1], 0] = 1
         reference = self.context_projection.weight
         flags = tensor(reference, values)
-        context = tensor(
-            reference, np.eye(SELECTION_CONTEXT_DIM)[batch.codes(batch.table("selection", 1)[:, 0], SELECTION_TO_INDEX)]
-        )
+        kind_ids = batch.table("selection", 1)[:, 0]
+        if len(kind_ids) and (int(kind_ids.min()) < 0 or int(kind_ids.max()) >= SELECTION_CONTEXT_DIM):
+            raise ValueError("Selection id is outside content vocabulary v1")
+        context = tensor(reference, np.eye(SELECTION_CONTEXT_DIM)[kind_ids])
         return (
             torch.cat((features, flags), dim=1),
             self.context_projection(context),
