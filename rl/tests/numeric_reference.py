@@ -131,7 +131,9 @@ def reference_batch(decisions):
             row = len(tables["relics"])
             tables["relics"].append([owner, RELIC_TO_INDEX[relic.content_key]])
             for counter in relic.state:
-                tables["relic_counters"].append([row, {key: index for index, key in enumerate(CounterKey)}[counter.key], counter.value])
+                tables["relic_counters"].append(
+                    [row, {key: index for index, key in enumerate(CounterKey)}[counter.key], counter.value]
+                )
         for potion in obs.context.potion_slots:
             tables["potions"].append([owner, POTION_TO_INDEX[potion.content_key], potion.slot])
         s = obs.screen.selection

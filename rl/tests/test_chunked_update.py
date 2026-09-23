@@ -60,14 +60,11 @@ class ChunkedUpdateTests(unittest.TestCase):
         episodes, replays = _collect(model, states)
         self.assertGreater(len(replays), 1)
         calls = []
-        original = model.forward
-
-        def wrapped(observations, candidates):
-            calls.append(len(observations))
-            return original(observations, candidates)
-
-        model.forward = wrapped
-        accumulated = accumulate_replay_loss(model, replays, episodes, 0.01, 0.1, chunk_decisions=10**9)
+        handle = model.register_forward_pre_hook(lambda _module, inputs: calls.append(len(inputs[0])))
+        try:
+            accumulated = accumulate_replay_loss(model, replays, episodes, 0.01, 0.1, chunk_decisions=10**9)
+        finally:
+            handle.remove()
         self.assertIsNotNone(accumulated)
         self.assertLess(len(calls), len(replays))
         self.assertGreater(max(calls), 1)

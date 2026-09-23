@@ -1,9 +1,9 @@
+import numpy as np
 import torch
 from encoders.actions import ActionEncoder
 from encoders.numeric import NumericBatch
 from jaxtyping import Bool, Float
 from observation_encoder import ObservationEncoder
-import numpy as np
 from torch import Tensor, nn
 
 
@@ -28,7 +28,9 @@ class CombatValueModel(nn.Module):
         """
         if not observations or not isinstance(candidates, np.ndarray) or len(candidates) == 0:
             raise ValueError("Observation and action batches must be nonempty and have the same length")
-        if int(candidates[:, 0].max()) != len(observations) - 1 or len({int(v) for v in candidates[:, 0]}) != len(observations):
+        if int(candidates[:, 0].max()) != len(observations) - 1 or len({int(v) for v in candidates[:, 0]}) != len(
+            observations
+        ):
             raise ValueError("Batched scoring requires at least one legal action per observation")
         state, features = self.observation_encoder(observations)
         policy_query = self.policy_head(state)

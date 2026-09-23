@@ -31,7 +31,6 @@ def action(kind: str, **slots: int | None) -> Action:
     )
 
 
-
 def candidates_from_rows(groups: list[np.ndarray]) -> np.ndarray:
     pieces = []
     for owner, rows in enumerate(groups):

@@ -75,9 +75,7 @@ class ActionEncoder(nn.Module):
         padded_vectors = vectors.new_zeros((len(features) * width, self.action_dim)).index_copy(0, indices, vectors)
         return padded_vectors.reshape(len(features), width, self.action_dim)
 
-    def _flat(
-        self, candidates: np.ndarray, features: FlatActionFeatures
-    ) -> Float[Tensor, "actions action_dim"]:
+    def _flat(self, candidates: np.ndarray, features: FlatActionFeatures) -> Float[Tensor, "actions action_dim"]:
         """Gather raw local slots from integer candidate rows, not Python action objects."""
         if candidates.ndim != 2 or candidates.shape[1] != CANDIDATE_WIDTH:
             raise ValueError("Action candidates must be integer rows")
@@ -122,9 +120,7 @@ class ActionEncoder(nn.Module):
                     _require_slots(kind, target_slots[present], sizes["enemies"][owners[selected][present]])
                 target_index = np.full(len(selected), no_target, dtype=np.int64)
                 if np.any(present):
-                    target_index[present] = (
-                        bases["enemies"][owners[selected][present]] + target_slots[present]
-                    )
+                    target_index[present] = bases["enemies"][owners[selected][present]] + target_slots[present]
                 if "targets" not in packed:
                     enemies = packed["enemies"]
                     packed["targets"] = torch.cat((enemies, enemies.new_zeros((1, ENEMY_FEATURE_DIM))))
@@ -134,15 +130,11 @@ class ActionEncoder(nn.Module):
                 flag = torch.tensor(present, dtype=inputs.dtype, device=reference.device).unsqueeze(1)
                 inputs = torch.cat((inputs, targets, flag), dim=1)
             encoded = self.encoders[kind](inputs)
-            vectors = vectors.index_copy(
-                0, torch.tensor(selected, dtype=torch.long, device=reference.device), encoded
-            )
+            vectors = vectors.index_copy(0, torch.tensor(selected, dtype=torch.long, device=reference.device), encoded)
         for kind in self.constants:
             selected = np.flatnonzero(kinds == KIND_CODE[kind])
             if len(selected) == 0:
                 continue
             encoded = self.constants[kind](torch.zeros(len(selected), dtype=torch.long, device=reference.device))
-            vectors = vectors.index_copy(
-                0, torch.tensor(selected, dtype=torch.long, device=reference.device), encoded
-            )
+            vectors = vectors.index_copy(0, torch.tensor(selected, dtype=torch.long, device=reference.device), encoded)
         return vectors

@@ -5,7 +5,6 @@ import hashlib
 import json
 import logging
 import math
-import numpy as np
 import random
 import shutil
 import time
@@ -13,11 +12,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+import numpy as np
 import torch
 import wandb
 from beam_search import beam_search
 from combat_task import action_indices, combat_outcome, terminal_reward
-from encoders.potions import POTION_TO_INDEX
 from encoders.numeric import (
     ACTION_HAND,
     ACTION_KIND,
@@ -31,11 +30,12 @@ from encoders.numeric import (
     NUMERIC_VERSION,
     NumericBatch,
 )
+from encoders.potions import POTION_TO_INDEX
 from loadout_sampling import LoadoutSampler
 from model import CombatValueModel
 from rollout_errors import SimulatorStepError
 from scenarios import ScenarioConfig
-from sts_sim import ACTION_KINDS, State
+from sts_sim import ACTION_KINDS, PotionKey, State
 from synthetic_roots import SyntheticRoot, sample_root
 from torch import Tensor
 from torch.distributions import Categorical
@@ -55,15 +55,16 @@ class Episode:
 class ReplayRound:
     """Public inputs needed to recompute one decision round after a no-grad rollout."""
 
-    observations: object
+    observations: NumericBatch
     candidates: np.ndarray
     owners: tuple[int, ...]
     choices: tuple[int, ...]
     counts: tuple[int, ...]
 
 
-
-def _policy_candidates(batch: NumericBatch, active: list[int]) -> tuple[np.ndarray, list[list[int]], list[int], list[int]]:
+def _policy_candidates(
+    batch: NumericBatch, active: list[int]
+) -> tuple[np.ndarray, list[list[int]], list[int], list[int]]:
     """Filter escape potions without changing public legal indices.
 
     Returned candidate owners are positions in ``active``, matching model rows.
@@ -72,7 +73,9 @@ def _policy_candidates(batch: NumericBatch, active: list[int]) -> tuple[np.ndarr
     rows = batch.action_rows
     use_potion = ACTION_KINDS.index("use_potion_slot")
     potions = batch.table("potions", 3)
-    offsets = np.cumsum(np.concatenate((np.zeros(1, dtype=np.int64), np.asarray(batch.lengths(potions), dtype=np.int64))))
+    offsets = np.cumsum(
+        np.concatenate((np.zeros(1, dtype=np.int64), np.asarray(batch.lengths(potions), dtype=np.int64)))
+    )
     pieces = []
     legal: list[list[int]] = []
     revisions: list[int] = []
@@ -87,7 +90,7 @@ def _policy_candidates(batch: NumericBatch, active: list[int]) -> tuple[np.ndarr
         if np.any(potion_uses):
             codes = potions[offsets[position] + potion_slots[potion_uses].astype(np.int64), 1]
             smoke = np.zeros(len(owned), dtype=bool)
-            smoke[np.flatnonzero(potion_uses)] = codes == POTION_TO_INDEX["smoke_bomb"]
+            smoke[np.flatnonzero(potion_uses)] = codes == POTION_TO_INDEX[PotionKey.SMOKE_BOMB]
             keep &= ~smoke
         kept = owned[keep]
         if len(kept) == 0:
@@ -191,8 +194,7 @@ def play_combats(
                 choices = [rng.randrange(count) for count in counts]
             else:
                 choices = [
-                    episode_rngs[remaining[row]].randrange(count)
-                    for row, count in zip(active, counts, strict=True)
+                    episode_rngs[remaining[row]].randrange(count) for row, count in zip(active, counts, strict=True)
                 ]
         else:
             with torch.set_grad_enabled(training):
@@ -244,7 +246,9 @@ def play_combats(
         remaining = [remaining[row] for row in active]
         try:
             payload = State.numeric_steps(
-                [states[index] for index in remaining], chosen_indices, [revisions[position] for position in range(len(active))]
+                [states[index] for index in remaining],
+                chosen_indices,
+                [revisions[position] for position in range(len(active))],
             )
         except ValueError as error:
             # Native batches are not atomic. Never retry/reapply actions to these clones.
@@ -454,7 +458,6 @@ def replay_storage_bytes(replays: list[ReplayRound]) -> int:
         tables = getattr(replay.observations, "tables", {})
         total += sum(table.nbytes for table in tables.values())
     return total
-
 
 
 _MODEL_OWNER_WIDTHS = {

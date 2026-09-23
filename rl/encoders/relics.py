@@ -30,7 +30,9 @@ class RelicEncoder(nn.Module):
             raise ValueError("Relic id is outside content vocabulary v1")
         identities = self.embedding(tensor(self.embedding.weight, raw_ids, integer=True))
         counters = batch.table("relic_counters", 3)
-        counts = np.bincount(counters[:, 0], minlength=len(rows)) if len(counters) else np.zeros(len(rows), dtype=np.int64)
+        counts = (
+            np.bincount(counters[:, 0], minlength=len(rows)) if len(counters) else np.zeros(len(rows), dtype=np.int64)
+        )
         if len(counts) and np.any(counts > RELIC_COUNTER_SLOTS):
             raise ValueError("Too many public relic counters")
         labels = np.array([key.value for key in CounterKey])

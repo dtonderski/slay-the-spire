@@ -8,8 +8,15 @@ from unittest.mock import patch
 
 import numpy as np
 import torch
-from encoders.numeric import ACTION_KIND, ACTION_LEGAL_INDEX, ACTION_OWNER, ACTION_REVISION, NUMERIC_VERSION, NumericBatch
 from encoders.cards import CARD_TO_INDEX
+from encoders.numeric import (
+    ACTION_KIND,
+    ACTION_LEGAL_INDEX,
+    ACTION_OWNER,
+    ACTION_REVISION,
+    NUMERIC_VERSION,
+    NumericBatch,
+)
 from model import CombatValueModel
 from numeric_reference import CATEGORICAL, reference_batch, semantic_tables
 from sts_sim import ACTION_KINDS, CounterKey, PowerKey, State
@@ -24,24 +31,22 @@ from test_model import action, combat
 from train import play_combats
 
 
-
 def _candidates(groups):
     rows = []
     codes = {name: index for index, name in enumerate(ACTION_KINDS)}
     for owner, group in enumerate(groups):
-        for action in group:
+        for candidate in group:
             rows.append(
                 [
                     owner,
-                    codes[action.kind],
-                    -1 if action.hand_slot is None else action.hand_slot,
-                    -1 if action.potion_slot is None else action.potion_slot,
-                    -1 if action.option_slot is None else action.option_slot,
-                    -1 if action.target_slot is None else action.target_slot,
+                    codes[candidate.kind],
+                    -1 if candidate.hand_slot is None else candidate.hand_slot,
+                    -1 if candidate.potion_slot is None else candidate.potion_slot,
+                    -1 if candidate.option_slot is None else candidate.option_slot,
+                    -1 if candidate.target_slot is None else candidate.target_slot,
                 ]
             )
     return np.asarray(rows, dtype=np.int64)
-
 
 
 def _candidates_from_batch(batch):
@@ -99,8 +104,13 @@ class NumericObservationTests(unittest.TestCase):
                 self.assertEqual(semantic_tables(expected), semantic_tables(numeric))
                 self.assertEqual(expected.model_rows, numeric.model_rows)
                 owned = numeric.action_rows[numeric.action_rows[:, ACTION_OWNER] == 0]
-                self.assertEqual([action.kind for action in decision.actions], [ACTION_KINDS[int(code)] for code in owned[:, ACTION_KIND]])
-                self.assertEqual([int(value) for value in owned[:, ACTION_LEGAL_INDEX]], list(range(len(decision.actions))))
+                self.assertEqual(
+                    [action.kind for action in decision.actions],
+                    [ACTION_KINDS[int(code)] for code in owned[:, ACTION_KIND]],
+                )
+                self.assertEqual(
+                    [int(value) for value in owned[:, ACTION_LEGAL_INDEX]], list(range(len(decision.actions)))
+                )
                 self.assertEqual(left.revision, right.revision)
                 self.assertEqual(
                     semantic_tables(numeric), semantic_tables(NumericBatch(State.numeric_decisions([right])))
@@ -289,6 +299,7 @@ class NumericObservationTests(unittest.TestCase):
         state = combat()
         native = NumericBatch(State.numeric_decisions([state]))
         typed = state.decision()
+        assert typed.observation.kind == "combat"
         hand = native.table("hand", 18)
         for row, entry in zip(hand, typed.observation.screen.hand, strict=True):
             self.assertEqual(int(row[1]), CARD_TO_INDEX[entry.card.content_key])
