@@ -66,17 +66,18 @@ class ObservationEncoder(nn.Module):
             if name == "potions":
                 feature_rows[name] = features
                 feature_lengths[name] = lengths
+        cards = self.cards.numeric(batch)
         for name in ("hand", "draw", "discard", "exhaust"):
-            features, tokens, lengths = self.cards.numeric(batch, name)
+            features, tokens, lengths = cards[name]
             groups[name] = (tokens, lengths)
             if name == "hand":
                 feature_rows[name] = features
                 feature_lengths[name] = lengths
-        features, tokens, lengths = self.enemies.numeric(batch, self.cards)
+        features, tokens, lengths = self.enemies.numeric(batch, cards["stasis"][0])
         groups["enemies"] = (tokens, lengths)
         feature_rows["enemies"] = features
         feature_lengths["enemies"] = lengths
-        features, context, tokens, lengths = self.selection.numeric(batch, self.cards)
+        features, context, tokens, lengths = self.selection.numeric(batch, cards["selection_cards"])
         groups["selection_context"] = (context, [1] * batch.size)
         groups["selection_options"] = (tokens, lengths)
         feature_rows["selection"] = features
@@ -85,19 +86,22 @@ class ObservationEncoder(nn.Module):
         width = int(counts.sum(axis=1).max()) + 1
         positions = np.ones(batch.size, dtype=np.int64)
         reference = self.summary_embedding.weight
-        packed = [reference.expand(batch.size, -1)]
         destinations = [np.arange(batch.size) * width]
-        for index, name in enumerate(OBSERVATION_GROUPS):
-            tokens, lengths = groups[name]
+        for name in OBSERVATION_GROUPS:
+            lengths = groups[name][1]
             owners = np.repeat(np.arange(batch.size), lengths)
             starts = np.cumsum(lengths) - lengths
             local = np.arange(len(owners)) - np.repeat(starts, lengths)
             destinations.append(owners * width + positions[owners] + local)
             positions += lengths
-            packed.append(tokens + self.group_embedding.weight[index])
+        # One lookup adds each row's group embedding; the summary row has none.
+        kinds = np.repeat(np.arange(len(OBSERVATION_GROUPS)), counts.sum(axis=0))
+        grouped = torch.cat([groups[name][0] for name in OBSERVATION_GROUPS])
+        grouped = grouped + self.group_embedding(tensor(reference, kinds, integer=True))
+        packed = torch.cat((reference.expand(batch.size, -1), grouped))
         indices = tensor(reference, np.concatenate(destinations), integer=True)
         # Each real row has one destination; padding has no source row or backward accumulation.
-        tokens = reference.new_zeros((batch.size * width, reference.shape[1])).index_copy(0, indices, torch.cat(packed))
+        tokens = reference.new_zeros((batch.size * width, reference.shape[1])).index_copy(0, indices, packed)
         padding = upload(np.arange(width)[None, :] >= positions[:, None], torch.bool, reference.device)
         return tokens.reshape(batch.size, width, -1), padding, FlatActionFeatures(feature_rows, feature_lengths)
 

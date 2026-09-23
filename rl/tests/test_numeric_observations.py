@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import numpy as np
 import torch
-from encoders.cards import CARD_TO_INDEX
+from encoders.cards import CARD_TABLES, CARD_TO_INDEX, CardEncoder
 from encoders.numeric import (
     ACTION_KIND,
     ACTION_LEGAL_INDEX,
@@ -30,6 +30,14 @@ from sts_sim.observations import (
 )
 from test_model import action, combat
 from train import play_combats
+
+
+def _per_table_card_encoding(encoder: CardEncoder, rows: np.ndarray) -> tuple[torch.Tensor, torch.Tensor]:
+    """Reference for one card table: the per-table lookup and projection fused encoding replaced."""
+    identities = encoder.embedding(torch.tensor(rows[:, 1], dtype=torch.long))
+    state = torch.tensor(rows[:, [2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 17]], dtype=identities.dtype)
+    features = torch.cat((identities, state), dim=1)
+    return features, encoder.projection(features)
 
 
 def _candidates(groups):
@@ -219,6 +227,18 @@ class NumericObservationTests(unittest.TestCase):
             (action("end_turn"),),
         ]
         raw = reference_batch([replace(decision, observation=a), replace(decision, observation=b)])
+        # One fused pass over every card table equals the per-table encoding it replaced.
+        torch.manual_seed(7)
+        encoder = CardEncoder(16)
+        fused = encoder.numeric(raw)
+        for name in ("hand", "draw", "stasis", "selection_cards"):
+            self.assertGreater(len(raw.table(name, 18)), 0, name)
+        for name in CARD_TABLES:
+            rows = raw.table(name, 18)
+            features, tokens = _per_table_card_encoding(encoder, rows)
+            self.assertEqual(fused[name][2], raw.lengths(rows))
+            torch.testing.assert_close(fused[name][0], features, atol=1e-6, rtol=1e-6)
+            torch.testing.assert_close(fused[name][1], tokens, atol=1e-6, rtol=1e-6)
         for device in ("cpu", "cuda") if torch.cuda.is_available() else ("cpu",):
             for dtype in (torch.float32, torch.float64):
                 with self.subTest(device=device, dtype=dtype):
