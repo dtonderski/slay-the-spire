@@ -531,6 +531,25 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(loaded.status_code, 200, loaded.text)
         self.assertFalse(loaded.json()["jobs"])
 
+    def test_deleted_continuation_request_can_be_retried(self) -> None:
+        generated = self.client.post("/api/sessions/generated", json={"generation_seed": "8", "floor": 1}).json()
+        session_id, root_id = generated["session_id"], generated["root_id"]
+        url = f"/api/sessions/{session_id}/nodes/{root_id}/continue"
+        body = {"mode": "greedy", "max_decisions": 1, "request_id": "retry-after-delete"}
+        started = self.client.post(url, json=body)
+        self.assertEqual(started.status_code, 200, started.text)
+        finished = self.wait_job(started.json()["id"])
+        deleted = self.client.delete(f"/api/sessions/{session_id}/nodes/{finished['leaf_id']}")
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertEqual(self.client.get(f"/api/jobs/{finished['id']}").status_code, 404)
+
+        retried = self.client.post(url, json=body)
+        self.assertEqual(retried.status_code, 200, retried.text)
+        self.assertNotEqual(retried.json()["id"], finished["id"])
+        self.assertEqual(self.client.get(f"/api/jobs/{retried.json()['id']}").status_code, 200)
+        self.assertEqual(self.client.post(url, json=body).json()["id"], retried.json()["id"])
+        self.assertEqual(self.wait_job(retried.json()["id"])["status"], "completed")
+
     def test_malformed_session_types_are_structured_client_errors(self) -> None:
         generated = self.client.post("/api/sessions/generated", json={"generation_seed": "12", "floor": 1}).json()
         saved = self.client.post(

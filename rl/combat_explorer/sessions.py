@@ -330,13 +330,6 @@ class SessionManager:
             for nid in removed:
                 session.nodes.pop(nid, None)
             session.score_cache = {key: value for key, value in session.score_cache.items() if key[0] not in removed_set}
-            stale_keys = [
-                key
-                for key, cached in session.idempotency.items()
-                if isinstance(cached, dict) and (cached.get("result") or {}).get("child_id") in removed_set
-            ]
-            for key in stale_keys:
-                session.idempotency.pop(key, None)
             # Completed continuation history belongs to its source/leaf path.
             # Remove jobs referencing deleted nodes so exported sessions remain
             # loadable and the UI cannot jump to a non-existent leaf.
@@ -345,9 +338,21 @@ class SessionManager:
                 if (job := self.jobs.get(job_id)) is not None
                 and (job.source_node_id in removed_set or job.leaf_id in removed_set)
             ]
+            stale_job_ids = set(stale_jobs)
+            stale_keys = [
+                key
+                for key, cached in session.idempotency.items()
+                if isinstance(cached, dict)
+                and (
+                    (cached.get("result") or {}).get("child_id") in removed_set
+                    or (cached.get("result") or {}).get("id") in stale_job_ids
+                )
+            ]
+            for key in stale_keys:
+                session.idempotency.pop(key, None)
             for job_id in stale_jobs:
                 self.jobs.pop(job_id, None)
-            session.job_ids = [job_id for job_id in session.job_ids if job_id not in stale_jobs]
+            session.job_ids = [job_id for job_id in session.job_ids if job_id not in stale_job_ids]
             return {"deleted": removed, "parent_id": parent.id, "count": len(removed)}
 
     def model_step(
