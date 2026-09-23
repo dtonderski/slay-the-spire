@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Simulator Combat Explorer</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <button type="button" id="menuButton" aria-label="Open combat menu" aria-expanded="false" aria-controls="startMenu">☰</button>
+        <strong>Combat Explorer</strong>
+        <span class="muted">simulator-only · decisions, not playback</span>
+      </div>
+      <div class="controls" id="headerControls">
+        <label>Mode
+          <select id="mode">
+            <option value="sample">sample</option>
+            <option value="greedy">greedy</option>
+          </select>
+        </label>
+        <label>Temperature
+          <input id="temperature" type="number" min="0.05" max="5" step="0.05" value="1" />
+        </label>
+        <label>Decision limit
+          <input id="maxDecisions" type="number" min="1" max="512" value="512" />
+        </label>
+        <button type="button" id="modelStep">Model step</button>
+        <button type="button" id="modelFinish">Model finish from here</button>
+        <button type="button" id="cancelJob" disabled>Cancel job</button>
+        <button type="button" id="save">Save</button>
+        <button type="button" id="load">Load</button>
+      </div>
+    </header>
+    <section class="status" id="statusBar">
+      <span id="scenarioLabel">No combat loaded</span>
+      <span id="modelLabel">No model</span>
+      <span id="jobLabel"></span>
+      <button type="button" id="jumpResult" hidden>Jump to job result</button>
+    </section>
+    <div id="menuBackdrop" hidden></div>
+    <aside id="startMenu" class="drawer" aria-label="New combat">
+      <div class="drawerHead">
+        <h2>New combat</h2>
+        <button type="button" id="menuClose" aria-label="Close combat menu">✕</button>
+      </div>
+      <div class="setupStack">
+        <form id="rootForm">
+          <h2>Saved root</h2>
+          <input id="rootQuery" type="search" placeholder="Filter encounter, floor…" />
+          <select id="rootList" size="6"></select>
+          <button type="submit">Load selected root</button>
+        </form>
+        <form id="generateForm">
+          <h2>Generate</h2>
+          <label>Seed <input id="genSeed" required value="1" /></label>
+          <label>Floor <input id="genFloor" type="number" min="1" max="55" placeholder="any" /></label>
+          <div class="inlineFields">
+            <label>Min <input id="genMin" type="number" min="1" max="55" value="1" /></label>
+            <label>Max <input id="genMax" type="number" min="1" max="55" value="55" /></label>
+          </div>
+          <button type="submit">Generate</button>
+        </form>
+        <form id="modelForm">
+          <h2>Checkpoint</h2>
+          <p class="muted" id="modelHelp">Optional. Manual play works without one.</p>
+          <label>Path <input id="modelPath" placeholder="combat_explorer_local/checkpoint.pt" /></label>
+          <button type="submit">Load checkpoint into session</button>
+        </form>
+      </div>
+    </aside>
+    <main class="layout">
+      <aside class="panel side">
+        <div class="historyBlock">
+          <div class="panelHead">
+            <h2>History</h2>
+            <div class="navButtons">
+              <button type="button" id="prev" title="Previous decision">←</button>
+              <button type="button" id="next" title="Next preferred child">→</button>
+              <button type="button" id="prevTurn">Turn −</button>
+              <button type="button" id="nextTurn">Turn +</button>
+              <button type="button" id="prevKill">Kill −</button>
+              <button type="button" id="nextKill">Kill +</button>
+              <button type="button" id="deleteNode" title="Delete branch (Delete)">Delete</button>
+            </div>
+          </div>
+          <input id="scrubber" type="range" min="0" max="0" value="0" />
+          <div id="pathMeta" class="muted"></div>
+          <div id="tree" class="tree"></div>
+        </div>
+      </aside>
+      <section class="panel board">
+        <h2>Combat</h2>
+        <div id="board"></div>
+      </section>
+      <aside class="panel actions">
+        <h2>Actions</h2>
+        <p class="muted" id="probNote">Percents are the model’s current ranking.</p>
+        <div id="analysisNote"></div>
+        <div id="actionList"></div>
+        <h2>Last transition</h2>
+        <div id="summary"></div>
+      </aside>
+    </main>
+    <pre id="error" class="error" hidden></pre>
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>

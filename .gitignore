@@ -3,6 +3,8 @@ target-*/
 
 # Local W&B runs
 rl/wandb/
+rl/combat_explorer_sessions/
+rl/combat_explorer_local/
 
 # Local Python / build outputs
 .tmp/
