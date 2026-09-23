@@ -505,6 +505,32 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(denied.status_code, 400)
             app.state.explorer.close()
 
+    def test_delete_continuation_branch_keeps_save_load_valid(self) -> None:
+        generated = self.client.post("/api/sessions/generated", json={"generation_seed": "8", "floor": 1}).json()
+        session_id, root_id = generated["session_id"], generated["root_id"]
+        started = self.client.post(
+            f"/api/sessions/{session_id}/nodes/{root_id}/continue",
+            json={"mode": "greedy", "max_decisions": 4},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        finished = self.wait_job(started.json()["id"])
+        self.assertNotEqual(finished["leaf_id"], root_id)
+        tree = self.client.get(f"/api/sessions/{session_id}/tree").json()
+        root = next(node for node in tree["nodes"] if node["id"] == root_id)
+        deleted = self.client.delete(f"/api/sessions/{session_id}/nodes/{root['child_ids'][0]}")
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        self.assertIn(finished["leaf_id"], deleted.json()["deleted"])
+        tree = self.client.get(f"/api/sessions/{session_id}/tree").json()
+        self.assertFalse(tree["jobs"])
+        saved = self.client.post(
+            f"/api/sessions/{session_id}/save",
+            json={"filename": "after-delete.json", "selected_node_id": root_id},
+        )
+        self.assertEqual(saved.status_code, 200, saved.text)
+        loaded = self.client.post("/api/sessions/load", json={"filename": "after-delete.json"})
+        self.assertEqual(loaded.status_code, 200, loaded.text)
+        self.assertFalse(loaded.json()["jobs"])
+
     def test_malformed_session_types_are_structured_client_errors(self) -> None:
         generated = self.client.post("/api/sessions/generated", json={"generation_seed": "12", "floor": 1}).json()
         saved = self.client.post(

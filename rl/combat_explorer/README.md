@@ -92,7 +92,7 @@ reanalyzes the selected node; it does not rewrite historical choice diagnostics.
 
 - Validation roots: `schema=1` / `protocol=synthetic_pre_entry_hp_A0` (see `validation_set.py`).
 - Generated roots: `LoadoutSampler` + `sample_root`, A0 only.
-- Checkpoints: current `train_synthetic.py` dict with a `model` state, loaded
+- Checkpoints: current `train.py` dict with a `model` state, loaded
   `weights_only=True` into `CombatValueModel`. Incompatible architectures fail closed.
   Identity is the checkpoint file SHA-256, not the path `latest.pt`.
 - Sessions: `sts_combat_explorer_session` schema 1 JSON. Reconstruction replays

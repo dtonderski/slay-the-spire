@@ -9,9 +9,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+import numpy as np
 import torch
 from combat_task import action_indices
-from encoders.numeric import NumericBatch
+from encoders.numeric import (
+    ACTION_KIND,
+    ACTION_LEGAL_INDEX,
+    ACTION_OWNER,
+    ACTION_REVISION,
+    ACTION_TARGET,
+    NumericBatch,
+)
 from model import CombatValueModel
 from sts_sim import Action, CombatObservation, Decision, State
 from torch import Tensor
@@ -163,8 +171,22 @@ class PolicyAdapter:
             raise ModelError("No allowed combat actions after disabling Smoke Bomb use")
         candidates = tuple(decision.actions[index] for index in indices)
         batch = NumericBatch(State.numeric_decisions([state]))
+        rows = batch.action_rows
+        # Keep the task-filtered public legal-index order, including its mapping
+        # back to native actions. Candidate features come only from public rows.
+        if len(batch) != 1 or len(rows) != len(decision.actions):
+            raise ModelError("Numeric action rows do not match the current decision")
+        by_index = {int(row[ACTION_LEGAL_INDEX]): row for row in rows if int(row[ACTION_OWNER]) == 0}
+        if len(by_index) != len(rows) or set(by_index) != set(range(len(decision.actions))):
+            raise ModelError("Numeric action rows have missing or duplicate legal indices")
+        selected = np.stack([by_index[index] for index in indices])
+        if np.any(selected[:, ACTION_REVISION] != decision.revision):
+            raise ModelError("Numeric action revision does not match the current decision")
+        candidate_rows = np.empty((len(indices), 6), dtype=np.int64)
+        candidate_rows[:, 0] = 0  # forward-local observation index
+        candidate_rows[:, 1:] = selected[:, ACTION_KIND : ACTION_TARGET + 1]
         with self.lock, torch.inference_mode():
-            logits_tensor, values, valid = loaded.model(batch, [candidates])
+            logits_tensor, values, valid = loaded.model(batch, candidate_rows)
             row: Tensor = logits_tensor[0, : len(candidates)]
             mask = valid[0, : len(candidates)]
             logits = [float(value) for value in row.detach().cpu().tolist()]

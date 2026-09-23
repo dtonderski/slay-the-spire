@@ -345,6 +345,7 @@ async function deleteSelected() {
     const tree = await api(`/api/sessions/${sessionId}/tree`);
     if (state.tree?.session_id !== sessionId) return;
     state.tree = tree;
+    if (state.job && !tree.jobs?.some((job) => job.id === state.job.id)) state.job = null;
     const nextId = result.parent_id && tree.nodes.some((item) => item.id === result.parent_id) ? result.parent_id : tree.root_id;
     await selectNode(nextId);
   });

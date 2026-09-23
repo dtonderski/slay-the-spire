@@ -74,6 +74,38 @@ class SoftmaxTests(unittest.TestCase):
 
 
 class CheckpointTests(unittest.TestCase):
+    def test_numeric_candidates_match_training_builder_and_native_indices(self) -> None:
+        import random
+
+        from combat_task import action_indices
+        from encoders.numeric import NumericBatch
+        from scenarios import sample_encounter
+        from sts_sim import State
+        from synthetic_roots import build_root
+        from tests.test_combat_explorer_core import ironclad_loadout
+        from train import _policy_candidates
+
+        root = build_root(sample_encounter(random.Random(0), 1), ironclad_loadout(1), 3)
+        state = State.from_synthetic_spec(root.spec_json)
+        batch = NumericBatch(State.numeric_decisions([state]))
+        expected_rows, legal, revisions, counts = _policy_candidates(batch, [0])
+        adapter = PolicyAdapter()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "value.pt"
+            torch.save({"model": CombatValueModel().state_dict()}, path)
+            loaded = adapter.load(path)
+            scored = adapter.score(state)
+            self.assertEqual(scored.native_indices, legal[0])
+            self.assertEqual(scored.native_indices, action_indices(state.decision()))
+            self.assertEqual(revisions, [state.decision().revision])
+            self.assertEqual(counts, [len(scored.native_indices)])
+            with torch.inference_mode():
+                logits, values, valid = loaded.model(batch, expected_rows)
+            self.assertTrue(valid[0].all().item())
+            for actual, expected in zip(scored.logits, logits[0].tolist(), strict=True):
+                self.assertAlmostEqual(actual, expected, places=5)
+            self.assertAlmostEqual(scored.value, values[0, 0].item(), places=5)
+
     def test_strict_load_and_bad_payloads(self) -> None:
         adapter = PolicyAdapter()
         with tempfile.TemporaryDirectory() as directory:

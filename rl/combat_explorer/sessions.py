@@ -337,6 +337,17 @@ class SessionManager:
             ]
             for key in stale_keys:
                 session.idempotency.pop(key, None)
+            # Completed continuation history belongs to its source/leaf path.
+            # Remove jobs referencing deleted nodes so exported sessions remain
+            # loadable and the UI cannot jump to a non-existent leaf.
+            stale_jobs = [
+                job_id for job_id in session.job_ids
+                if (job := self.jobs.get(job_id)) is not None
+                and (job.source_node_id in removed_set or job.leaf_id in removed_set)
+            ]
+            for job_id in stale_jobs:
+                self.jobs.pop(job_id, None)
+            session.job_ids = [job_id for job_id in session.job_ids if job_id not in stale_jobs]
             return {"deleted": removed, "parent_id": parent.id, "count": len(removed)}
 
     def model_step(

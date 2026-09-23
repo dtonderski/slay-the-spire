@@ -353,11 +353,16 @@ class BrowserWorkflowTests(unittest.TestCase):
         page.locator("#tree button.node").first.click()
         page.wait_for_function("() => window.__explorer.node && window.__explorer.node.id === window.__explorer.tree.root_id")
         page.wait_for_selector("#actionList button")
-        buttons = page.locator("#actionList button")
-        if buttons.count() >= 2:
-            buttons.nth(1).click()
-        else:
-            buttons.first.click()
+        # Reusing the same parent/action edge must not create a second branch.
+        # Select an action whose native index is not already a root child.
+        alternate = page.evaluate("""() => {
+          const existing = new Set((window.__explorer.node.outgoing || []).map(edge => edge.native_index));
+          return [...document.querySelectorAll('#actionList .action')]
+            .map(row => Number(row.dataset.nativeIndex))
+            .find(index => !existing.has(index));
+        }""")
+        self.assertIsNotNone(alternate, "Fixture needs a distinct legal root action")
+        page.locator(f'#actionList .action[data-native-index="{alternate}"] button').click()
         page.wait_for_function("() => window.__explorer.node && window.__explorer.node.parent_id === window.__explorer.tree.root_id")
         page.fill("#maxDecisions", "16")
         page.wait_for_function("() => !document.querySelector('#modelFinish').disabled")
