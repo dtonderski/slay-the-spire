@@ -16,6 +16,7 @@ from encoders.numeric import (
     ACTION_REVISION,
     NUMERIC_VERSION,
     NumericBatch,
+    upload,
 )
 from model import CombatValueModel
 from numeric_reference import CATEGORICAL, reference_batch, semantic_tables
@@ -228,6 +229,29 @@ class NumericObservationTests(unittest.TestCase):
                     self.assertTrue(torch.isneginf(logits[~mask]).all())
                     (logits[mask].square().sum() + values.square().sum()).backward()
                     self.assertTrue(all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None))
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA staging only")
+    def test_staged_uploads_match_synchronous_copies(self) -> None:
+        batch = NumericBatch(State.numeric_decisions([combat()]))
+        read_only = batch.table("hand", 18)
+        cases = [
+            (read_only, torch.long),
+            (read_only[:, [2, 3, 17]], torch.float32),
+            (read_only / 3.0, torch.float32),
+            (read_only / 3.0, torch.float64),
+            (read_only / 3.0, torch.float16),
+            # NumPy has no bfloat16; this takes the host-cast fallback.
+            (read_only / 3.0, torch.bfloat16),
+            (read_only[:, 0] >= 0, torch.bool),
+            (np.empty((0, 4)), torch.float32),
+        ]
+        device = torch.device("cuda")
+        staged = [upload(values, dtype, device) for values, dtype in cases]
+        for (values, dtype), actual in zip(cases, staged, strict=True):
+            expected = torch.tensor(values, dtype=dtype, device=device)
+            self.assertEqual(actual.dtype, expected.dtype)
+            self.assertTrue(torch.equal(actual, expected))
+        self.assertFalse(read_only.flags.writeable)
 
     def test_dictionary_numbers_are_not_model_features(self) -> None:
         state = combat()

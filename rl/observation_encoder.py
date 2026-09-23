@@ -3,7 +3,7 @@ import torch
 from encoders.actions import FlatActionFeatures
 from encoders.cards import CardEncoder
 from encoders.enemies import EnemyEncoder
-from encoders.numeric import NumericBatch, tensor
+from encoders.numeric import NumericBatch, tensor, upload
 from encoders.player import PlayerEncoder
 from encoders.potions import PotionEncoder
 from encoders.relics import RelicEncoder
@@ -98,7 +98,7 @@ class ObservationEncoder(nn.Module):
         indices = tensor(reference, np.concatenate(destinations), integer=True)
         # Each real row has one destination; padding has no source row or backward accumulation.
         tokens = reference.new_zeros((batch.size * width, reference.shape[1])).index_copy(0, indices, torch.cat(packed))
-        padding = torch.tensor(np.arange(width)[None, :] >= positions[:, None], device=reference.device)
+        padding = upload(np.arange(width)[None, :] >= positions[:, None], torch.bool, reference.device)
         return tokens.reshape(batch.size, width, -1), padding, FlatActionFeatures(feature_rows, feature_lengths)
 
     def forward(self, observations: NumericBatch) -> tuple[Float[Tensor, "batch action_dim"], FlatActionFeatures]:

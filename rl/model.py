@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from encoders.actions import ActionEncoder
-from encoders.numeric import NumericBatch
+from encoders.numeric import NumericBatch, upload
 from jaxtyping import Bool, Float
 from observation_encoder import ObservationEncoder
 from torch import Tensor, nn
@@ -36,9 +36,10 @@ class CombatValueModel(nn.Module):
         policy_query = self.policy_head(state)
         values = self.value_head(state)
         vectors = self.action_encoder(candidates, features)
-        lengths = torch.tensor(
+        lengths = upload(
             np.bincount(candidates[:, 0].astype(np.int64), minlength=len(observations)),
-            device=policy_query.device,
+            torch.long,
+            policy_query.device,
         )
         valid = torch.arange(vectors.shape[1], device=policy_query.device).unsqueeze(0) < lengths.unsqueeze(1)
         logits = torch.bmm(vectors, policy_query.unsqueeze(-1)).squeeze(-1)

@@ -1,5 +1,6 @@
 """Read-only public transport buffers. Feature definitions stay in their encoders."""
 
+import functools
 from typing import Any
 
 import numpy as np
@@ -87,6 +88,35 @@ class NumericBatch:
         return output
 
 
+def upload(values: np.ndarray, dtype: torch.dtype, device: torch.device) -> Tensor:
+    """Copy a complete numeric array once; never expose immutable bytes as writable tensors.
+
+    CUDA copies are staged in the caching pinned-host allocator and issued without
+    blocking the host, so model inputs do not wait for queued GPU work. The allocator
+    keeps each staging block until its copy has finished. Values and casts match
+    ``torch.tensor(values, dtype=dtype)``.
+    """
+    if device.type != "cuda":
+        return torch.tensor(values, dtype=dtype, device=device)
+    array = np.asarray(values)
+    if not _has_numpy_view(dtype):
+        # e.g. bfloat16: cast on the host, then pin that copy; still a non-blocking upload.
+        return torch.tensor(array, dtype=dtype).pin_memory().to(device, non_blocking=True)
+    staged = torch.empty(array.shape, dtype=dtype, pin_memory=True)
+    staged.numpy()[...] = array
+    return staged.to(device, non_blocking=True)
+
+
+@functools.cache
+def _has_numpy_view(dtype: torch.dtype) -> bool:
+    """Whether ``Tensor.numpy()`` works for ``dtype``; NumPy has no bfloat16, for example."""
+    try:
+        torch.empty(0, dtype=dtype).numpy()
+    except TypeError:
+        return False
+    return True
+
+
 def tensor(reference: Tensor, values: np.ndarray, *, integer: bool = False) -> Tensor:
-    """Copy a complete numeric array once; never expose immutable bytes as writable tensors."""
-    return torch.tensor(values, dtype=torch.long if integer else reference.dtype, device=reference.device)
+    """Upload ``values`` to ``reference``'s device, as integers or in its dtype."""
+    return upload(values, torch.long if integer else reference.dtype, reference.device)

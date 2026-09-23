@@ -28,6 +28,7 @@ from encoders.numeric import (
     CANDIDATE_OWNER,
     NUMERIC_VERSION,
     NumericBatch,
+    upload,
 )
 from encoders.potions import POTION_TO_INDEX
 from loadout_sampling import LoadoutSampler
@@ -534,7 +535,7 @@ def _decision_rounds_from_forward(rounds: list[ReplayRound], logits: Tensor, val
     choices = []
     for replay in rounds:
         choices.extend(replay.choices)
-    chosen = torch.tensor(choices, dtype=torch.long, device=logits.device)
+    chosen = upload(np.asarray(choices, dtype=np.int64), torch.long, logits.device)
     log_probs = distribution.log_prob(chosen)
     entropies = distribution.entropy()
     max_probabilities = cast(Tensor, distribution.probs).max(dim=1).values.detach()
