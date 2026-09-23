@@ -11,8 +11,9 @@ from typing import Any, Literal
 
 import torch
 from combat_task import action_indices
-from model import CombatModel
-from sts_sim import Action, CombatObservation, Decision
+from encoders.numeric import NumericBatch
+from model import CombatValueModel
+from sts_sim import Action, CombatObservation, Decision, State
 from torch import Tensor
 
 from combat_explorer import (
@@ -76,7 +77,7 @@ def sample_index(probabilities: list[float], rng: random.Random) -> int:
 
 @dataclass
 class LoadedCheckpoint:
-    model: CombatModel
+    model: CombatValueModel
     fingerprint: str
     path: str
     architecture: str
@@ -94,6 +95,7 @@ class ScoredCandidates:
     checkpoint_fingerprint: str
     adapter_version: str
     mapping: str
+    value: float | None = None
 
 
 class PolicyAdapter:
@@ -121,11 +123,11 @@ class PolicyAdapter:
         if not isinstance(state_dict, dict):
             raise ModelError("Checkpoint model state is not a dictionary")
         torch.set_num_threads(1)
-        model = CombatModel()
+        model = CombatValueModel()
         try:
             model.load_state_dict(state_dict, strict=True)
         except Exception as error:
-            raise ModelError(f"Checkpoint weights are incompatible with CombatModel: {error}") from error
+            raise ModelError(f"Checkpoint weights are incompatible with CombatValueModel: {error}") from error
         model.to(device)
         model.eval()
         config = payload.get("config")
@@ -135,7 +137,7 @@ class PolicyAdapter:
             model=model,
             fingerprint=fingerprint,
             path=str(path),
-            architecture="CombatModel",
+            architecture="CombatValueModel",
             config=config,
             device=device,
         )
@@ -148,29 +150,34 @@ class PolicyAdapter:
             raise ModelError("No model checkpoint is loaded")
         return self.loaded
 
-    def score(self, decision: Decision, loaded: LoadedCheckpoint | None = None) -> ScoredCandidates:
+    def score(self, state: State, loaded: LoadedCheckpoint | None = None) -> ScoredCandidates:
         loaded = loaded or self.require_loaded()
+        decision = state.decision()
         observation = decision.observation
         if observation.kind != "combat":
-            raise ModelError("The current CombatModel only scores combat observations")
+            raise ModelError("CombatValueModel only scores combat observations")
         if not isinstance(observation, CombatObservation):
             raise ModelError("Policy scoring requires a typed CombatObservation")
         indices = action_indices(decision)
         if not indices:
             raise ModelError("No allowed combat actions after disabling Smoke Bomb use")
         candidates = tuple(decision.actions[index] for index in indices)
+        batch = NumericBatch(State.numeric_decisions([state]))
         with self.lock, torch.inference_mode():
-            logits_tensor, valid = loaded.model([observation], [candidates])
+            logits_tensor, values, valid = loaded.model(batch, [candidates])
             row: Tensor = logits_tensor[0, : len(candidates)]
             mask = valid[0, : len(candidates)]
             logits = [float(value) for value in row.detach().cpu().tolist()]
             valid_flags = [bool(flag) for flag in mask.detach().cpu().tolist()]
+            value = float(values.reshape(-1)[0].detach().cpu())
         if not all(valid_flags) or len(logits) != len(candidates):
             raise ModelError("Model valid-action mask does not match the filtered candidate list")
         try:
             logits = finite_floats(logits, "logit")
         except ValueError as error:
             raise ModelError(str(error)) from error
+        if not math.isfinite(value):
+            raise ModelError("Model value is not finite")
         return ScoredCandidates(
             native_indices=list(indices),
             descriptors=[action_descriptor(action) for action in candidates],
@@ -179,10 +186,11 @@ class PolicyAdapter:
             checkpoint_fingerprint=loaded.fingerprint,
             adapter_version=loaded.adapter_version,
             mapping=TASK_MAPPING,
+            value=value,
         )
 
-    def analyze(self, decision: Decision, *, mode: Mode, temperature: float) -> dict[str, Any]:
-        scored = self.score(decision)
+    def analyze(self, state: State, *, mode: Mode, temperature: float) -> dict[str, Any]:
+        scored = self.score(state)
         return analysis_from_scores(scored, mode=mode, temperature=temperature)
 
     def choose(
@@ -227,6 +235,7 @@ def analysis_from_scores(scored: ScoredCandidates, *, mode: Mode, temperature: f
         "descriptors": list(scored.descriptors),
         "labels": list(scored.labels),
         "logits": list(scored.logits),
+        "value": scored.value,
         "base_probabilities": base,
         "adjusted_probabilities": None if mode == "greedy" else adjusted,
         "note": (

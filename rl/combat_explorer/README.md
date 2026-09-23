@@ -21,7 +21,7 @@ That copies the distributions and checkpoint byte-for-byte, generates a
 current-native `explorer-roots-a0-v1.json` with `validation_set.build_validation`,
 and writes `ARTIFACTS.json` / `LAUNCH.txt`. The roots file is an explorer dataset,
 not the frozen `validation-a0-v1` benchmark. The checkpoint is usable inference on
-the current `CombatModel` architecture, not same-native training evidence.
+the current `CombatValueModel` architecture, not same-native training evidence.
 
 Then:
 
@@ -93,7 +93,7 @@ reanalyzes the selected node; it does not rewrite historical choice diagnostics.
 - Validation roots: `schema=1` / `protocol=synthetic_pre_entry_hp_A0` (see `validation_set.py`).
 - Generated roots: `LoadoutSampler` + `sample_root`, A0 only.
 - Checkpoints: current `train_synthetic.py` dict with a `model` state, loaded
-  `weights_only=True` into `CombatModel`. Incompatible architectures fail closed.
+  `weights_only=True` into `CombatValueModel`. Incompatible architectures fail closed.
   Identity is the checkpoint file SHA-256, not the path `latest.pt`.
 - Sessions: `sts_combat_explorer_session` schema 1 JSON. Reconstruction replays
   accepted actions from `spec_json`; recorded observations are never written back
@@ -121,7 +121,7 @@ uv run python -m unittest tests.test_combat_explorer_policy tests.test_combat_ex
 ```
 
 Browser tests use Playwright/Chromium. They are a walkthrough of the UI, not a
-proof of real-game parity. Random-initialized `CombatModel` weights used in unit
+proof of real-game parity. Random-initialized `CombatValueModel` weights used in unit
 and browser tests are fixtures, not trained-checkpoint evidence.
 
 Install Chromium once; tests do **not** auto-install it:

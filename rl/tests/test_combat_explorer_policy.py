@@ -13,7 +13,7 @@ from combat_explorer.policy import (
     softmax,
     validate_temperature,
 )
-from model import CombatModel
+from model import CombatValueModel
 
 
 class SoftmaxTests(unittest.TestCase):
@@ -78,9 +78,9 @@ class CheckpointTests(unittest.TestCase):
         adapter = PolicyAdapter()
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "latest.pt"
-            torch.save({"model": CombatModel().state_dict(), "config": {"k": 1}}, path)
+            torch.save({"model": CombatValueModel().state_dict(), "config": {"k": 1}}, path)
             loaded = adapter.load(path, device="cpu")
-            self.assertEqual(loaded.architecture, "CombatModel")
+            self.assertEqual(loaded.architecture, "CombatValueModel")
             self.assertEqual(len(loaded.fingerprint), 64)
             torch.save({"nope": 1}, Path(directory) / "bad.pt")
             with self.assertRaises(ExplorerError):

@@ -611,7 +611,7 @@ class SessionManager:
             cached = session.score_cache.get(key)
             if cached is not None:
                 return cached
-        scored = self.policy.score(decision, session.model)
+        scored = self.policy.score(node.state, session.model)
         with session.lock:
             existing = session.score_cache.get(key)
             if existing is not None:

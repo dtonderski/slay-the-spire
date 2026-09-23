@@ -105,7 +105,7 @@ def prepare_local(
             "local_path": str(checkpoint_dest),
             "sha256": copied_ckpt_sha256,
             "bytes": checkpoint_dest.stat().st_size,
-            "claim": "usable inference on the current CombatModel architecture; not same-native training evidence",
+            "claim": "usable inference on the current CombatValueModel architecture; not same-native training evidence",
         }
         if verify_checkpoint_load:
             from combat_explorer.policy import PolicyAdapter
@@ -217,7 +217,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--skip-checkpoint-load",
         action="store_true",
-        help="Copy the checkpoint without loading CombatModel (not recommended)",
+        help="Copy the checkpoint without loading CombatValueModel (not recommended)",
     )
     return parser
 

@@ -12,7 +12,7 @@ from combat_explorer.policy import PolicyAdapter
 from combat_explorer.prepare_local import CHECKPOINT_NAME, DISTRIBUTIONS_NAME, ROOTS_NAME, prepare_local
 from combat_explorer.roots import RootService
 from loadout_sampling import LoadoutSampler, band_for
-from model import CombatModel
+from model import CombatValueModel
 from scenarios import COMBAT_FLOORS
 from validation_set import load_validation, native_sha256
 
@@ -47,7 +47,7 @@ class PrepareLocalTests(unittest.TestCase):
             source_ckpt = root / "source.pt"
             output = root / "local"
             source_dist.write_text(json.dumps(sampler().distributions))
-            payload = {"model": CombatModel().state_dict(), "config": {"fixture": True}}
+            payload = {"model": CombatValueModel().state_dict(), "config": {"fixture": True}}
             torch.save(payload, source_ckpt)
             source_dist_bytes = source_dist.read_bytes()
             source_ckpt_bytes = source_ckpt.read_bytes()

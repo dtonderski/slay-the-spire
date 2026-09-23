@@ -10,7 +10,7 @@ from combat_explorer import FORMAT_NAME
 from combat_explorer.server import AppConfig, create_app
 from fastapi.testclient import TestClient
 from loadout_sampling import LoadoutSampler, band_for
-from model import CombatModel
+from model import CombatValueModel
 from scenarios import COMBAT_FLOORS
 from validation_set import build_validation
 
@@ -47,7 +47,7 @@ class ApiTests(unittest.TestCase):
         self.sessions = root / "sessions"
         self.distributions.write_text(json.dumps(sampler().distributions))
         self.manifest.write_text(json.dumps(build_validation(sampler(), 7, 1, 1, repeats=1)))
-        torch.save({"model": CombatModel().state_dict(), "config": {"test": True}}, self.checkpoint)
+        torch.save({"model": CombatValueModel().state_dict(), "config": {"test": True}}, self.checkpoint)
         app = create_app(
             AppConfig(
                 validation_manifest=self.manifest,
@@ -278,7 +278,7 @@ class ApiTests(unittest.TestCase):
 
     def test_does_not_expose_sibling_artifacts(self) -> None:
         sibling = Path(self.tmpdir.name) / "sibling.pt"
-        torch.save({"model": CombatModel().state_dict()}, sibling)
+        torch.save({"model": CombatValueModel().state_dict()}, sibling)
         with tempfile.TemporaryDirectory() as directory:
             app = create_app(
                 AppConfig(

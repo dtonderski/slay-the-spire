@@ -14,7 +14,7 @@ from combat_explorer.presentation import action_descriptor
 from combat_explorer.roots import RootService
 from combat_explorer.sessions import SessionManager
 from loadout_sampling import LoadoutSampler, LoadoutSpec, SampledCard, band_for
-from model import CombatModel
+from model import CombatValueModel
 from scenarios import COMBAT_FLOORS, sample_encounter
 from sts_sim import PotionKey, State
 from synthetic_roots import build_root
@@ -412,7 +412,7 @@ class ModelStepTests(unittest.TestCase):
         adapter = PolicyAdapter()
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "m.pt"
-            torch.save({"model": CombatModel().state_dict()}, path)
+            torch.save({"model": CombatValueModel().state_dict()}, path)
             loaded = adapter.load(path)
             manager = SessionManager(adapter)
             session = manager.create(prepared_from_spec(root.spec_json), model=loaded)
@@ -421,8 +421,10 @@ class ModelStepTests(unittest.TestCase):
             self.assertEqual(len(analysis["native_indices"]), len(analysis["base_probabilities"]))
             first = manager.model_step(session, session.root_id, mode="greedy", temperature=1.0, sampling_seed="1", request_id="g")
             second = manager.model_step(session, session.root_id, mode="sample", temperature=1.0, sampling_seed="7", request_id="s")
-            self.assertEqual(len(session.nodes[session.root_id].child_ids), 2)
-            self.assertNotEqual(first["child_id"], second["child_id"])
+            distinct = (session.nodes[first["child_id"]].incoming["native_index"] !=
+                        session.nodes[second["child_id"]].incoming["native_index"])
+            self.assertEqual(len(session.nodes[session.root_id].child_ids), 2 if distinct else 1)
+            self.assertEqual(first["child_id"] == second["child_id"], not distinct)
             repeated = manager.model_step(session, session.root_id, mode="sample", temperature=1.0, sampling_seed="7", request_id="s")
             self.assertEqual(repeated["child_id"], second["child_id"])
             import random as py_random

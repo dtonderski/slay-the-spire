@@ -28,7 +28,7 @@ import torch
 import uvicorn
 from combat_explorer.server import AppConfig, create_app
 from loadout_sampling import LoadoutSampler, band_for
-from model import CombatModel
+from model import CombatValueModel
 from scenarios import COMBAT_FLOORS
 from validation_set import build_validation
 
@@ -142,7 +142,7 @@ class BrowserWorkflowTests(unittest.TestCase):
         cls.sessions = root / "sessions"
         cls.sessions.mkdir()
         cls.fixture_checkpoint = root / "random-init.pt"
-        torch.save({"model": CombatModel().state_dict(), "config": {"fixture": "random_init_not_trained"}}, cls.fixture_checkpoint)
+        torch.save({"model": CombatValueModel().state_dict(), "config": {"fixture": "random_init_not_trained"}}, cls.fixture_checkpoint)
         env_distributions = Path(OPTIONAL_DISTRIBUTIONS) if OPTIONAL_DISTRIBUTIONS else None
         if env_distributions is not None and env_distributions.is_file():
             cls.distributions = env_distributions
