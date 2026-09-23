@@ -8,6 +8,9 @@ epoch-based root collection, typed-model fallback, or alternate loss implementat
 
 1. `model.py`: encode the observation and each legal action, then dot-product score them.
 2. `train.py::play_combats`: clone roots, sample actions, step the simulator, collect decisions.
+   Legal actions are integer rows. A sampled choice is an index into that state's current
+   public legal list, paired with the exported revision. Smoke Bomb uses are omitted from
+   the policy list and remain legal in the simulator.
 3. `trajectories.py::Trajectories.losses`: policy loss and entropy regularization.
 4. `train.py::train_batch`: collect → loss → backward → optimizer step.
 5. `train.py::main`: fresh batches, evaluation, logging, checkpoints.

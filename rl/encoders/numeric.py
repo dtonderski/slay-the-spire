@@ -6,16 +6,40 @@ import numpy as np
 import torch
 from torch import Tensor
 
+NUMERIC_VERSION = 2
+ACTION_ROW_WIDTH = 12
+ACTION_OWNER = 0
+ACTION_LEGAL_INDEX = 1
+ACTION_KIND = 2
+ACTION_HAND = 3
+ACTION_POTION = 4
+ACTION_OPTION = 5
+ACTION_TARGET = 6
+ACTION_CARD = 7
+ACTION_NODE = 8
+ACTION_REWARD = 9
+ACTION_SHOP = 10
+ACTION_REVISION = 11
+# Forward-local candidate columns. Owner here is the observation index, not the batch state index.
+CANDIDATE_WIDTH = 6
+CANDIDATE_OWNER = 0
+CANDIDATE_KIND = 1
+CANDIDATE_HAND = 2
+CANDIDATE_POTION = 3
+CANDIDATE_OPTION = 4
+CANDIDATE_TARGET = 5
+
 
 class NumericBatch:
     def __init__(self, payload: tuple) -> None:
-        version, self.symbols, tables, self.actions, self.model_rows = payload
-        if version != 1:
+        version, self.symbols, tables, self.model_rows = payload
+        if version != NUMERIC_VERSION:
             raise ValueError(f"Unsupported numeric transport: {version}")
         self.tables = {
             name: np.frombuffer(data, dtype=np.int64).reshape(-1, width) for name, (width, data) in tables.items()
         }
         self.size = len(self.model_rows)
+        self.action_rows = self.table("action_rows", ACTION_ROW_WIDTH)
         # Lookups are local to this batch's symbol table. Vocabulary identity
         # selects the catalog; symbol positions are never assumed stable across batches.
         self._code_lookups: dict[int, np.ndarray] = {}

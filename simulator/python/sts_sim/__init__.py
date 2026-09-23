@@ -75,6 +75,7 @@ from .observations import (
 )
 
 __all__ = [
+    "ACTION_KINDS",
     "FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION",
     "FAIR_RUN_OBSERVATION_SCHEMA_VERSION",
     "OBSERVATION_TYPES",
@@ -146,6 +147,9 @@ __all__ = [
 ]
 
 
+ACTION_KINDS = tuple(_native.action_kind_vocabulary())
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Decision:
     schema_version: int
@@ -167,7 +171,9 @@ class State:
         return State(_native.State.new(seed, ascension))
 
     @staticmethod
-    def new_synthetic(seed: str, ascension: int = 0, hp: int = 10000, *, final_act: bool = False) -> State:
+    def new_synthetic(
+        seed: str, ascension: int = 0, hp: int = 10000, *, final_act: bool = False
+    ) -> State:
         """Opt-in synthetic initial HP/max HP; not a real-game replay constructor."""
         return State(_native.State.new_synthetic(seed, ascension, hp, final_act))
 
@@ -189,9 +195,15 @@ class State:
         return _native.numeric_decisions([state._native for state in states])
 
     @staticmethod
-    def numeric_steps(states: list[State], actions: list[Action]) -> tuple:
-        """Sequential accepted steps and one batched public export; not batch-atomic."""
-        return _native.numeric_steps([state._native for state in states], actions)
+    def numeric_steps(states: list[State], indices: list[int], revisions: list[int]) -> tuple:
+        """Step by index into each state's current public legal-action list.
+
+        ``revisions`` are the revisions exported with those indices. A mismatch is
+        rejected and does not apply the action. The batch is not atomic.
+        """
+        if not (len(states) == len(indices) == len(revisions)):
+            raise ValueError("State/action batch lengths differ")
+        return _native.numeric_steps([state._native for state in states], indices, revisions)
 
     @property
     def revision(self) -> int:
