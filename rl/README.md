@@ -90,6 +90,10 @@ historical single-row protocol. A larger batch keeps the same per-fight seed
 to a single-row forward, so those policy scores are `batched_forward_per_episode_rng_v1`
 and are not a continuation of older `val_main` curves. Sampling uses only that
 fight's legal logits, so another fight's padding does not change its draw.
+Batched policy evaluation draws from an explicit per-fight generator instead of
+swapping the process-global RNG. The generator draws from ``Categorical`` probabilities, not a raw softmax, so the
+draw sequence matches the previous global sampler for the same seed on CPU and CUDA.
+The protocol name is unchanged.
 A failed batched step marks the whole chunk unavailable and is not replaced
 by a serial rollout. Model-free random evaluation
 stays identical at every batch size. Decision statistics are collected

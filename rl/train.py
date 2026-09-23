@@ -124,13 +124,14 @@ def play_combats(
     rng: random.Random,
     trajectories: Trajectories | None = None,
     episode_rngs: list[random.Random] | None = None,
-    torch_rng_states: list[Tensor] | None = None,
+    episode_generators: list[torch.Generator] | None = None,
     replays: list[ReplayRound] | None = None,
 ) -> list[Episode]:
     """One numeric rollout path. Clone roots; errors never retry partially advanced states.
 
-    ``episode_rngs`` and ``torch_rng_states`` are per-root evaluation streams. They are
-    indexed by the original root, updated in place, and are not the training sampler.
+    ``episode_rngs`` and ``episode_generators`` are per-root evaluation streams. They are
+    indexed by the original root and are not the training sampler. Generators are advanced
+    in place and are never copied into the process-global RNG.
     """
     if not roots or max_decisions < 0:
         raise ValueError("Rollouts need roots and a nonnegative decision limit")
@@ -139,12 +140,12 @@ def play_combats(
     # ReplayRound stores public inputs and chosen indices, not autograd tensors.
     if trajectories is not None and trajectories.rounds:
         raise ValueError("Use a fresh trajectory collector for each batch")
-    if episode_rngs is not None and torch_rng_states is not None:
+    if episode_rngs is not None and episode_generators is not None:
         raise ValueError("Pass only one per-episode RNG stream")
     if episode_rngs is not None and (model is not None or len(episode_rngs) != len(roots)):
         raise ValueError("Python episode RNGs are for a model-free rollout of the same length")
-    if torch_rng_states is not None and (model is None or training or len(torch_rng_states) != len(roots)):
-        raise ValueError("Torch episode RNGs are for evaluation rollouts of the same length")
+    if episode_generators is not None and (model is None or training or len(episode_generators) != len(roots)):
+        raise ValueError("Torch episode generators are for evaluation rollouts of the same length")
     states = [root.clone() for root in roots]
     batch = NumericBatch(State.numeric_decisions(states))
     starting_max_hp = batch.table("header", 5)[:, 4].tolist()
@@ -199,7 +200,7 @@ def play_combats(
         else:
             with torch.set_grad_enabled(training):
                 logits, values, _ = model(batch, candidates)
-                if torch_rng_states is None:
+                if episode_generators is None:
                     distribution = Categorical(logits=logits)
                     sampled = distribution.sample()
                     if trajectories is not None:
@@ -218,18 +219,14 @@ def play_combats(
                     # One draw from each fight's generator. Batched logits are not bit-identical
                     # to a single-row forward; only the random stream stays independent.
                     choices = []
-                    cuda = logits.is_cuda
                     for position, row in enumerate(active):
-                        owner = remaining[row]
-                        if cuda:
-                            torch.cuda.set_rng_state(torch_rng_states[owner], logits.device)
-                        else:
-                            torch.set_rng_state(torch_rng_states[owner])
-                        choice = sample_unpadded_action(logits[position], counts[position])
-                        torch_rng_states[owner] = (
-                            torch.cuda.get_rng_state(logits.device) if cuda else torch.get_rng_state()
+                        choices.append(
+                            sample_unpadded_action(
+                                logits[position],
+                                counts[position],
+                                episode_generators[remaining[row]],
+                            )
                         )
-                        choices.append(choice)
                 if replays is not None:
                     replays.append(
                         ReplayRound(
@@ -280,7 +277,7 @@ def episode_metrics(episodes: list[Episode]) -> dict[str, float]:
     return result
 
 
-def sample_unpadded_action(logits: Tensor, n_legal: int) -> int:
+def sample_unpadded_action(logits: Tensor, n_legal: int, generator: torch.Generator | None = None) -> int:
     """Sample one legal index. Extra ``-inf`` padding must not affect the draw or RNG."""
     if n_legal < 1 or n_legal > logits.shape[-1]:
         raise ValueError("Legal action count is outside the logit row")
@@ -288,20 +285,22 @@ def sample_unpadded_action(logits: Tensor, n_legal: int) -> int:
     row = logits[..., :n_legal]
     if row.ndim == 1:
         row = row.unsqueeze(0)
-    return int(Categorical(logits=row).sample())
+    if generator is None:
+        return int(Categorical(logits=row).sample())
+    # Categorical normalizes before drawing. softmax(raw logits) is not the same
+    # rounding, so the generator must consume Categorical.probs.
+    return int(torch.multinomial(cast(Tensor, Categorical(logits=row).probs), 1, generator=generator))
 
 
 def _policy_seed(index: int, repeats: int, repeat: int) -> int:
     return 90000 + index * repeats + repeat
 
 
-def _capture_policy_rng(seed: int, cuda: bool) -> Tensor:
-    """Match historical per-episode seeding, then snapshot that generator."""
-    if cuda:
-        torch.manual_seed(seed)
-        return torch.cuda.get_rng_state()
-    torch.random.default_generator.manual_seed(seed)
-    return torch.get_rng_state()
+def _policy_generator(seed: int, device: torch.device) -> torch.Generator:
+    """Per-fight generator seeded like the historical global sampler."""
+    generator = torch.Generator(device=device)
+    generator.manual_seed(seed)
+    return generator
 
 
 def evaluate(
@@ -412,7 +411,9 @@ def evaluate(
                             model,
                             max_decisions=max_decisions,
                             rng=random.Random(0),
-                            torch_rng_states=[_capture_policy_rng(seed, cuda) for _, _, _, seed in chunk],
+                            episode_generators=[
+                                _policy_generator(seed, next(model.parameters()).device) for _, _, _, seed in chunk
+                            ],
                         )
                 except SimulatorStepError as error:
                     # Clones inside the failed call are discarded. Do not replace them with
