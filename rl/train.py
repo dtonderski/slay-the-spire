@@ -27,6 +27,8 @@ from encoders.numeric import (
     ACTION_POTION,
     ACTION_REVISION,
     ACTION_TARGET,
+    CANDIDATE_OWNER,
+    NUMERIC_VERSION,
     NumericBatch,
 )
 from loadout_sampling import LoadoutSampler
@@ -454,6 +456,117 @@ def replay_storage_bytes(replays: list[ReplayRound]) -> int:
     return total
 
 
+
+_MODEL_OWNER_WIDTHS = {
+    "player_powers": 3,
+    "hand": 18,
+    "draw": 18,
+    "discard": 18,
+    "exhaust": 18,
+    "selection_cards": 18,
+    "enemies": 18,
+    "relics": 2,
+    "potions": 3,
+    "selection_options": 2,
+    "selected_slots": 2,
+}
+_ALIGNED_WIDTHS = {"player": 6, "selection": 1}
+_GLOBAL_OWNER_PARENT = {"enemy_powers": "enemies", "stasis": "enemies", "relic_counters": "relics"}
+_GLOBAL_OWNER_WIDTHS = {"enemy_powers": 3, "stasis": 18, "relic_counters": 3}
+
+
+def _max_token_width(batch: NumericBatch) -> int:
+    """Upper bound used only to group similar rounds. It is not a feature."""
+    if batch.size == 0:
+        return 1
+    widths = np.full(batch.size, 3, dtype=np.int64)  # summary, player, selection context
+    for name, width in _MODEL_OWNER_WIDTHS.items():
+        rows = batch.table(name, width)
+        if len(rows):
+            widths += np.bincount(rows[:, 0], minlength=batch.size)
+    return int(widths.max())
+
+
+def _shape_bucket(replay: ReplayRound) -> tuple[int, int]:
+    width = _max_token_width(replay.observations)
+    actions = max(replay.counts) if replay.counts else 1
+    return (1 << max(width - 1, 0).bit_length(), 1 << max(actions - 1, 0).bit_length())
+
+
+def _stack_observations(batches: list[NumericBatch]) -> NumericBatch:
+    """Concatenate model rows. Owner columns are shifted; hidden state is not copied in."""
+    collected: dict[str, list[np.ndarray]] = {}
+    model_offset = 0
+    parent_offsets = {"enemies": 0, "relics": 0}
+    for batch in batches:
+        for name, width in _ALIGNED_WIDTHS.items():
+            rows = batch.table(name, width)
+            if len(rows) != batch.size:
+                raise RuntimeError(f"{name} rows do not match model observations")
+            collected.setdefault(name, []).append(rows)
+        for name, width in _MODEL_OWNER_WIDTHS.items():
+            rows = batch.table(name, width)
+            if len(rows):
+                rows = rows.copy()
+                rows[:, 0] += model_offset
+                collected.setdefault(name, []).append(rows)
+        for name, parent in _GLOBAL_OWNER_PARENT.items():
+            rows = batch.table(name, _GLOBAL_OWNER_WIDTHS[name])
+            if len(rows):
+                rows = rows.copy()
+                rows[:, 0] += parent_offsets[parent]
+                collected.setdefault(name, []).append(rows)
+        parent_offsets["enemies"] += len(batch.table("enemies", 18))
+        parent_offsets["relics"] += len(batch.table("relics", 2))
+        model_offset += batch.size
+    packed = {}
+    for name, parts in collected.items():
+        merged = np.concatenate(parts)
+        packed[name] = (merged.shape[1], np.ascontiguousarray(merged).tobytes())
+    return NumericBatch((NUMERIC_VERSION, [], packed, list(range(model_offset))))
+
+
+def _stack_candidates(rounds: list[ReplayRound]) -> tuple[np.ndarray, list[int]]:
+    pieces = []
+    choices: list[int] = []
+    offset = 0
+    for replay in rounds:
+        candidates = np.array(replay.candidates, copy=True)
+        candidates[:, CANDIDATE_OWNER] += offset
+        pieces.append(candidates)
+        choices.extend(replay.choices)
+        offset += len(replay.owners)
+    return np.concatenate(pieces), choices
+
+
+def _decision_rounds_from_forward(rounds: list[ReplayRound], logits: Tensor, values: Tensor) -> list[DecisionRound]:
+    distribution = Categorical(logits=logits)
+    choices = []
+    for replay in rounds:
+        choices.extend(replay.choices)
+    chosen = torch.tensor(choices, dtype=torch.long, device=logits.device)
+    log_probs = distribution.log_prob(chosen)
+    entropies = distribution.entropy()
+    max_probabilities = cast(Tensor, distribution.probs).max(dim=1).values.detach()
+    flat_values = values.squeeze(-1)
+    output = []
+    offset = 0
+    for replay in rounds:
+        count = len(replay.owners)
+        output.append(
+            DecisionRound(
+                replay.owners,
+                replay.counts,
+                log_probs[offset : offset + count],
+                entropies[offset : offset + count],
+                max_probabilities[offset : offset + count],
+                flat_values[offset : offset + count],
+            )
+        )
+        offset += count
+    return output
+
+
 def accumulate_replay_loss(
     model: CombatValueModel,
     replays: list[ReplayRound],
@@ -464,11 +577,11 @@ def accumulate_replay_loss(
 ) -> tuple[Tensor, Tensor, Tensor] | None:
     """Recompute the existing objective in chunks and accumulate one gradient.
 
-    Each stored round is forwarded separately; this does not stack rounds into a
-    larger matmul. ``chunk_decisions`` is a flush threshold, not a hard maximum:
-    a round is never split, so one large round can exceed it. Each flushed chunk
-    is divided by the completed-fight count, not by the chunk count. Parameters
-    stay fixed until the caller takes the optimizer step.
+    Rounds inside a flush are grouped by token-width and action-count buckets and
+    stacked into fewer forwards. A round is never split. Each group's loss is still
+    divided by the completed-fight count, not by the group or chunk count. Padding,
+    host repacking, and backward scheduling still matter; stacking is not free.
+    Parameters stay fixed until the caller takes the optimizer step.
     """
     if chunk_decisions < 1:
         raise ValueError("chunk_decisions must be positive")
@@ -485,21 +598,20 @@ def accumulate_replay_loss(
         nonlocal policy_total, value_total, loss_total, pending
         if not chunk:
             return
-        rounds = []
+        grouped: dict[tuple[int, int], list[ReplayRound]] = {}
         for replay in chunk:
-            logits, values, _ = model(replay.observations, replay.candidates)
-            distribution = Categorical(logits=logits)
-            choices = torch.tensor(replay.choices, dtype=torch.long, device=logits.device)
-            rounds.append(
-                DecisionRound(
-                    replay.owners,
-                    replay.counts,
-                    distribution.log_prob(choices),
-                    distribution.entropy(),
-                    cast(Tensor, distribution.probs).max(dim=1).values.detach(),
-                    values.squeeze(-1),
-                )
-            )
+            grouped.setdefault(_shape_bucket(replay), []).append(replay)
+        rounds = []
+        for group in grouped.values():
+            if len(group) == 1:
+                replay = group[0]
+                logits, values, _ = model(replay.observations, replay.candidates)
+                rounds.extend(_decision_rounds_from_forward(group, logits, values))
+            else:
+                observations = _stack_observations([replay.observations for replay in group])
+                candidates, _ = _stack_candidates(group)
+                logits, values, _ = model(observations, candidates)
+                rounds.extend(_decision_rounds_from_forward(group, logits, values))
         trajectories = Trajectories()
         trajectories.rounds = rounds
         loss, policy_loss = trajectories.losses(episodes, entropy_coef, value_coef=value_coef)
