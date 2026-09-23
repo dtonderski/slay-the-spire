@@ -81,6 +81,22 @@ class CheckpointInitializationTests(unittest.TestCase):
                 self.assertEqual(resumed["config"]["initialization"]["mode"], "optimizer_rng_continuation")
                 with self.assertRaisesRegex(ValueError, "value_coef"):
                     run("mismatch", 1, "--resume-from", str(checkpoint), "--value-coef", "0.5")
+                for option in ("width", "layers"):
+                    with self.assertRaisesRegex(ValueError, f"model_{option}"):
+                        run(
+                            f"mismatch-{option}",
+                            1,
+                            "--resume-from",
+                            str(checkpoint),
+                            f"--model-{option}",
+                            "32" if option == "width" else "3",
+                        )
+                small = run("small", 1, "--model-width", "32", "--model-layers", "3")
+                self.assertEqual(small["config"]["model_width"], 32)
+                self.assertEqual(small["config"]["model_layers"], 3)
+                train.CombatValueModel(d_model=32, action_dim=32, n_layers=3).load_state_dict(
+                    small["model"], strict=True
+                )
 
                 run("warm", 1, "--warm-start", str(checkpoint))
                 initial = torch.load(folder / "warm" / "checkpoint-00000000.pt", map_location="cpu", weights_only=False)

@@ -61,6 +61,10 @@ The policy advantage is final return minus the current state's value prediction.
 The policy loss detaches this advantage; squared value error trains the value head.
 `--value-coef` weights that error (default 0.1). Both objectives sum decisions within
 fights and average over completed fights. There is no scalar/EMA reward baseline.
+`--model-width 64 --model-layers 2` selects the default architecture. Width sets both
+transformer and action embeddings and must be divisible by four attention heads.
+Architecture changes require fresh compatible weights; strict resumes check these settings.
+
 `--grad-chunk-decisions 0` (the default) retains the rollout graph until one
 backward. A positive value rolls out under `no_grad`, stores the public numeric
 inputs and chosen actions, then recomputes that same objective. The count is a

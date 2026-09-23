@@ -929,6 +929,8 @@ def main() -> None:
     parser.add_argument("--updates", type=int, default=10000)
     parser.add_argument("--max-hours", type=float, help="Stop after this training/validation wall-clock budget")
     parser.add_argument("--batch-size", type=int, default=2048)
+    parser.add_argument("--model-width", type=int, default=64, help="Transformer and action embedding width")
+    parser.add_argument("--model-layers", type=int, default=2, help="Transformer layer count (four attention heads)")
     parser.add_argument("--eval-every", type=int, default=100)
     parser.add_argument(
         "--eval-batch-size",
@@ -982,6 +984,8 @@ def main() -> None:
         parser.error("Expected positive finite learning rate and nonnegative finite entropy coefficient")
     if not math.isfinite(args.value_coef) or args.value_coef < 0:
         parser.error("Value coefficient must be finite and nonnegative")
+    if args.model_width < 4 or args.model_width % 4 or args.model_layers < 1:
+        parser.error("Model width must be a positive multiple of four; layers must be positive")
     if args.grad_chunk_decisions < 0:
         parser.error("Gradient chunk size must be nonnegative")
     if args.max_hours is not None and (not math.isfinite(args.max_hours) or args.max_hours <= 0):
@@ -1020,7 +1024,9 @@ def main() -> None:
     torch.set_num_threads(1)
     torch.manual_seed(args.seed)
     rng = random.Random(args.seed)
-    model = CombatValueModel().to(args.device)
+    model = CombatValueModel(d_model=args.model_width, action_dim=args.model_width, n_layers=args.model_layers).to(
+        args.device
+    )
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     initial_checkpoint = args.resume_from or args.warm_start
     if initial_checkpoint is not None:
@@ -1028,6 +1034,9 @@ def main() -> None:
         # only; optimizer/RNG continuation requires the same gameplay/training contract.
         source = torch.load(initial_checkpoint, map_location="cpu", weights_only=False)
         if args.resume_from is not None:
+            for key, default in (("model_width", 64), ("model_layers", 2)):
+                if source["config"].get(key, default) != settings[key]:
+                    raise ValueError(f"Checkpoint continuation mismatch: {key}")
             for key in (
                 "validation_sha256",
                 "validation_native_sha256",
