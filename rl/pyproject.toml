@@ -3,10 +3,14 @@ name = "rl"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi>=0.115",
+    "httpx>=0.28",
     "jaxtyping>=0.3.11",
     "numpy>=2.5.3",
+    "playwright>=1.49",
     "sts-sim",
     "torch>=2.14.0",
+    "uvicorn>=0.32",
     "wandb>=0.30.0",
 ]
 

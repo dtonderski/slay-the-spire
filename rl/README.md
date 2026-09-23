@@ -39,6 +39,8 @@ yet encoded; see `docs/fair_observation_hidden_state_audit.md`.
 
 ## Run
 
+Simulator-only combat explorer: [`combat_explorer/README.md`](combat_explorer/README.md).
+
 From `rl/`, with the local fitted distributions and frozen validation file available:
 
 ```bash
