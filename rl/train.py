@@ -9,6 +9,7 @@ import random
 import shutil
 import time
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 from typing import cast
 
@@ -18,10 +19,8 @@ import wandb
 from beam_search import beam_search
 from combat_task import action_indices, combat_outcome, terminal_reward
 from encoders.numeric import (
-    ACTION_HAND,
     ACTION_KIND,
     ACTION_LEGAL_INDEX,
-    ACTION_OPTION,
     ACTION_OWNER,
     ACTION_POTION,
     ACTION_REVISION,
@@ -71,48 +70,35 @@ def _policy_candidates(
     Legal indices still address each state's full public action list.
     """
     rows = batch.action_rows
-    use_potion = ACTION_KINDS.index("use_potion_slot")
-    potions = batch.table("potions", 3)
-    offsets = np.cumsum(
-        np.concatenate((np.zeros(1, dtype=np.int64), np.asarray(batch.lengths(potions), dtype=np.int64)))
-    )
-    pieces = []
-    legal: list[list[int]] = []
-    revisions: list[int] = []
-    counts: list[int] = []
-    for position, row in enumerate(active):
-        owned = rows[rows[:, ACTION_OWNER] == row]
-        if len(owned) == 0:
-            raise RuntimeError("No allowed combat actions after disabling escape")
-        keep = np.ones(len(owned), dtype=bool)
-        potion_slots = owned[:, ACTION_POTION]
-        potion_uses = (owned[:, ACTION_KIND] == use_potion) & (potion_slots >= 0)
-        if np.any(potion_uses):
-            codes = potions[offsets[position] + potion_slots[potion_uses].astype(np.int64), 1]
-            smoke = np.zeros(len(owned), dtype=bool)
-            smoke[np.flatnonzero(potion_uses)] = codes == POTION_TO_INDEX[PotionKey.SMOKE_BOMB]
-            keep &= ~smoke
-        kept = owned[keep]
-        if len(kept) == 0:
-            raise RuntimeError("No allowed combat actions after disabling escape")
-        if np.any(kept[:, ACTION_REVISION] != kept[0, ACTION_REVISION]):
-            raise RuntimeError("Legal actions for one state have mixed revisions")
-        pieces.append(
-            np.column_stack(
-                (
-                    np.full(len(kept), position, dtype=np.int64),
-                    kept[:, ACTION_KIND],
-                    kept[:, ACTION_HAND],
-                    kept[:, ACTION_POTION],
-                    kept[:, ACTION_OPTION],
-                    kept[:, ACTION_TARGET],
-                )
-            )
-        )
-        legal.append([int(value) for value in kept[:, ACTION_LEGAL_INDEX]])
-        revisions.append(int(kept[0, ACTION_REVISION]))
-        counts.append(len(kept))
-    return np.concatenate(pieces), legal, revisions, counts
+    owner_map = np.full(len(batch.table("header", 5)), -1, dtype=np.int64)
+    owner_map[active] = np.arange(len(active))
+    owners = owner_map[rows[:, ACTION_OWNER]]
+    keep = owners >= 0
+    potion_uses = keep & (rows[:, ACTION_KIND] == ACTION_KINDS.index("use_potion_slot"))
+    potion_uses &= rows[:, ACTION_POTION] >= 0
+    if np.any(potion_uses):
+        potions = batch.table("potions", 3)
+        offsets = np.concatenate(([0], np.cumsum(batch.lengths(potions))))
+        codes = potions[offsets[owners[potion_uses]] + rows[potion_uses, ACTION_POTION], 1]
+        keep[potion_uses] &= codes != POTION_TO_INDEX[PotionKey.SMOKE_BOMB]
+    kept, owners = rows[keep], owners[keep]
+    # Native rows are already grouped; stable sorting also preserves arbitrary public row order.
+    if np.any(owners[1:] < owners[:-1]):
+        order = np.argsort(owners, kind="stable")
+        kept, owners = kept[order], owners[order]
+    counts = np.bincount(owners, minlength=len(active))
+    if np.any(counts == 0):
+        raise RuntimeError("No allowed combat actions after disabling escape")
+    boundaries = np.concatenate(([0], np.cumsum(counts)))
+    revisions = kept[boundaries[:-1], ACTION_REVISION]
+    if np.any(kept[:, ACTION_REVISION] != revisions[owners]):
+        raise RuntimeError("Legal actions for one state have mixed revisions")
+    candidates = np.empty((len(kept), 6), dtype=np.int64)
+    candidates[:, 0] = owners
+    candidates[:, 1:] = kept[:, ACTION_KIND : ACTION_TARGET + 1]
+    indices = kept[:, ACTION_LEGAL_INDEX].tolist()
+    legal = [indices[start:end] for start, end in pairwise(boundaries)]
+    return candidates, legal, revisions.tolist(), counts.tolist()
 
 
 def play_combats(
@@ -154,6 +140,7 @@ def play_combats(
     episodes: list[Episode | None] = [None] * len(roots)
     for step in range(max_decisions + 1):
         active = []
+        action_counts = np.bincount(batch.action_rows[:, ACTION_OWNER], minlength=len(remaining))
         for row, index in enumerate(remaining):
             kind, phase, combat_phase, hp, _ = batch.table("header", 5)[row]
             kind, phase = batch.symbols[kind], batch.symbols[phase]
@@ -174,8 +161,7 @@ def play_combats(
             elif step == max_decisions:
                 episodes[index] = Episode(None, None, int(hp), step)
             else:
-                owned = batch.action_rows
-                if len(owned) == 0 or not np.any(owned[:, ACTION_OWNER] == row):
+                if action_counts[row] == 0:
                     raise SimulatorStepError(
                         "Unsettled combat decision or empty legal-action list",
                         step,
