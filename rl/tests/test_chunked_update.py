@@ -23,6 +23,16 @@ def _collect(model: CombatValueModel, states: list) -> tuple:
     return episodes, replays
 
 
+class _NaNValuesWithGrad(CombatValueModel):
+    """Finite rollouts, but a non-finite replay objective."""
+
+    def forward(self, observations, candidates):  # type: ignore[override]
+        logits, values, mask = super().forward(observations, candidates)
+        if torch.is_grad_enabled():
+            values = values * float("nan")
+        return logits, values, mask
+
+
 class ChunkedUpdateTests(unittest.TestCase):
     def test_chunks_match_one_backward_and_fight_normalization(self) -> None:
         torch.set_num_threads(1)
@@ -117,6 +127,19 @@ class ChunkedUpdateTests(unittest.TestCase):
                 compared += 1
             self.assertGreater(compared, 0)
 
+    def test_non_finite_replay_loss_raises_without_an_optimizer_step(self) -> None:
+        torch.set_num_threads(1)
+        devices = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
+        for device in devices:
+            torch.manual_seed(5)
+            model = _NaNValuesWithGrad().to(device)
+            optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
+            before = [parameter.detach().clone() for parameter in model.parameters()]
+            roots = [Root(combat(index), str(index), 1, 80) for index in range(3)]
+            with self.assertRaisesRegex(RuntimeError, "Non-finite loss"):
+                train_batch(roots, model, optimizer, 64, 0.01, value_coef=0.1, chunk_decisions=4)
+            for old, new in zip(before, model.parameters(), strict=True):
+                self.assertTrue(torch.equal(old, new.detach()))
 
 if __name__ == "__main__":
     unittest.main()

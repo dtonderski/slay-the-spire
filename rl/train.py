@@ -531,7 +531,10 @@ def _stack_candidates(rounds: list[ReplayRound]) -> tuple[np.ndarray, list[int]]
 
 
 def _decision_rounds_from_forward(rounds: list[ReplayRound], logits: Tensor, values: Tensor) -> list[DecisionRound]:
-    distribution = Categorical(logits=logits)
+    # Argument validation would block the host on every forward. The recomputed choices
+    # were sampled from valid logits, and non-finite logits give a non-finite loss, which
+    # accumulate_replay_loss rejects before any optimizer step.
+    distribution = Categorical(logits=logits, validate_args=False)
     choices = []
     for replay in rounds:
         choices.extend(replay.choices)
@@ -582,6 +585,8 @@ def accumulate_replay_loss(
     policy_total = None
     value_total = None
     loss_total = None
+    # Checked once after every flush, so the host never waits for a flush's forward.
+    finite: list[Tensor] = []
     chunk: list[ReplayRound] = []
     pending = 0
 
@@ -610,8 +615,7 @@ def accumulate_replay_loss(
             chunk.clear()
             pending = 0
             return
-        if not torch.isfinite(loss):
-            raise RuntimeError("Non-finite loss")
+        finite.append(torch.isfinite(loss))
         loss.backward()
         policy_total = policy_loss.detach() if policy_total is None else policy_total + policy_loss.detach()
         value_total = trajectories.value_loss if value_total is None else value_total + trajectories.value_loss
@@ -625,6 +629,9 @@ def accumulate_replay_loss(
         if pending >= chunk_decisions:
             flush()
     flush()
+    if finite and not torch.stack(finite).all():
+        # Gradients from a non-finite flush are never applied; the next batch zeroes them.
+        raise RuntimeError("Non-finite loss")
     if loss_total is None or policy_total is None or value_total is None:
         return None
     return loss_total, policy_total, value_total
