@@ -57,6 +57,13 @@ starting max HP; defeat gives zero. Truncations are excluded from training losse
 not treated as defeats. The objective averages summed decision losses over completed
 episodes, with entropy coefficient `--entropy-coef` (default 0.01).
 
+A spawned worker process samples the next batch while the current update runs.
+It starts from the training RNG's state and hands back the advanced state, so roots
+and checkpointed RNG states are exactly those of serial sampling; a prefetched batch
+that is never used is never consumed. Native states are rebuilt from each
+`spec_json` in the training process. `train/sampling_seconds` is the wait for the
+worker plus that rebuild.
+
 The policy advantage is final return minus the current state's value prediction.
 The policy loss detaches this advantage; squared value error trains the value head.
 `--value-coef` weights that error (default 0.1). Both objectives sum decisions within

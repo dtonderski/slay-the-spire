@@ -12,7 +12,9 @@ from loadout_sampling import LoadoutSampler, band_for
 from model import CombatValueModel
 from rollout_errors import SimulatorStepError
 from scenarios import COMBAT_FLOORS, ScenarioConfig
+from sts_sim import State
 from train import (
+    RootPrefetcher,
     evaluate,
     evaluate_baselines,
     fresh_batch,
@@ -23,10 +25,10 @@ from train import (
 from validation_set import build_validation, load_validation, main
 
 
-def sampler() -> LoadoutSampler:
+def sampler_document(deck_sizes: dict[str, int] | None = None) -> dict:
     band = {
         "runs": 1,
-        "deck_sizes": {"10": 1},
+        "deck_sizes": deck_sizes or {"10": 1},
         "cards": {"Strike_R": {"0": 5}, "Defend_R": {"0": 4}, "Bash": {"0": 1}},
         "starters": {"Burning Blood": 1},
         "other_relic_counts": {"0": 1},
@@ -34,15 +36,17 @@ def sampler() -> LoadoutSampler:
         "potions_obtained": {"block": 1},
         "max_hp": {"80": 1},
     }
-    return LoadoutSampler(
-        {
-            "schema": 1,
-            "ascension": 0,
-            "identity_namespace": "sts_sim_public_base_keys",
-            "split_role": "fit",
-            "bands": {band_for(f): band for f in COMBAT_FLOORS},
-        }
-    )
+    return {
+        "schema": 1,
+        "ascension": 0,
+        "identity_namespace": "sts_sim_public_base_keys",
+        "split_role": "fit",
+        "bands": {band_for(f): band for f in COMBAT_FLOORS},
+    }
+
+
+def sampler() -> LoadoutSampler:
+    return LoadoutSampler(sampler_document())
 
 
 class ValidationSetTests(unittest.TestCase):
@@ -96,6 +100,45 @@ class ValidationSetTests(unittest.TestCase):
                 path.write_text(json.dumps(value))
                 with self.subTest(kind=kind), self.assertRaises(ValueError):
                     load_validation(path)
+
+    def test_root_prefetcher_matches_serial_fresh_batches(self) -> None:
+        document = sampler_document({"8": 1, "10": 2, "14": 1})
+        config = ScenarioConfig(min_floor=1, max_floor=55)
+        serial_rng = random.Random(31)
+        serial_sampler = LoadoutSampler(document)
+        first, _ = fresh_batch(random.Random(31), serial_sampler, 1, config)
+        excluded = frozenset([int(first[0].combat_seed)])
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "fit.json"
+            path.write_text(json.dumps(document))
+            rng = random.Random(31)
+            prefetcher = RootPrefetcher(rng, path, 6, config, excluded)
+            try:
+                for _ in range(3):
+                    roots, specs = prefetcher.next()
+                    expected_roots, expected_specs = fresh_batch(serial_rng, serial_sampler, 6, config, excluded)
+                    # The training RNG is exactly where serial sampling leaves it.
+                    self.assertEqual(rng.getstate(), serial_rng.getstate())
+                    self.assertEqual(
+                        [(s.spec_json, s.rejected_loadouts, s.encounter, s.loadout) for s in specs],
+                        [(s.spec_json, s.rejected_loadouts, s.encounter, s.loadout) for s in expected_specs],
+                    )
+                    self.assertEqual(
+                        [(r.combat_seed, r.floor, r.start_hp, r.act) for r in roots],
+                        [(r.combat_seed, r.floor, r.start_hp, r.act) for r in expected_roots],
+                    )
+                    self.assertNotIn(int(roots[0].combat_seed), excluded)
+                    self.assertEqual(
+                        State.numeric_decisions([r.state for r in roots]),
+                        State.numeric_decisions([r.state for r in expected_roots]),
+                    )
+                    for root, spec in zip(roots, specs, strict=True):
+                        self.assertIs(root.state, spec.state)
+                before_close = rng.getstate()
+            finally:
+                prefetcher.close()
+            # Closing discards the prefetched batch without advancing the training RNG.
+            self.assertEqual(rng.getstate(), before_close)
 
     def test_fresh_batches_and_real_optimizer_update(self) -> None:
         torch.set_num_threads(1)
