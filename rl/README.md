@@ -89,6 +89,14 @@ Files pin the native binary hash and initial public-observation hashes. Mismatch
 fail instead of repairing state. They also pin policy sampling seeds/repeats and
 decision limits. Creation refuses to overwrite existing files. Data is Git-ignored;
 back it up separately. Historical datasets/logs/checkpoints are not deleted by cleanup.
+`python validation_set.py --revalidate OLD.json --reason "..." --output NEW.json`
+re-pins the same cases to the current build. Use it **only for native changes that do not
+affect gameplay** (performance, allocator, transport), and only when the PR supplies that
+evidence: identical numeric payload hashes over rollouts and a passing trace corpus. The
+tool itself checks only each case's initial public observation and act, and refuses on any
+mismatch; a change that alters gameplay after the first decision would still pass it. A
+re-pinned file has a new SHA-256, so references must be recomputed, and a run continues
+with `--warm-start` rather than `--resume-from`.
 
 Main-set outcomes are logged under `val_main/`. `--eval-batch-size 1` is the
 historical single-row protocol. A larger batch keeps the same per-fight seed
