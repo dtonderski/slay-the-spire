@@ -68,6 +68,7 @@ simulator/tools/random_traces_loop/schema_v1_strict_inventory_2026-08-07/source.
 live_traces/
 live_traces_codex/
 .codex/
+.claude/
 
 # Full verification payloads and generated corpus bookkeeping are external.
 simulator/verification/corpus/permanent_traces/
