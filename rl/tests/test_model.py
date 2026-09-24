@@ -15,6 +15,7 @@ from encoders.numeric import (
     NumericBatch,
 )
 from model import CombatValueModel
+from observation_encoder import width_groups
 from sts_sim import Action, State
 
 
@@ -49,7 +50,7 @@ def candidates_from_rows(groups: list[np.ndarray]) -> np.ndarray:
     return np.concatenate(pieces)
 
 
-def combat(seed: int = 1, hp: int = 80) -> State:
+def combat(seed: int = 1, hp: int = 80, extra_strikes: int = 0) -> State:
     """Small synthetic test input, not a captured trace."""
     return State.from_synthetic_spec(
         json.dumps(
@@ -58,7 +59,7 @@ def combat(seed: int = 1, hp: int = 80) -> State:
                 "floor": 1,
                 "kind": "normal",
                 "encounter": "Cultist",
-                "deck": [{"key": key, "upgrades": 0} for key in ["Strike_R"] * 5 + ["Defend_R"] * 4 + ["Bash"]],
+                "deck": [{"key": key, "upgrades": 0} for key in ["Strike_R"] * (5 + extra_strikes) + ["Defend_R"] * 4 + ["Bash"]],
                 "relics": ["Burning Blood"],
                 "potions": [None, None, None],
                 "hp": hp,
@@ -115,6 +116,46 @@ class ModelTests(unittest.TestCase):
                 self.assertGreater(head.weight.grad.abs().sum().item(), 0)
             with self.assertRaises(ValueError):
                 model(batch, candidates_from_rows([groups[1]]))
+
+    def test_width_groups_cover_sorted_rows(self) -> None:
+        counts = np.array([30, 5, 12, 12, 40, 7, 9, 31, 6, 18])
+        groups = width_groups(counts, 40, min_rows=2, growth=1.25)
+        self.assertGreater(len(groups), 1)
+        ordered = np.sort(counts)
+        self.assertEqual(groups[0][0], 0)
+        self.assertEqual(groups[-1][1], len(counts))
+        for (_, end, _), (start, _, _) in zip(groups, groups[1:], strict=False):
+            self.assertEqual(end, start)
+        for start, end, width in groups:
+            self.assertGreaterEqual(end - start, 2)
+            self.assertGreaterEqual(width, ordered[end - 1])
+            self.assertLessEqual(width, 40)
+        self.assertEqual(width_groups(counts, 40, min_rows=256, growth=1.25), [(0, len(counts), 40)])
+
+    def test_width_grouped_transformer_matches_one_padded_call(self) -> None:
+        torch.set_num_threads(1)
+        # Different deck sizes give different draw-pile token counts.
+        states = [combat(seed, extra_strikes=3 * seed) for seed in range(1, 13)]
+        batch = NumericBatch(State.numeric_decisions(states))
+        groups = [batch.action_rows[batch.action_rows[:, ACTION_OWNER] == index] for index in range(len(states))]
+        actions = candidates_from_rows(groups)
+        for device in ("cpu", "cuda") if torch.cuda.is_available() else ("cpu",):
+            model = CombatValueModel(d_model=16, action_dim=8, n_layers=2).to(device)
+            outputs = []
+            for min_rows in (10**9, 2):
+                model.observation_encoder.width_group_min_rows = min_rows
+                model.zero_grad()
+                logits, values, mask = model(batch, actions)
+                (logits[mask].square().sum() + values.square().sum()).backward()
+                grads = [p.grad.clone() for p in model.parameters() if p.grad is not None]
+                outputs.append((logits.detach(), values.detach(), grads))
+            counts = model.observation_encoder.prepare_numeric(batch)[3]
+            self.assertGreater(len(width_groups(counts, int(counts.max()), 2, 1.25)), 1)
+            (single_logits, single_values, single_grads), (logits, values, grads) = outputs
+            torch.testing.assert_close(logits, single_logits, atol=1e-5, rtol=1e-5)
+            torch.testing.assert_close(values, single_values, atol=1e-5, rtol=1e-5)
+            for grouped, single in zip(grads, single_grads, strict=True):
+                torch.testing.assert_close(grouped, single, atol=1e-5, rtol=1e-4)
 
     def test_empty_candidate_rejected(self) -> None:
         batch = NumericBatch(State.numeric_decisions([combat()]))
