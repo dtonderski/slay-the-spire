@@ -1,6 +1,13 @@
 mod numeric;
 mod vocabulary;
 
+/// The extension's Rust allocations use mimalloc. `numeric_steps` allocates heavily on
+/// several threads at once (state clones and successor exports), where glibc malloc
+/// scaled poorly. Allocation never affects gameplay: no simulator result depends on
+/// addresses. Python's and other libraries' allocations are unaffected.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use pyo3::exceptions::{PyAttributeError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};

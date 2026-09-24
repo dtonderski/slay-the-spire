@@ -11,6 +11,8 @@ crate-type = ["cdylib", "rlib"]
 extension-module = ["pyo3/extension-module"]
 
 [dependencies]
+# The extension is dlopened by Python, so mimalloc must not use initial-exec TLS.
+mimalloc = { version = "0.1", default-features = false, features = ["local_dynamic_tls"] }
 pyo3 = { version = "0.27" }
 serde = "1.0"
 serde_json = "1.0"
