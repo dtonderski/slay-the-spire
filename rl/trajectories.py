@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
+from encoders.numeric import upload
 from jaxtyping import Float
 from torch import Tensor
 
@@ -62,14 +63,14 @@ class Trajectories:
         # [D] floats, with the gradient graph attached; same order as owners.
         log_probs = torch.cat([row.log_probs for row in self.rounds])
         # [K] integer positions: same as keep, but on the model's CPU/GPU device.
-        indices = torch.tensor(keep, dtype=torch.long, device=log_probs.device)
+        indices = upload(keep, torch.long, log_probs.device)
         # [B] final rewards. Zeros for unfinished fights are placeholders, never used.
         rewards = np.asarray([episode.reward if episode.reward is not None else 0.0 for episode in episodes])
 
         # owners[keep]: [K] fight IDs for retained decisions (example: [0,1,0]).
         # rewards[owners[keep]]: [K] final rewards (example: [0.8,0.0,0.8]).
-        # new_tensor copies these targets to log_probs' device/dtype, without gradients.
-        returns = log_probs.new_tensor(rewards[owners[keep]])  # [K]
+        # upload copies these targets to log_probs' device/dtype, without gradients.
+        returns = upload(rewards[owners[keep]], log_probs.dtype, log_probs.device)  # [K]
         values = torch.cat([row.values for row in self.rounds])  # [D], graph attached
         values = values.index_select(0, indices)  # [K], same selected decisions as returns
 

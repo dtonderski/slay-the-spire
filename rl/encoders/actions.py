@@ -8,7 +8,7 @@ from torch import Tensor, nn
 
 from .cards import CARD_FEATURE_DIM
 from .enemies import ENEMY_FEATURE_DIM
-from .numeric import CANDIDATE_KIND, CANDIDATE_OWNER, CANDIDATE_TARGET, CANDIDATE_WIDTH
+from .numeric import CANDIDATE_KIND, CANDIDATE_OWNER, CANDIDATE_TARGET, CANDIDATE_WIDTH, upload
 from .potions import POTION_EMBEDDING_DIM
 
 KIND_CODE = {name: index for index, name in enumerate(ACTION_KINDS)}
@@ -71,7 +71,7 @@ class ActionEncoder(nn.Module):
         owners = np.repeat(np.arange(len(features)), counts)
         starts = np.cumsum(counts) - counts
         positions = owners * width + np.arange(len(vectors)) - np.repeat(starts, counts)
-        indices = torch.tensor(positions, dtype=torch.long, device=vectors.device)
+        indices = upload(positions, torch.long, vectors.device)
         padded_vectors = vectors.new_zeros((len(features) * width, self.action_dim)).index_copy(0, indices, vectors)
         return padded_vectors.reshape(len(features), width, self.action_dim)
 
@@ -111,7 +111,7 @@ class ActionEncoder(nn.Module):
             limits = sizes[group][owners[selected]]
             _require_slots(kind, slots, limits)
             inputs = packed[group].index_select(
-                0, torch.tensor(bases[group][owners[selected]] + slots, dtype=torch.long, device=reference.device)
+                0, upload(bases[group][owners[selected]] + slots, torch.long, reference.device)
             )
             if kind in ("play_hand_slot", "use_potion_slot"):
                 target_slots = candidates[selected, CANDIDATE_TARGET].astype(np.int64)
@@ -125,16 +125,16 @@ class ActionEncoder(nn.Module):
                     enemies = packed["enemies"]
                     packed["targets"] = torch.cat((enemies, enemies.new_zeros((1, ENEMY_FEATURE_DIM))))
                 targets = packed["targets"].index_select(
-                    0, torch.tensor(target_index, dtype=torch.long, device=reference.device)
+                    0, upload(target_index, torch.long, reference.device)
                 )
-                flag = torch.tensor(present, dtype=inputs.dtype, device=reference.device).unsqueeze(1)
+                flag = upload(present, inputs.dtype, reference.device).unsqueeze(1)
                 inputs = torch.cat((inputs, targets, flag), dim=1)
             encoded = self.encoders[kind](inputs)
-            vectors = vectors.index_copy(0, torch.tensor(selected, dtype=torch.long, device=reference.device), encoded)
+            vectors = vectors.index_copy(0, upload(selected, torch.long, reference.device), encoded)
         for kind in self.constants:
             selected = np.flatnonzero(kinds == KIND_CODE[kind])
             if len(selected) == 0:
                 continue
             encoded = self.constants[kind](torch.zeros(len(selected), dtype=torch.long, device=reference.device))
-            vectors = vectors.index_copy(0, torch.tensor(selected, dtype=torch.long, device=reference.device), encoded)
+            vectors = vectors.index_copy(0, upload(selected, torch.long, reference.device), encoded)
         return vectors
