@@ -20,7 +20,7 @@ from train import (
     sample_unpadded_action,
     update_with_diagnostics,
 )
-from validation_set import build_validation, load_validation, main
+from validation_set import build_validation, load_validation, main, native_sha256, revalidate_native
 
 
 def sampler() -> LoadoutSampler:
@@ -65,6 +65,29 @@ class ValidationSetTests(unittest.TestCase):
                 )
             self.assertEqual(len(first["main"]), 4)
             self.assertEqual(len(first["stress"]), 11)
+
+    def test_revalidation_repins_native_without_changing_cases(self) -> None:
+        document = build_validation(sampler(), 7, 4, 1, repeats=1)
+        old = copy.deepcopy(document)
+        old["native_sha256"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "already pinned"):
+            revalidate_native(document, source_name="v", source_sha256="s", reason="r")
+        revalidated = revalidate_native(old, source_name="v.json", source_sha256="abc", reason="parallel steps")
+        self.assertEqual(revalidated["native_sha256"], native_sha256())
+        self.assertEqual(revalidated["cases"], document["cases"])
+        record = revalidated["provenance"]["revalidation"]
+        self.assertEqual((record["source_file"], record["source_sha256"]), ("v.json", "abc"))
+        self.assertEqual(record["source_native_sha256"], "0" * 64)
+        self.assertEqual(old["native_sha256"], "0" * 64)  # The source document is not modified.
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "revalidated.json"
+            path.write_text(json.dumps(revalidated))
+            _, groups = load_validation(path)
+            self.assertEqual(sum(len(roots) for roots in groups.values()), len(document["cases"]))
+        tampered = copy.deepcopy(old)
+        tampered["cases"][1]["initial_observation_sha256"] = "f" * 64
+        with self.assertRaisesRegex(ValueError, "Initial public observation changed"):
+            revalidate_native(tampered, source_name="v", source_sha256="s", reason="r")
 
     def test_creation_refuses_overwrite(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

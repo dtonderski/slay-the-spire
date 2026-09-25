@@ -1,6 +1,7 @@
 """Immutable synthetic validation inputs, initialized before combat-start effects."""
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -154,9 +155,50 @@ def load_validation(path: Path) -> tuple[dict, dict[str, list[Root]]]:
     return document, groups
 
 
+def revalidate_native(document: dict, *, source_name: str, source_sha256: str, reason: str) -> dict:
+    """Re-pin a frozen validation document to the current native build, changing no case.
+
+    Only for native changes that do not affect gameplay, with that shown separately
+    (identical numeric payloads over rollouts, a passing trace corpus). This check is
+    necessary, not sufficient: every case is rebuilt with the current native build, and
+    its initial public observation hash and act must match the stored values, but later
+    decisions are not compared. Nothing is repaired: any mismatch raises and no document
+    is produced. For gameplay changes, create a new dataset instead.
+    """
+    if document.get("schema") != 1 or document.get("protocol") != "synthetic_pre_entry_hp_A0":
+        raise ValueError("Expected a frozen pre-entry-HP validation dataset")
+    current = native_sha256()
+    if document["native_sha256"] == current:
+        raise ValueError("Validation file is already pinned to this native build")
+    for case in document["cases"]:
+        state = State.from_synthetic_spec(json.dumps(case["spec"]))
+        if observation_sha256(state) != case["initial_observation_sha256"]:
+            raise ValueError(f"Initial public observation changed: {case['id']}; create a new dataset")
+        if state.observation().context.act != case["act"]:
+            raise ValueError(f"Validation act changed: {case['id']}; create a new dataset")
+    revalidated = copy.deepcopy(document)
+    revalidated["native_sha256"] = current
+    revalidated["provenance"]["revalidation"] = {
+        "source_file": source_name,
+        "source_sha256": source_sha256,
+        "source_native_sha256": document["native_sha256"],
+        "reason": reason,
+        "checks": f"all {len(document['cases'])} initial public observation hashes and acts unchanged",
+        "previous": document["provenance"].get("revalidation"),
+    }
+    return revalidated
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--distributions", type=Path, required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--distributions", type=Path, help="Create a new dataset from fitted distributions")
+    source.add_argument(
+        "--revalidate",
+        type=Path,
+        help="Re-pin this dataset to the current native build (gameplay-neutral native changes only)",
+    )
+    parser.add_argument("--reason", help="Why the native build changed (required with --revalidate)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=20260918)
     parser.add_argument("--main-count", type=int, default=1024)
@@ -166,6 +208,22 @@ def main() -> None:
     args = parser.parse_args()
     if args.output.exists():
         parser.error("Output already exists; validation datasets are never overwritten")
+    if args.revalidate is not None:
+        if not args.reason:
+            parser.error("--revalidate requires --reason")
+        payload = args.revalidate.read_bytes()
+        document = revalidate_native(
+            json.loads(payload),
+            source_name=args.revalidate.name,
+            source_sha256=hashlib.sha256(payload).hexdigest(),
+            reason=args.reason,
+        )
+        with args.output.open("x") as handle:
+            json.dump(document, handle, indent=2)
+            handle.write("\n")
+        _, groups = load_validation(args.output)
+        print(f"Revalidated {args.output}: " + ", ".join(f"{label}={len(roots)}" for label, roots in groups.items()))
+        return
     document = build_validation(
         LoadoutSampler.load(args.distributions),
         args.seed,
