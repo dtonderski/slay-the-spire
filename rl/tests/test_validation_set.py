@@ -108,37 +108,34 @@ class ValidationSetTests(unittest.TestCase):
         serial_sampler = LoadoutSampler(document)
         first, _ = fresh_batch(random.Random(31), serial_sampler, 1, config)
         excluded = frozenset([int(first[0].combat_seed)])
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "fit.json"
-            path.write_text(json.dumps(document))
-            rng = random.Random(31)
-            prefetcher = RootPrefetcher(rng, path, 6, config, excluded)
-            try:
-                for _ in range(3):
-                    roots, specs = prefetcher.next()
-                    expected_roots, expected_specs = fresh_batch(serial_rng, serial_sampler, 6, config, excluded)
-                    # The training RNG is exactly where serial sampling leaves it.
-                    self.assertEqual(rng.getstate(), serial_rng.getstate())
-                    self.assertEqual(
-                        [(s.spec_json, s.rejected_loadouts, s.encounter, s.loadout) for s in specs],
-                        [(s.spec_json, s.rejected_loadouts, s.encounter, s.loadout) for s in expected_specs],
-                    )
-                    self.assertEqual(
-                        [(r.combat_seed, r.floor, r.start_hp, r.act) for r in roots],
-                        [(r.combat_seed, r.floor, r.start_hp, r.act) for r in expected_roots],
-                    )
-                    self.assertNotIn(int(roots[0].combat_seed), excluded)
-                    self.assertEqual(
-                        State.numeric_decisions([r.state for r in roots]),
-                        State.numeric_decisions([r.state for r in expected_roots]),
-                    )
-                    for root, spec in zip(roots, specs, strict=True):
-                        self.assertIs(root.state, spec.state)
-                before_close = rng.getstate()
-            finally:
-                prefetcher.close()
-            # Closing discards the prefetched batch without advancing the training RNG.
-            self.assertEqual(rng.getstate(), before_close)
+        rng = random.Random(31)
+        prefetcher = RootPrefetcher(rng, json.dumps(document).encode(), 6, config, excluded)
+        try:
+            for _ in range(3):
+                roots, specs = prefetcher.next()
+                expected_roots, expected_specs = fresh_batch(serial_rng, serial_sampler, 6, config, excluded)
+                # The training RNG is exactly where serial sampling leaves it.
+                self.assertEqual(rng.getstate(), serial_rng.getstate())
+                self.assertEqual(
+                    [(s.spec_json, s.rejected_loadouts, s.encounter, s.loadout) for s in specs],
+                    [(s.spec_json, s.rejected_loadouts, s.encounter, s.loadout) for s in expected_specs],
+                )
+                self.assertEqual(
+                    [(r.combat_seed, r.floor, r.start_hp, r.act) for r in roots],
+                    [(r.combat_seed, r.floor, r.start_hp, r.act) for r in expected_roots],
+                )
+                self.assertNotIn(int(roots[0].combat_seed), excluded)
+                self.assertEqual(
+                    State.numeric_decisions([r.state for r in roots]),
+                    State.numeric_decisions([r.state for r in expected_roots]),
+                )
+                for root, spec in zip(roots, specs, strict=True):
+                    self.assertIs(root.state, spec.state)
+            before_close = rng.getstate()
+        finally:
+            prefetcher.close()
+        # Closing discards the prefetched batch without advancing the training RNG.
+        self.assertEqual(rng.getstate(), before_close)
 
     def test_fresh_batches_and_real_optimizer_update(self) -> None:
         torch.set_num_threads(1)

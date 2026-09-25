@@ -840,6 +840,12 @@ def evaluate_baselines(
     return references
 
 
+def _training_root(sampled: SyntheticRoot) -> Root:
+    """The training view of one sampled root; shared by serial and prefetched sampling."""
+    seed = json.loads(sampled.spec_json)["seed"]
+    return Root(sampled.state, str(seed), sampled.encounter.floor, sampled.state.player_hp(), sampled.encounter.act)
+
+
 def fresh_batch(
     rng: random.Random,
     sampler: LoadoutSampler,
@@ -856,15 +862,7 @@ def fresh_batch(
         seed = json.loads(sampled.spec_json)["seed"]
         if seed in excluded_seeds:
             continue
-        roots.append(
-            Root(
-                sampled.state,
-                str(seed),
-                sampled.encounter.floor,
-                sampled.state.player_hp(),
-                sampled.encounter.act,
-            )
-        )
+        roots.append(_training_root(sampled))
         specifications.append(sampled)
         if len(roots) == batch_size:
             return roots, specifications
@@ -875,10 +873,10 @@ def fresh_batch(
 _WORKER_SAMPLER: LoadoutSampler | None = None
 
 
-def _init_root_worker(distributions: str) -> None:
+def _init_root_worker(distributions: bytes) -> None:
     global _WORKER_SAMPLER
     torch.set_num_threads(1)
-    _WORKER_SAMPLER = LoadoutSampler.load(Path(distributions))
+    _WORKER_SAMPLER = LoadoutSampler(json.loads(distributions))
 
 
 def _sample_batch_specifications(
@@ -906,7 +904,7 @@ class RootPrefetcher:
     def __init__(
         self,
         rng: random.Random,
-        distributions: Path,
+        distributions: bytes,
         batch_size: int,
         config: ScenarioConfig,
         excluded_seeds: frozenset[int] = frozenset(),
@@ -920,7 +918,8 @@ class RootPrefetcher:
             max_workers=1,
             mp_context=multiprocessing.get_context("spawn"),
             initializer=_init_root_worker,
-            initargs=(str(distributions),),
+            # The exact bytes the caller hashed, not a second read of the file.
+            initargs=(distributions,),
         )
         self._pending: Future = self._submit()
 
@@ -934,10 +933,9 @@ class RootPrefetcher:
         self._pending = self._submit()
         roots, specifications = [], []
         for encounter, loadout, spec_json, rejected in payload:
-            native = State.from_synthetic_spec(spec_json)
-            specifications.append(SyntheticRoot(native, encounter, loadout, spec_json, rejected))
-            seed = json.loads(spec_json)["seed"]
-            roots.append(Root(native, str(seed), encounter.floor, native.player_hp(), encounter.act))
+            sampled = SyntheticRoot(State.from_synthetic_spec(spec_json), encounter, loadout, spec_json, rejected)
+            specifications.append(sampled)
+            roots.append(_training_root(sampled))
         return roots, specifications
 
     def close(self) -> None:
@@ -1074,8 +1072,9 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=False)
     validation_bytes = args.validation_manifest.read_bytes()
     document, groups = load_validation(args.validation_manifest)
-    # Fail before references/validation if unusable; batches are sampled by RootPrefetcher's worker.
-    LoadoutSampler.load(args.distributions)
+    # Read once: these bytes are hashed into the config and given to RootPrefetcher's worker.
+    distributions = args.distributions.read_bytes()
+    LoadoutSampler(json.loads(distributions))  # Fail before references/validation if unusable.
     (output / "validation.json").write_bytes(validation_bytes)
     validation = groups["main"]
     repeats = document["evaluation"]["repeats"]
@@ -1085,7 +1084,7 @@ def main() -> None:
     settings = {key: str(value) if isinstance(value, Path) else value for key, value in vars(args).items()}
     settings.update(
         validation_sha256=hashlib.sha256(validation_bytes).hexdigest(),
-        distributions_sha256=hashlib.sha256(args.distributions.read_bytes()).hexdigest(),
+        distributions_sha256=hashlib.sha256(distributions).hexdigest(),
         validation_native_sha256=document["native_sha256"],
         evaluation_repeats=repeats,
         evaluation_max_decisions=eval_limit,
@@ -1174,7 +1173,7 @@ def main() -> None:
         project=args.wandb_project, id=args.run_id, name=args.run_id, config=settings, mode=args.wandb_mode
     ) as run:
         # The training RNG is final here (after any resume); the first batch overlaps references/validation.
-        prefetcher = RootPrefetcher(rng, args.distributions, args.batch_size, config, excluded)
+        prefetcher = RootPrefetcher(rng, distributions, args.batch_size, config, excluded)
         try:
             if args.reference_run is not None:
                 references = cached_references(args.reference_run, output, settings)
