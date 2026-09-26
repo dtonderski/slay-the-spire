@@ -5,9 +5,11 @@ import hashlib
 import json
 import logging
 import math
+import multiprocessing
 import random
 import shutil
 import time
+from concurrent.futures import Future, ProcessPoolExecutor
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
@@ -846,6 +848,12 @@ def evaluate_baselines(
     return references
 
 
+def _training_root(sampled: SyntheticRoot) -> Root:
+    """The training view of one sampled root; shared by serial and prefetched sampling."""
+    seed = json.loads(sampled.spec_json)["seed"]
+    return Root(sampled.state, str(seed), sampled.encounter.floor, sampled.state.player_hp(), sampled.encounter.act)
+
+
 def fresh_batch(
     rng: random.Random,
     sampler: LoadoutSampler,
@@ -862,19 +870,86 @@ def fresh_batch(
         seed = json.loads(sampled.spec_json)["seed"]
         if seed in excluded_seeds:
             continue
-        roots.append(
-            Root(
-                sampled.state,
-                str(seed),
-                sampled.encounter.floor,
-                sampled.state.player_hp(),
-                sampled.encounter.act,
-            )
-        )
+        roots.append(_training_root(sampled))
         specifications.append(sampled)
         if len(roots) == batch_size:
             return roots, specifications
     raise RuntimeError("Could not sample a batch disjoint from validation seeds")
+
+
+# Worker-process globals, set once by the initializer. Never used in the training process.
+_WORKER_SAMPLER: LoadoutSampler | None = None
+
+
+def _init_root_worker(distributions: bytes) -> None:
+    global _WORKER_SAMPLER
+    torch.set_num_threads(1)
+    _WORKER_SAMPLER = LoadoutSampler(json.loads(distributions))
+
+
+def _sample_batch_specifications(
+    rng_state: tuple, batch_size: int, config: ScenarioConfig, excluded_seeds: frozenset[int]
+) -> tuple[list[tuple], tuple]:
+    """Run ``fresh_batch`` from ``rng_state`` in a worker; return picklable specs and the advanced state."""
+    assert _WORKER_SAMPLER is not None
+    rng = random.Random()
+    rng.setstate(rng_state)
+    _, specifications = fresh_batch(rng, _WORKER_SAMPLER, batch_size, config, excluded_seeds)
+    payload = [(root.encounter, root.loadout, root.spec_json, root.rejected_loadouts) for root in specifications]
+    return payload, rng.getstate()
+
+
+class RootPrefetcher:
+    """Sample the next ``fresh_batch`` in one worker process while the current update runs.
+
+    The worker starts each batch from the training RNG's current state and returns the
+    state after that batch, which the training RNG then adopts. The RNG therefore passes
+    through exactly the same states as serial ``fresh_batch`` calls, and a checkpoint taken
+    between updates never includes the prefetched batch. Native states are rebuilt here from
+    each ``spec_json``, the same constructor ``sample_root`` used in the worker.
+    """
+
+    def __init__(
+        self,
+        rng: random.Random,
+        distributions: bytes,
+        batch_size: int,
+        config: ScenarioConfig,
+        excluded_seeds: frozenset[int] = frozenset(),
+    ) -> None:
+        if batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        self._rng = rng
+        self._arguments = (batch_size, config, excluded_seeds)
+        # spawn: forking a process that has initialized CUDA is unsafe.
+        self._executor = ProcessPoolExecutor(
+            max_workers=1,
+            mp_context=multiprocessing.get_context("spawn"),
+            initializer=_init_root_worker,
+            # The exact bytes the caller hashed, not a second read of the file.
+            initargs=(distributions,),
+        )
+        self._pending: Future = self._submit()
+
+    def _submit(self) -> Future:
+        return self._executor.submit(_sample_batch_specifications, self._rng.getstate(), *self._arguments)
+
+    def next(self) -> tuple[list[Root], list[SyntheticRoot]]:
+        """Return the batch serial ``fresh_batch(rng, ...)`` would return now, and prefetch the next."""
+        payload, state = self._pending.result()
+        self._rng.setstate(state)
+        self._pending = self._submit()
+        roots, specifications = [], []
+        for encounter, loadout, spec_json, rejected in payload:
+            sampled = SyntheticRoot(State.from_synthetic_spec(spec_json), encounter, loadout, spec_json, rejected)
+            specifications.append(sampled)
+            roots.append(_training_root(sampled))
+        return roots, specifications
+
+    def close(self) -> None:
+        """Discard any prefetched batch; the training RNG has not consumed it."""
+        self._pending.cancel()
+        self._executor.shutdown(wait=True, cancel_futures=True)
 
 
 def update_with_diagnostics(
@@ -1005,7 +1080,9 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=False)
     validation_bytes = args.validation_manifest.read_bytes()
     document, groups = load_validation(args.validation_manifest)
-    sampler = LoadoutSampler.load(args.distributions)
+    # Read once: these bytes are hashed into the config and given to RootPrefetcher's worker.
+    distributions = args.distributions.read_bytes()
+    LoadoutSampler(json.loads(distributions))  # Fail before references/validation if unusable.
     (output / "validation.json").write_bytes(validation_bytes)
     validation = groups["main"]
     repeats = document["evaluation"]["repeats"]
@@ -1015,7 +1092,7 @@ def main() -> None:
     settings = {key: str(value) if isinstance(value, Path) else value for key, value in vars(args).items()}
     settings.update(
         validation_sha256=hashlib.sha256(validation_bytes).hexdigest(),
-        distributions_sha256=hashlib.sha256(args.distributions.read_bytes()).hexdigest(),
+        distributions_sha256=hashlib.sha256(distributions).hexdigest(),
         validation_native_sha256=document["native_sha256"],
         evaluation_repeats=repeats,
         evaluation_max_decisions=eval_limit,
@@ -1103,6 +1180,8 @@ def main() -> None:
     with wandb.init(
         project=args.wandb_project, id=args.run_id, name=args.run_id, config=settings, mode=args.wandb_mode
     ) as run:
+        # The training RNG is final here (after any resume); the first batch overlaps references/validation.
+        prefetcher = RootPrefetcher(rng, distributions, args.batch_size, config, excluded)
         try:
             if args.reference_run is not None:
                 references = cached_references(args.reference_run, output, settings)
@@ -1133,7 +1212,7 @@ def main() -> None:
             deadline = time.monotonic() + args.max_hours * 3600 if args.max_hours is not None else math.inf
             for iteration in range(1, args.updates + 1):
                 started = time.monotonic()
-                roots, specs = fresh_batch(rng, sampler, args.batch_size, config, excluded)
+                roots, specs = prefetcher.next()
                 sampling_seconds = time.monotonic() - started
                 scores = update_with_diagnostics(
                     roots,
@@ -1174,6 +1253,7 @@ def main() -> None:
                     print("Training budget reached; saving final checkpoint", flush=True)
                     break
         finally:
+            prefetcher.close()
             checkpoint()
 
 
