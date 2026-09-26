@@ -7,15 +7,21 @@ from pathlib import Path
 from unittest.mock import patch
 
 import torch
-import train
 from test_validation_set import sampler
+
+import train
 from validation_set import build_validation
 
 
 class CheckpointInitializationTests(unittest.TestCase):
     def test_continuation_matches_uninterrupted_training_and_checks_protocol(self) -> None:
-        for device in ("cpu", "cuda") if torch.cuda.is_available() else ("cpu",):
-            with self.subTest(device=device), tempfile.TemporaryDirectory() as directory:
+        configurations = [("cpu", "fp32")]
+        if torch.cuda.is_available():
+            configurations.append(("cuda", "fp32"))
+            if torch.cuda.is_bf16_supported():
+                configurations.append(("cuda", "bf16"))
+        for device, precision in configurations:
+            with self.subTest(device=device, precision=precision), tempfile.TemporaryDirectory() as directory:
                 folder = Path(directory)
                 fit, validation = folder / "fit.json", folder / "validation.json"
                 fit.write_text(json.dumps(sampler().distributions))
@@ -29,6 +35,7 @@ class CheckpointInitializationTests(unittest.TestCase):
                     fit: Path = fit,
                     validation: Path = validation,
                     device: str = device,
+                    precision: str = precision,
                 ) -> dict:
                     output = folder / name
                     argv = [
@@ -53,6 +60,8 @@ class CheckpointInitializationTests(unittest.TestCase):
                         "1",
                         "--device",
                         device,
+                        "--precision",
+                        precision,
                         *extra,
                     ]
                     with (
@@ -79,6 +88,24 @@ class CheckpointInitializationTests(unittest.TestCase):
                 for a, b in zip(full["cuda_rng"], resumed["cuda_rng"], strict=True):
                     self.assertTrue(torch.equal(a, b))
                 self.assertEqual(resumed["config"]["initialization"]["mode"], "optimizer_rng_continuation")
+                self.assertEqual(resumed["config"]["precision"], precision)
+                if precision == "fp32":
+                    legacy = torch.load(checkpoint, map_location="cpu", weights_only=False)
+                    legacy["config"].pop("precision")
+                    torch.save(legacy, folder / "legacy.pt")
+                    continued = run("legacy-resume", 2, "--resume-from", str(folder / "legacy.pt"))
+                    for name, value in full["model"].items():
+                        torch.testing.assert_close(value, continued["model"][name], rtol=0, atol=0)
+                if device == "cuda" and torch.cuda.is_bf16_supported():
+                    with self.assertRaisesRegex(ValueError, "precision"):
+                        run(
+                            "mismatch-precision",
+                            1,
+                            "--resume-from",
+                            str(checkpoint),
+                            "--precision",
+                            "fp32" if precision == "bf16" else "bf16",
+                        )
                 with self.assertRaisesRegex(ValueError, "value_coef"):
                     run("mismatch", 1, "--resume-from", str(checkpoint), "--value-coef", "0.5")
                 for option in ("width", "layers"):

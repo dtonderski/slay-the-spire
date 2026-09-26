@@ -1047,6 +1047,9 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--entropy-coef", type=float, default=0.01)
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    parser.add_argument(
+        "--precision", choices=("fp32", "bf16"), default="fp32", help="BF16 autocasts only the CUDA transformer"
+    )
     parser.add_argument("--continue-on-simulator-error", action="store_true")
     parser.add_argument("--wandb-project", default="sts-combat-v1")
     parser.add_argument("--wandb-mode", choices=("online", "offline", "disabled"), default="online")
@@ -1070,6 +1073,8 @@ def main() -> None:
         parser.error("Value coefficient must be finite and nonnegative")
     if args.model_width < 4 or args.model_width % 4 or args.model_layers < 1:
         parser.error("Model width must be a positive multiple of four; layers must be positive")
+    if args.precision == "bf16" and (args.device != "cuda" or not torch.cuda.is_bf16_supported()):
+        parser.error("Mixed BF16 requires a BF16-capable CUDA device")
     if args.grad_chunk_decisions < 0:
         parser.error("Gradient chunk size must be nonnegative")
     if args.max_hours is not None and (not math.isfinite(args.max_hours) or args.max_hours <= 0):
@@ -1110,9 +1115,12 @@ def main() -> None:
     torch.set_num_threads(1)
     torch.manual_seed(args.seed)
     rng = random.Random(args.seed)
-    model = CombatValueModel(d_model=args.model_width, action_dim=args.model_width, n_layers=args.model_layers).to(
-        args.device
-    )
+    model = CombatValueModel(
+        d_model=args.model_width,
+        action_dim=args.model_width,
+        n_layers=args.model_layers,
+        precision=args.precision,
+    ).to(args.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     initial_checkpoint = args.resume_from or args.warm_start
     if initial_checkpoint is not None:
@@ -1120,7 +1128,7 @@ def main() -> None:
         # only; optimizer/RNG continuation requires the same gameplay/training contract.
         source = torch.load(initial_checkpoint, map_location="cpu", weights_only=False)
         if args.resume_from is not None:
-            for key, default in (("model_width", 64), ("model_layers", 2)):
+            for key, default in (("model_width", 64), ("model_layers", 2), ("precision", "fp32")):
                 if source["config"].get(key, default) != settings[key]:
                     raise ValueError(f"Checkpoint continuation mismatch: {key}")
             for key in (

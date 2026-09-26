@@ -1,3 +1,5 @@
+from typing import Literal
+
 import numpy as np
 import torch
 from jaxtyping import Bool, Float
@@ -11,9 +13,17 @@ from observation_encoder import ObservationEncoder
 class CombatValueModel(nn.Module):
     """Shared numeric observation encoder with policy and scalar value heads."""
 
-    def __init__(self, d_model: int = 64, action_dim: int = 64, n_heads: int = 4, n_layers: int = 2) -> None:
+    def __init__(
+        self,
+        d_model: int = 64,
+        action_dim: int = 64,
+        n_heads: int = 4,
+        n_layers: int = 2,
+        *,
+        precision: Literal["fp32", "bf16"] = "fp32",
+    ) -> None:
         super().__init__()
-        self.observation_encoder = ObservationEncoder(d_model, action_dim, n_heads, n_layers)
+        self.observation_encoder = ObservationEncoder(d_model, action_dim, n_heads, n_layers, precision=precision)
         self.policy_head = nn.Linear(action_dim, action_dim)
         self.value_head = nn.Linear(action_dim, 1)
         self.action_encoder = ActionEncoder(action_dim)

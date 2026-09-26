@@ -72,6 +72,13 @@ fights and average over completed fights. There is no scalar/EMA reward baseline
 transformer and action embeddings and must be divisible by four attention heads.
 Architecture changes require fresh compatible weights; strict resumes check these settings.
 
+`--precision bf16 --device cuda` enables mixed BF16 inside the transformer only, including
+rollout, recomputation and evaluation. Parameters, gradients, Adam state, input encoders,
+heads and losses remain FP32; no gradient scaler is used. The default is `--precision fp32`.
+Precision is recorded in checkpoints and checked on strict resume (legacy checkpoints mean
+FP32). Use a weights-only warm-start to change precision or native/validation versions.
+Mixed precision changes numerical results; faster throughput does not establish equal learning.
+
 Inside one forward, the transformer runs on rows sorted by token count and split into
 groups of similar width (at least 256 rows each), so short observations are not padded
 to the widest one. Padding keys are masked, so this is the same computation, but it is

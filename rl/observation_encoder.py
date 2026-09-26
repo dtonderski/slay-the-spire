@@ -1,4 +1,5 @@
 import math
+from typing import Literal
 
 import numpy as np
 import torch
@@ -31,8 +32,19 @@ OBSERVATION_GROUPS = (
 class ObservationEncoder(nn.Module):
     """Encode an observation batch, returning queries and per-observation action features."""
 
-    def __init__(self, d_model: int = 64, action_dim: int = 64, n_heads: int = 4, n_layers: int = 2) -> None:
+    def __init__(
+        self,
+        d_model: int = 64,
+        action_dim: int = 64,
+        n_heads: int = 4,
+        n_layers: int = 2,
+        *,
+        precision: Literal["fp32", "bf16"] = "fp32",
+    ) -> None:
         super().__init__()
+        if precision not in ("fp32", "bf16"):
+            raise ValueError("Expected fp32 or bf16 precision")
+        self.precision = precision
         self.cards = CardEncoder(d_model)
         self.enemies = EnemyEncoder(d_model)
         self.player = PlayerEncoder(d_model)
@@ -121,6 +133,17 @@ class ObservationEncoder(nn.Module):
         tokens, padding_mask, features, token_counts = self.prepare_numeric(observations)
         return self.query(self._summaries(tokens, padding_mask, token_counts)), features
 
+    def _transformer_forward(
+        self, tokens: Float[Tensor, "batch n_tokens d_model"], padding: Bool[Tensor, "batch n_tokens"]
+    ) -> Float[Tensor, "batch n_tokens d_model"]:
+        """Autocast only the transformer; encoders, heads and parameter storage remain FP32."""
+        if self.precision == "fp32":
+            return self.transformer(tokens, src_key_padding_mask=padding)
+        if tokens.device.type != "cuda" or tokens.dtype != torch.float32:
+            raise ValueError("Mixed BF16 requires CUDA and FP32 model parameters")
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            return self.transformer(tokens, src_key_padding_mask=padding).float()
+
     def _summaries(
         self,
         tokens: Float[Tensor, "batch n_tokens d_model"],
@@ -135,14 +158,14 @@ class ObservationEncoder(nn.Module):
         """
         groups = width_groups(counts, tokens.shape[1], self.width_group_min_rows, self.width_group_growth)
         if len(groups) == 1:
-            return self.transformer(tokens, src_key_padding_mask=padding)[:, 0]
+            return self._transformer_forward(tokens, padding)[:, 0]
         order = np.argsort(counts, kind="stable")
         inverse = np.empty_like(order)
         inverse[order] = np.arange(len(order))
         index = upload(order, torch.long, tokens.device)
         tokens, padding = tokens.index_select(0, index), padding.index_select(0, index)
         parts = [
-            self.transformer(tokens[start:end, :width], src_key_padding_mask=padding[start:end, :width])[:, 0]
+            self._transformer_forward(tokens[start:end, :width], padding[start:end, :width])[:, 0]
             for start, end, width in groups
         ]
         return torch.cat(parts).index_select(0, upload(inverse, torch.long, tokens.device))
