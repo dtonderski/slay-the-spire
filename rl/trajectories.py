@@ -7,9 +7,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
-from encoders.numeric import upload
 from jaxtyping import Float
 from torch import Tensor
+
+from encoders.numeric import upload
 
 if TYPE_CHECKING:
     from train import Episode

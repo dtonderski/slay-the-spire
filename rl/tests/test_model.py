@@ -1,10 +1,13 @@
 import json
 import unittest
+from itertools import pairwise
 from types import SimpleNamespace
 from typing import cast
 
 import numpy as np
 import torch
+from sts_sim import Action, State
+
 from encoders.numeric import (
     ACTION_HAND,
     ACTION_KIND,
@@ -16,7 +19,6 @@ from encoders.numeric import (
 )
 from model import CombatValueModel
 from observation_encoder import width_groups
-from sts_sim import Action, State
 
 
 def action(kind: str, **slots: int | None) -> Action:
@@ -59,7 +61,10 @@ def combat(seed: int = 1, hp: int = 80, extra_strikes: int = 0) -> State:
                 "floor": 1,
                 "kind": "normal",
                 "encounter": "Cultist",
-                "deck": [{"key": key, "upgrades": 0} for key in ["Strike_R"] * (5 + extra_strikes) + ["Defend_R"] * 4 + ["Bash"]],
+                "deck": [
+                    {"key": key, "upgrades": 0}
+                    for key in ["Strike_R"] * (5 + extra_strikes) + ["Defend_R"] * 4 + ["Bash"]
+                ],
                 "relics": ["Burning Blood"],
                 "potions": [None, None, None],
                 "hp": hp,
@@ -124,7 +129,7 @@ class ModelTests(unittest.TestCase):
         ordered = np.sort(counts)
         self.assertEqual(groups[0][0], 0)
         self.assertEqual(groups[-1][1], len(counts))
-        for (_, end, _), (start, _, _) in zip(groups, groups[1:], strict=False):
+        for (_, end, _), (start, _, _) in pairwise(groups):
             self.assertEqual(end, start)
         for start, end, width in groups:
             self.assertGreaterEqual(end - start, 2)

@@ -17,6 +17,10 @@ from typing import cast
 
 import numpy as np
 import torch
+from sts_sim import ACTION_KINDS, PotionKey, State
+from torch import Tensor
+from torch.distributions import Categorical
+
 import wandb
 from beam_search import beam_search
 from combat_task import action_indices, combat_outcome, terminal_reward
@@ -37,10 +41,7 @@ from loadout_sampling import LoadoutSampler
 from model import CombatValueModel
 from rollout_errors import SimulatorStepError
 from scenarios import ScenarioConfig
-from sts_sim import ACTION_KINDS, PotionKey, State
 from synthetic_roots import SyntheticRoot, sample_root
-from torch import Tensor
-from torch.distributions import Categorical
 from trajectories import DecisionRound, Trajectories, validate_gradients
 from validation_set import Root, load_validation
 

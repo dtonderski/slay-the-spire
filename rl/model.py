@@ -1,10 +1,11 @@
 import numpy as np
 import torch
+from jaxtyping import Bool, Float
+from torch import Tensor, nn
+
 from encoders.actions import ActionEncoder
 from encoders.numeric import NumericBatch, upload
-from jaxtyping import Bool, Float
 from observation_encoder import ObservationEncoder
-from torch import Tensor, nn
 
 
 class CombatValueModel(nn.Module):

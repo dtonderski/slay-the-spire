@@ -8,6 +8,17 @@ from unittest.mock import patch
 
 import numpy as np
 import torch
+from numeric_reference import CATEGORICAL, reference_batch, semantic_tables
+from sts_sim import ACTION_KINDS, CounterKey, PowerKey, State
+from sts_sim.observations import (
+    Counter,
+    Power,
+    Selection,
+    SelectionOption,
+    VisibleIntent,
+)
+from test_model import action, combat
+
 from encoders.cards import CARD_TABLES, CARD_TO_INDEX, CardEncoder
 from encoders.numeric import (
     ACTION_KIND,
@@ -19,16 +30,6 @@ from encoders.numeric import (
     upload,
 )
 from model import CombatValueModel
-from numeric_reference import CATEGORICAL, reference_batch, semantic_tables
-from sts_sim import ACTION_KINDS, CounterKey, PowerKey, State
-from sts_sim.observations import (
-    Counter,
-    Power,
-    Selection,
-    SelectionOption,
-    VisibleIntent,
-)
-from test_model import action, combat
 from train import play_combats
 
 

@@ -2,8 +2,9 @@ import random
 import unittest
 
 import torch
-from model import CombatValueModel
 from test_model import combat
+
+from model import CombatValueModel
 from train import ReplayRound, accumulate_replay_loss, play_combats, train_batch
 from trajectories import Trajectories
 from validation_set import Root
@@ -140,6 +141,7 @@ class ChunkedUpdateTests(unittest.TestCase):
                 train_batch(roots, model, optimizer, 64, 0.01, value_coef=0.1, chunk_decisions=4)
             for old, new in zip(before, model.parameters(), strict=True):
                 self.assertTrue(torch.equal(old, new.detach()))
+
 
 if __name__ == "__main__":
     unittest.main()

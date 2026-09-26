@@ -2,6 +2,9 @@ import math
 
 import numpy as np
 import torch
+from jaxtyping import Bool, Float
+from torch import Tensor, nn
+
 from encoders.actions import FlatActionFeatures
 from encoders.cards import CardEncoder
 from encoders.enemies import EnemyEncoder
@@ -10,8 +13,6 @@ from encoders.player import PlayerEncoder
 from encoders.potions import PotionEncoder
 from encoders.relics import RelicEncoder
 from encoders.selection import SelectionEncoder
-from jaxtyping import Bool, Float
-from torch import Tensor, nn
 
 OBSERVATION_GROUPS = (
     "player",
@@ -121,7 +122,10 @@ class ObservationEncoder(nn.Module):
         return self.query(self._summaries(tokens, padding_mask, token_counts)), features
 
     def _summaries(
-        self, tokens: Float[Tensor, "batch n_tokens d_model"], padding: Bool[Tensor, "batch n_tokens"], counts: np.ndarray
+        self,
+        tokens: Float[Tensor, "batch n_tokens d_model"],
+        padding: Bool[Tensor, "batch n_tokens"],
+        counts: np.ndarray,
     ) -> Float[Tensor, "batch d_model"]:
         """Encode rows in groups of similar width and return each row's summary token.
 

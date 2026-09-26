@@ -8,11 +8,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 import torch
+from sts_sim import State
+
 from loadout_sampling import LoadoutSampler, band_for
 from model import CombatValueModel
 from rollout_errors import SimulatorStepError
 from scenarios import COMBAT_FLOORS, ScenarioConfig
-from sts_sim import State
 from train import (
     RootPrefetcher,
     evaluate,

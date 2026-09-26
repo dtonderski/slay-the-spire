@@ -124,9 +124,7 @@ class ActionEncoder(nn.Module):
                 if "targets" not in packed:
                     enemies = packed["enemies"]
                     packed["targets"] = torch.cat((enemies, enemies.new_zeros((1, ENEMY_FEATURE_DIM))))
-                targets = packed["targets"].index_select(
-                    0, upload(target_index, torch.long, reference.device)
-                )
+                targets = packed["targets"].index_select(0, upload(target_index, torch.long, reference.device))
                 flag = upload(present, inputs.dtype, reference.device).unsqueeze(1)
                 inputs = torch.cat((inputs, targets, flag), dim=1)
             encoded = self.encoders[kind](inputs)

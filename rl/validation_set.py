@@ -10,9 +10,10 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 import sts_sim._native as native
+from sts_sim import State
+
 from loadout_sampling import LoadoutSampler
 from scenarios import COMBAT_FLOORS, ScenarioConfig
-from sts_sim import State
 from synthetic_roots import build_root, sample_root
 
 
