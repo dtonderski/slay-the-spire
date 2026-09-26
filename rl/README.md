@@ -65,6 +65,12 @@ fights and average over completed fights. There is no scalar/EMA reward baseline
 transformer and action embeddings and must be divisible by four attention heads.
 Architecture changes require fresh compatible weights; strict resumes check these settings.
 
+Inside one forward, the transformer runs on rows sorted by token count and split into
+groups of similar width (at least 256 rows each), so short observations are not padded
+to the widest one. Padding keys are masked, so this is the same computation, but it is
+not bit-identical to one padded call. Forwards of fewer than 512 rows, including
+evaluation at `--eval-batch-size 64`, are a single call exactly as before.
+
 `--grad-chunk-decisions 0` (the default) retains the rollout graph until one
 backward. A positive value rolls out under `no_grad`, stores the public numeric
 inputs and chosen actions, then recomputes that same objective. The count is a
