@@ -6,7 +6,6 @@ from jaxtyping import Float
 from sts_sim.observations.combat import SelectionKind
 from torch import Tensor, nn
 
-from .cards import CardEncoder
 from .numeric import NumericBatch, tensor
 
 SELECTION_TO_INDEX = {kind: index for index, kind in enumerate((None, *get_args(SelectionKind)))}
@@ -20,7 +19,9 @@ class SelectionEncoder(nn.Module):
         self.selected_projection = nn.Linear(1, d_model, bias=False)
 
     def numeric(
-        self, batch: NumericBatch, cards: CardEncoder
+        self,
+        batch: NumericBatch,
+        cards: tuple[Float[Tensor, "n_options card_features"], Float[Tensor, "n_options d_model"], list[int]],
     ) -> tuple[
         Float[Tensor, "n_options selection_features"],
         Float[Tensor, "batch d_model"],
@@ -28,7 +29,7 @@ class SelectionEncoder(nn.Module):
         list[int],
     ]:
         """Encode context and option flags without per-observation tensor operations."""
-        features, tokens, lengths_list = cards.numeric(batch, "selection_cards")
+        features, tokens, lengths_list = cards
         lengths = np.array(lengths_list)
         starts = np.cumsum(lengths) - lengths
         options = batch.table("selection_options", 2)

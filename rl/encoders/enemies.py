@@ -7,7 +7,7 @@ from sts_sim import MonsterKey
 from sts_sim.observations.combat import IntentCategory, SlimeSize
 from torch import Tensor, nn
 
-from .cards import CARD_FEATURE_DIM, CardEncoder
+from .cards import CARD_FEATURE_DIM
 from .numeric import NumericBatch, tensor
 from .player import GOLD_SCALE, POWER_TO_INDEX
 
@@ -33,7 +33,7 @@ class EnemyEncoder(nn.Module):
         self.projection = nn.Linear(ENEMY_FEATURE_DIM, d_model)
 
     def numeric(
-        self, batch: NumericBatch, cards: CardEncoder
+        self, batch: NumericBatch, stasis_features: Float[Tensor, "n_stasis card_features"]
     ) -> tuple[Float[Tensor, "n_enemies enemy_features"], Float[Tensor, "n_enemies d_model"], list[int]]:
         """Encode raw enemy tables, retaining dead slots and shared Stasis features."""
         rows = batch.table("enemies", 18)
@@ -57,7 +57,7 @@ class EnemyEncoder(nn.Module):
         state = tensor(identities, np.concatenate((stats, powers, intent, numbers, slime, extra), axis=1))
         stasis = batch.table("stasis", 18)
         held = identities.new_zeros((len(rows), CARD_FEATURE_DIM)).index_copy(
-            0, tensor(identities, stasis[:, 0], integer=True), cards.numeric_features(batch, "stasis")
+            0, tensor(identities, stasis[:, 0], integer=True), stasis_features
         )
         features = torch.cat((identities, state, held), dim=1)
         lengths = batch.lengths(rows)
