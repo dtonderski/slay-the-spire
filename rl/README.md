@@ -154,6 +154,11 @@ are identical to v1; only the native pin and revalidation provenance changed.
 Do not reuse pre-PR46 random/beam caches: their native and dataset hashes differ.
 They must be recomputed on the new simulator.
 
+`--eval-interval-seconds 300` evaluates after at least five minutes since the previous
+validation/checkpoint finished, at the next update boundary. It overrides `--eval-every`
+so batch-size comparisons need not spend different fractions of time evaluating.
+Initial and final evaluations still run; without this option the update-count cadence is unchanged.
+
 `--max-hours 8` bounds the training/validation loop by wall time; a current batch
 and final validation can extend slightly beyond the limit. Initial validation is
 outside that budget. Periodic checkpoints are retained as `checkpoint-NNNNNNNN.pt`

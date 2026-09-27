@@ -1005,6 +1005,11 @@ def update_with_diagnostics(
         }
 
 
+def evaluation_due(iteration: int, every: int, elapsed: float, interval: float | None) -> bool:
+    """A wall-clock interval overrides the update-count cadence."""
+    return elapsed >= interval if interval is not None else iteration % every == 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", required=True)
@@ -1016,6 +1021,9 @@ def main() -> None:
     parser.add_argument("--model-width", type=int, default=64, help="Transformer and action embedding width")
     parser.add_argument("--model-layers", type=int, default=2, help="Transformer layer count (four attention heads)")
     parser.add_argument("--eval-every", type=int, default=100)
+    parser.add_argument(
+        "--eval-interval-seconds", type=float, help="Elapsed time since validation finished; overrides --eval-every"
+    )
     parser.add_argument(
         "--eval-batch-size",
         type=int,
@@ -1079,6 +1087,10 @@ def main() -> None:
         parser.error("Gradient chunk size must be nonnegative")
     if args.max_hours is not None and (not math.isfinite(args.max_hours) or args.max_hours <= 0):
         parser.error("Maximum hours must be finite and positive")
+    if args.eval_interval_seconds is not None and (
+        not math.isfinite(args.eval_interval_seconds) or args.eval_interval_seconds <= 0
+    ):
+        parser.error("Evaluation interval must be finite and positive")
     config = ScenarioConfig(min_floor=args.min_floor, max_floor=args.max_floor)
     if args.device == "cuda" and not torch.cuda.is_available():
         parser.error("CUDA is unavailable")
@@ -1218,7 +1230,8 @@ def main() -> None:
             run.log({f"val_main/{key}": value for key, value in validation_scores.items()}, step=0)
             checkpoint()
             print("Initial validation logged; starting training updates", flush=True)
-            deadline = time.monotonic() + args.max_hours * 3600 if args.max_hours is not None else math.inf
+            last_evaluation = time.monotonic()
+            deadline = last_evaluation + args.max_hours * 3600 if args.max_hours is not None else math.inf
             for iteration in range(1, args.updates + 1):
                 started = time.monotonic()
                 roots, specs = prefetcher.next()
@@ -1245,7 +1258,9 @@ def main() -> None:
                 )
                 logs = {**references, **{f"train/{key}": value for key, value in scores.items()}}
                 finished = iteration == args.updates or time.monotonic() >= deadline
-                if iteration % args.eval_every == 0 or finished:
+                if finished or evaluation_due(
+                    iteration, args.eval_every, time.monotonic() - last_evaluation, args.eval_interval_seconds
+                ):
                     validation_scores = evaluate(
                         validation,
                         model,
@@ -1256,6 +1271,7 @@ def main() -> None:
                     )
                     logs.update({f"val_main/{key}": value for key, value in validation_scores.items()})
                     checkpoint()
+                    last_evaluation = time.monotonic()
                 run.log(logs, step=iteration)
                 print(f"update={iteration} roots={len(roots)} optimizer_step={scores['optimizer_step']}", flush=True)
                 if finished or time.monotonic() >= deadline:
