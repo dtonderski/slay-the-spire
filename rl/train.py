@@ -1017,7 +1017,7 @@ def main() -> None:
     parser.add_argument("--validation-manifest", type=Path, required=True)
     parser.add_argument("--updates", type=int, default=10000)
     parser.add_argument("--max-hours", type=float, help="Stop after this training/validation wall-clock budget")
-    parser.add_argument("--batch-size", type=int, default=2048)
+    parser.add_argument("--batch-size", type=int, default=512, help="Fights per optimizer update (default: 512)")
     parser.add_argument("--model-width", type=int, default=64, help="Transformer and action embedding width")
     parser.add_argument("--model-layers", type=int, default=2, help="Transformer layer count (four attention heads)")
     parser.add_argument("--eval-every", type=int, default=100)

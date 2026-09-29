@@ -154,6 +154,9 @@ are identical to v1; only the native pin and revalidation provenance changed.
 Do not reuse pre-PR46 random/beam caches: their native and dataset hashes differ.
 They must be recomputed on the new simulator.
 
+The default training batch is **512 fights per optimizer update** (`--batch-size 512`).
+Precision and recomputation remain explicit choices; the batch-size default does not enable BF16.
+
 `--eval-interval-seconds 300` evaluates after at least five minutes since the previous
 validation/checkpoint finished, at the next update boundary. It overrides `--eval-every`
 so batch-size comparisons need not spend different fractions of time evaluating.
