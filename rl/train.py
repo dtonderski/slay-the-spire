@@ -32,7 +32,6 @@ from encoders.numeric import (
     ACTION_REVISION,
     ACTION_TARGET,
     CANDIDATE_OWNER,
-    NUMERIC_VERSION,
     NumericBatch,
     upload,
 )
@@ -489,35 +488,29 @@ def _shape_bucket(replay: ReplayRound) -> tuple[int, int]:
 
 def _stack_observations(batches: list[NumericBatch]) -> NumericBatch:
     """Concatenate model rows. Owner columns are shifted; hidden state is not copied in."""
-    collected: dict[str, list[np.ndarray]] = {}
-    model_offset = 0
-    parent_offsets = {"enemies": 0, "relics": 0}
-    for batch in batches:
-        for name, width in _ALIGNED_WIDTHS.items():
-            rows = batch.table(name, width)
-            if len(rows) != batch.size:
-                raise RuntimeError(f"{name} rows do not match model observations")
-            collected.setdefault(name, []).append(rows)
-        for name, width in _MODEL_OWNER_WIDTHS.items():
-            rows = batch.table(name, width)
-            if len(rows):
-                rows = rows.copy()
-                rows[:, 0] += model_offset
-                collected.setdefault(name, []).append(rows)
-        for name, parent in _GLOBAL_OWNER_PARENT.items():
-            rows = batch.table(name, _GLOBAL_OWNER_WIDTHS[name])
-            if len(rows):
-                rows = rows.copy()
-                rows[:, 0] += parent_offsets[parent]
-                collected.setdefault(name, []).append(rows)
-        parent_offsets["enemies"] += len(batch.table("enemies", 18))
-        parent_offsets["relics"] += len(batch.table("relics", 2))
-        model_offset += batch.size
+    sizes = [batch.size for batch in batches]
+    offsets = np.cumsum([0, *sizes])
+    parents = {
+        name: np.cumsum([0, *[len(batch.table(name, width)) for batch in batches]])
+        for name, width in (("enemies", 18), ("relics", 2))
+    }
     packed = {}
-    for name, parts in collected.items():
+    for name, width in (_ALIGNED_WIDTHS | _MODEL_OWNER_WIDTHS | _GLOBAL_OWNER_WIDTHS).items():
+        parts = [batch.table(name, width) for batch in batches]
+        if name in _ALIGNED_WIDTHS and any(len(part) != size for part, size in zip(parts, sizes, strict=True)):
+            raise RuntimeError(f"{name} rows do not match model observations")
+        if not parts or (name not in _ALIGNED_WIDTHS and not any(len(part) for part in parts)):
+            continue
         merged = np.concatenate(parts)
-        packed[name] = (merged.shape[1], np.ascontiguousarray(merged).tobytes())
-    return NumericBatch((NUMERIC_VERSION, [], packed, list(range(model_offset))))
+        if name not in _ALIGNED_WIDTHS:
+            shifts = parents[_GLOBAL_OWNER_PARENT[name]] if name in _GLOBAL_OWNER_PARENT else offsets
+            start = 0
+            for part, shift in zip(parts, shifts[:-1], strict=True):
+                end = start + len(part)
+                merged[start:end, 0] += shift
+                start = end
+        packed[name] = merged
+    return NumericBatch.from_owned_arrays(packed, int(offsets[-1]))
 
 
 def _stack_candidates(rounds: list[ReplayRound]) -> tuple[np.ndarray, list[int]]:

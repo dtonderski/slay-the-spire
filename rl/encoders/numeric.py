@@ -47,6 +47,19 @@ class NumericBatch:
         self._code_lookups: dict[int, np.ndarray] = {}
         self._code_vocabularies: list[dict[Any, int]] = []
 
+    @classmethod
+    def from_owned_arrays(cls, tables: dict[str, np.ndarray], size: int) -> "NumericBatch":
+        """Consume freshly allocated replay tables without serializing them to bytes."""
+        batch = cls((NUMERIC_VERSION, [], {}, list(range(size))))
+        for name, array in tables.items():
+            if array.dtype != np.int64 or array.ndim != 2 or not array.flags.c_contiguous:
+                raise ValueError("Replay tables must be contiguous two-dimensional int64 arrays")
+            # The caller relinquishes these arrays. A read-only buffer view prevents
+            # downstream encoders from writing into the replay's public inputs.
+            batch.tables[name] = np.frombuffer(memoryview(array).toreadonly(), dtype=np.int64).reshape(array.shape)
+        batch.action_rows = batch.table("action_rows", ACTION_ROW_WIDTH)
+        return batch
+
     def __len__(self) -> int:
         return self.size
 
