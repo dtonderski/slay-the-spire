@@ -94,8 +94,6 @@ class ActionEncoder(nn.Module):
         bases = {name: np.cumsum(values) - values for name, values in sizes.items()}
         no_target = int(sizes["enemies"].sum())
         reference = next(self.parameters())
-        vectors = reference.new_zeros((len(candidates), self.action_dim))
-        packed = dict(features.rows)
         object_column = {
             "play_hand_slot": (2, "hand"),
             "use_potion_slot": (3, "potions"),
@@ -103,16 +101,16 @@ class ActionEncoder(nn.Module):
             "toggle_visible_card": (4, "selection"),
             "choose_visible_option": (4, "selection"),
         }
+        plans: list[tuple[str, str | None]] = []
+        arrays = []
         for kind, (column, group) in object_column.items():
             selected = np.flatnonzero(kinds == KIND_CODE[kind])
             if len(selected) == 0:
                 continue
             slots = candidates[selected, column].astype(np.int64)
-            limits = sizes[group][owners[selected]]
-            _require_slots(kind, slots, limits)
-            inputs = packed[group].index_select(
-                0, upload(bases[group][owners[selected]] + slots, torch.long, reference.device)
-            )
+            _require_slots(kind, slots, sizes[group][owners[selected]])
+            plans.append((kind, group))
+            arrays.extend((selected, bases[group][owners[selected]] + slots))
             if kind in ("play_hand_slot", "use_potion_slot"):
                 target_slots = candidates[selected, CANDIDATE_TARGET].astype(np.int64)
                 present = target_slots >= 0
@@ -121,18 +119,29 @@ class ActionEncoder(nn.Module):
                 target_index = np.full(len(selected), no_target, dtype=np.int64)
                 if np.any(present):
                     target_index[present] = bases["enemies"][owners[selected][present]] + target_slots[present]
-                if "targets" not in packed:
-                    enemies = packed["enemies"]
-                    packed["targets"] = torch.cat((enemies, enemies.new_zeros((1, ENEMY_FEATURE_DIM))))
-                targets = packed["targets"].index_select(0, upload(target_index, torch.long, reference.device))
-                flag = upload(present, inputs.dtype, reference.device).unsqueeze(1)
-                inputs = torch.cat((inputs, targets, flag), dim=1)
-            encoded = self.encoders[kind](inputs)
-            vectors = vectors.index_copy(0, upload(selected, torch.long, reference.device), encoded)
+                arrays.extend((target_index, present.astype(np.int64)))
         for kind in self.constants:
             selected = np.flatnonzero(kinds == KIND_CODE[kind])
-            if len(selected) == 0:
-                continue
-            encoded = self.constants[kind](torch.zeros(len(selected), dtype=torch.long, device=reference.device))
-            vectors = vectors.index_copy(0, upload(selected, torch.long, reference.device), encoded)
+            if len(selected):
+                plans.append((kind, None))
+                arrays.append(selected)
+        # One pinned staging allocation/copy for all per-kind gathers and scatters.
+        indices = iter(upload(np.concatenate(arrays), torch.long, reference.device).split([len(a) for a in arrays]))
+        vectors = reference.new_zeros((len(candidates), self.action_dim))
+        packed = dict(features.rows)
+        for kind, group in plans:
+            selected = next(indices)
+            if group is None:
+                encoded = self.constants[kind](torch.zeros(len(selected), dtype=torch.long, device=reference.device))
+            else:
+                inputs = packed[group].index_select(0, next(indices))
+                if kind in ("play_hand_slot", "use_potion_slot"):
+                    if "targets" not in packed:
+                        enemies = packed["enemies"]
+                        packed["targets"] = torch.cat((enemies, enemies.new_zeros((1, ENEMY_FEATURE_DIM))))
+                    targets = packed["targets"].index_select(0, next(indices))
+                    flag = next(indices).to(dtype=inputs.dtype).unsqueeze(1)
+                    inputs = torch.cat((inputs, targets, flag), dim=1)
+                encoded = self.encoders[kind](inputs)
+            vectors = vectors.index_copy(0, selected, encoded)
         return vectors
