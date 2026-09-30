@@ -674,7 +674,10 @@ def train_batch(
         loss, policy_loss = trajectories.losses(episodes, entropy_coef, value_coef=value_coef)
         value_loss = None if trajectories.value_loss is None else trajectories.value_loss
     else:
-        with torch.no_grad():
+        # Keep transformer weight casts cached while rollout parameters stay fixed.
+        # Disabled outer autocast leaves encoders/heads FP32; only the transformer's
+        # existing inner context enables BF16. Exit before gradient recomputation.
+        with torch.no_grad(), torch.autocast("cuda", enabled=False):
             episodes = play_combats(
                 [root.state for root in roots],
                 model,

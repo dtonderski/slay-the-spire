@@ -87,7 +87,9 @@ evaluation at `--eval-batch-size 64`, are a single call exactly as before.
 
 `--grad-chunk-decisions 0` (the default) retains the rollout graph until one
 backward. A positive value rolls out under `no_grad`, stores the public numeric
-inputs and chosen actions, then recomputes that same objective. The count is a
+inputs and chosen actions, then recomputes that same objective. Transformer BF16
+weight casts are cached across that fixed-parameter rollout and cleared before
+recomputation; encoders and heads still execute in FP32. The count is a
 flush threshold, not a hard maximum: a round is never split, so one large round
 can exceed it. Rounds in a flush are grouped by similar token width and action
 count and stacked into fewer forwards. Every group is divided by the completed-fight
