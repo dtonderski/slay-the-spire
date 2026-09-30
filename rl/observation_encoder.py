@@ -105,23 +105,14 @@ class ObservationEncoder(nn.Module):
         feature_rows["selection"] = features
         feature_lengths["selection"] = lengths
         counts = np.array([groups[name][1] for name in OBSERVATION_GROUPS]).T
-        width = int(counts.sum(axis=1).max()) + 1
-        positions = np.ones(batch.size, dtype=np.int64)
+        width, positions, destinations = token_layout(counts)
         reference = self.summary_embedding.weight
-        destinations = [np.arange(batch.size) * width]
-        for name in OBSERVATION_GROUPS:
-            lengths = groups[name][1]
-            owners = np.repeat(np.arange(batch.size), lengths)
-            starts = np.cumsum(lengths) - lengths
-            local = np.arange(len(owners)) - np.repeat(starts, lengths)
-            destinations.append(owners * width + positions[owners] + local)
-            positions += lengths
         # One lookup adds each row's group embedding; the summary row has none.
         kinds = np.repeat(np.arange(len(OBSERVATION_GROUPS)), counts.sum(axis=0))
         grouped = torch.cat([groups[name][0] for name in OBSERVATION_GROUPS])
         grouped = grouped + self.group_embedding(tensor(reference, kinds, integer=True))
         packed = torch.cat((reference.expand(batch.size, -1), grouped))
-        indices = tensor(reference, np.concatenate(destinations), integer=True)
+        indices = tensor(reference, destinations, integer=True)
         # Each real row has one destination; padding has no source row or backward accumulation.
         tokens = reference.new_zeros((batch.size * width, reference.shape[1])).index_copy(0, indices, packed)
         padding = upload(np.arange(width)[None, :] >= positions[:, None], torch.bool, reference.device)
@@ -169,6 +160,20 @@ class ObservationEncoder(nn.Module):
             for start, end, width in groups
         ]
         return torch.cat(parts).index_select(0, upload(inverse, torch.long, tokens.device))
+
+
+def token_layout(counts: np.ndarray) -> tuple[int, np.ndarray, np.ndarray]:
+    """Map group-major public token rows into observation-major padded slots."""
+    positions = counts.sum(axis=1) + 1
+    width = int(positions.max())
+    flat_counts = counts.T.reshape(-1)
+    source_starts = np.cumsum(flat_counts) - flat_counts
+    target_starts = np.arange(len(counts))[:, None] * width + np.cumsum(counts, axis=1) - counts + 1
+    # Within each group/owner segment, destination minus source is constant.
+    grouped = np.repeat(target_starts.T.reshape(-1) - source_starts, flat_counts)
+    grouped += np.arange(len(grouped))
+    destinations = np.concatenate((np.arange(len(counts)) * width, grouped))
+    return width, positions, destinations
 
 
 def width_groups(counts: np.ndarray, width: int, min_rows: int, growth: float) -> list[tuple[int, int, int]]:
