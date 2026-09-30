@@ -6,7 +6,7 @@ from jaxtyping import Float
 from sts_sim.observations.combat import SelectionKind
 from torch import Tensor, nn
 
-from .numeric import NumericBatch, tensor
+from .numeric import FeatureArrays, NumericBatch, upload_features
 
 SELECTION_TO_INDEX = {kind: index for index, kind in enumerate((None, *get_args(SelectionKind)))}
 SELECTION_CONTEXT_DIM = len(SELECTION_TO_INDEX)
@@ -18,18 +18,9 @@ class SelectionEncoder(nn.Module):
         self.context_projection = nn.Linear(SELECTION_CONTEXT_DIM, d_model)
         self.selected_projection = nn.Linear(1, d_model, bias=False)
 
-    def numeric(
-        self,
-        batch: NumericBatch,
-        cards: tuple[Float[Tensor, "n_options card_features"], Float[Tensor, "n_options d_model"], list[int]],
-    ) -> tuple[
-        Float[Tensor, "n_options selection_features"],
-        Float[Tensor, "batch d_model"],
-        Float[Tensor, "n_options d_model"],
-        list[int],
-    ]:
-        """Encode context and option flags without per-observation tensor operations."""
-        features, tokens, lengths_list = cards
+    @staticmethod
+    def prepare(batch: NumericBatch, lengths_list: list[int]) -> FeatureArrays:
+        """Prepare visible option flags and selection context on the host."""
         lengths = np.array(lengths_list)
         starts = np.cumsum(lengths) - lengths
         options = batch.table("selection_options", 2)
@@ -40,15 +31,41 @@ class SelectionEncoder(nn.Module):
             raise ValueError("Selected slot is outside the visible options")
         values = np.zeros((len(options), 1))
         values[starts[selected[:, 0]] + selected[:, 1], 0] = 1
-        reference = self.context_projection.weight
-        flags = tensor(reference, values)
         kind_ids = batch.table("selection", 1)[:, 0]
         if len(kind_ids) and (int(kind_ids.min()) < 0 or int(kind_ids.max()) >= SELECTION_CONTEXT_DIM):
             raise ValueError("Selection id is outside content vocabulary v1")
-        context = tensor(reference, np.eye(SELECTION_CONTEXT_DIM)[kind_ids])
+        return FeatureArrays(
+            {}, {"flags": values, "context": np.eye(SELECTION_CONTEXT_DIM)[kind_ids]}, {"selection": lengths_list}
+        )
+
+    def encode(
+        self,
+        inputs: dict[str, Tensor],
+        cards: tuple[Float[Tensor, "n_options card_features"], Float[Tensor, "n_options d_model"], list[int]],
+    ) -> tuple[
+        Float[Tensor, "n_options selection_features"],
+        Float[Tensor, "batch d_model"],
+        Float[Tensor, "n_options d_model"],
+        list[int],
+    ]:
+        features, tokens, lengths = cards
+        flags = inputs["flags"]
         return (
             torch.cat((features, flags), dim=1),
-            self.context_projection(context),
+            self.context_projection(inputs["context"]),
             tokens + self.selected_projection(flags),
-            lengths_list,
+            lengths,
         )
+
+    def numeric(
+        self,
+        batch: NumericBatch,
+        cards: tuple[Float[Tensor, "n_options card_features"], Float[Tensor, "n_options d_model"], list[int]],
+    ) -> tuple[
+        Float[Tensor, "n_options selection_features"],
+        Float[Tensor, "batch d_model"],
+        Float[Tensor, "n_options d_model"],
+        list[int],
+    ]:
+        raw = self.prepare(batch, cards[2])
+        return self.encode(upload_features({"selection": raw}, self.context_projection.weight)["selection"], cards)

@@ -1,6 +1,7 @@
 """Read-only public transport buffers. Feature definitions stay in their encoders."""
 
 import functools
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -120,3 +121,42 @@ def _has_numpy_view(dtype: torch.dtype) -> bool:
 def tensor(reference: Tensor, values: np.ndarray, *, integer: bool = False) -> Tensor:
     """Upload ``values`` to ``reference``'s device, as integers or in its dtype."""
     return upload(values, torch.long if integer else reference.dtype, reference.device)
+
+
+@dataclass
+class FeatureArrays:
+    """Parameter-independent public encoder inputs, before device transfer."""
+
+    integers: dict[str, np.ndarray]
+    floats: dict[str, np.ndarray]
+    lengths: dict[str, list[int]]
+
+
+def upload_features(groups: dict[str, FeatureArrays], reference: Tensor) -> dict[str, dict[str, Tensor]]:
+    """Pack each dtype into one transfer; retain no learned features between forwards.
+
+    CUDA staging has the same allocator-managed asynchronous lifetime as ``upload``.
+    """
+    result: dict[str, dict[str, Tensor]] = {name: {} for name in groups}
+    for field, dtype in (("integers", torch.long), ("floats", reference.dtype)):
+        entries = [
+            (group, name, array)
+            for group, features in groups.items()
+            for name, array in getattr(features, field).items()
+        ]
+        sizes = [array.size for _, _, array in entries]
+        if not entries:
+            continue
+        if _has_numpy_view(dtype):
+            staged = torch.empty(sum(sizes), dtype=dtype, pin_memory=reference.device.type == "cuda")
+            view = staged.numpy()
+            offset = 0
+            for (_, _, array), size in zip(entries, sizes, strict=True):
+                view[offset : offset + size].reshape(array.shape)[...] = array
+                offset += size
+            packed = staged.to(reference.device, non_blocking=True)
+        else:
+            packed = upload(np.concatenate([array.reshape(-1) for _, _, array in entries]), dtype, reference.device)
+        for (group, name, array), value in zip(entries, packed.split(sizes), strict=True):
+            result[group][name] = value.reshape(array.shape)
+    return result

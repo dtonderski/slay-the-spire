@@ -4,7 +4,7 @@ from jaxtyping import Float
 from sts_sim import CardKey
 from torch import Tensor, nn
 
-from .numeric import NumericBatch, tensor
+from .numeric import FeatureArrays, NumericBatch, upload_features
 
 CARD_EMBEDDING_DIM = 16
 CARD_STATE_DIM = 11
@@ -22,26 +22,35 @@ class CardEncoder(nn.Module):
         self.embedding = nn.Embedding(len(CARD_TO_INDEX), CARD_EMBEDDING_DIM)
         self.projection = nn.Linear(CARD_FEATURE_DIM, d_model)
 
-    def numeric(
-        self, batch: NumericBatch
-    ) -> dict[str, tuple[Float[Tensor, "n_cards card_features"], Float[Tensor, "n_cards d_model"], list[int]]]:
-        """Return flat features/tokens and per-observation lengths for every card table.
-
-        All tables share one embedding lookup and one projection; per-table results
-        are row slices of those, so each card is encoded exactly as it would be alone.
-        """
+    @staticmethod
+    def prepare(batch: NumericBatch) -> FeatureArrays:
+        """Gather the public card tables once, before any learned embedding."""
         tables = [batch.table(name, 18) for name in CARD_TABLES]
         rows = np.concatenate(tables)
         raw_ids = rows[:, 1]
         if len(raw_ids) and (int(raw_ids.min()) < 0 or int(raw_ids.max()) >= len(CARD_TO_INDEX)):
             raise ValueError("Card id is outside content vocabulary v1")
-        identities = self.embedding(tensor(self.embedding.weight, raw_ids, integer=True))
-        state = tensor(identities, rows[:, [2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 17]])
-        features = torch.cat((identities, state), dim=1)
-        sizes = [len(table) for table in tables]
+        return FeatureArrays(
+            {"ids": raw_ids},
+            {"state": rows[:, [2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 17]]},
+            {name: batch.lengths(table) for name, table in zip(CARD_TABLES, tables, strict=True)},
+        )
+
+    def encode(
+        self, inputs: dict[str, Tensor], lengths: dict[str, list[int]]
+    ) -> dict[str, tuple[Float[Tensor, "n_cards card_features"], Float[Tensor, "n_cards d_model"], list[int]]]:
+        identities = self.embedding(inputs["ids"])
+        features = torch.cat((identities, inputs["state"]), dim=1)
+        sizes = [sum(lengths[name]) for name in CARD_TABLES]
         return {
-            name: (table_features, table_tokens, batch.lengths(table))
-            for name, table, table_features, table_tokens in zip(
-                CARD_TABLES, tables, features.split(sizes), self.projection(features).split(sizes), strict=True
+            name: (table_features, table_tokens, lengths[name])
+            for name, table_features, table_tokens in zip(
+                CARD_TABLES, features.split(sizes), self.projection(features).split(sizes), strict=True
             )
         }
+
+    def numeric(
+        self, batch: NumericBatch
+    ) -> dict[str, tuple[Float[Tensor, "n_cards card_features"], Float[Tensor, "n_cards d_model"], list[int]]]:
+        raw = self.prepare(batch)
+        return self.encode(upload_features({"cards": raw}, self.embedding.weight)["cards"], raw.lengths)
