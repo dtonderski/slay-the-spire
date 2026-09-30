@@ -653,7 +653,7 @@ def train_batch(
     """Collect one batch, calculate the batched loss, and take one optimizer step.
 
     ``chunk_decisions=0`` retains every rollout graph until one backward.
-    A positive value rolls out under ``no_grad`` and recomputes gradients in chunks.
+    A positive value rolls out under ``inference_mode`` and recomputes gradients in chunks.
     Simulator errors propagate to the experiment's diagnostic/skip handler.
     """
     if chunk_decisions < 0:
@@ -674,7 +674,7 @@ def train_batch(
         loss, policy_loss = trajectories.losses(episodes, entropy_coef, value_coef=value_coef)
         value_loss = None if trajectories.value_loss is None else trajectories.value_loss
     else:
-        with torch.no_grad():
+        with torch.inference_mode():
             episodes = play_combats(
                 [root.state for root in roots],
                 model,
