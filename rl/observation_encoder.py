@@ -9,7 +9,7 @@ from torch import Tensor, nn
 from encoders.actions import FlatActionFeatures
 from encoders.cards import CardEncoder
 from encoders.enemies import EnemyEncoder
-from encoders.numeric import NumericBatch, tensor, upload
+from encoders.numeric import NumericBatch, tensor, upload, upload_features
 from encoders.player import PlayerEncoder
 from encoders.potions import PotionEncoder
 from encoders.relics import RelicEncoder
@@ -79,27 +79,37 @@ class ObservationEncoder(nn.Module):
 
         Also returns each row's real token count (summary included), computed on the host.
         """
+        raw = {
+            "player": self.player.prepare(batch),
+            "relics": self.relics.prepare(batch),
+            "potions": self.potions.prepare(batch),
+            "cards": self.cards.prepare(batch),
+            "enemies": self.enemies.prepare(batch),
+        }
+        raw["selection"] = self.selection.prepare(batch, raw["cards"].lengths["selection_cards"])
+        # All feature encoders share the FP32 parameter dtype; BF16 applies only inside the transformer.
+        inputs = upload_features(raw, self.summary_embedding.weight)
         groups = {}
         feature_rows = {}
         feature_lengths = {}
         for name, encoder in (("player", self.player), ("relics", self.relics), ("potions", self.potions)):
-            features, tokens, lengths = encoder.numeric(batch)
+            features, tokens, lengths = encoder.encode(inputs[name], raw[name].lengths)
             groups[name] = (tokens, lengths)
             if name == "potions":
                 feature_rows[name] = features
                 feature_lengths[name] = lengths
-        cards = self.cards.numeric(batch)
+        cards = self.cards.encode(inputs["cards"], raw["cards"].lengths)
         for name in ("hand", "draw", "discard", "exhaust"):
             features, tokens, lengths = cards[name]
             groups[name] = (tokens, lengths)
             if name == "hand":
                 feature_rows[name] = features
                 feature_lengths[name] = lengths
-        features, tokens, lengths = self.enemies.numeric(batch, cards["stasis"][0])
+        features, tokens, lengths = self.enemies.encode(inputs["enemies"], raw["enemies"].lengths, cards["stasis"][0])
         groups["enemies"] = (tokens, lengths)
         feature_rows["enemies"] = features
         feature_lengths["enemies"] = lengths
-        features, context, tokens, lengths = self.selection.numeric(batch, cards["selection_cards"])
+        features, context, tokens, lengths = self.selection.encode(inputs["selection"], cards["selection_cards"])
         groups["selection_context"] = (context, [1] * batch.size)
         groups["selection_options"] = (tokens, lengths)
         feature_rows["selection"] = features

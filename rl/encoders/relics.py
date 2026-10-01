@@ -4,7 +4,7 @@ from jaxtyping import Float
 from sts_sim import CounterKey, RelicKey
 from torch import Tensor, nn
 
-from .numeric import NumericBatch, tensor
+from .numeric import FeatureArrays, NumericBatch
 
 RELIC_EMBEDDING_DIM = 16
 RELIC_COUNTER_SLOTS = 3
@@ -20,15 +20,13 @@ class RelicEncoder(nn.Module):
         self.embedding = nn.Embedding(len(RELIC_TO_INDEX), RELIC_EMBEDDING_DIM)
         self.projection = nn.Linear(RELIC_FEATURE_DIM, d_model)
 
-    def numeric(
-        self, batch: NumericBatch
-    ) -> tuple[Float[Tensor, "n_relics relic_features"], Float[Tensor, "n_relics d_model"], list[int]]:
-        """Embed raw relic keys and assemble alphabetically ordered counter slots."""
+    @staticmethod
+    def prepare(batch: NumericBatch) -> FeatureArrays:
+        """Assemble public relic ids and alphabetically ordered counter slots."""
         rows = batch.table("relics", 2)
         raw_ids = rows[:, 1]
         if len(raw_ids) and (int(raw_ids.min()) < 0 or int(raw_ids.max()) >= len(RELIC_TO_INDEX)):
             raise ValueError("Relic id is outside content vocabulary v1")
-        identities = self.embedding(tensor(self.embedding.weight, raw_ids, integer=True))
         counters = batch.table("relic_counters", 3)
         counts = (
             np.bincount(counters[:, 0], minlength=len(rows)) if len(counters) else np.zeros(len(rows), dtype=np.int64)
@@ -43,6 +41,11 @@ class RelicEncoder(nn.Module):
         slots = np.arange(len(counters)) - np.repeat(np.cumsum(counts) - counts, counts)
         values = np.zeros((len(rows), RELIC_COUNTER_SLOTS))
         values[counters[:, 0], slots] = counters[:, 2]
-        features = torch.cat((identities, tensor(identities, values)), dim=1)
-        lengths = batch.lengths(rows)
-        return features, self.projection(features), lengths
+        return FeatureArrays({"ids": raw_ids}, {"state": values}, {"relics": batch.lengths(rows)})
+
+    def encode(
+        self, inputs: dict[str, Tensor], lengths: dict[str, list[int]]
+    ) -> tuple[Float[Tensor, "n_relics relic_features"], Float[Tensor, "n_relics d_model"], list[int]]:
+        identities = self.embedding(inputs["ids"])
+        features = torch.cat((identities, inputs["state"]), dim=1)
+        return features, self.projection(features), lengths["relics"]

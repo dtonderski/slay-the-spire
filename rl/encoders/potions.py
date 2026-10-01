@@ -2,7 +2,7 @@ from jaxtyping import Float
 from sts_sim import PotionKey
 from torch import Tensor, nn
 
-from .numeric import NumericBatch, tensor
+from .numeric import FeatureArrays, NumericBatch
 
 POTION_EMBEDDING_DIM = 16
 
@@ -17,14 +17,17 @@ class PotionEncoder(nn.Module):
         self.embedding = nn.Embedding(len(POTION_TO_INDEX), POTION_EMBEDDING_DIM)
         self.projection = nn.Linear(POTION_EMBEDDING_DIM, d_model)
 
-    def numeric(
-        self, batch: NumericBatch
-    ) -> tuple[Float[Tensor, "n_potions potion_features"], Float[Tensor, "n_potions d_model"], list[int]]:
-        """Embed raw potion keys, including real empty slots."""
+    @staticmethod
+    def prepare(batch: NumericBatch) -> FeatureArrays:
+        """Validate public potion ids, including real empty slots."""
         rows = batch.table("potions", 3)
         raw_ids = rows[:, 1]
         if len(raw_ids) and (int(raw_ids.min()) < 0 or int(raw_ids.max()) >= len(POTION_TO_INDEX)):
             raise ValueError("Potion id is outside content vocabulary v1")
-        features = self.embedding(tensor(self.embedding.weight, raw_ids, integer=True))
-        lengths = batch.lengths(rows)
-        return features, self.projection(features), lengths
+        return FeatureArrays({"ids": raw_ids}, {}, {"potions": batch.lengths(rows)})
+
+    def encode(
+        self, inputs: dict[str, Tensor], lengths: dict[str, list[int]]
+    ) -> tuple[Float[Tensor, "n_potions potion_features"], Float[Tensor, "n_potions d_model"], list[int]]:
+        features = self.embedding(inputs["ids"])
+        return features, self.projection(features), lengths["potions"]
