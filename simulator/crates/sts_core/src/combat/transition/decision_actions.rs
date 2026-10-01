@@ -604,6 +604,24 @@ pub(super) fn await_exhaust_select(
         super::settle_exhume_source_after_selection(state, exhaust_select, source_card_id)?;
         return Ok(Vec::new());
     }
+    if purpose == ExhaustSelectPurpose::RecycleExhaustOne {
+        // RecycleAction.update never opens a screen for zero/one live hand
+        // cards. The source was removed above, matching the target's limbo.
+        if state.piles.hand.is_empty() {
+            super::close_discovery_source_card_with_force_exhaust(
+                state,
+                exhaust_select.source_card,
+                exhaust_select.source_card_force_exhaust,
+            )?;
+            return Ok(Vec::new());
+        }
+        if state.piles.hand.len() == 1 {
+            let mut exhaust_select = exhaust_select;
+            exhaust_select.selected_hand_indices.push(0);
+            super::confirm_recycle_select(state, exhaust_select)?;
+            return Ok(Vec::new());
+        }
+    }
     state.decision = Some(CombatDecisionState::ExhaustSelect {
         state: exhaust_select,
     });

@@ -6320,12 +6320,14 @@ fn confirm_recycle_select(
         .energy
         .checked_add(target_cost)
         .ok_or(SimError::InvalidState("Recycle energy gain overflows i32"))?;
-    if let Some(source_card) = exhaust_select.source_card {
-        state.piles.discard_pile.push(source_card);
-    } else if let Some(source_card_id) = exhaust_select.source_card_id {
-        move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)?;
-    }
-    Ok(())
+    // The selected source is held outside the piles on ordinary hand play.
+    // Forced top-deck play may already have settled it before this screen;
+    // source_card == None then means there is nothing left to move.
+    close_discovery_source_card_with_force_exhaust(
+        state,
+        exhaust_select.source_card,
+        exhaust_select.source_card_force_exhaust,
+    )
 }
 
 /// True Grit ExhaustAction skipped-retrieval (force-played True Grit+).
