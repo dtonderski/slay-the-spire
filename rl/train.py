@@ -56,7 +56,7 @@ class Episode:
 
 @dataclass
 class ReplayRound:
-    """Public inputs needed to recompute one decision round after a no-grad rollout."""
+    """Public NumPy inputs needed to recompute a decision round after inference-mode collection."""
 
     observations: NumericBatch
     candidates: np.ndarray
@@ -674,6 +674,7 @@ def train_batch(
         loss, policy_loss = trajectories.losses(episodes, entropy_coef, value_coef=value_coef)
         value_loss = None if trajectories.value_loss is None else trajectories.value_loss
     else:
+        # Only NumPy replay inputs cross into recomputation; collection tensors must never enter its autograd graph.
         with torch.inference_mode():
             episodes = play_combats(
                 [root.state for root in roots],
