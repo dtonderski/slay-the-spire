@@ -87,6 +87,7 @@ class ObservationEncoder(nn.Module):
             "enemies": self.enemies.prepare(batch),
         }
         raw["selection"] = self.selection.prepare(batch, raw["cards"].lengths["selection_cards"])
+        # All feature encoders share the FP32 parameter dtype; BF16 applies only inside the transformer.
         inputs = upload_features(raw, self.summary_embedding.weight)
         groups = {}
         feature_rows = {}

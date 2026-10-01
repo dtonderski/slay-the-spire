@@ -3,7 +3,7 @@ from jaxtyping import Float
 from sts_sim import PowerKey
 from torch import Tensor, nn
 
-from .numeric import FeatureArrays, NumericBatch, upload_features
+from .numeric import FeatureArrays, NumericBatch
 
 # Current-catalog indices only. Checkpoint compatibility is not implemented yet.
 POWER_TO_INDEX = {key: index for index, key in enumerate(PowerKey)}
@@ -37,9 +37,3 @@ class PlayerEncoder(nn.Module):
     ) -> tuple[Float[Tensor, "batch player_features"], Float[Tensor, "batch d_model"], list[int]]:
         features = inputs["state"]
         return features, self.projection(features), lengths["player"]
-
-    def numeric(
-        self, batch: NumericBatch
-    ) -> tuple[Float[Tensor, "batch player_features"], Float[Tensor, "batch d_model"], list[int]]:
-        raw = self.prepare(batch)
-        return self.encode(upload_features({"player": raw}, self.projection.weight)["player"], raw.lengths)

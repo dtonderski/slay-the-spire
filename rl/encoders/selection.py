@@ -6,7 +6,7 @@ from jaxtyping import Float
 from sts_sim.observations.combat import SelectionKind
 from torch import Tensor, nn
 
-from .numeric import FeatureArrays, NumericBatch, upload_features
+from .numeric import FeatureArrays, NumericBatch
 
 SELECTION_TO_INDEX = {kind: index for index, kind in enumerate((None, *get_args(SelectionKind)))}
 SELECTION_CONTEXT_DIM = len(SELECTION_TO_INDEX)
@@ -56,16 +56,3 @@ class SelectionEncoder(nn.Module):
             tokens + self.selected_projection(flags),
             lengths,
         )
-
-    def numeric(
-        self,
-        batch: NumericBatch,
-        cards: tuple[Float[Tensor, "n_options card_features"], Float[Tensor, "n_options d_model"], list[int]],
-    ) -> tuple[
-        Float[Tensor, "n_options selection_features"],
-        Float[Tensor, "batch d_model"],
-        Float[Tensor, "n_options d_model"],
-        list[int],
-    ]:
-        raw = self.prepare(batch, cards[2])
-        return self.encode(upload_features({"selection": raw}, self.context_projection.weight)["selection"], cards)

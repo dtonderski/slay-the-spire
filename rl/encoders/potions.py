@@ -2,7 +2,7 @@ from jaxtyping import Float
 from sts_sim import PotionKey
 from torch import Tensor, nn
 
-from .numeric import FeatureArrays, NumericBatch, upload_features
+from .numeric import FeatureArrays, NumericBatch
 
 POTION_EMBEDDING_DIM = 16
 
@@ -31,9 +31,3 @@ class PotionEncoder(nn.Module):
     ) -> tuple[Float[Tensor, "n_potions potion_features"], Float[Tensor, "n_potions d_model"], list[int]]:
         features = self.embedding(inputs["ids"])
         return features, self.projection(features), lengths["potions"]
-
-    def numeric(
-        self, batch: NumericBatch
-    ) -> tuple[Float[Tensor, "n_potions potion_features"], Float[Tensor, "n_potions d_model"], list[int]]:
-        raw = self.prepare(batch)
-        return self.encode(upload_features({"potions": raw}, self.embedding.weight)["potions"], raw.lengths)

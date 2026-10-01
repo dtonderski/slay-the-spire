@@ -8,7 +8,7 @@ from sts_sim.observations.combat import IntentCategory, SlimeSize
 from torch import Tensor, nn
 
 from .cards import CARD_FEATURE_DIM
-from .numeric import FeatureArrays, NumericBatch, upload_features
+from .numeric import FeatureArrays, NumericBatch
 from .player import GOLD_SCALE, POWER_TO_INDEX
 
 # Include hidden/none separately from visible categories such as "unknown".
@@ -70,11 +70,3 @@ class EnemyEncoder(nn.Module):
         )
         features = torch.cat((identities, inputs["state"], held), dim=1)
         return features, self.projection(features), lengths["enemies"]
-
-    def numeric(
-        self, batch: NumericBatch, stasis_features: Float[Tensor, "n_stasis card_features"]
-    ) -> tuple[Float[Tensor, "n_enemies enemy_features"], Float[Tensor, "n_enemies d_model"], list[int]]:
-        raw = self.prepare(batch)
-        return self.encode(
-            upload_features({"enemies": raw}, self.embedding.weight)["enemies"], raw.lengths, stasis_features
-        )

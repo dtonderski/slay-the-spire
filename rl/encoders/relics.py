@@ -4,7 +4,7 @@ from jaxtyping import Float
 from sts_sim import CounterKey, RelicKey
 from torch import Tensor, nn
 
-from .numeric import FeatureArrays, NumericBatch, upload_features
+from .numeric import FeatureArrays, NumericBatch
 
 RELIC_EMBEDDING_DIM = 16
 RELIC_COUNTER_SLOTS = 3
@@ -49,9 +49,3 @@ class RelicEncoder(nn.Module):
         identities = self.embedding(inputs["ids"])
         features = torch.cat((identities, inputs["state"]), dim=1)
         return features, self.projection(features), lengths["relics"]
-
-    def numeric(
-        self, batch: NumericBatch
-    ) -> tuple[Float[Tensor, "n_relics relic_features"], Float[Tensor, "n_relics d_model"], list[int]]:
-        raw = self.prepare(batch)
-        return self.encode(upload_features({"relics": raw}, self.embedding.weight)["relics"], raw.lengths)
