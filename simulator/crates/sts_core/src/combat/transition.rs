@@ -6312,13 +6312,19 @@ fn confirm_recycle_select(
         return Err(SimError::IllegalAction("exhaust select index out of range"));
     }
     let target_card = state.piles.hand.remove(target_index);
-    let target_cost = effective_card_cost(&target_card)?;
+    // RecycleAction.update queues current energy for costForTurn == -1,
+    // positive costForTurn otherwise, and nothing for unplayable/zero costs.
+    // Capture before exhaust callbacks, which may themselves alter energy.
+    let energy_gain = match effective_card_cost(&target_card)? {
+        -1 => state.player.energy,
+        cost => cost.max(0),
+    };
     state.piles.exhaust_pile.push(target_card);
     apply_on_exhaust_effects(state, target_card.id)?;
     state.player.energy = state
         .player
         .energy
-        .checked_add(target_cost)
+        .checked_add(energy_gain)
         .ok_or(SimError::InvalidState("Recycle energy gain overflows i32"))?;
     if let Some(source_card) = exhaust_select.source_card {
         state.piles.discard_pile.push(source_card);
