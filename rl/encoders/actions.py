@@ -144,4 +144,5 @@ class ActionEncoder(nn.Module):
                     inputs = torch.cat((inputs, targets, flag), dim=1)
                 encoded = self.encoders[kind](inputs)
             vectors = vectors.index_copy(0, selected, encoded)
+        assert next(indices, None) is None, "Unconsumed packed action index segment"
         return vectors
