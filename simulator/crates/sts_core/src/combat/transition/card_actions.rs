@@ -154,12 +154,25 @@ pub(super) fn set_hand_card_cost_for_combat(
     Ok(Vec::new())
 }
 
-pub(super) fn reduce_hand_card_cost_for_combat(
+pub(super) fn reduce_card_cost_for_combat(
     state: &mut CombatState,
     card_id: CardId,
     amount: u8,
 ) -> SimResult<Vec<InternalAction>> {
-    let card = find_hand_card_mut(state, card_id)?;
-    crate::combat::cost::reduce_card_cost_for_combat(card, amount)?;
+    // ReduceCostAction(UUID) uses GetAllInBattleInstances, not a hand-only
+    // lookup. A purgeOnUse Streamline copy shares the original's UUID after
+    // the original UseCardAction has moved it into discard (or exhaust).
+    for card in state
+        .piles
+        .hand
+        .iter_mut()
+        .chain(state.piles.draw_pile.iter_mut())
+        .chain(state.piles.discard_pile.iter_mut())
+        .chain(state.piles.exhaust_pile.iter_mut())
+        .chain(state.piles.limbo.iter_mut())
+        .filter(|card| card.id == card_id)
+    {
+        crate::combat::cost::reduce_card_cost_for_combat(card, amount)?;
+    }
     Ok(Vec::new())
 }
