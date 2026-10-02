@@ -6312,13 +6312,19 @@ fn confirm_recycle_select(
         return Err(SimError::IllegalAction("exhaust select index out of range"));
     }
     let target_card = state.piles.hand.remove(target_index);
-    let target_cost = effective_card_cost(&target_card)?;
+    // RecycleAction.update queues current energy for costForTurn == -1,
+    // positive costForTurn otherwise, and nothing for unplayable/zero costs.
+    // Capture before exhaust callbacks, which may themselves alter energy.
+    let energy_gain = match effective_card_cost(&target_card)? {
+        -1 => state.player.energy,
+        cost => cost.max(0),
+    };
     state.piles.exhaust_pile.push(target_card);
     apply_on_exhaust_effects(state, target_card.id)?;
     state.player.energy = state
         .player
         .energy
-        .checked_add(target_cost)
+        .checked_add(energy_gain)
         .ok_or(SimError::InvalidState("Recycle energy gain overflows i32"))?;
     if let Some(source_card) = exhaust_select.source_card {
         state.piles.discard_pile.push(source_card);
@@ -6736,8 +6742,20 @@ fn confirm_purity_select(
     if let Some(source_card) = exhaust_select.source_card {
         state.piles.limbo.push(source_card);
     }
+    // ExhaustAction.update still owns every selected card while it exhausts
+    // them one at a time. Park the remaining selections in limbo so a callback
+    // (Dead Branch, Hex, draws) cannot allocate a not-yet-exhausted card's id.
+    // Do not publish all selections as exhausted ahead of their callbacks.
+    state.piles.limbo.extend(exhausted.iter().copied());
     let mut dead_branch_count = 0;
     for card in exhausted {
+        let index = state
+            .piles
+            .limbo
+            .iter()
+            .position(|held| held.id == card.id)
+            .ok_or(SimError::UnknownCard(card.id))?;
+        let card = state.piles.limbo.remove(index);
         state.piles.exhaust_pile.push(card);
         dead_branch_count += apply_purity_card_exhausted(state, card.id)?;
     }
