@@ -76,8 +76,10 @@ function enumerateGameplayActions(summary) {
   }
   if (
     available.has("key") &&
-    String(summary?.screen_name).toUpperCase() === "MASTER_DECK_VIEW"
+    ["MASTER_DECK_VIEW", "GAME_DECK_VIEW"].includes(String(summary?.screen_name).toUpperCase())
   ) {
+    // Both deck-view screens display the game's Cancel button. Closing the
+    // overlay is an explicit accepted UI action, not a state repair or poll.
     actions.push("KEY CANCEL 250");
   }
   if (available.has("click") && String(summary?.screen_name).toUpperCase() === "FTUE") {
@@ -317,7 +319,8 @@ function isSoleEventLeaveScreen(summary) {
 }
 
 function isCommandInFlightHang(error) {
-  return /bridge command did not complete after acceptance:/i.test(String(error?.message || error));
+  return error?.code === "COMMAND_IN_FLIGHT_HANG"
+    || /bridge command did not complete after acceptance:/i.test(String(error?.message || error));
 }
 
 function controlRequest(control, payload, timeoutMs = 15000) {
@@ -335,7 +338,11 @@ function controlRequest(control, payload, timeoutMs = 15000) {
       const newline = buffer.indexOf("\n");
       if (newline < 0) return;
       clearTimeout(timer);
-      socket.end();
+      // A complete JSONL response owns the whole request. Destroy the client
+      // socket instead of waiting for the bridge to close its writable side;
+      // otherwise a successful collector can remain alive indefinitely after
+      // releasing ownership.
+      socket.destroy();
       try {
         resolve(JSON.parse(buffer.slice(0, newline)));
       } catch (error) {
@@ -792,7 +799,7 @@ async function currentRunRecords(tracePath, startOffset = 0) {
   return extracted;
 }
 
-function requireCommandCompletion(protocolState, command, acceptedStep, priorStateSeq) {
+function requireCommandCompletion(protocolState, command, acceptedStep, priorStateSeq, accepted) {
   const current = protocolState?.state ?? protocolState;
   if (!current || current.ok === false) {
     throw new Error(`bridge did not return a completion for ${command}`);
@@ -804,7 +811,7 @@ function requireCommandCompletion(protocolState, command, acceptedStep, priorSta
     throw new Error(`bridge completion for ${command} did not advance state_seq`);
   }
   const summary = current.summary;
-  if (summary?.error) return current;
+  if (summary?.error) throw new Error(`CommunicationMod rejected ${command}: ${summary.error}`);
   const commandHead = String(command).trim().split(/\s+/)[0].toUpperCase();
   if (commandHead === "PROFILE") {
     if (summary?.type !== "profile" || typeof summary.profile !== "object" || summary.profile === null) {
@@ -820,10 +827,29 @@ function requireCommandCompletion(protocolState, command, acceptedStep, priorSta
   if (!valid) {
     throw new Error(`${command} completed on invalid ${boundary.kind} boundary`);
   }
+  const advance = stateCommand ? 0 : 1;
+  if (!accepted || typeof accepted.commandId !== "string" || !accepted.commandId
+      || !isSafeNonNegativeInteger(accepted.executionSeq)
+      || !isSafeNonNegativeInteger(accepted.settlementSeq)
+      || summary.command_response_id !== accepted.commandId
+      || summary.command_response_kind !== (stateCommand ? "poll" : "settled")
+      || summary.transaction_pending !== false
+      || summary.command_execution_seq !== accepted.executionSeq + advance
+      || summary.command_settlement_seq !== accepted.settlementSeq + advance) {
+    throw new Error(`${command} completion does not match accepted command identity/fences`);
+  }
   return current;
 }
 
 async function send(control, ownerToken, protocolState, command, metadata) {
+  const accepted = {
+    commandId: crypto.randomUUID(),
+    executionSeq: protocolState.summary ? protocolState.summary.command_execution_seq : 0,
+    settlementSeq: protocolState.summary ? protocolState.summary.command_settlement_seq : 0,
+  };
+  if (!isSafeNonNegativeInteger(accepted.executionSeq) || !isSafeNonNegativeInteger(accepted.settlementSeq)) {
+    throw new Error(`missing source command fences before ${command}`);
+  }
   const playtimeSeconds = protocolState.summary?.playtime_seconds;
   if (Number.isFinite(playtimeSeconds) && playtimeSeconds >= 0) {
     metadata = { ...metadata, playtime_seconds: Math.floor(playtimeSeconds) };
@@ -833,15 +859,17 @@ async function send(control, ownerToken, protocolState, command, metadata) {
     {
       type: "command",
       command,
-      command_id: crypto.randomUUID(),
+      command_id: accepted.commandId,
       expected_state_id: protocolState.state_id,
       expected_state_seq: protocolState.state_seq,
       owner_token: ownerToken,
       metadata,
       wait_for_state_update: true,
-      update_timeout_ms: 20000,
+      // Long late-game action queues may take over 20s to settle naturally.
+      // Still fail closed on a bounded timeout; never poll or resend on expiry.
+      update_timeout_ms: 90000,
     },
-    25000,
+    95000,
   );
   if (!response.ok) throw new Error(response.error || `bridge rejected ${command}`);
   const acceptedActionStep = response.step + (protocolState.summary ? 1 : 0);
@@ -851,35 +879,60 @@ async function send(control, ownerToken, protocolState, command, metadata) {
       command,
       acceptedActionStep,
       protocolState.state_seq,
+      accepted,
     );
   }
 
-  // A long animation can outlive update_timeout_ms even though the bridge has
-  // accepted and queued the command. Do not submit a settle STATE into that
-  // occupied slot; wait for the accepted command to finish instead.
-  for (let attempt = 0; attempt < 240; attempt += 1) {
-    const current = await controlRequest(control, { type: "state" });
-    if (current.ok && !current.pending_command && current.state_seq > protocolState.state_seq) {
-      return requireCommandCompletion(current, command, acceptedActionStep, protocolState.state_seq);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-  const hang = new Error(`bridge command did not complete after acceptance: ${command}`);
+  // Never replace an ambiguous accepted command with a later cached state.
+  // Preserve ownership/pending work for inspection; no polling, resend or repair.
+  const hang = new Error(`bridge command exceeded observation deadline after acceptance: ${command}`);
   hang.code = "COMMAND_IN_FLIGHT_HANG";
   hang.command = command;
   throw hang;
 }
 
+function validateCollectionStartup(status, live = null) {
+  if (!["ready", "waiting", "sent"].includes(status?.status)
+      || !Number.isSafeInteger(status.client_pid) || status.client_pid <= 0
+      || typeof status.trace_path !== "string" || !status.trace_path
+      || status.control?.protocol !== "tcp-jsonl"
+      || !["127.0.0.1", "localhost", "::1"].includes(status.control.host || "127.0.0.1")
+      || !Number.isSafeInteger(status.control.port) || status.control.port < 1 || status.control.port > 65535) {
+    throw new Error("invalid selected collection bridge identity or local endpoint");
+  }
+  const protocol = status.protocol ?? status.bridge_protocol ?? "sts-bridge-jsonl-v1";
+  if (live && (!live.ok || live.protocol !== protocol || live.client_pid !== status.client_pid
+      || live.trace_path !== status.trace_path)) {
+    throw new Error("live collection bridge identity differs from selected status");
+  }
+  for (const value of [status, live].filter(Boolean)) {
+    if (value.pending_command === true || value.command_in_flight != null || value.controller != null) {
+      throw new Error("collection refuses existing ownership or pending work");
+    }
+    if (value.summary?.in_game) throw new Error("collection requires a fresh menu boundary");
+  }
+}
+
+function parseIntegerEnv(name, fallback, minimum = 1, env = process.env) {
+  const raw = env[name] ?? String(fallback);
+  const value = Number(raw);
+  if (!/^\d+$/.test(raw) || !Number.isSafeInteger(value) || value < minimum) {
+    throw new Error(`${name} must be a safe integer >= ${minimum}, received ${JSON.stringify(raw)}`);
+  }
+  return value;
+}
+
 async function main() {
+  // Validate before even reading a bridge, and certainly before ownership.
+  const policySeed = parseIntegerEnv("STS_RANDOM_POLICY_SEED", 1);
+  const startingHp = parseIntegerEnv("STS_STARTING_HP", 10000);
+  const maxActions = parseIntegerEnv("STS_RANDOM_MAX_ACTIONS", 10000);
   const sessionDir = path.resolve(process.env.STS_BRIDGE_SESSION_DIR || defaultSessionDir);
   const status = JSON.parse(fs.readFileSync(path.join(sessionDir, "status.json"), "utf8"));
   if (!status.control || status.control.protocol !== "tcp-jsonl") {
     throw new Error("a live TCP-enabled CommunicationMod bridge is required");
   }
-  const policySeed = Number.parseInt(process.env.STS_RANDOM_POLICY_SEED || "1", 10);
   const gameSeed = process.env.STS_GAME_SEED || `COLLECT${policySeed}`;
-  const startingHp = Number.parseInt(process.env.STS_STARTING_HP || "10000", 10);
-  const maxActions = Number.parseInt(process.env.STS_RANDOM_MAX_ACTIONS || "10000", 10);
   const logActions = process.env.STS_RANDOM_LOG_ACTIONS !== "0";
   const sourceVersion = process.env.STS_RANDOM_SOURCE_VERSION || "working-tree";
   const traceStartedAt = new Date();
@@ -888,11 +941,18 @@ async function main() {
   const bossUnlocks = loadBossUnlocks();
   const random = seededRandom(policySeed);
   const ownerId = `random-fidelity-${process.pid}`;
+  validateCollectionStartup(status);
+  const hello = await controlRequest(status.control, { type: "hello" });
+  validateCollectionStartup(status, hello);
+  const beforeAcquire = await controlRequest(status.control, { type: "state" });
+  validateCollectionStartup(status, beforeAcquire);
+  if (!Number.isSafeInteger(beforeAcquire.state_seq) || beforeAcquire.state_seq < 0
+      || (beforeAcquire.state_seq > 0 && (typeof beforeAcquire.state_id !== "string" || !beforeAcquire.state_id))) {
+    throw new Error("collection bridge cached state identity is missing");
+  }
   const acquired = await controlRequest(status.control, {
     type: "acquire",
     owner_id: ownerId,
-    takeover_if_stale_after_ms: 5000,
-    cancel_orphaned_command_after_ms: 5000,
   });
   if (!acquired.ok) throw new Error(acquired.error || "bridge ownership rejected");
 
@@ -903,63 +963,15 @@ async function main() {
   const activeTrace = immutableTracePath(campaignDir, gameSeed, policySeed, traceStartedAt);
   const ledgerPath = path.join(campaignDir, "ledger.jsonl");
 
-  const abandonCurrentRun = async ({ reason, preemptInFlight = false }) => {
-    const current = await controlRequest(status.control, { type: "state" });
-    if (!current.summary?.in_game) return;
-    const abandoned = await controlRequest(
-      status.control,
-      {
-        type: "abandon_run",
-        owner_token: acquired.owner_token,
-        preempt_in_flight: preemptInFlight || undefined,
-        metadata: {
-          source: "random_fidelity_collector",
-          reason: "captured_incomplete_run",
-          detail: reason,
-        },
-        wait_for_state_update: true,
-        update_timeout_ms: 20000,
-      },
-      25000,
-    );
-    if (!abandoned.ok) {
-      throw new Error(abandoned.error || `failed to abandon captured run: ${reason}`);
-    }
-  };
+  // On any failure retain ownership and pending work for explicit inspection.
+  // A supervisor must not turn an ambiguous accepted command into a retry.
+  let completedNaturally = false;
 
   try {
     let protocolState = await controlRequest(status.control, { type: "state" });
     if (!protocolState.ok) throw new Error(protocolState.error || "failed to read bridge state");
     if (protocolState.summary?.in_game) {
-      if (process.env.STS_RANDOM_ABANDON_EXISTING !== "1") {
-        throw new Error("bridge is already in a run; abandon it or set STS_RANDOM_ABANDON_EXISTING=1");
-      }
-      const abandoned = await controlRequest(
-        status.control,
-        {
-          type: "abandon_run",
-          owner_token: acquired.owner_token,
-          metadata: { source: "random_fidelity_collector", reason: "next_campaign_run" },
-          wait_for_state_update: true,
-          update_timeout_ms: 20000,
-        },
-        25000,
-      );
-      if (!abandoned.ok) throw new Error(abandoned.error || "failed to abandon existing run");
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      for (let attempt = 0; attempt < 20; attempt += 1) {
-        protocolState = await controlRequest(status.control, { type: "state" });
-        if (!protocolState.summary?.in_game) break;
-        if (protocolState.summary?.ready_for_command) {
-          await send(status.control, acquired.owner_token, protocolState, "STATE", {
-            source: "random_fidelity_collector",
-            reason: "settle_abandon",
-            operator_control: "settle_poll",
-          });
-        }
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-      if (protocolState.summary?.in_game) throw new Error("game did not return to menu after abandon");
+      throw new Error("bridge is already in a run; collection refuses automatic abandon");
     }
     const startupReady = !protocolState.summary && protocolState.status?.status === "ready";
     if (startupReady) {
@@ -985,6 +997,9 @@ async function main() {
     if (!menuStartReady(protocolState.summary)) {
       throw new Error("START_VERIFY did not become available at the main menu");
     }
+    protocolState = await send(status.control, acquired.owner_token, protocolState, "STATE", {
+      source: "random_fidelity_collector", reason: "observe_pre_run_menu", operator_control: "startup_state",
+    });
     const profileState = await send(
       status.control,
       acquired.owner_token,
@@ -1033,6 +1048,7 @@ async function main() {
         terminal_reason: terminalReason,
         reason,
         trace: activeTrace,
+        trace_sha256: crypto.createHash("sha256").update(fs.readFileSync(activeTrace)).digest("hex"),
       };
       fs.appendFileSync(ledgerPath, `${JSON.stringify(entry)}\n`);
       console.log(JSON.stringify(entry));
@@ -1054,7 +1070,7 @@ async function main() {
       for (let actionIndex = 1; actionIndex <= maxActions + 1; actionIndex += 1) {
       protocolState = await controlRequest(status.control, { type: "state" });
       const summary = protocolState.summary;
-      if (!summary) throw new Error("bridge returned no summary");
+      if (!summary || typeof summary.in_game !== "boolean") throw new Error("bridge returned no typed in_game summary");
       if (pendingEventLeave && isSoleEventLeaveScreen(summary)) {
         const confirmEventLeave = ["confirm", "confirm_fold"].includes(pendingEventLeave);
         const settleCommand = confirmEventLeave ? "CHOOSE 0" : "STATE";
@@ -1112,13 +1128,17 @@ async function main() {
         continue;
       }
       const actionCount = actionIndex - 1;
-      const terminal = !summary.in_game || actionIndex > maxActions;
+      if (summary.in_game && actionIndex > maxActions) {
+        throw new Error("collection action limit reached before natural completion");
+      }
+      const terminal = !summary.in_game;
       if (terminal) {
         await materializeRun({
-          terminalReason: !summary.in_game ? "game_over" : "max_actions",
+          terminalReason: "game_over",
           actions: actionCount,
           settled: true,
         });
+        completedNaturally = true;
         return;
       }
       const sample = sampleRandomAction(summary, random);
@@ -1170,19 +1190,16 @@ async function main() {
           settled: false,
         });
       }
-      await abandonCurrentRun({
-        reason,
-        preemptInFlight: isCommandInFlightHang(error),
-      }).catch((abandonError) => {
-        console.error(`captured run but failed to reset game: ${abandonError.message || abandonError}`);
-      });
-      return;
+      throw error;
     }
   } finally {
-    await controlRequest(status.control, {
-      type: "release",
-      owner_token: acquired.owner_token,
-    }).catch(() => {});
+    if (completedNaturally) {
+      const released = await controlRequest(status.control, {
+        type: "release",
+        owner_token: acquired.owner_token,
+      });
+      if (!released.ok) throw new Error("bridge did not release completed collection ownership");
+    }
   }
 }
 
@@ -1205,6 +1222,10 @@ if (require.main === module) {
 }
 
 module.exports = {
+  controlRequest,
+  parseIntegerEnv,
+  send,
+  requireCommandCompletion,
   addCollectionMetadata,
   chooseRandomAction,
   currentRunRecords,
@@ -1224,5 +1245,6 @@ module.exports = {
   sampleRandomAction,
   seededRandom,
   validateProfileSnapshot,
+  validateCollectionStartup,
   writeTrace,
 };

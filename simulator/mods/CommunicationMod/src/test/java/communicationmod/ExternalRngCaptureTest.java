@@ -3,6 +3,8 @@ package communicationmod;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.RandomXS128;
 import com.megacrit.cardcrawl.rooms.AbstractRoom;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
@@ -13,6 +15,18 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public class ExternalRngCaptureTest {
+    private TestStateSnapshot statics;
+
+    @Before
+    public void captureStatics() {
+        statics = TestStateSnapshot.of(GameStateListener.class);
+    }
+
+    @After
+    public void restoreStatics() {
+        statics.restore();
+    }
+
     public static void main(String[] args) {
         new ExternalRngCaptureTest().capturesExternalRngAndChecksBoundaryHelpers();
     }
@@ -79,10 +93,17 @@ public class ExternalRngCaptureTest {
             assertFalse(GameStateListener.retainDeferredOutOfCombatUpdate(true, true));
             assertFalse(GameStateListener.retainDeferredOutOfCombatUpdate(false, false));
 
-            assertTrue(GameStateListener.effectQueuesAreSettled(0, 0, 0));
-            assertFalse(GameStateListener.effectQueuesAreSettled(1, 0, 0));
-            assertFalse(GameStateListener.effectQueuesAreSettled(0, 1, 0));
-            assertFalse(GameStateListener.effectQueuesAreSettled(0, 0, 1));
+            // AbstractEvent.update() only enters its countdown branch when
+            // positive; zero and an already-expired negative value are ready.
+            assertTrue(GameStateListener.eventWaitTimerPending(0.1F));
+            assertFalse(GameStateListener.eventWaitTimerPending(0.0F));
+            assertFalse(GameStateListener.eventWaitTimerPending(-0.1F));
+
+            // Smoke Bomb leaves the player in the target escape animation
+            // until AbstractRoom.endBattle opens the smoked reward.
+            assertTrue(GameStateListener.playerEscapeAnimationPending(true, true));
+            assertFalse(GameStateListener.playerEscapeAnimationPending(true, false));
+            assertFalse(GameStateListener.playerEscapeAnimationPending(false, true));
 
             assertTrue(GameStateListener.isQuiescentCombatBoundaryReady(false, true, true));
             assertFalse(GameStateListener.isQuiescentCombatBoundaryReady(true, true, true));

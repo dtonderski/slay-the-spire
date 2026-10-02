@@ -1962,7 +1962,71 @@ async function testSchemaSevenTcpCompletionAndDuplicateIdentity() {
   }
 }
 
+async function testControlPeerResetPreservesOwnerAndAcceptedCommand() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "sts-control-reset-"));
+  const child = spawn(process.execPath, [traceClientPath], {
+    cwd: repoRoot, env: { ...process.env, TRACE_SESSION_DIR: root, TRACE_OUT_DIR: root, TRACE_CONTROL_PORT: "0", TRACE_AUTO_STATE_MS: "0" },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stdout = "";
+  child.stdout.on("data", (b) => { stdout += b.toString(); });
+  child.stderr.on("data", () => {});
+  let socket;
+  const state = (extra = {}) => ({ in_game: true, ready_for_command: true, available_commands: ["choose", "state"],
+    boundary_schema: 7, boundary_kind: "quiescent", game_update_seq: 1, dungeon_update_seq: 1,
+    command_execution_seq: 0, command_settlement_seq: 0, command_response_kind: "unsolicited", transaction_pending: false,
+    current_action: null, current_action_instance: null, current_action_update_count: null,
+    end_turn_queued: false, effects_size: 0, queued_effects_size: 0, top_level_effects_size: 0, queued_top_level_effects_size: 0,
+    actions_queued: 0, card_queue_size: 0, pre_turn_actions_size: 0,
+    game_state: { screen_type: "EVENT", choice_list: ["Pray"] }, ...extra });
+  try {
+    await waitFor(() => stdout.includes("ready\n"));
+    child.stdin.write(`${JSON.stringify(state())}\n`);
+    const status = await waitFor(() => {
+      const f = path.join(root, "status.json");
+      if (!fs.existsSync(f)) return null;
+      const s = JSON.parse(fs.readFileSync(f, "utf8"));
+      return s.summary && s.control?.port ? s : null;
+    });
+    const port = status.control.port;
+    const before = await controlRequest(port, { type: "state" });
+    const owner = await controlRequest(port, { type: "acquire", owner_id: "reset-owner" });
+    assert.strictEqual(owner.ok, true);
+    socket = net.createConnection({ host: "127.0.0.1", port });
+    socket.on("error", () => {});
+    await new Promise((resolve) => socket.once("connect", resolve));
+    socket.write(`${JSON.stringify({ type: "command", command: "CHOOSE 0", command_id: "reset-command",
+      owner_token: owner.owner_token, expected_state_id: before.state_id, expected_state_seq: before.state_seq,
+      wait_for_state_update: true, update_timeout_ms: 3000 })}\n`);
+    await waitFor(() => stdoutHasCommand(stdout, "CHOOSE 0"));
+    socket.resetAndDestroy();
+    const trace = path.join(root, fs.readdirSync(root).find((f) => f.startsWith("trace-") && f.endsWith(".jsonl")));
+    await waitFor(() => /control_socket_error|uncaught_exception/.test(fs.readFileSync(trace, "utf8")));
+    assert.notStrictEqual(JSON.parse(fs.readFileSync(path.join(root, "status.json"), "utf8")).status, "exited");
+    const pending = await controlRequest(port, { type: "state" });
+    assert.strictEqual(pending.pending_command, true, "socket loss cannot cancel an accepted command");
+    assert.strictEqual(pending.controller.owner_id, "reset-owner");
+    const contender = await controlRequest(port, { type: "acquire", owner_id: "other-owner" });
+    assert.strictEqual(contender.ok, false, "socket loss cannot release ownership");
+    child.stdin.write(`${JSON.stringify(state({ game_update_seq: 2, dungeon_update_seq: 2,
+      command_execution_seq: 1, command_settlement_seq: 1, command_response_kind: "settled", command_response_id: "reset-command" }))}\n`);
+    await waitFor(() => JSON.parse(fs.readFileSync(path.join(root, "status.json"), "utf8")).summary?.command_settlement_seq === 1);
+    const completed = await controlRequest(port, { type: "state" });
+    assert.strictEqual(completed.pending_command, false);
+    assert.strictEqual(completed.summary.command_execution_seq, 1);
+    const rows = fs.readFileSync(trace, "utf8").trim().split("\n").map(JSON.parse);
+    assert.strictEqual(rows.filter((r) => r.type === "action" && r.command === "CHOOSE 0").length, 1);
+    assert.ok(rows.some((r) => r.event === "control_socket_error" && r.error_code === "ECONNRESET"));
+    assert.ok(!rows.some((r) => r.event === "exit"));
+  } finally {
+    if (socket) socket.destroy();
+    if (child.exitCode === null) { const exited = new Promise((resolve) => child.once("exit", resolve)); child.kill(); await exited; }
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 Promise.resolve()
+  .then(() => runTest(testControlPeerResetPreservesOwnerAndAcceptedCommand))
   .then(() => runTest(testCommandMetadataIsPreservedInTraceActions))
   .then(() => runTest(testExternalRngIsRecordedAgainstProducingAction))
   .then(() => runTest(testAutoStatePollsAreMarkedAsPassive))

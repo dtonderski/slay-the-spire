@@ -1,5 +1,7 @@
 package communicationmod;
 
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
@@ -9,6 +11,18 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 public class CommandEnvelopeAndTransactionTest {
+    private TestStateSnapshot statics;
+
+    @Before
+    public void captureStatics() {
+        statics = TestStateSnapshot.of(GameStateListener.class);
+    }
+
+    @After
+    public void restoreStatics() {
+        statics.restore();
+    }
+
     @Test
     public void parsesJsonEnvelopeAndLegacyText() throws Exception {
         CommandEnvelope envelope = CommandEnvelope.parse(

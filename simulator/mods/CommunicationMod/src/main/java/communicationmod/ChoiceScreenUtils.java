@@ -4,6 +4,7 @@ import basemod.ReflectionHacks;
 import com.badlogic.gdx.Gdx;
 import com.megacrit.cardcrawl.cards.AbstractCard;
 import com.megacrit.cardcrawl.cards.CardGroup;
+import com.megacrit.cardcrawl.characters.AbstractPlayer;
 import com.megacrit.cardcrawl.core.CardCrawlGame;
 import com.megacrit.cardcrawl.core.Settings;
 import com.megacrit.cardcrawl.dungeons.AbstractDungeon;
@@ -17,7 +18,10 @@ import com.megacrit.cardcrawl.helpers.Hitbox;
 import com.megacrit.cardcrawl.helpers.input.InputHelper;
 import com.megacrit.cardcrawl.map.DungeonMap;
 import com.megacrit.cardcrawl.map.MapRoomNode;
+import com.megacrit.cardcrawl.potions.AbstractPotion;
+import com.megacrit.cardcrawl.potions.PotionSlot;
 import com.megacrit.cardcrawl.relics.AbstractRelic;
+import com.megacrit.cardcrawl.relics.Sozu;
 import com.megacrit.cardcrawl.rewards.RewardItem;
 import com.megacrit.cardcrawl.rewards.chests.AbstractChest;
 import com.megacrit.cardcrawl.rooms.*;
@@ -528,15 +532,31 @@ public class ChoiceScreenUtils {
 
     public static ArrayList<String> getCombatRewardScreenChoices() {
         ArrayList<String> choices = new ArrayList<>();
-        for(RewardItem reward : AbstractDungeon.combatRewardScreen.rewards) {
+        for(RewardItem reward : getAvailableCombatRewards()) {
             choices.add(reward.type.name().toLowerCase());
         }
         return choices;
     }
 
     public static void makeCombatRewardChoice(int choice) {
-        RewardItem reward = AbstractDungeon.combatRewardScreen.rewards.get(choice);
+        RewardItem reward = getAvailableCombatRewards().get(choice);
         reward.isDone = true;
+    }
+
+    private static ArrayList<RewardItem> getAvailableCombatRewards() {
+        ArrayList<RewardItem> rewards = new ArrayList<>();
+        boolean hasEmptyPotionSlot = hasEmptyPotionSlot(AbstractDungeon.player);
+        for (RewardItem reward : AbstractDungeon.combatRewardScreen.rewards) {
+            if (canClaimCombatReward(
+                    reward.type == RewardItem.RewardType.POTION, hasEmptyPotionSlot)) {
+                rewards.add(reward);
+            }
+        }
+        return rewards;
+    }
+
+    static boolean canClaimCombatReward(boolean potionReward, boolean hasEmptyPotionSlot) {
+        return !potionReward || hasEmptyPotionSlot;
     }
 
     public static ArrayList<String> getBossRewardScreenChoices() {
@@ -646,12 +666,33 @@ public class ChoiceScreenUtils {
                 choices.add(relic);
             }
         }
-        for(StorePotion potion : getShopScreenPotions()) {
-            if(potion.price <= AbstractDungeon.player.gold) {
-                choices.add(potion);
+        if (canPurchaseShopPotion(
+                AbstractDungeon.player.hasRelic(Sozu.ID), hasEmptyPotionSlot(AbstractDungeon.player))) {
+            for(StorePotion potion : getShopScreenPotions()) {
+                if(potion.price <= AbstractDungeon.player.gold) {
+                    choices.add(potion);
+                }
             }
         }
         return choices;
+    }
+
+    /**
+     * StorePotion.purchasePotion() returns without a gameplay change for Sozu or
+     * a full potion belt. Do not advertise commands that can only click those
+     * no-op purchases, because an accepted command could never settle.
+     */
+    static boolean canPurchaseShopPotion(boolean hasSozu, boolean hasEmptyPotionSlot) {
+        return !hasSozu && hasEmptyPotionSlot;
+    }
+
+    private static boolean hasEmptyPotionSlot(AbstractPlayer player) {
+        for (AbstractPotion potion : player.potions) {
+            if (potion instanceof PotionSlot) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static void makeShopScreenChoice(int choice) {
@@ -811,17 +852,14 @@ public class ChoiceScreenUtils {
         } else if(AbstractDungeon.getCurrRoom().event instanceof GremlinWheelGame) {
             choiceList.add("spin");
         } else if(AbstractDungeon.getCurrRoom().event instanceof GremlinMatchGame) {
-            GremlinMatchGame matchGame = (GremlinMatchGame) AbstractDungeon.getCurrRoom().event;
-            ArrayList<AbstractCard> pickableCards = GremlinMatchGamePatch.getOrderedCards();
-            if (pickableCards.isEmpty() && GremlinMatchGamePatch.shouldLeaveMatchGame(matchGame)) {
-                choiceList.add("leave");
-            } else {
-                for (AbstractCard c : pickableCards) {
-                    if (GremlinMatchGamePatch.revealedCards.contains(c.uuid)) {
-                        choiceList.add(c.cardID);
-                    } else {
-                        choiceList.add(String.format("card%d", GremlinMatchGamePatch.cardPositions.get(c.uuid)));
-                    }
+            // Completion is published by GenericEventDialog after the target
+            // event's CLEAN_UP/COMPLETE timers settle. Do not synthesize a
+            // leave choice while the match is still waiting on those updates.
+            for (AbstractCard c : GremlinMatchGamePatch.getOrderedCards()) {
+                if (GremlinMatchGamePatch.revealedCards.contains(c.uuid)) {
+                    choiceList.add(c.cardID);
+                } else {
+                    choiceList.add(String.format("card%d", GremlinMatchGamePatch.cardPositions.get(c.uuid)));
                 }
             }
         }
@@ -838,14 +876,6 @@ public class ChoiceScreenUtils {
             CardCrawlGame.sound.play("WHEEL");
         } else if (AbstractDungeon.getCurrRoom().event instanceof GremlinMatchGame) {
             GremlinMatchGame matchGame = (GremlinMatchGame) AbstractDungeon.getCurrRoom().event;
-            if (GremlinMatchGamePatch.getOrderedCards().isEmpty()) {
-                GremlinMatchGamePatch.finishMatchGameIfDone(matchGame);
-                ArrayList<LargeDialogOptionButton> leaveButtons = getActiveEventButtons();
-                if (!leaveButtons.isEmpty()) {
-                    leaveButtons.get(Math.min(choice, leaveButtons.size() - 1)).pressed = true;
-                }
-                return;
-            }
             GremlinMatchGamePatch.chooseFaceDownCard(matchGame, choice);
         }
     }
@@ -863,6 +893,7 @@ public class ChoiceScreenUtils {
         ArrayList<AbstractCampfireOption> buttons = getValidRestRoomButtons();
         AbstractCampfireOption button = buttons.get(choice_index);
         RestRoom room = (RestRoom) AbstractDungeon.getCurrRoom();
+        CampfireDiagnostics.commandEntry(button.getClass().getName());
         button.useOption();
         room.campfireUI.somethingSelected = true;
     }

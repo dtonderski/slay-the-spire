@@ -65,6 +65,17 @@ changed gameplay action lifecycles and later the dungeon playtime clock. Those
 cohorts were frozen outside the authoritative corpus. Visual acceleration,
 action ticks, and gameplay clocks must remain separate.
 
+PR #41 originally mixed simulator-fidelity changes with evidence from an
+unqualified collection epoch. The collection-first revision deliberately
+leaves those simulator changes for a separate, source-backed review. In
+particular CommunicationMod `WAIT` counts listener frames, not declared
+elapsed gameplay milliseconds; replay must not manufacture event timing from
+that command. Collection fixes, strict schema-7 transport support, independent
+capture review/promotion, and subsequent simulator fixes are separate stages.
+Missing or partial campaign evidence is a review stop, not permission to retry
+an interrupted run or take over another owner. Workspace/reviewed-corpus passes
+do not qualify the accelerated collection runtime or its new captures.
+
 ## Agent direction
 
 The deterministic combat search was useful for collection but was never the
@@ -83,7 +94,9 @@ must earn complexity from a concrete experiment.
 - Exact replay and data collection are different products and evidence.
 - A verifier that sees the answer will eventually select behavior to match it.
 - A green suite measures verifier honesty before simulator fidelity.
-- Captures are immutable; invalid epochs are quarantined, not repaired.
+- Captured payloads are never rewritten to obtain replay passes. Invalid captures
+  stay outside the authoritative corpus; permanent deletion requires explicit
+  operator authorization and does not establish parity for the remaining data.
 - Explicit environmental inputs are narrow exceptions to seed determinism and
   must be captured before the affected transition.
 - Fairness belongs at observation/action boundaries; full state remains valid

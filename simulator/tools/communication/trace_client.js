@@ -884,7 +884,7 @@ async function enqueueAbandonRun(payload) {
     state: currentProtocolState(),
   };
   if (payload.wait_for_state_update) {
-    const timeoutMs = Math.max(1, Math.min(30000, Number(payload.update_timeout_ms ?? 10000)));
+    const timeoutMs = Math.max(1, Math.min(120000, Number(payload.update_timeout_ms ?? 10000)));
     const observed = await waitForStateAfterSeq(
       acceptedStateSeq,
       timeoutMs,
@@ -1111,7 +1111,7 @@ async function handleControlMessage(payload) {
       state: currentProtocolState(),
     };
     if (payload.wait_for_state_update) {
-      const timeoutMs = Math.max(1, Math.min(30000, Number(payload.update_timeout_ms ?? 5000)));
+      const timeoutMs = Math.max(1, Math.min(120000, Number(payload.update_timeout_ms ?? 5000)));
       const observed = await waitForStateAfterSeq(
         acceptedStateSeq,
         timeoutMs,
@@ -1172,6 +1172,20 @@ function startControlServer() {
     throw new Error("TRACE_CONTROL_PORT must be an integer TCP port");
   }
   controlServer = net.createServer((socket) => {
+    // A controller socket can disappear while its accepted command is still
+    // running. Record the transport failure without changing ownership,
+    // queue contents, or settlement fences; recovery uses the existing state.
+    socket.on("error", (error) => {
+      writeRecord({
+        type: "metadata",
+        event: "control_socket_error",
+        step,
+        error_code: error.code ?? null,
+        error: error.message,
+        received_at: new Date().toISOString(),
+      });
+      socket.destroy();
+    });
     socket.setEncoding("utf8");
     let buffer = "";
     function send(value) {

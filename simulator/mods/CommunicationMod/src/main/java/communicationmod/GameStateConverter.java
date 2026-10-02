@@ -69,6 +69,7 @@ public class GameStateConverter {
         response.put("card_queue_size", GameStateListener.getCardQueueSize());
         response.put("pre_turn_actions_size", GameStateListener.getPreTurnActionQueueSize());
         response.put("effects_size", GameStateListener.getEffectQueueSize());
+        response.put("queued_effects_size", GameStateListener.getQueuedEffectQueueSize());
         response.put("top_level_effects_size", GameStateListener.getTopLevelEffectQueueSize());
         response.put("queued_top_level_effects_size", GameStateListener.getQueuedTopLevelEffectQueueSize());
         response.put("end_turn_queued", GameStateListener.isEndTurnQueued());

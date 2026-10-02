@@ -16,6 +16,16 @@ import java.util.ArrayList;
 )
 public class CampfireRecallEffectPatch {
 
+    @SpirePrefixPatch
+    public static void Prefix(CampfireRecallEffect _instance) {
+        communicationmod.CampfireDiagnostics.effectUpdateEntered("CampfireRecallEffect", _instance);
+    }
+
+    @SpirePostfixPatch
+    public static void Postfix(CampfireRecallEffect _instance) {
+        communicationmod.CampfireDiagnostics.effectUpdateExited("CampfireRecallEffect", _instance);
+    }
+
     @SpireInsertPatch(
             locator=LocatorAfter.class
     )

@@ -254,6 +254,9 @@ public class CommandExecutor {
             throw new InvalidCommandException("The choice command is not implemented on this screen.");
         }
         int choice_index = getValidChoiceIndex(tokens, validChoices);
+        if (AbstractDungeon.screen == AbstractDungeon.CurrentScreen.CARD_REWARD) {
+            CampfireDiagnostics.cardRewardCommandEntry();
+        }
         ChoiceScreenUtils.executeChoice(choice_index);
     }
 

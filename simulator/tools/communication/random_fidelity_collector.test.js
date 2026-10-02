@@ -718,6 +718,22 @@ assert.deepStrictEqual(
   }),
   ["KEY CANCEL 250"],
 );
+// DrawPileViewScreen.open sets GAME_DECK_VIEW and shows Cancel even while a
+// queued WaitAction remains: the QLFP00001 step-733 END exposed this screen.
+assert.deepStrictEqual(
+  enumerateGameplayActions({
+    available_commands: ["key", "click", "wait", "state", "profile", "abandon"],
+    screen_type: "NONE",
+    screen_name: "GAME_DECK_VIEW",
+    current_action: "WaitAction",
+    actions_queued: 1,
+  }),
+  ["KEY CANCEL 250"],
+);
+assert.deepStrictEqual(
+  enumerateGameplayActions({ available_commands: ["state"], screen_name: "GAME_DECK_VIEW" }),
+  [],
+);
 assert.deepStrictEqual(
   enumerateGameplayActions({
     available_commands: ["click"],

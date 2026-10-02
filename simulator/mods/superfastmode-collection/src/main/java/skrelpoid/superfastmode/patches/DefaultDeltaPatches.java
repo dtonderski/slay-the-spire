@@ -5,6 +5,7 @@ import com.evacipated.cardcrawl.modthespire.lib.SpirePatch;
 import com.megacrit.cardcrawl.blights.AbstractBlight;
 import com.megacrit.cardcrawl.core.AbstractCreature;
 import com.megacrit.cardcrawl.dungeons.AbstractDungeon;
+import com.megacrit.cardcrawl.events.AbstractImageEvent;
 import com.megacrit.cardcrawl.map.MapRoomNode;
 import com.megacrit.cardcrawl.monsters.AbstractMonster;
 import com.megacrit.cardcrawl.monsters.AbstractMonster.Intent;
@@ -28,6 +29,8 @@ import com.megacrit.cardcrawl.vfx.RoomShineEffect;
 import com.megacrit.cardcrawl.vfx.RoomShineEffect2;
 import com.megacrit.cardcrawl.vfx.TextAboveCreatureEffect;
 import com.megacrit.cardcrawl.vfx.cardManip.CardGlowBorder;
+import com.megacrit.cardcrawl.vfx.cardManip.ShowCardAndObtainEffect;
+import com.megacrit.cardcrawl.vfx.cardManip.ExhaustCardEffect;
 import com.megacrit.cardcrawl.vfx.combat.BattleStartEffect;
 import com.megacrit.cardcrawl.vfx.combat.BlockedNumberEffect;
 import com.megacrit.cardcrawl.vfx.combat.FlashAtkImgEffect;
@@ -171,7 +174,30 @@ public class DefaultDeltaPatches {
 	@SpirePatch(clz = com.megacrit.cardcrawl.shop.ShopScreen.class, method = "updateSpeech")
 	@SpirePatch(clz = com.megacrit.cardcrawl.shop.ShopScreen.class, method = "updateHand")
 	@SpirePatch(clz = com.megacrit.cardcrawl.shop.ShopScreen.class, method = "updateRug")
-	// RestRoom
+	// Image events show their dialog only when waitTimer crosses strictly below
+	// zero, while they stop decrementing at zero. An amplified delta can land
+	// exactly on zero and permanently suppress the dialog. Preserve the target's
+	// natural timer lifecycle on the raw clock instead of changing its timer or
+	// synthesizing event choices after the fact.
+	@SpirePatch(clz = AbstractImageEvent.class, method = "update")
+	// Omamori marks a curse's ShowCardAndObtainEffect done in its constructor,
+	// but the target still calls update once before removing it. On the raw clock
+	// that first update cannot reach the normal duration<0 obtain branch. An
+	// amplified update can, incorrectly granting the curse Omamori just blocked.
+	// Preserve the target lifecycle instead of deleting the card afterward.
+	@SpirePatch(clz = ShowCardAndObtainEffect.class, method = "update")
+	// ExhaustCardEffect resets the exhausted card instance's costForTurn and
+	// combat attributes at duration<0. A retrieved card is the same instance.
+	// Preserve its natural raw-clock lifecycle rather than accelerating that
+	// mutation or correcting the card after it becomes observable.
+	@SpirePatch(clz = ExhaustCardEffect.class, method = "update")
+	// RestRoom: Smith/Toke open a selection at duration<1 and finish at duration<0.
+	// Amplified delta can cross both thresholds in one update, abandoning the
+	// selected-card consumer. Keep their gameplay lifecycles on the target's
+	// raw clock, rather than repairing duration/cards afterward. Do not slow
+	// the shared UI hide timer independently of the other accelerated options.
+	@SpirePatch(clz = com.megacrit.cardcrawl.vfx.campfire.CampfireSmithEffect.class, method = "update")
+	@SpirePatch(clz = com.megacrit.cardcrawl.vfx.campfire.CampfireTokeEffect.class, method = "update")
 	@SpirePatch(clz = com.megacrit.cardcrawl.rooms.CampfireUI.class, method = "updateFire")
 	@SpirePatch(clz = com.megacrit.cardcrawl.vfx.campfire.CampfireBurningEffect.class, method = "update")
 	@SpirePatch(clz = com.megacrit.cardcrawl.vfx.campfire.CampfireBubbleEffect.class, method = "update")
