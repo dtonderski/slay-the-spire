@@ -6736,8 +6736,20 @@ fn confirm_purity_select(
     if let Some(source_card) = exhaust_select.source_card {
         state.piles.limbo.push(source_card);
     }
+    // ExhaustAction.update still owns every selected card while it exhausts
+    // them one at a time. Park the remaining selections in limbo so a callback
+    // (Dead Branch, Hex, draws) cannot allocate a not-yet-exhausted card's id.
+    // Do not publish all selections as exhausted ahead of their callbacks.
+    state.piles.limbo.extend(exhausted.iter().copied());
     let mut dead_branch_count = 0;
     for card in exhausted {
+        let index = state
+            .piles
+            .limbo
+            .iter()
+            .position(|held| held.id == card.id)
+            .ok_or(SimError::UnknownCard(card.id))?;
+        let card = state.piles.limbo.remove(index);
         state.piles.exhaust_pile.push(card);
         dead_branch_count += apply_purity_card_exhausted(state, card.id)?;
     }
