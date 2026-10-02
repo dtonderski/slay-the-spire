@@ -6317,6 +6317,15 @@ fn confirm_recycle_select(
     // Capture before exhaust callbacks, which may themselves alter energy.
     let energy_gain = match effective_card_cost(&target_card)? {
         -1 => state.player.energy,
+        // CorruptionPower.onCardDraw sets nonnegative Skill costForTurn to
+        // zero. AbstractCard.setCostForTurn leaves X/unplayable sentinels alone.
+        cost if cost > 0
+            && state.player.powers.corruption > 0
+            && get_card_definition(target_card.content_id)
+                .is_some_and(|definition| definition.card_type == CardType::Skill) =>
+        {
+            0
+        }
         cost => cost.max(0),
     };
     state.piles.exhaust_pile.push(target_card);
