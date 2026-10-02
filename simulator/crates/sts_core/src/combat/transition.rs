@@ -1336,8 +1336,8 @@ fn apply_internal_action_with_defer(
         InternalAction::SetHandCardCostForCombat { card_id, cost } => {
             card_actions::set_hand_card_cost_for_combat(state, card_id, cost)
         }
-        InternalAction::ReduceHandCardCostForCombat { card_id, amount } => {
-            card_actions::reduce_hand_card_cost_for_combat(state, card_id, amount)
+        InternalAction::ReduceCardCostForCombat { card_id, amount } => {
+            card_actions::reduce_card_cost_for_combat(state, card_id, amount)
         }
         InternalAction::DealDamage { info } => damage_actions::deal_damage(state, info),
         InternalAction::PrepareCardDamage { info } => {
