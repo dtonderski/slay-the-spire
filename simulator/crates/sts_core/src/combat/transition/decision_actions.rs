@@ -618,7 +618,12 @@ pub(super) fn await_exhaust_select(
         if state.piles.hand.len() == 1 {
             let mut exhaust_select = exhaust_select;
             exhaust_select.selected_hand_indices.push(0);
-            super::confirm_recycle_select(state, exhaust_select)?;
+            state.decision = Some(CombatDecisionState::ExhaustSelect {
+                state: exhaust_select,
+            });
+            // Use the normal confirm wrapper: held-source identity reservation,
+            // exhaust callbacks, pending actions, and combat-end settlement.
+            super::confirm_exhaust_select_with_dead_branch_count(state, true)?;
             return Ok(Vec::new());
         }
     }

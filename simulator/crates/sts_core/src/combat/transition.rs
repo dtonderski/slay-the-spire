@@ -6101,7 +6101,7 @@ pub(crate) fn confirm_exhaust_select_with_dead_branch_count(
             confirm_true_grit_select(state, exhaust_select)?;
         }
         crate::combat::ExhaustSelectPurpose::RecycleExhaustOne => {
-            confirm_recycle_select(state, exhaust_select)?;
+            dead_branch_count = confirm_recycle_select(state, exhaust_select)?;
         }
         crate::combat::ExhaustSelectPurpose::Exhaust => {
             let selected =
@@ -6302,7 +6302,7 @@ fn confirm_true_grit_select(
 fn confirm_recycle_select(
     state: &mut CombatState,
     exhaust_select: crate::combat::ExhaustSelectState,
-) -> SimResult<()> {
+) -> SimResult<usize> {
     let selected = unique_selected_indices_in_choice_order(exhaust_select.selected_hand_indices);
     let target_index = selected
         .first()
@@ -6320,7 +6320,9 @@ fn confirm_recycle_select(
         cost => cost.max(0),
     };
     state.piles.exhaust_pile.push(target_card);
-    apply_on_exhaust_effects(state, target_card.id)?;
+    // Settle Dead Branch here for both automatic and selected Recycle. Report
+    // its count so the run-level selection fallback cannot generate it twice.
+    let mut dead_branch_count = apply_purity_card_exhausted(state, target_card.id)?;
     state.player.energy = state
         .player
         .energy
@@ -6329,11 +6331,20 @@ fn confirm_recycle_select(
     // The selected source is held outside the piles on ordinary hand play.
     // Forced top-deck play may already have settled it before this screen;
     // source_card == None then means there is nothing left to move.
-    close_discovery_source_card_with_force_exhaust(
-        state,
-        exhaust_select.source_card,
-        exhaust_select.source_card_force_exhaust,
-    )
+    if let Some(source) = exhaust_select.source_card {
+        let definition = get_card_definition(source.content_id)
+            .ok_or(SimError::UnknownContent(source.content_id))?;
+        let destination = if exhaust_select.source_card_force_exhaust {
+            forced_source_card_destination(state, definition)
+        } else {
+            delayed_source_card_destination(state, definition)
+        };
+        push_card_to_pile(state, source, destination);
+        if destination == CardPile::ExhaustPile {
+            dead_branch_count += apply_purity_card_exhausted(state, source.id)?;
+        }
+    }
+    Ok(dead_branch_count)
 }
 
 /// True Grit ExhaustAction skipped-retrieval (force-played True Grit+).
