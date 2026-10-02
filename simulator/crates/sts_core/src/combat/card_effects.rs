@@ -577,7 +577,7 @@ pub(super) fn play_card_queue_in_place(
         QUICK_SLASH_ANY_COLOR_ID => quick_slash_queue(card_id, target, *card, definition),
         NIRVANA_ANY_COLOR_ID => nirvana_queue(card_id, *card),
         DEADLY_POISON_ANY_COLOR_ID => deadly_poison_queue(card_id, target, *card, definition),
-        UNLOAD_ANY_COLOR_ID => unload_queue(state, card_id, target, *card, definition),
+        UNLOAD_ANY_COLOR_ID => unload_queue(card_id, target, *card, definition),
         THIRD_EYE_ANY_COLOR_ID => third_eye_queue(card_id, *card, definition),
         PREPARED_ANY_COLOR_ID => prepared_queue(card_id, *card),
         HOLOGRAM_ANY_COLOR_ID => hologram_queue(state, card_id, *card, definition),
@@ -2997,7 +2997,6 @@ fn third_eye_queue(
 }
 
 fn unload_queue(
-    state: &CombatState,
     card_id: CardId,
     target: Option<MonsterId>,
     card: CardInstance,
@@ -3015,15 +3014,7 @@ fn unload_queue(
             },
         },
     ]);
-    for hand_card in state.piles.hand.iter().rev() {
-        let is_attack = get_card_definition(hand_card.content_id)
-            .is_some_and(|definition| definition.card_type == CardType::Attack);
-        if hand_card.id != card_id && !is_attack {
-            queue.push_back(InternalAction::ManualDiscardCard {
-                card_id: hand_card.id,
-            });
-        }
-    }
+    queue.push_back(InternalAction::DiscardNonAttackHandCards);
     queue.push_back(InternalAction::MoveCard {
         card_id,
         from: CardPile::Hand,

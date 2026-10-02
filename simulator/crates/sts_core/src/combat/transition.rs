@@ -446,6 +446,7 @@ fn process_internal_queue_owned(
         if matches!(
             internal_action,
             InternalAction::ResolveStormOfSteel { .. }
+                | InternalAction::DiscardNonAttackHandCards
                 | InternalAction::ResolveSteamBarrier { .. }
                 | InternalAction::ResolveFollowUpEnergy { .. }
         ) {
@@ -1469,6 +1470,21 @@ fn apply_internal_action_with_defer(
             }
             let to = apply_deferred_played_card_strange_spoon(state, card_id, to);
             pile_actions::move_card_between_piles(state, card_id, from, to)
+        }
+        InternalAction::DiscardNonAttackHandCards => {
+            // Unload selects here, after damage and before each copied use's
+            // discards, rather than freezing IDs while its use queue is built.
+            Ok(state
+                .piles
+                .hand
+                .iter()
+                .rev()
+                .filter(|card| {
+                    !get_card_definition(card.content_id)
+                        .is_some_and(|definition| definition.card_type == CardType::Attack)
+                })
+                .map(|card| InternalAction::ManualDiscardCard { card_id: card.id })
+                .collect())
         }
         InternalAction::ManualDiscardCard { card_id } => {
             pile_actions::manual_discard_card(state, card_id)

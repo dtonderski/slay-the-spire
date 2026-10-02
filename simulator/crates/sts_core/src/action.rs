@@ -253,6 +253,9 @@ pub enum InternalAction {
     },
     /// Move one hand card to discard and run the target's manual-discard
     /// counter and card callbacks.
+    /// UnloadAction.update snapshots non-attacks from the live hand, then
+    /// queues their individual discards on top in reverse hand order.
+    DiscardNonAttackHandCards,
     ManualDiscardCard {
         card_id: CardId,
     },
