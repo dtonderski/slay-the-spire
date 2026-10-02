@@ -64,7 +64,9 @@ pub enum InternalAction {
     },
     /// `AbstractCard.modifyCostForCombat`: reduce the combat-long cost while
     /// preserving any distinct current-turn override.
-    ReduceHandCardCostForCombat {
+    // Preserve the existing snapshot/trace wire name; the action searches all piles.
+    #[serde(rename = "ReduceHandCardCostForCombat")]
+    ReduceCardCostForCombat {
         card_id: CardId,
         amount: u8,
     },

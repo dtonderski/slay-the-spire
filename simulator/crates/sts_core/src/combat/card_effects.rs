@@ -5258,7 +5258,7 @@ fn streamline_queue(
                 amount: damage,
             },
         },
-        InternalAction::ReduceHandCardCostForCombat { card_id, amount: 1 },
+        InternalAction::ReduceCardCostForCombat { card_id, amount: 1 },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,

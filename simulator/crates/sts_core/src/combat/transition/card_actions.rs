@@ -154,7 +154,7 @@ pub(super) fn set_hand_card_cost_for_combat(
     Ok(Vec::new())
 }
 
-pub(super) fn reduce_hand_card_cost_for_combat(
+pub(super) fn reduce_card_cost_for_combat(
     state: &mut CombatState,
     card_id: CardId,
     amount: u8,
