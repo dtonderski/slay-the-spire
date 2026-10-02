@@ -37,19 +37,39 @@ function livingMonsters(summary) {
   );
 }
 
+function selectableChoiceIndices(summary, choices, available) {
+  const indices = summary?.selectable_choice_indices;
+  if (indices === undefined || indices === null) {
+    if (choices.length > 0 && ["COMBAT_REWARD", "SHOP_SCREEN"].includes(summary?.screen_type)) {
+      throw new Error("selectable_choice_indices required for reward/shop offer lists; update matching CommunicationMod and bridge");
+    }
+    return choices.map((_choice, index) => index);
+  }
+  if (!Array.isArray(indices) || indices.some((index, position) =>
+    !Number.isSafeInteger(index) || index < 0 || index >= choices.length
+    || (position > 0 && index <= indices[position - 1]))) {
+    throw new Error("invalid selectable_choice_indices: expected increasing unique indices into choice_list");
+  }
+  if (available.has("choose") && indices.length === 0) {
+    throw new Error("choose advertised with no selectable choice indices");
+  }
+  return indices;
+}
+
 /**
- * Enumerate every concrete gameplay command advertised by CommunicationMod.
- * Known hangs and simulator divergences remain eligible: they are evidence,
- * not policy exceptions. STATE/PROFILE/ABANDON and singleton timer settling
- * are collector controls rather than random gameplay choices.
+ * Enumerate every executable gameplay command advertised by CommunicationMod.
+ * Selectability is producer data, not a policy exception or a compressed offer
+ * index. Known hangs/divergences among advertised executable actions stay
+ * eligible. STATE/PROFILE/ABANDON and singleton settling are collector controls.
  */
 function enumerateGameplayActions(summary) {
   const available = availableSet(summary);
   const actions = [];
   const choices = Array.isArray(summary?.choices) ? summary.choices : [];
 
+  const selectable = selectableChoiceIndices(summary, choices, available);
   if (available.has("choose")) {
-    choices.forEach((_choice, index) => actions.push(`CHOOSE ${index}`));
+    selectable.forEach((index) => actions.push(`CHOOSE ${index}`));
   }
   if (available.has("play")) {
     const monsters = livingMonsters(summary);
@@ -106,7 +126,7 @@ function enumerateGameplayActions(summary) {
     // Finished Match and Keep (and similar leftover events) can publish
     // EVENT with a null/empty choice list and no proceed/leave while the
     // leave dialog is still behind a wait timer. WAIT lets that timer
-    // elapse; CommunicationMod also skips the timer after the last pick.
+    // elapse naturally; CommunicationMod never resets it after the last pick.
     actions.push("WAIT 240");
   }
   return [...new Set(actions)];
@@ -1000,6 +1020,10 @@ async function main() {
     protocolState = await send(status.control, acquired.owner_token, protocolState, "STATE", {
       source: "random_fidelity_collector", reason: "observe_pre_run_menu", operator_control: "startup_state",
     });
+    if (communicationBoundary(protocolState).message.choice_index_schema !== 1
+        || protocolState.summary?.choice_index_schema !== 1) {
+      throw new Error("CommunicationMod/bridge choice_index_schema=1 required before START; update matching producer and bridge");
+    }
     const profileState = await send(
       status.control,
       acquired.owner_token,
@@ -1071,6 +1095,10 @@ async function main() {
       protocolState = await controlRequest(status.control, { type: "state" });
       const summary = protocolState.summary;
       if (!summary || typeof summary.in_game !== "boolean") throw new Error("bridge returned no typed in_game summary");
+      const choiceMessage = protocolState.state?.message ?? protocolState.message ?? summary;
+      if (summary.choice_index_schema !== 1 || choiceMessage.choice_index_schema !== 1) {
+        throw new Error("choice_index_schema changed or disappeared after START; explicit review required");
+      }
       if (pendingEventLeave && isSoleEventLeaveScreen(summary)) {
         const confirmEventLeave = ["confirm", "confirm_fold"].includes(pendingEventLeave);
         const settleCommand = confirmEventLeave ? "CHOOSE 0" : "STATE";

@@ -94,9 +94,7 @@ must earn complexity from a concrete experiment.
 - Exact replay and data collection are different products and evidence.
 - A verifier that sees the answer will eventually select behavior to match it.
 - A green suite measures verifier honesty before simulator fidelity.
-- Captured payloads are never rewritten to obtain replay passes. Invalid captures
-  stay outside the authoritative corpus; permanent deletion requires explicit
-  operator authorization and does not establish parity for the remaining data.
+- Captures are immutable; invalid epochs are quarantined, not repaired.
 - Explicit environmental inputs are narrow exceptions to seed determinism and
   must be captured before the affected transition.
 - Fairness belongs at observation/action boundaries; full state remains valid

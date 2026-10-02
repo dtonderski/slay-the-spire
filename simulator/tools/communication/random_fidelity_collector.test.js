@@ -242,6 +242,7 @@ assert.deepStrictEqual(
     available_commands: ["choose", "proceed"],
     screen_type: "COMBAT_REWARD",
     choices: ["gold", "card"],
+    selectable_choice_indices: [0, 1],
   }),
   ["CHOOSE 0", "CHOOSE 1", "PROCEED"],
 );
@@ -251,6 +252,7 @@ assert.deepStrictEqual(
     screen_type: "COMBAT_REWARD",
     open_potion_slots: 0,
     choices: ["potion"],
+    selectable_choice_indices: [0], // Policy trusts the producer, not a belt heuristic.
   }),
   ["CHOOSE 0", "PROCEED"],
 );
@@ -269,6 +271,7 @@ assert.deepStrictEqual(
     screen_type: "COMBAT_REWARD",
     open_potion_slots: 1,
     choices: ["gold", "potion", "card"],
+    selectable_choice_indices: [0, 1, 2],
   }),
   ["CHOOSE 0", "CHOOSE 1", "CHOOSE 2"],
 );
@@ -746,6 +749,7 @@ assert.deepStrictEqual(
     available_commands: ["choose", "leave"],
     screen_type: "SHOP_SCREEN",
     choices: ["purge", "weak potion", "gambler's brew", "cauldron", "armaments"],
+    selectable_choice_indices: [0, 1, 2, 3, 4],
     shop_potions: [{ id: "GamblersBrew", name: "Gambler's Brew" }],
   }),
   ["CHOOSE 0", "CHOOSE 1", "CHOOSE 2", "CHOOSE 3", "CHOOSE 4", "LEAVE"],

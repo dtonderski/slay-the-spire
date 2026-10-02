@@ -20,7 +20,11 @@ test('collection refuses stale ownership, pending work, nonlocal and mismatched 
   }
 });
 
-test('actual collector stops after accepted invalid completion without resend, takeover, abandon or release', { timeout: 15000 }, async () => {
+for (const contract of ['legacy-producer', 'legacy-bridge', 'current']) {
+const current = contract === 'current';
+test(current
+  ? 'actual collector stops after accepted invalid completion without resend, takeover, abandon or release'
+  : `actual collector refuses ${contract} choice contract before START`, { timeout: 15000 }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'collector-fail-closed-'));
   const trace = path.join(dir, 'raw.jsonl');
   fs.writeFileSync(trace, JSON.stringify({ type: 'metadata', schema: 7, source: 'communication_mod' }) + '\n');
@@ -29,7 +33,7 @@ test('actual collector stops after accepted invalid completion without resend, t
   const requests = [];
   const menu = {
     in_game: false, ready_for_command: true, available_commands: ['start_verify', 'profile', 'state'],
-    boundary_schema: 7, boundary_kind: 'poll', game_update_seq: 1, dungeon_update_seq: 0,
+    boundary_schema: 7, choice_index_schema: current ? 1 : undefined, boundary_kind: 'poll', game_update_seq: 1, dungeon_update_seq: 0,
     actions_queued: 0, card_queue_size: 0, pre_turn_actions_size: 0, current_action: null,
     effects_size: 0, top_level_effects_size: 0, queued_top_level_effects_size: 0, queued_effects_size: 0,
     end_turn_queued: false, command_execution_seq: 0, command_settlement_seq: 0,
@@ -62,6 +66,14 @@ test('actual collector stops after accepted invalid completion without resend, t
           response.observed_update.summary = { ...menu, in_game: true };
         }
       }
+      // A new producer behind an old bridge has the raw marker but its
+      // summary cannot forward selectability. Refuse it before START too.
+      if (contract === 'legacy-bridge') {
+        const update = response.observed_update ?? response;
+        if (update.summary?.boundary_schema === 7) {
+          update.state = { ...update, message: { ...update.summary, choice_index_schema: 1 } };
+        }
+      }
       socket.end(JSON.stringify(response) + '\n');
     });
   });
@@ -79,15 +91,17 @@ test('actual collector stops after accepted invalid completion without resend, t
     child.stdout.on('data', b => { logs += b; }); child.stderr.on('data', b => { logs += b; });
     const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('exit', resolve); });
     assert.notEqual(code, 0, logs);
-    assert.equal(requests.filter(r => r.command?.startsWith('START_VERIFY ')).length, 1, logs);
-    assert.equal(pending, true);
+    assert.equal(requests.filter(r => r.command?.startsWith('START_VERIFY ')).length, current ? 1 : 0, logs);
+    assert.equal(pending, current);
+    if (!current) assert.match(logs, /choice_index_schema=1 required before START/);
     assert.equal(requests.some(r => ['release', 'abandon_run'].includes(r.type)), false);
     const acquire = requests.find(r => r.type === 'acquire');
     assert.equal(acquire.takeover_if_stale_after_ms, undefined);
     assert.equal(acquire.cancel_orphaned_command_after_ms, undefined);
-    assert.match(fs.readFileSync(trace, 'utf8'), /START_VERIFY/);
+    assert.equal(fs.readFileSync(trace, 'utf8').includes('START_VERIFY'), current);
   } finally {
     await new Promise(resolve => server.close(resolve));
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+}

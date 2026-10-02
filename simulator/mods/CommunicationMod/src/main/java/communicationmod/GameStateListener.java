@@ -2,6 +2,8 @@ package communicationmod;
 
 import com.megacrit.cardcrawl.actions.AbstractGameAction;
 import com.megacrit.cardcrawl.actions.GameActionManager;
+import com.megacrit.cardcrawl.actions.unique.CodexAction;
+import com.megacrit.cardcrawl.actions.unique.RetainCardsAction;
 import com.megacrit.cardcrawl.cards.SoulGroup;
 import com.megacrit.cardcrawl.core.CardCrawlGame;
 import com.megacrit.cardcrawl.dungeons.AbstractDungeon;
@@ -337,8 +339,9 @@ public class GameStateListener {
                 // produces a second EndTurnAction and can drop a pending screen
                 // selection entirely. endTurnQueued stays true until the turn
                 // actually ends, so it distinguishes that window from a settled
-                // boundary. The same guard exists below at the externalChange
-                // case; this branch returns before reaching it.
+                // boundary. The non-interactive externalChange case below
+                // uses this guard too; an owned input screen is a distinct
+                // interaction-ready boundary, not a quiescent end of turn.
                 else if (quiescentCombatBoundaryIsReady()) {
                     return true;
                 }
@@ -359,9 +362,11 @@ public class GameStateListener {
         // already open. Nilry's Codex retains its current action and the
         // endTurnQueued flag until its card reward is chosen; discarding a
         // potion on that screen changes the potion slots but not the screen.
-        // Publish that settled mutation after the effect/soul guards above,
-        // rather than suppressing its accepted command forever.
-        if (externalChange && inCombat && newScreenUp) {
+        // RetainCardPower (Well-Laid Plans) similarly queues RetainCardsAction
+        // and its HAND_SELECT screen. These source-backed owners wait for input
+        // while follow-up work remains queued; requiring an empty queue would
+        // deadlock them. An arbitrary overlay is not evidence of that ownership.
+        if (externalChange && inCombat && newScreenUp && endTurnInputOwnerIsWaiting(newScreen)) {
             return true;
         }
         // We are assuming that commands are only being submitted through our interface. Some actions that require
@@ -539,6 +544,15 @@ public class GameStateListener {
             boolean monsterIntentsInitialized
     ) {
         return !endTurnQueued && actionManagerQuiescent && monsterIntentsInitialized;
+    }
+
+    private static boolean endTurnInputOwnerIsWaiting(AbstractDungeon.CurrentScreen screen) {
+        AbstractGameAction owner = AbstractDungeon.actionManager.currentAction;
+        if (owner == null || owner.isDone) {
+            return false;
+        }
+        return (screen == AbstractDungeon.CurrentScreen.CARD_REWARD && owner instanceof CodexAction)
+                || (screen == AbstractDungeon.CurrentScreen.HAND_SELECT && owner instanceof RetainCardsAction);
     }
 
     private static boolean quiescentCombatBoundaryIsReady() {

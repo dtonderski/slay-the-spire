@@ -25,6 +25,8 @@ import com.megacrit.cardcrawl.dungeons.TheCity;
 import com.megacrit.cardcrawl.events.shrines.GremlinMatchGame;
 import com.megacrit.cardcrawl.helpers.Prefs;
 import com.megacrit.cardcrawl.monsters.MonsterGroup;
+import com.megacrit.cardcrawl.potions.AbstractPotion;
+import com.megacrit.cardcrawl.potions.PotionSlot;
 import com.megacrit.cardcrawl.rooms.EventRoom;
 import basemod.ReflectionHacks;
 import com.megacrit.cardcrawl.localization.CharacterStrings;
@@ -547,6 +549,221 @@ public class PendingGameplayEffectTest {
     }
 
     @Test
+    public void queuedEndTurnSettlesAtRetainInputNotQuiescence() throws Exception {
+        FixtureSnapshot fixture = FixtureSnapshot.capture();
+        try {
+            installHeadlessGameDependencies(fixture);
+            fixture.captureDungeon();
+            configureDungeonFixture();
+            AbstractDungeon.currMapNode.room.phase = AbstractRoom.RoomPhase.COMBAT;
+            AbstractDungeon.currMapNode.room.monsters = new MonsterGroup(
+                    new com.megacrit.cardcrawl.monsters.AbstractMonster[0]);
+            AbstractDungeon.isScreenUp = false;
+            GameStateListener.resetStateVariables();
+            GameStateListener.signalTurnStart();
+            long settledBefore = GameStateListener.getCommandSettlementSeq();
+            GameStateListener.beforeCommand("end-retain", "end");
+            AbstractDungeon.player.endTurnQueued = true;
+            assertFalse(GameStateListener.checkForDungeonStateChange());
+
+            // Target RetainCardPower.atEndOfTurn (Well-Laid Plans) queues this
+            // owner; RetainCardsAction opens HAND_SELECT and queues WaitAction.
+            com.megacrit.cardcrawl.actions.unique.RetainCardsAction owner = allocate(
+                    com.megacrit.cardcrawl.actions.unique.RetainCardsAction.class);
+            ReflectionHacks.setPrivate(owner, com.megacrit.cardcrawl.actions.AbstractGameAction.class, "duration", 0.4f);
+            AbstractDungeon.actionManager.currentAction = owner;
+            com.megacrit.cardcrawl.actions.utility.WaitAction following = allocate(
+                    com.megacrit.cardcrawl.actions.utility.WaitAction.class);
+            AbstractDungeon.actionManager.actions.add(following);
+            AbstractDungeon.actionManager.phase = GameActionManager.Phase.EXECUTING_ACTIONS;
+            AbstractDungeon.screen = AbstractDungeon.CurrentScreen.HAND_SELECT;
+            AbstractDungeon.isScreenUp = true;
+            assertTrue(GameStateListener.checkForDungeonStateChange());
+            assertEquals(settledBefore + 1, GameStateListener.getCommandSettlementSeq());
+            assertEquals("interaction_ready", GameStateListener.consumeBoundaryKind());
+            assertEquals("end-retain", GameStateListener.getCommandResponseId());
+            assertFalse(CommandExecutor.isEndCommandAvailable());
+
+            GameStateListener.beforeCommand("discard-retain", "potion");
+            GameStateListener.registerStateChange();
+            AbstractGameEffect pending = allocate(ObtainPotionEffect.class);
+            AbstractDungeon.effectsQueue.add(pending);
+            assertFalse(GameStateListener.checkForDungeonStateChange());
+            assertEquals(settledBefore + 1, GameStateListener.getCommandSettlementSeq());
+            AbstractDungeon.effectsQueue.clear(); // test-only natural completion
+            assertTrue(GameStateListener.checkForDungeonStateChange());
+            assertEquals(settledBefore + 2, GameStateListener.getCommandSettlementSeq());
+            assertEquals("interaction_ready", GameStateListener.consumeBoundaryKind());
+            assertSame(owner, AbstractDungeon.actionManager.currentAction);
+            assertSame(following, AbstractDungeon.actionManager.actions.get(0));
+            assertTrue(AbstractDungeon.player.endTurnQueued);
+            assertFalse(owner.isDone);
+            assertEquals(0.4f, (Float) ReflectionHacks.getPrivate(owner,
+                    com.megacrit.cardcrawl.actions.AbstractGameAction.class, "duration"), 0.0f);
+        } finally {
+            try { fixture.restoreGlobals(); } finally { fixture.restoreConfigFile(); }
+        }
+    }
+
+    @Test
+    public void unownedOrFinishedScreenCannotBypassQueuedEndTurn() throws Exception {
+        FixtureSnapshot fixture = FixtureSnapshot.capture();
+        try {
+            installHeadlessGameDependencies(fixture);
+            fixture.captureDungeon();
+            configureDungeonFixture();
+            AbstractDungeon.currMapNode.room.phase = AbstractRoom.RoomPhase.COMBAT;
+            AbstractDungeon.currMapNode.room.monsters = new MonsterGroup(
+                    new com.megacrit.cardcrawl.monsters.AbstractMonster[0]);
+            AbstractDungeon.player.endTurnQueued = true;
+            for (AbstractDungeon.CurrentScreen screen : Arrays.asList(
+                    AbstractDungeon.CurrentScreen.CARD_REWARD,
+                    AbstractDungeon.CurrentScreen.HAND_SELECT,
+                    AbstractDungeon.CurrentScreen.MAP,
+                    AbstractDungeon.CurrentScreen.GAME_DECK_VIEW)) {
+                AbstractDungeon.screen = screen;
+                AbstractDungeon.isScreenUp = true;
+                AbstractDungeon.actionManager.currentAction = allocate(
+                        com.megacrit.cardcrawl.actions.utility.WaitAction.class);
+                GameStateListener.resetStateVariables();
+                GameStateListener.signalTurnStart();
+                assertTrue(GameStateListener.checkForDungeonStateChange());
+                GameStateListener.beforeCommand("unowned-overlay", "potion");
+                GameStateListener.registerStateChange();
+                assertFalse(GameStateListener.checkForDungeonStateChange());
+                assertTrue(GameStateListener.isTransactionPending());
+            }
+            AbstractDungeon.screen = AbstractDungeon.CurrentScreen.CARD_REWARD;
+            AbstractDungeon.actionManager.currentAction = allocate(
+                    com.megacrit.cardcrawl.actions.unique.CodexAction.class);
+            AbstractDungeon.actionManager.currentAction.isDone = true;
+            GameStateListener.resetStateVariables();
+            GameStateListener.signalTurnStart();
+            assertTrue(GameStateListener.checkForDungeonStateChange());
+            GameStateListener.beforeCommand("finished-owner", "potion");
+            GameStateListener.registerStateChange();
+            assertFalse(GameStateListener.checkForDungeonStateChange());
+        } finally {
+            try { fixture.restoreGlobals(); } finally { fixture.restoreConfigFile(); }
+        }
+    }
+
+    @Test
+    public void rewardOfferIndicesStayStableAcrossPotionCapacityChanges() throws Exception {
+        FixtureSnapshot fixture = FixtureSnapshot.capture();
+        try {
+            installHeadlessGameDependencies(fixture);
+            fixture.captureDungeon();
+            configureDungeonFixture();
+            AbstractDungeon.screen = AbstractDungeon.CurrentScreen.COMBAT_REWARD;
+            AbstractDungeon.isScreenUp = true;
+            AbstractDungeon.combatRewardScreen = allocate(com.megacrit.cardcrawl.screens.CombatRewardScreen.class);
+            com.megacrit.cardcrawl.rewards.RewardItem potion = allocate(com.megacrit.cardcrawl.rewards.RewardItem.class);
+            potion.type = com.megacrit.cardcrawl.rewards.RewardItem.RewardType.POTION;
+            com.megacrit.cardcrawl.rewards.RewardItem card = allocate(com.megacrit.cardcrawl.rewards.RewardItem.class);
+            card.type = com.megacrit.cardcrawl.rewards.RewardItem.RewardType.CARD;
+            AbstractDungeon.combatRewardScreen.rewards = new ArrayList<>(Arrays.asList(potion, card));
+            AbstractDungeon.player.potions.add(fixturePotion());
+            assertChoiceFixture("reward_full");
+            assertChoiceRejected(0);
+            assertFalse(potion.isDone);
+            assertFalse(card.isDone);
+            executeChoiceCommand(1);
+            assertFalse(potion.isDone);
+            assertTrue(card.isDone); // CHOOSE 1 still selects the card after the potion.
+            card.isDone = false;
+            AbstractDungeon.player.potions.set(0, allocate(PotionSlot.class));
+            assertChoiceFixture("reward_open");
+            AbstractDungeon.player.potions.set(0, fixturePotion());
+            AbstractDungeon.combatRewardScreen.rewards.remove(card);
+            assertChoiceFixture("reward_only_full");
+        } finally {
+            try { fixture.restoreGlobals(); } finally { fixture.restoreConfigFile(); }
+        }
+    }
+
+    @Test
+    public void shopOfferIndicesStayStableWithSozuAndFullBelt() throws Exception {
+        FixtureSnapshot fixture = FixtureSnapshot.capture();
+        TestStateSnapshot shopStatics = null;
+        try {
+            installHeadlessGameDependencies(fixture);
+            fixture.captureDungeon();
+            configureDungeonFixture();
+            shopStatics = TestStateSnapshot.of(com.megacrit.cardcrawl.shop.ShopScreen.class);
+            AbstractDungeon.screen = AbstractDungeon.CurrentScreen.SHOP;
+            AbstractDungeon.isScreenUp = true;
+            com.megacrit.cardcrawl.shop.ShopScreen shop = allocate(com.megacrit.cardcrawl.shop.ShopScreen.class);
+            AbstractDungeon.shopScreen = shop;
+            shop.purgeAvailable = true;
+            com.megacrit.cardcrawl.shop.ShopScreen.actualPurgeCost = 25;
+            shop.coloredCards = new ArrayList<>();
+            shop.colorlessCards = new ArrayList<>();
+            ReflectionHacks.setPrivate(shop, com.megacrit.cardcrawl.shop.ShopScreen.class, "relics", new ArrayList<>());
+            com.megacrit.cardcrawl.shop.StorePotion offer = allocate(com.megacrit.cardcrawl.shop.StorePotion.class);
+            offer.potion = fixturePotion();
+            offer.price = 7;
+            ReflectionHacks.setPrivate(shop, com.megacrit.cardcrawl.shop.ShopScreen.class, "potions",
+                    new ArrayList<>(Arrays.asList(offer)));
+            AbstractDungeon.player.potions.add(allocate(PotionSlot.class));
+            com.megacrit.cardcrawl.relics.Sozu sozu = allocate(com.megacrit.cardcrawl.relics.Sozu.class);
+            Field id = com.megacrit.cardcrawl.relics.AbstractRelic.class.getDeclaredField("relicId");
+            id.setAccessible(true);
+            id.set(sozu, com.megacrit.cardcrawl.relics.Sozu.ID);
+            AbstractDungeon.player.relics.add(sozu);
+            assertChoiceFixture("shop_sozu");
+            assertChoiceRejected(1);
+            AbstractDungeon.player.relics.clear();
+            AbstractDungeon.player.potions.set(0, fixturePotion());
+            assertChoiceFixture("shop_full");
+            assertChoiceRejected(1);
+            AbstractDungeon.player.potions.set(0, allocate(PotionSlot.class));
+            assertChoiceFixture("shop_open");
+            assertFalse(offer.isPurchased);
+        } finally {
+            try { fixture.restoreGlobals(); } finally {
+                try { fixture.restoreConfigFile(); } finally { if (shopStatics != null) shopStatics.restore(); }
+            }
+        }
+    }
+
+    private static AbstractPotion fixturePotion() throws Exception {
+        com.megacrit.cardcrawl.potions.FirePotion potion = allocate(com.megacrit.cardcrawl.potions.FirePotion.class);
+        potion.name = "Fire Potion";
+        return potion;
+    }
+
+    private static void assertChoiceFixture(String name) throws Exception {
+        JsonObject fixtures;
+        try (java.io.Reader reader = new java.io.InputStreamReader(
+                PendingGameplayEffectTest.class.getResourceAsStream("/choice-contract.json"), "UTF-8")) {
+            fixtures = new Gson().fromJson(reader, JsonObject.class);
+        }
+        JsonObject expected = fixtures.getAsJsonObject("cases").getAsJsonObject(name);
+        HashMap<String, Object> state = new HashMap<>();
+        state.put("screen_type", ChoiceScreenUtils.getCurrentChoiceType().name());
+        GameStateConverter.addChoiceState(state);
+        assertEquals(expected.getAsJsonObject("game_state"), new Gson().toJsonTree(state));
+        boolean chooses = expected.getAsJsonArray("available_commands").toString().contains("\"choose\"");
+        assertEquals(chooses, CommandExecutor.isChooseCommandAvailable());
+    }
+
+    private static void executeChoiceCommand(int index) throws Exception {
+        java.lang.reflect.Method method = CommandExecutor.class.getDeclaredMethod("executeChooseCommand", String[].class);
+        method.setAccessible(true);
+        method.invoke(null, (Object) new String[]{"choose", Integer.toString(index)});
+    }
+
+    private static void assertChoiceRejected(int index) throws Exception {
+        try {
+            executeChoiceCommand(index);
+            org.junit.Assert.fail("nonselectable choice was executed");
+        } catch (java.lang.reflect.InvocationTargetException exception) {
+            assertTrue(exception.getCause() instanceof InvalidCommandException);
+        }
+    }
+
+    @Test
     public void smithCancellationWaitsForNaturalCompletionButAllowsOpenGrid() throws Exception {
         assertSelectionEffectLifecycle(CampfireSmithEffect.class, "smith");
     }
@@ -758,6 +975,23 @@ public class PendingGameplayEffectTest {
             Arrays.fill(strings.TEXT, "");
             Arrays.fill(strings.OPTIONS, "");
             Arrays.fill(strings.UNIQUE_REWARDS, "");
+            return strings;
+        }
+
+        @Override
+        public com.megacrit.cardcrawl.localization.PotionStrings getPotionString(String key) {
+            com.megacrit.cardcrawl.localization.PotionStrings strings = new com.megacrit.cardcrawl.localization.PotionStrings();
+            strings.NAME = key;
+            strings.DESCRIPTIONS = new String[]{"fixture"};
+            return strings;
+        }
+
+        @Override
+        public com.megacrit.cardcrawl.localization.RelicStrings getRelicStrings(String key) {
+            com.megacrit.cardcrawl.localization.RelicStrings strings = new com.megacrit.cardcrawl.localization.RelicStrings();
+            strings.NAME = key;
+            strings.FLAVOR = "fixture";
+            strings.DESCRIPTIONS = new String[]{"fixture"};
             return strings;
         }
 

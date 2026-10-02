@@ -21,6 +21,26 @@ commands are `START`, `PLAY`, `POTION`, `END`, `CHOOSE`, `PROCEED`, `RETURN`,
 `KEY`, `CLICK`, `WAIT`, and `STATE`. Do not construct commands from this list
 alone; use the current state's advertised commands and choices.
 
+### Stable offer indices and executable choices
+
+`choice_index_schema: 1` declares an additive selectability contract. The existing
+`game_state.choice_list` stays the UI offer list in its original order: affordable
+shop potions remain listed with Sozu/full slots, and full-belt reward potions stay
+in their original positions. `game_state.selectable_choice_indices` is a strictly
+increasing list of currently executable indices into that same list. It never
+compresses/reindexes labels. `CHOOSE i` (and named choices) rejects an index not
+in that list before touching the game. The `choose` family is unavailable when
+none can be selected; the offer list remains observable.
+
+The random collector requires this producer contract before `START`, validates
+the index list, and samples every advertised executable command without potion
+heuristics or exceptions for known hangs/divergences. Schema-6/7 replay still
+binds commands against the original offer indices; no schema reinterpretation,
+observed-label-based transition selection, or gameplay repair is required.
+Shared synthetic Java/client/policy/verifier fixtures cover a potion before a
+card reward, Sozu, full/open belts, and an all-unselectable reward list. They do
+not establish real-game parity.
+
 This project also uses `PROFILE`, a one-time non-gameplay response carrying
 persistent profile inputs such as the Note card and final-act availability.
 Collectors copy it into trace metadata before `START`; replay never infers it
@@ -42,6 +62,13 @@ game state. Smith/Toke effects pause while a screen is up, so legitimate user
 interaction remains available; once the screen closes, readiness waits for the
 old effect to finish before another campfire choice can hide the UI.
 
+The class-level `@SpirePatch` added to `CampfireDigEffectPatch` **enables hooks
+that were inactive on master**. Its block at `addCampfireChoiceData` and resume
+at the authored `isDone` branch now fence Dig's natural lifecycle; this is a
+behaviour change, not just diagnostics. Target bytecode and locator tests verify
+the resume site (duration < 0). Fresh diagnostics-off live Dig coverage is still
+required for this candidate; headless tests alone do not certify it.
+
 The legacy `CampfireSmithEffectDurationPatch`, `RestRoomSmithSelectionPatch`,
 and `ShopRoomPurgePatch` repair chain has been removed. The producer no longer
 resets Smith duration/completion or manually applies pending upgrades in room
@@ -58,7 +85,15 @@ do not clear unattended batches.
 The serialized effect counts are selective, not a complete pending-work count:
 for example, Souls are outside the effect lists. Zero counts alone do not prove
 settlement. Diagnostics remain opt-in; immutable live traces are required to
-validate lifecycle behavior beyond the headless readiness fixtures.
+validate lifecycle behavior beyond the headless readiness fixtures. End-turn
+external mutations are allowed to settle on an already-open screen only for
+active CodexAction/CARD_REWARD or RetainCardsAction/HAND_SELECT owners. Well-Laid
+Plans' RetainCardPower queues the latter. These are interaction-ready boundaries,
+not quiescence: queued follow-up work and endTurnQueued remain untouched.
+
+Raw-clock ExhaustCardEffect resets still require **same-command** exhaust then
+retrieval coverage. Waiting for effects between commands cannot prove that
+intra-command ordering, and it remains a live certification blocker.
 
 ## Campfire diagnostics (opt-in, observation-only)
 

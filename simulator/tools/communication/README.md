@@ -107,6 +107,7 @@ node simulator/tools/communication/trace_client.test.js
 node simulator/tools/communication/random_fidelity_collector.test.js
 node --test simulator/tools/communication/random_fidelity_fail_closed.test.js
 node --test simulator/tools/communication/collection_review_regressions.test.js
+node --test simulator/tools/communication/choice_contract.test.js
 node simulator/tools/communication/run_random_fidelity_campaign.test.js
 node simulator/tools/communication/random_fidelity_game_watchdog.test.js
 node simulator/tools/communication/trace_ui/server.test.js
@@ -117,6 +118,14 @@ The audit's synthetic infrastructure regressions run through `uv`:
 ```bash
 uv run python -m unittest discover -s simulator/tools/communication -p 'audit_hand_select_retrieval_test.py'
 ```
+
+New random collection requires CommunicationMod `choice_index_schema: 1` before
+START. `choice_list` retains stable UI offer indices; executable CHOOSE commands
+come from the producer's `selectable_choice_indices`, not a policy-side potion
+filter. Missing/malformed reward/shop selectability stops collection rather than
+silently retrying or reindexing. Schema-6/7 replay bindings keep their original
+meaning. See the mod README for the additive contract and synthetic cross-layer
+regressions.
 
 Trace collection never establishes parity. Verify immutable output separately
 with `sts_verify`, and review capture provenance before corpus promotion.

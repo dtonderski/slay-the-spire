@@ -222,6 +222,7 @@ function summarize(message) {
     in_game: message.in_game ?? false,
     ready_for_command: message.ready_for_command ?? false,
     boundary_schema: message.boundary_schema ?? null,
+    choice_index_schema: message.choice_index_schema ?? null,
     boundary_kind: message.boundary_kind ?? null,
     game_update_seq: message.game_update_seq ?? null,
     dungeon_update_seq: message.dungeon_update_seq ?? null,
@@ -263,6 +264,7 @@ function summarize(message) {
     potion_capacity: potions.length,
     open_potion_slots: openPotionSlots,
     choices: gs.choice_list ?? null,
+    selectable_choice_indices: gs.selectable_choice_indices ?? null,
     shop_potions: (screenState.potions ?? []).map((potion) => ({
       id: potion.id ?? null,
       name: potion.name ?? null,
@@ -1174,7 +1176,9 @@ function startControlServer() {
   controlServer = net.createServer((socket) => {
     // A controller socket can disappear while its accepted command is still
     // running. Record the transport failure without changing ownership,
-    // queue contents, or settlement fences; recovery uses the existing state.
+    // queue contents, or settlement fences. This is diagnostic bookkeeping only;
+    // an interrupted command fails closed and cannot use that cached observation
+    // as its completion or as authority for an automatic recovery.
     socket.on("error", (error) => {
       writeRecord({
         type: "metadata",

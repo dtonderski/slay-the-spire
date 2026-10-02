@@ -20,6 +20,8 @@ use sts_core::adapter_internals::{
     MapAction, MonsterId, MonsterIntent, MonsterState, Relic, RestAction, RewardContinuation,
     RewardScreen, RoomKind, RunAction, RunDecisionAction, RunPhase, RunState, ShopPick,
 };
+#[cfg(test)]
+mod choice_contract_tests;
 mod replay;
 
 use replay::{verify_seed_start_transition, SeedStartReplayInputs, StreamingSeedStartReplay};

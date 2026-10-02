@@ -15,7 +15,7 @@ public class ShopPotionChoiceTest {
     }
 
     @Test
-    public void fullBeltHidesPotionRewardsButKeepsOtherRewards() {
+    public void fullBeltMakesPotionRewardsUnselectableButKeepsOtherRewardsSelectable() {
         assertTrue(ChoiceScreenUtils.canClaimCombatReward(false, false));
         assertTrue(ChoiceScreenUtils.canClaimCombatReward(false, true));
         assertTrue(ChoiceScreenUtils.canClaimCombatReward(true, true));

@@ -54,6 +54,7 @@ public class GameStateConverter {
         response.put("available_commands", CommandExecutor.getAvailableCommands());
         response.put("ready_for_command", GameStateListener.isWaitingForCommand());
         response.put("boundary_schema", GameStateListener.getBoundarySchema());
+        response.put("choice_index_schema", 1); // stable offer indices + explicit selectability
         response.put("boundary_kind", GameStateListener.consumeBoundaryKind());
         response.put("game_update_seq", GameStateListener.getGameUpdateSeq());
         response.put("dungeon_update_seq", GameStateListener.getDungeonUpdateSeq());
@@ -116,7 +117,8 @@ public class GameStateConverter {
      * Sometimes present:
      * - "current_action" (list): The class name of the action in the action manager queue, if not empty
      * - "combat_state" (list): The state of the combat (draw pile, monsters, etc.)
-     * - "choice_list" (list): If the command is available, the possible choices for the choose command
+     * - "choice_list" (list): Original UI offer labels, with stable CHOOSE indices
+     * - "selectable_choice_indices" (list): Executable indices into choice_list
      * @return A HashMap encoding the JSON representation of the game state
      */
     private static HashMap<String, Object> getGameState() {
@@ -175,9 +177,7 @@ public class GameStateConverter {
         state.put("potions", potions);
 
         state.put("map", convertMapToJson());
-        if(CommandExecutor.isChooseCommandAvailable()) {
-            state.put("choice_list", ChoiceScreenUtils.getCurrentChoiceList());
-        }
+        addChoiceState(state);
         if(AbstractDungeon.getCurrRoom().phase.equals(AbstractRoom.RoomPhase.COMBAT)) {
             state.put("combat_state", getCombatState());
         }
@@ -190,6 +190,15 @@ public class GameStateConverter {
         state.put("keys", keys);
 
         return state;
+    }
+
+    static void addChoiceState(HashMap<String, Object> state) {
+        ArrayList<String> offers = ChoiceScreenUtils.getCurrentChoiceList();
+        if (!offers.isEmpty()) {
+            // Offers remain observable even when none can currently be selected.
+            state.put("choice_list", offers);
+            state.put("selectable_choice_indices", ChoiceScreenUtils.getSelectableChoiceIndices());
+        }
     }
 
     private static HashMap<String, Object> getRoomState() {

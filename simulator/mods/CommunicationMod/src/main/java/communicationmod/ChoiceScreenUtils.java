@@ -162,6 +162,39 @@ public class ChoiceScreenUtils {
         return lowerCaseChoices;
     }
 
+    /**
+     * Executable indices into the unchanged UI offer list. Never compress the
+     * offer list: captured CHOOSE indices are bound by the verifier to it.
+     */
+    public static ArrayList<Integer> getSelectableChoiceIndices() {
+        ArrayList<Integer> indices = new ArrayList<>();
+        ChoiceType type = getCurrentChoiceType();
+        if (type == ChoiceType.COMBAT_REWARD) {
+            ArrayList<RewardItem> rewards = getAvailableCombatRewards();
+            boolean emptySlot = hasEmptyPotionSlot(AbstractDungeon.player);
+            for (int i = 0; i < rewards.size(); i++) {
+                if (canClaimCombatReward(rewards.get(i).type == RewardItem.RewardType.POTION, emptySlot)) {
+                    indices.add(i);
+                }
+            }
+        } else if (type == ChoiceType.SHOP_SCREEN) {
+            ArrayList<Object> offers = getAvailableShopItems();
+            boolean canBuyPotion = canPurchaseShopPotion(
+                    AbstractDungeon.player.hasRelic(Sozu.ID), hasEmptyPotionSlot(AbstractDungeon.player));
+            for (int i = 0; i < offers.size(); i++) {
+                if (!(offers.get(i) instanceof StorePotion) || canBuyPotion) {
+                    indices.add(i);
+                }
+            }
+        } else {
+            int count = getCurrentChoiceList().size();
+            for (int i = 0; i < count; i++) {
+                indices.add(i);
+            }
+        }
+        return indices;
+    }
+
     public static void executeChoice(int choice_index) {
         ChoiceType choiceType = getCurrentChoiceType();
         switch (choiceType) {
@@ -544,15 +577,10 @@ public class ChoiceScreenUtils {
     }
 
     private static ArrayList<RewardItem> getAvailableCombatRewards() {
-        ArrayList<RewardItem> rewards = new ArrayList<>();
-        boolean hasEmptyPotionSlot = hasEmptyPotionSlot(AbstractDungeon.player);
-        for (RewardItem reward : AbstractDungeon.combatRewardScreen.rewards) {
-            if (canClaimCombatReward(
-                    reward.type == RewardItem.RewardType.POTION, hasEmptyPotionSlot)) {
-                rewards.add(reward);
-            }
-        }
-        return rewards;
+        // Preserve the original offer order, including currently unclaimable
+        // potions. Selectability is advertised separately; it must not shift
+        // a later card/relic/key's CHOOSE index.
+        return new ArrayList<>(AbstractDungeon.combatRewardScreen.rewards);
     }
 
     static boolean canClaimCombatReward(boolean potionReward, boolean hasEmptyPotionSlot) {
@@ -666,12 +694,12 @@ public class ChoiceScreenUtils {
                 choices.add(relic);
             }
         }
-        if (canPurchaseShopPotion(
-                AbstractDungeon.player.hasRelic(Sozu.ID), hasEmptyPotionSlot(AbstractDungeon.player))) {
-            for(StorePotion potion : getShopScreenPotions()) {
-                if(potion.price <= AbstractDungeon.player.gold) {
-                    choices.add(potion);
-                }
+        // Keep affordable potion offers in their original positions even when
+        // Sozu/full slots prevent purchase. The selectable-index list, not the
+        // offer labels or their indices, expresses executable commands.
+        for(StorePotion potion : getShopScreenPotions()) {
+            if(potion.price <= AbstractDungeon.player.gold) {
+                choices.add(potion);
             }
         }
         return choices;
@@ -679,8 +707,8 @@ public class ChoiceScreenUtils {
 
     /**
      * StorePotion.purchasePotion() returns without a gameplay change for Sozu or
-     * a full potion belt. Do not advertise commands that can only click those
-     * no-op purchases, because an accepted command could never settle.
+     * a full potion belt. Preserve their offer labels, but do not advertise
+     * their indices as selectable or accept their no-op purchase commands.
      */
     static boolean canPurchaseShopPotion(boolean hasSozu, boolean hasEmptyPotionSlot) {
         return !hasSozu && hasEmptyPotionSlot;
