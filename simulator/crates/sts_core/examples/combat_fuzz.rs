@@ -3,6 +3,7 @@
 use serde_json::{json, Value};
 use std::{
     fs,
+    io::Write,
     panic::{catch_unwind, AssertUnwindSafe},
     path::PathBuf,
 };
@@ -32,7 +33,13 @@ impl Driver {
     }
 }
 
-fn generate(seed: u64) -> Result<RunState, String> {
+fn event(file: &mut fs::File, record: Value) -> Result<(), String> {
+    serde_json::to_writer(&mut *file, &record).map_err(|e| e.to_string())?;
+    file.write_all(b"\n").map_err(|e| e.to_string())?;
+    file.flush().map_err(|e| e.to_string())
+}
+
+fn generate(seed: u64, journal: &mut Value, live: &mut fs::File) -> Result<RunState, String> {
     let mut rng = Driver(seed);
     let ascension = [0, 2, 10, 17, 18, 19, 20][rng.index(7)];
     let mut run =
@@ -136,6 +143,16 @@ fn generate(seed: u64) -> Result<RunState, String> {
         }
         run.deck.push(card);
     }
+    journal["setup"] = serde_json::to_value(&run).map_err(|e| e.to_string())?;
+    journal["encounter"] = json!(encounter);
+    journal["room_kind"] = json!(kind);
+    journal["coverage"] = json!({"act": run.current_act, "ascension": run.ascension,
+        "encounter": encounter, "deck_size": run.deck.len(),
+        "relics": run.relics.iter().map(|relic| relic.trace_name()).collect::<Vec<_>>()});
+    event(
+        live,
+        json!({"stage": "combat_entry", "setup": journal["setup"], "encounter": encounter, "room_kind": kind}),
+    )?;
     run.validate()
         .map_err(|e| format!("generated loadout: {e}"))?;
     enter_synthetic_combat(&mut run, kind, encounter).map_err(|e| format!("combat entry: {e}"))?;
@@ -156,9 +173,11 @@ fn execute(
     initial: &RunState,
     rng: &mut Driver,
     journal: &mut Value,
+    live: &mut fs::File,
 ) -> Result<&'static str, String> {
     let mut run = initial.clone();
     for step in 0..2000 {
+        event(live, json!({"stage": "invariant_check", "step": step}))?;
         check(&run)?;
         if run.phase != RunPhase::Combat
             || run
@@ -169,6 +188,7 @@ fn execute(
             return Ok("terminal");
         }
         let before = serde_json::to_value(&run).map_err(|e| e.to_string())?;
+        event(live, json!({"stage": "legal_query", "step": step}))?;
         let legal = legal_run_decision_actions(&run).map_err(|e| format!("legal query: {e}"))?;
         if serde_json::to_value(&run).map_err(|e| e.to_string())? != before {
             return Err("legal query mutated state".into());
@@ -179,12 +199,21 @@ fn execute(
         let action = legal[rng.index(legal.len())];
         journal["attempted_action"] = serde_json::to_value(action).map_err(|e| e.to_string())?;
         journal["step"] = json!(step);
+        event(
+            live,
+            json!({"stage": "attempt", "step": step, "action": action}),
+        )?;
         let next = apply_run_decision_action(&run, action)
             .map_err(|e| format!("enumerated action rejected: {e}; {action:?}"))?;
+        event(
+            live,
+            json!({"stage": "accepted", "step": step, "action": action}),
+        )?;
         journal["accepted_actions"]
             .as_array_mut()
             .unwrap()
             .push(json!(action));
+        event(live, json!({"stage": "restore_repeat", "step": step}))?;
         let restored: RunState =
             serde_json::from_value(before).map_err(|e| format!("restore: {e}"))?;
         let repeated = apply_run_decision_action(&restored, action)
@@ -204,6 +233,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.get(1).is_some_and(|arg| arg == "replay") {
         let path = args.get(2).ok_or("missing artifact path")?;
         let artifact: Value = serde_json::from_slice(&fs::read(path)?)?;
+        let expected = artifact["outcome"]
+            .as_str()
+            .ok_or("missing failure outcome")?;
         let mut run: RunState = serde_json::from_value(artifact["initial_state"].clone())?;
         check(&run)?;
         for (index, value) in artifact["accepted_actions"]
@@ -216,6 +248,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 serde_json::from_value(value.clone())?;
             let next = apply_run_decision_action(&run, action)?;
             if let Err(error) = check(&next) {
+                if expected != error {
+                    return Err(format!("different invariant failure: {error}").into());
+                }
                 fs::write(
                     format!("{path}.before.json"),
                     serde_json::to_vec_pretty(&run)?,
@@ -234,17 +269,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             serde_json::to_vec_pretty(&run)?,
         )?;
         let legal = legal_run_decision_actions(&run)?;
-        if legal.is_empty() {
+        if run.phase == RunPhase::Combat
+            && run
+                .combat
+                .as_ref()
+                .is_some_and(|combat| !matches!(combat.phase, CombatPhase::Won | CombatPhase::Lost))
+            && legal.is_empty()
+            && expected == "nonterminal combat has no legal actions"
+        {
             println!("reproduced empty legal list; phase={:?}", run.phase);
             return Ok(());
+        }
+        if !expected.starts_with("enumerated action rejected:") {
+            return Err("recorded failure did not reproduce".into());
         }
         let action = serde_json::from_value(artifact["attempted_action"].clone())?;
         println!(
             "attempted={action:?} enumerated={}",
             legal.contains(&action)
         );
+        if !legal.contains(&action) {
+            return Err("recorded action is no longer enumerated; not the same failure".into());
+        }
         match apply_run_decision_action(&run, action) {
-            Err(error) => println!("reproduced rejected action: {error}"),
+            Err(error)
+                if expected == format!("enumerated action rejected: {error}; {action:?}") =>
+            {
+                println!("reproduced rejected action: {error}")
+            }
+            Err(error) => return Err(format!("different rejection: {error}").into()),
             Ok(_) => return Err("failure did not reproduce".into()),
         }
         return Ok(());
@@ -252,32 +305,75 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start: u64 = args.get(1).ok_or("missing START")?.parse()?;
     let count: u64 = args.get(2).ok_or("missing COUNT")?.parse()?;
     let out = PathBuf::from(args.get(3).ok_or("missing OUTPUT_DIR")?);
-    fs::create_dir_all(&out)?;
-    let revision = std::process::Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()?;
-    let dirty = std::process::Command::new("git")
-        .args(["diff", "HEAD"])
-        .output()?;
-    fs::write(out.join("implementation.patch"), &dirty.stdout)?;
+    if let Some(parent) = out.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::create_dir(&out)?; // Refuse to overwrite an existing campaign.
+                           // Isolated campaigns pin provenance before launching any cases, so an
+                           // unrelated checkout/commit cannot mislabel their frozen executable.
+    let revision = match std::env::var("COMBAT_FUZZ_REVISION") {
+        Ok(revision) => revision,
+        Err(_) => {
+            let output = std::process::Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .output()?;
+            if !output.status.success() {
+                return Err("cannot resolve simulator revision".into());
+            }
+            String::from_utf8(output.stdout)?.trim().to_string()
+        }
+    };
+    let dirty = match std::env::var("COMBAT_FUZZ_PATCH") {
+        Ok(path) => fs::read(path)?,
+        Err(_) => {
+            let output = std::process::Command::new("git")
+                .args(["diff", "HEAD"])
+                .output()?;
+            if !output.status.success() {
+                return Err("cannot capture implementation diff".into());
+            }
+            output.stdout
+        }
+    };
+    fs::write(out.join("implementation.patch"), &dirty)?;
     fs::write(out.join("driver.rs"), include_str!("combat_fuzz.rs"))?;
     let mut failures = 0;
     let mut terminal = 0;
     let mut capped = 0;
     for seed in start..start.checked_add(count).ok_or("seed range overflows")? {
-        let mut journal = json!({"schema": 1, "revision": String::from_utf8_lossy(&revision.stdout).trim(), "driver_seed": seed, "external_inputs": [], "accepted_actions": [], "action_limit": 2000});
+        let mut journal = json!({"schema": 1, "revision": revision, "driver_seed": seed, "external_inputs": [], "accepted_actions": [], "action_limit": 2000});
+        let live_path = out.join(format!("live-seed-{seed}.jsonl"));
+        let mut live = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&live_path)?;
+        event(
+            &mut live,
+            json!({"stage": "generation", "metadata": journal}),
+        )?;
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let initial = generate(seed)?;
+            let initial = generate(seed, &mut journal, &mut live)?;
             journal["initial_state"] = serde_json::to_value(&initial).map_err(|e| e.to_string())?;
+            event(
+                &mut live,
+                json!({"stage": "initial", "initial_state": journal["initial_state"]}),
+            )?;
             execute(
                 &initial,
                 &mut Driver(seed ^ 0xd1b54a32d192ed03),
                 &mut journal,
+                &mut live,
             )
         }));
+        println!("coverage={}", journal["coverage"]);
         let outcome = match result {
             Ok(Ok("terminal")) => {
                 terminal += 1;
+                drop(live);
+                fs::remove_file(live_path)?;
+                if (seed - start + 1).is_multiple_of(1000) {
+                    println!("progress seed={seed} terminal={terminal} failures={failures} capped={capped}");
+                }
                 continue;
             }
             Ok(Ok(other)) => {
