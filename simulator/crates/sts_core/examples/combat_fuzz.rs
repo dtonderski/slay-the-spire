@@ -18,6 +18,8 @@ use sts_core::adapter_internals::{
     CardId, CardInstance, CardType, CombatPhase, Relic, RoomKind, RunPhase, RunState,
 };
 
+use sts_core::potion::IRONCLAD_POTION_POOL;
+
 // Local driver RNG. Never shares a stream with gameplay.
 struct Driver(u64);
 impl Driver {
@@ -39,7 +41,12 @@ fn event(file: &mut fs::File, record: Value) -> Result<(), String> {
     file.flush().map_err(|e| e.to_string())
 }
 
-fn generate(seed: u64, journal: &mut Value, live: &mut fs::File) -> Result<RunState, String> {
+fn generate(
+    seed: u64,
+    with_potions: bool,
+    journal: &mut Value,
+    live: &mut fs::File,
+) -> Result<RunState, String> {
     let mut rng = Driver(seed);
     let ascension = [0, 2, 10, 17, 18, 19, 20][rng.index(7)];
     let mut run =
@@ -143,12 +150,20 @@ fn generate(seed: u64, journal: &mut Value, live: &mut fs::File) -> Result<RunSt
         }
         run.deck.push(card);
     }
+    if with_potions {
+        let count = rng.index(run.open_potion_slots() + 1);
+        for _ in 0..count {
+            run.gain_potion(IRONCLAD_POTION_POOL[rng.index(IRONCLAD_POTION_POOL.len())])
+                .map_err(|error| format!("initial potion inventory: {error}"))?;
+        }
+    }
     journal["setup"] = serde_json::to_value(&run).map_err(|e| e.to_string())?;
     journal["encounter"] = json!(encounter);
     journal["room_kind"] = json!(kind);
-    journal["coverage"] = json!({"act": run.current_act, "ascension": run.ascension,
+    journal["coverage"] = json!({"generation_profile": journal["generation_profile"], "act": run.current_act, "ascension": run.ascension,
         "encounter": encounter, "deck_size": run.deck.len(),
-        "relics": run.relics.iter().map(|relic| relic.trace_name()).collect::<Vec<_>>()});
+        "relics": run.relics.iter().map(|relic| relic.trace_name()).collect::<Vec<_>>(),
+        "potions": run.potions});
     event(
         live,
         json!({"stage": "combat_entry", "setup": journal["setup"], "encounter": encounter, "room_kind": kind}),
@@ -305,6 +320,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start: u64 = args.get(1).ok_or("missing START")?.parse()?;
     let count: u64 = args.get(2).ok_or("missing COUNT")?.parse()?;
     let out = PathBuf::from(args.get(3).ok_or("missing OUTPUT_DIR")?);
+    let with_potions = args.get(4).is_some_and(|flag| flag == "--potions");
+    if args.len() > 5 || (args.len() == 5 && !with_potions) {
+        return Err("optional fifth argument must be --potions".into());
+    }
+    let profile = if with_potions {
+        "cards-relics-potions"
+    } else {
+        "cards-relics"
+    };
     if let Some(parent) = out.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -341,7 +365,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = 0;
     let mut capped = 0;
     for seed in start..start.checked_add(count).ok_or("seed range overflows")? {
-        let mut journal = json!({"schema": 1, "revision": revision, "driver_seed": seed, "external_inputs": [], "accepted_actions": [], "action_limit": 2000});
+        let mut journal = json!({"schema": 1, "generation_profile": profile, "revision": revision, "driver_seed": seed, "external_inputs": [], "accepted_actions": [], "action_limit": 2000});
         let live_path = out.join(format!("live-seed-{seed}.jsonl"));
         let mut live = fs::OpenOptions::new()
             .write(true)
@@ -352,7 +376,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             json!({"stage": "generation", "metadata": journal}),
         )?;
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let initial = generate(seed, &mut journal, &mut live)?;
+            let initial = generate(seed, with_potions, &mut journal, &mut live)?;
             journal["initial_state"] = serde_json::to_value(&initial).map_err(|e| e.to_string())?;
             event(
                 &mut live,
@@ -365,6 +389,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &mut live,
             )
         }));
+        journal["coverage"]["accepted_actions"] =
+            json!(journal["accepted_actions"].as_array().map_or(0, Vec::len));
+        journal["coverage"]["potion_actions"] = json!(journal["accepted_actions"]
+            .as_array()
+            .map_or(0, |actions| actions
+                .iter()
+                .filter(|action| action["Run"].get("UsePotion").is_some())
+                .count()));
         println!("coverage={}", journal["coverage"]);
         let outcome = match result {
             Ok(Ok("terminal")) => {

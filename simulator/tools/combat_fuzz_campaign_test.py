@@ -14,7 +14,8 @@ SPEC.loader.exec_module(campaign)
 
 
 class CampaignTests(unittest.TestCase):
-    def run_fake(self, body: str, timeout: float = 2.0, pinned: bool = False):
+    def run_fake(self, body: str, timeout: float = 2.0, pinned: bool = False,
+                 profile: str = "cards-relics"):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -25,7 +26,7 @@ class CampaignTests(unittest.TestCase):
         if pinned:
             (root / "manifest.json").write_text(json.dumps({"revision": "pinned-revision"}))
             (root / "implementation.patch").write_text("pinned patch")
-        result = campaign.run_case(binary, root, 7, output, timeout)
+        result = campaign.run_case(binary, root, 7, output, timeout, profile)
         return result, output
 
     def test_terminal_case_is_summarized_and_cleaned(self):
@@ -45,6 +46,17 @@ class CampaignTests(unittest.TestCase):
         self.assertEqual(result["status"], "wall_timeout_candidate")
         self.assertEqual((output / "live.jsonl").read_text(), "attempted\n")
         self.assertLess(result["elapsed_seconds"], 2)
+
+    def test_potion_profile_is_explicit_in_child_command(self):
+        _, output = self.run_fake('echo "$4" > "$3/profile"\n', profile="cards-relics-potions")
+        self.assertEqual((output / "profile").read_text().strip(), "--potions")
+
+    def test_potion_profile_rejects_old_binary_that_ignores_flag(self):
+        result, output = self.run_fake('echo \'coverage={"encounter":"Cultist","ascension":20}\'\n'
+                                      'echo "done start=$1 count=1 terminal=1 failures=0 capped=0"\n',
+                                      profile="cards-relics-potions")
+        self.assertEqual(result["status"], "probe_profile_mismatch")
+        self.assertTrue(output.exists())
 
     def test_case_uses_campaign_provenance(self):
         result, output = self.run_fake('echo "$COMBAT_FUZZ_REVISION" > "$3/revision"\n'
