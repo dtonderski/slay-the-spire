@@ -75,7 +75,12 @@ target/release/examples/combat_fuzz replay path/to/seed-304.json
 The initial coverage includes all four acts, ascensions 0/2/10/17/18/19/20,
 random modeled non-status cards, and a curated combat-relic pool. Loadouts are
 synthetic, not claims that every combination is reachable in an ordinary run.
-Potions and broader relic/counter coverage can be added in later campaigns.
+The default profile preserves those original seeded loadouts. Pass
+`--profile cards-relics-potions` to the isolated runner to also initialize a
+random capacity-bounded potion inventory from the modeled Ironclad potion pool.
+The manifest/journals record the profile; summaries count initial potion
+identities and accepted potion-use actions. Broader relic/counter coverage can
+be added in later campaigns.
 
 ## Python binding
 
