@@ -1746,6 +1746,11 @@ fn apply_internal_action_with_defer(
             player_actions::gain_metallicize(state, amount)
         }
         InternalAction::GainStrength { amount } => player_actions::gain_strength(state, amount),
+        InternalAction::DoublePlayerStrength => {
+            let amount =
+                checked_combat_sum(state.player.powers.strength, state.player.temp_strength)?;
+            player_actions::gain_strength(state, amount)
+        }
         InternalAction::GainMantra { amount } => player_actions::gain_mantra(state, amount),
         InternalAction::EnterCalm => player_actions::enter_calm(state),
         InternalAction::EnterWrath => player_actions::enter_wrath(state),
@@ -3601,6 +3606,7 @@ fn is_play_top_deferred_power_gain(action: &InternalAction) -> bool {
             | InternalAction::IncreaseMaxOrbs { .. }
             | InternalAction::GainMetallicize { .. }
             | InternalAction::GainStrength { .. }
+            | InternalAction::DoublePlayerStrength
             | InternalAction::GainDexterity { .. }
             | InternalAction::GainTempStrength { .. }
             | InternalAction::GainIntangible { .. }

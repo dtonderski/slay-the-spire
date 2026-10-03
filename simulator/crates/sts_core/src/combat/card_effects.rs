@@ -388,7 +388,7 @@ pub(super) fn play_card_queue_in_place(
         INFLAME_ID | INFLAME_PLUS_ID => inflame_queue(card_id, definition),
         FLEX_ID | FLEX_PLUS_ID => flex_queue(card_id, definition),
         JAX_ID | JAX_PLUS_ID => jax_queue(card_id, definition),
-        LIMIT_BREAK_ID | LIMIT_BREAK_PLUS_ID => limit_break_queue(state, card_id, definition),
+        LIMIT_BREAK_ID | LIMIT_BREAK_PLUS_ID => limit_break_queue(card_id, definition),
         MASTER_OF_STRATEGY_ID | MASTER_OF_STRATEGY_PLUS_ID => {
             master_of_strategy_queue(card_id, definition)
         }
@@ -6462,16 +6462,13 @@ fn jax_queue(card_id: CardId, definition: &CardDefinition) -> SimResult<VecDeque
 }
 
 fn limit_break_queue(
-    state: &CombatState,
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
-        InternalAction::GainStrength {
-            amount: state.player.powers.strength + state.player.temp_strength,
-        },
+        InternalAction::DoublePlayerStrength,
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
