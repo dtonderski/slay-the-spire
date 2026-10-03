@@ -107,6 +107,34 @@ fn scry_confirm_discards_selected_card_before_snecko_draw_and_cost_rolls() {
     }
 }
 
+// Synthetic durable-profile seed 34136 chose the third Scry card before
+// Snecko Oil drew through it. Confirmation must still discard that card.
+#[test]
+fn snecko_oil_preserves_a_non_top_scry_selection() {
+    let selected = apply_run_action(&scry(1, false), RunAction::ChooseDrawSelect { index: 0 })
+        .expect("deselect top card");
+    let selected = apply_run_action(&selected, RunAction::ChooseDrawSelect { index: 2 })
+        .expect("select third card");
+    let before = selected.combat.as_ref().unwrap();
+    let selected_index = before.draw_select().unwrap().selected_draw_indices[0];
+    let selected_id = before.piles.draw_pile[selected_index].id;
+    let queued = use_oil(&selected, 0);
+    assert_eq!(
+        queued.combat.as_ref().unwrap().piles.draw_pile,
+        before.piles.draw_pile
+    );
+    let next = apply_run_action(&queued, RunAction::ConfirmDrawSelect)
+        .expect("confirm remains legal after potion use");
+    next.validate().unwrap();
+    let combat = next.combat.as_ref().unwrap();
+    assert!(combat
+        .piles
+        .discard_pile
+        .iter()
+        .any(|card| card.id == selected_id));
+    assert!(!combat.piles.hand.iter().any(|card| card.id == selected_id));
+}
+
 #[test]
 fn two_queued_oils_keep_draw_randomize_draw_randomize_order() {
     let selected = scry(2, false);
