@@ -2378,7 +2378,21 @@ pub(crate) fn apply_validated_run_action_owned(
     next: RunState,
     action: RunAction,
 ) -> SimResult<RunState> {
-    match action {
+    let selection_action = matches!(
+        action,
+        RunAction::ChooseCombatCardReward { .. }
+            | RunAction::SkipCombatCardReward
+            | RunAction::ChooseHandSelect { .. }
+            | RunAction::ConfirmHandSelect
+            | RunAction::ConfirmHandSelectWithoutRetrieval
+            | RunAction::ChooseDrawSelect { .. }
+            | RunAction::ConfirmDrawSelect
+            | RunAction::ChooseDiscardSelect { .. }
+            | RunAction::ConfirmDiscardSelect
+            | RunAction::ChooseExhaustSelect { .. }
+            | RunAction::ConfirmExhaustSelect
+    );
+    let mut next = match action {
         RunAction::OpenChest => apply_validated_treasure_action_owned(next, action),
         RunAction::Proceed if next.phase == RunPhase::Reward => {
             apply_validated_reward_action_owned(next, action)
@@ -2434,7 +2448,16 @@ pub(crate) fn apply_validated_run_action_owned(
             super::potion::apply_validated_exhaust_select_confirm_owned(next)
         }
         _ => apply_validated_reward_action_owned(next, action),
+    }?;
+    if selection_action {
+        // A selection can drain deferred potion actions which consume the
+        // combat-owned card-random stream. Export that executed stream's
+        // counter to the run owner before subsequent potion/event draws.
+        if let Some(combat) = next.combat.as_ref() {
+            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+        }
     }
+    Ok(next)
 }
 
 pub fn validate_treasure_action(run: &RunState, action: RunAction) -> SimResult<()> {

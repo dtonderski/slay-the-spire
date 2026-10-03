@@ -1,5 +1,6 @@
 use crate::{
     card::{CardInstance, CardType, TargetRequirement},
+    combat::cost::randomize_playable_hand_costs_for_snecko_oil,
     combat::damage::deal_unmodified_damage_to_monster,
     combat::transition::{
         apply_monster_death_hooks, apply_play_top_draw_card_action, choose_discard_select,
@@ -16,7 +17,7 @@ use crate::{
         apply_burning_blood, CombatDecisionState, CombatPhase, CombatState, DiscardSelectPurpose,
         ExhaustSelectPurpose, HandSelectPurpose, PotionCardRewardKind,
     },
-    content::cards::{get_card_definition, upgrade_card_instance},
+    content::cards::upgrade_card_instance,
     content::monsters::wake_lagavulin_on_damage,
     content::shop_pool::{
         burn_all_discovery_card_choice_generations, colorless_discovery_card_choices,
@@ -34,7 +35,6 @@ use crate::{
     },
     power::{apply_monster_vulnerable, apply_monster_weak},
     relic::Relic,
-    rng::StsRng,
     run::reward::{
         apply_dead_branch_for_exhaust_count, enter_final_boss_victory, target_elite_combat_gold,
         target_normal_combat_gold, target_potion_reward_offer, target_random_combat_potion,
@@ -984,28 +984,6 @@ fn distilled_chaos_target(
     Ok(Some(living[index]))
 }
 
-fn randomize_playable_hand_costs_for_snecko_oil(
-    combat: &mut CombatState,
-    rng: &mut StsRng,
-) -> SimResult<()> {
-    for card in &mut combat.piles.hand {
-        let Some(definition) = get_card_definition(card.content_id) else {
-            continue;
-        };
-        if definition.keywords.unplayable || definition.cost < 0 {
-            continue;
-        }
-        let rolled = rng.random_int(3) as u8;
-        if card.temp_cost_turn_only {
-            crate::combat::cost::set_randomized_combat_cost_if_changed(card, rolled)?;
-        } else {
-            card.temp_cost = Some(rolled);
-            card.combat_cost_under_turn_override = None;
-        }
-    }
-    Ok(())
-}
-
 fn potion_multiplier(run: &RunState) -> i32 {
     if run.relics.contains(&crate::Relic::SacredBark) {
         2
@@ -1253,10 +1231,18 @@ pub(crate) fn apply_validated_potion_action_owned(
                 Potion::SneckoOil => {
                     let mut rng = next.card_random_rng();
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    player_draw_cards(combat, SNECKO_OIL_DRAW * multiplier as usize)?;
-                    randomize_playable_hand_costs_for_snecko_oil(combat, &mut rng)?;
-                    combat.rng.card_random_rng = rng.clone();
-                    next.card_random_rng_counter = rng.counter();
+                    let count = SNECKO_OIL_DRAW * multiplier as usize;
+                    // SneckoOil.use addToBot's DrawCardAction followed by
+                    // RandomizeHandCostAction. Neither mutates an open select.
+                    if let Some(pending) = combat_open_decision_pending_mut(combat) {
+                        pending.push_back(crate::InternalAction::DrawCards { count });
+                        pending.push_back(crate::InternalAction::RandomizeHandCostsForSneckoOil);
+                    } else {
+                        player_draw_cards(combat, count)?;
+                        randomize_playable_hand_costs_for_snecko_oil(combat, &mut rng)?;
+                        combat.rng.card_random_rng = rng.clone();
+                        next.card_random_rng_counter = rng.counter();
+                    }
                 }
                 Potion::SmokeBomb => {
                     if matches!(
@@ -1613,7 +1599,9 @@ mod tests {
         },
         content::monsters::{monster_state, WRITHING_MASS_A0},
         content::shop_pool::ironclad_combat_discovery_pool,
-        legal_run_decision_actions, CombatAction, MonsterIntent,
+        legal_run_decision_actions,
+        rng::StsRng,
+        CombatAction, MonsterIntent,
     };
 
     #[test]

@@ -1492,6 +1492,12 @@ fn apply_internal_action_with_defer(
         InternalAction::ReturnExhaustCardToHand { card_id } => {
             pile_actions::return_exhaust_card_to_hand(state, card_id)
         }
+        InternalAction::RandomizeHandCostsForSneckoOil => {
+            let mut rng = state.rng.card_random_rng.clone();
+            crate::combat::cost::randomize_playable_hand_costs_for_snecko_oil(state, &mut rng)?;
+            state.rng.card_random_rng = rng;
+            Ok(Vec::new())
+        }
         InternalAction::ForethoughtAutoMove {
             source_card_id,
             card_id,
