@@ -43,6 +43,40 @@ The verifier accepts a schema-6/7 trace file or a directory of those traces.
 The committed `corpus/manual/milestone1.jsonl` file is a unit-test fixture, not
 a strict verifier trace.
 
+## Random combat robustness probes
+
+These probes construct explicit synthetic loadouts using the normal encounter
+spawn/combat-start pipeline, then sample legal actions with a separate seeded
+driver RNG. They do not run training or establish real-game parity.
+
+```bash
+cargo build -p sts_core --example combat_fuzz --release
+uv run --no-project python simulator/tools/combat_fuzz_campaign.py \
+  --binary target/release/examples/combat_fuzz --start 0 --count 1000 \
+  --out tmp/combat-fuzz/campaign-0
+uv run --no-project python -m unittest discover -s simulator/tools \
+  -p combat_fuzz_campaign_test.py
+```
+
+Each combat runs in a separate subprocess with a 10-second timeout. Both that
+timeout and the 2,000-action bound produce **candidates**, not confirmed hangs.
+Campaign directories must be new. They retain an executable hash/copy, revision,
+implementation diff, per-case results, and failure artifacts. Failed cases and
+interrupted subprocesses retain append-only live journals recording setup,
+initial state, accepted actions, and the last attempted operation. Successful
+case journals are removed; their outcomes remain in the campaign result log.
+
+To replay a complete failure artifact with a matching build:
+
+```bash
+target/release/examples/combat_fuzz replay path/to/seed-304.json
+```
+
+The initial coverage includes all four acts, ascensions 0/2/10/17/18/19/20,
+random modeled non-status cards, and a curated combat-relic pool. Loadouts are
+synthetic, not claims that every combination is reachable in an ordinary run.
+Potions and broader relic/counter coverage can be added in later campaigns.
+
 ## Python binding
 
 ```bash
