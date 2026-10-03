@@ -79,8 +79,11 @@ The default profile preserves those original seeded loadouts. Pass
 `--profile cards-relics-potions` to the isolated runner to also initialize a
 random capacity-bounded potion inventory from the modeled Ironclad potion pool.
 The manifest/journals record the profile; summaries count initial potion
-identities and accepted potion-use actions. Broader relic/counter coverage can
-be added in later campaigns.
+identities and accepted potion-use actions. Pass `--profile cards-relics-durable`
+(or `cards-relics-potions-durable`) to start each fight at its seeded maximum HP
+rather than a randomly reduced HP, increasing the number of action transitions
+exercised. This is still synthetic combat, not parity evidence. Broader
+relic/counter coverage can be added in later campaigns.
 
 ## Python binding
 

@@ -31,8 +31,10 @@ def run_case(binary: Path, worktree: Path, seed: int, output: Path, timeout: flo
         environment["COMBAT_FUZZ_REVISION"] = manifest["revision"]
         environment["COMBAT_FUZZ_PATCH"] = str(output.parent / "implementation.patch")
     command = [str(binary), str(seed), "1", str(output)]
-    if profile == "cards-relics-potions":
+    if "potions" in profile:
         command.append("--potions")
+    if "durable" in profile:
+        command.append("--durable")
     with log.open("xb") as stream:
         process = subprocess.Popen(
             command,
@@ -81,7 +83,7 @@ def run_case(binary: Path, worktree: Path, seed: int, output: Path, timeout: flo
                 if status == "terminal":
                     status = "probe_output_failure"
             break
-    if status == "terminal" and profile == "cards-relics-potions" and (
+    if status == "terminal" and profile != "cards-relics" and (
         coverage is None or coverage.get("generation_profile") != profile
     ):
         status = "probe_profile_mismatch"
@@ -110,7 +112,8 @@ def main() -> None:
     parser.add_argument("--count", type=int, default=1000)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=10.0)
-    parser.add_argument("--profile", choices=["cards-relics", "cards-relics-potions"],
+    parser.add_argument("--profile", choices=["cards-relics", "cards-relics-potions",
+                                              "cards-relics-durable", "cards-relics-potions-durable"],
                         default="cards-relics")
     args = parser.parse_args()
     if args.start < 0 or args.count <= 0 or args.start + args.count > 2**64 or args.timeout <= 0:

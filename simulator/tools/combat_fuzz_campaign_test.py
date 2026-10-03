@@ -51,6 +51,19 @@ class CampaignTests(unittest.TestCase):
         _, output = self.run_fake('echo "$4" > "$3/profile"\n', profile="cards-relics-potions")
         self.assertEqual((output / "profile").read_text().strip(), "--potions")
 
+    def test_durable_potion_profile_forwards_both_flags(self):
+        _, output = self.run_fake('printf "%s %s\\n" "$4" "$5" > "$3/profile"\n',
+                                  profile="cards-relics-potions-durable")
+        self.assertEqual((output / "profile").read_text().strip(), "--potions --durable")
+
+    def test_durable_profile_rejects_old_binary_that_ignores_flag(self):
+        result, output = self.run_fake('echo \'coverage={"encounter":"Cultist","ascension":20, '
+                                       '"generation_profile":"cards-relics"}\'\n'
+                                       'echo "done start=$1 count=1 terminal=1 failures=0 capped=0"\n',
+                                       profile="cards-relics-durable")
+        self.assertEqual(result["status"], "probe_profile_mismatch")
+        self.assertTrue(output.exists())
+
     def test_potion_profile_rejects_old_binary_that_ignores_flag(self):
         result, output = self.run_fake('echo \'coverage={"encounter":"Cultist","ascension":20}\'\n'
                                       'echo "done start=$1 count=1 terminal=1 failures=0 capped=0"\n',
