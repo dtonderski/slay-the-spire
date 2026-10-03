@@ -604,6 +604,22 @@ pub(super) fn await_exhaust_select(
         super::settle_exhume_source_after_selection(state, exhaust_select, source_card_id)?;
         return Ok(Vec::new());
     }
+    if purpose == ExhaustSelectPurpose::ExhumeReturnToHand {
+        // ExhumeAction's singleton branch uses the physical pile size before
+        // filtering Exhumes. Larger piles open a grid even if only one card
+        // remains eligible after Exhumes are temporarily removed.
+        let eligible = state.piles.exhaust_pile.iter().find(|card| {
+            card.content_id != crate::content::cards::EXHUME_ID
+                && card.content_id != crate::content::cards::EXHUME_PLUS_ID
+        });
+        if eligible.is_none() || state.piles.exhaust_pile.len() == 1 {
+            if let Some(card) = eligible {
+                super::pile_actions::return_exhaust_card_to_hand(state, card.id)?;
+            }
+            super::settle_exhume_source_after_selection(state, exhaust_select, source_card_id)?;
+            return Ok(Vec::new());
+        }
+    }
     if purpose == ExhaustSelectPurpose::RecycleExhaustOne {
         // RecycleAction.update never opens a screen for zero/one live hand
         // cards. The source was removed above, matching the target's limbo.
