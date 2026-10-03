@@ -60,6 +60,7 @@ def _card() -> dict[str, object]:
 def _context() -> dict[str, object]:
     return {
         "ascension": 0,
+        "outcome": "ongoing",
         "act": 1,
         "act_boss": "Hexaghost",
         "final_act_available": False,
@@ -214,6 +215,32 @@ class TypedObservationRuntimeTest(unittest.TestCase):
         context["act_boss"] = None
         mapping["context"] = context
         self.assertIsNone(decode_observation(mapping).context.act_boss)
+
+    def test_run_outcome_has_closed_values_not_hp_or_screen_heuristics(self) -> None:
+        self.assertEqual(State.new("HUMAN1").observation().context.outcome, "ongoing")
+        self.assertEqual(
+            get_args(sts_sim.RunOutcome),
+            ("ongoing", "death", "act3_clear", "heart_clear", "unknown_complete"),
+        )
+        for outcome in get_args(sts_sim.RunOutcome):
+            mapping = _observation("complete", None, phase="complete")
+            context = _context()
+            context["outcome"] = outcome
+            mapping["context"] = context
+            self.assertEqual(decode_observation(mapping).context.outcome, outcome)
+        for outcome in ("timeout", "simulator_error", "won", 1, None):
+            mapping = _observation("complete", None, phase="complete")
+            context = _context()
+            context["outcome"] = outcome
+            mapping["context"] = context
+            with self.subTest(outcome=outcome), self.assertRaises((ValueError, TypeError)):
+                decode_observation(mapping)
+        mapping = _observation("idle", None)
+        context = _context()
+        del context["outcome"]
+        mapping["context"] = context
+        with self.assertRaisesRegex(ValueError, "outcome"):
+            decode_observation(mapping)
 
     def test_live_combat_nested_types(self) -> None:
         state = State.new("HUMAN1")

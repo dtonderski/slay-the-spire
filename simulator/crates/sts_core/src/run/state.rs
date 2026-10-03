@@ -1129,9 +1129,22 @@ pub(crate) fn whole_run_clone_count() -> usize {
     WHOLE_RUN_CLONE_COUNT.with(std::cell::Cell::get)
 }
 
+/// Settled run result, recorded by accepted terminal transitions, not inferred
+/// from an observation or reconstructed when loading a legacy snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunTerminalOutcome {
+    Death,
+    Act3Clear,
+    HeartClear,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RunState {
+    /// `None` on ongoing runs and legacy snapshots without recorded provenance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_outcome: Option<RunTerminalOutcome>,
     #[cfg(test)]
     #[serde(skip)]
     clone_probe: RunCloneProbe,
@@ -1889,6 +1902,28 @@ impl RunState {
         }
     }
 
+    /// Cheap terminal provenance audit, also used by fair outcome projection.
+    /// Unknown legacy results remain unknown; this never reconstructs a result.
+    pub fn validate_terminal_outcome(&self) -> SimResult<()> {
+        let Some(outcome) = self.terminal_outcome else {
+            return Ok(());
+        };
+        if self.phase != RunPhase::Complete {
+            return Err(SimError::InvalidState("terminal outcome on an ongoing run"));
+        }
+        let consistent = match outcome {
+            RunTerminalOutcome::Death => self.hp <= 0,
+            RunTerminalOutcome::Act3Clear => self.hp > 0 && self.current_act == 3,
+            RunTerminalOutcome::HeartClear => self.hp > 0 && self.current_act == 4,
+        };
+        if !consistent {
+            return Err(SimError::InvalidState(
+                "terminal outcome contradicts run boundary",
+            ));
+        }
+        Ok(())
+    }
+
     /// Explicit structural/invariant audit for tests, snapshot restore, and
     /// verifier/import boundaries. Ordinary constructors, legal queries, and
     /// accepted transitions do not invoke this automatically.
@@ -1900,6 +1935,7 @@ impl RunState {
         #[cfg(test)]
         FULL_VALIDATION_COUNT.with(|count| count.set(count.get() + 1));
 
+        self.validate_terminal_outcome()?;
         match (&self.phase, &self.run_player, &self.combat) {
             (RunPhase::Combat, None, Some(_)) => {}
             (phase, Some(_), None) if *phase != RunPhase::Combat => {}
@@ -3022,6 +3058,7 @@ impl RunState {
             pending_boss_relic_choices: Vec::new(),
             rest_room_complete: false,
             act2_boss: None,
+            terminal_outcome: None,
         };
         let combat = run
             .init_combat(CombatState::initial_fixture())
@@ -3135,6 +3172,7 @@ impl RunState {
             pending_boss_relic_choices: Vec::new(),
             rest_room_complete: false,
             act2_boss: None,
+            terminal_outcome: None,
         }
     }
 

@@ -143,7 +143,25 @@ HP must be positive. HP normalization does not consume RNG or rerun combat-start
 effects. They are scenario construction tools, never trace hydration, replay
 repair, or policy inputs. Default `State.new` and verifier replay are unaffected.
 
-Run-observation schema **6** adds `context.act_boss` (only the current act's
+Run-observation schema **7** adds the public `context.outcome` (`RunOutcome`):
+
+- `ongoing`: a continuing run, including final-boss victory UI / Spire Heart
+  dialogue with legal continuation actions. A `complete` screen is not enough.
+- `death`: settled combat death, visible before its optional UI Proceed, or
+  recorded noncombat/continued death.
+- `act3_clear`: the Spire Heart terminal transition without entry into Act 4.
+- `heart_clear`: the settled TrueVictory transition after defeating the Heart.
+- `unknown_complete`: a legacy snapshot/synthetic Complete boundary without
+  recorded terminal provenance. It is **not** a win or a loss target.
+
+Core accepted death/victory transitions record the terminal reason, and snapshots
+preserve it. Observation only projects that record (or visible Lost combat); it
+never guesses victory from positive HP/act number or repairs old snapshots.
+Contradictory provenance fails closed. Time limits and simulator exceptions are
+collector events, not game outcomes: bootstrap legitimate nonterminal cutoffs,
+and quarantine simulator failures instead of assigning them death rewards.
+
+Schema 6 added `context.act_boss` (only the current act's
 visible boss encounter), `context.final_act_available` (effective key-enabled
 profile capability), and immutable `context.keys` (`ruby`, `emerald`, `sapphire`
 collected indicators). These are public map/profile/key facts, not future bosses,
@@ -157,8 +175,9 @@ state repair occurs. Boss/key visibility follows CommunicationMod's public
 Schema 5 introduced the public `MapNode.burning_elite` marker and
 `TreasureScreen.chest_size == "boss"`. Combat schema remains 4; numeric
 combat transport remains 1. Victory screens use kind `complete` but may still
-have a legal Proceed (notably before Act 4); run collectors should check actions
-rather than assuming every positive-HP `complete` screen is final.
+have a legal Proceed (notably before Act 4); run collectors must use the explicit
+outcome rather than assume every positive-HP `complete` screen is final. Numeric
+combat transport is unchanged and is not a lossless macro/run observation API.
 
 ## Typed observation discriminants
 

@@ -19,7 +19,9 @@ from ._decode import (
     _seq,
 )
 
-FAIR_RUN_OBSERVATION_SCHEMA_VERSION = 6
+FAIR_RUN_OBSERVATION_SCHEMA_VERSION = 7
+
+RunOutcome = Literal["ongoing", "death", "act3_clear", "heart_clear", "unknown_complete"]
 
 BossEncounter = Literal[
     "Hexaghost",
@@ -96,6 +98,7 @@ class RunKeys:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RunContext:
     ascension: int
+    outcome: RunOutcome
     act: int
     act_boss: BossEncounter | None
     final_act_available: bool
@@ -113,6 +116,7 @@ def decode_run_context(value: object, path: str) -> RunContext:
     data = _exact(value, path, RunContext)
     return RunContext(
         ascension=_int(data["ascension"], f"{path}.ascension"),
+        outcome=_literal(data["outcome"], f"{path}.outcome", get_args(RunOutcome)),
         act=_int(data["act"], f"{path}.act"),
         act_boss=(
             None

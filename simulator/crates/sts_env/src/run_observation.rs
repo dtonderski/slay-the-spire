@@ -8,11 +8,12 @@ use serde::{Deserialize, Serialize};
 use sts_core::adapter_internals::{
     content::cards::get_card_definition,
     map::RoomKind,
+    run::RunTerminalOutcome,
     run::{reward::ChestSize, CardRewardFlow, GridPurpose, RunState},
     CardInstance, RestAction, RunPhase,
 };
 
-pub const FAIR_RUN_OBSERVATION_SCHEMA_VERSION: u32 = 6;
+pub const FAIR_RUN_OBSERVATION_SCHEMA_VERSION: u32 = 7;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FairRunObservation {
@@ -38,6 +39,8 @@ pub enum FairRunPhase {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FairRunContext {
     pub ascension: u8,
+    /// Public run result, independent of UI kind and collection cutoffs/errors.
+    pub outcome: FairRunOutcome,
     pub act: i32,
     /// The current act's public map boss; never a future act's encounter.
     /// `None` means unknown, notably for legacy/non-seeded City fixtures.
@@ -52,6 +55,19 @@ pub struct FairRunContext {
     pub deck: Vec<FairCard>,
     pub relics: Vec<FairRelic>,
     pub potion_slots: Vec<FairRunPotionSlot>,
+}
+
+/// Run-level outcome; a final-boss victory UI is still ongoing until its
+/// continuation settles. Lost combat is death before its optional UI Proceed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FairRunOutcome {
+    Ongoing,
+    Death,
+    Act3Clear,
+    HeartClear,
+    /// A legacy/synthetic Complete boundary without recorded terminal provenance.
+    UnknownComplete,
 }
 
 /// Public collected-key indicators, independent of pending reward choices.
@@ -257,6 +273,28 @@ pub fn fair_run_observation(run: &RunState) -> Result<FairRunObservation, FairOb
     })
 }
 
+fn public_outcome(run: &RunState) -> Result<FairRunOutcome, FairObservationError> {
+    run.validate_terminal_outcome()
+        .map_err(|_| FairObservationError::InvalidAuthoritativeState)?;
+    if run.phase == RunPhase::Combat
+        && run
+            .combat
+            .as_ref()
+            .is_some_and(|combat| combat.phase == sts_core::adapter_internals::CombatPhase::Lost)
+    {
+        return Ok(FairRunOutcome::Death);
+    }
+    if run.phase != RunPhase::Complete {
+        return Ok(FairRunOutcome::Ongoing);
+    }
+    Ok(match run.terminal_outcome {
+        Some(RunTerminalOutcome::Death) => FairRunOutcome::Death,
+        Some(RunTerminalOutcome::Act3Clear) => FairRunOutcome::Act3Clear,
+        Some(RunTerminalOutcome::HeartClear) => FairRunOutcome::HeartClear,
+        None => FairRunOutcome::UnknownComplete,
+    })
+}
+
 fn public_context(run: &RunState) -> Result<FairRunContext, FairObservationError> {
     let combat = match (run.phase, run.combat.as_ref()) {
         (RunPhase::Combat, Some(combat)) => Some(combat),
@@ -264,6 +302,7 @@ fn public_context(run: &RunState) -> Result<FairRunContext, FairObservationError
     };
     Ok(FairRunContext {
         ascension: run.ascension,
+        outcome: public_outcome(run)?,
         act: run.current_act,
         act_boss: match run.current_act {
             1 => Some(run.act1_boss.trace_name().to_owned()),
@@ -801,6 +840,129 @@ mod tests {
             .expect("keys")
             .remove("ruby");
         assert!(check_schema(&value, &FAIR_RUN_OBSERVATION_SCHEMA, "run").is_err());
+    }
+
+    #[test]
+    fn run_outcome_records_death_and_preserves_legacy_unknowns() {
+        use sts_core::adapter_internals::{
+            run::apply_run_decision_action, CombatPhase, RunAction, RunDecisionAction,
+        };
+        let mut run = RunState::combat_fixture_with_relics(Vec::new());
+        run.hp = 0;
+        run.combat.as_mut().expect("combat").phase = CombatPhase::Lost;
+        assert_eq!(
+            fair_run_observation(&run)
+                .expect("death UI")
+                .context
+                .outcome,
+            FairRunOutcome::Death
+        );
+        let complete = apply_run_decision_action(&run, RunDecisionAction::Run(RunAction::Proceed))
+            .expect("death Proceed");
+        assert_eq!(complete.terminal_outcome, Some(RunTerminalOutcome::Death));
+        assert_eq!(
+            fair_run_observation(&complete)
+                .expect("complete death")
+                .context
+                .outcome,
+            FairRunOutcome::Death
+        );
+        let json = serde_json::to_value(&complete).expect("snapshot");
+        let restored: RunState = serde_json::from_value(json.clone()).expect("restore");
+        assert_eq!(restored, complete);
+        let mut legacy = json;
+        legacy
+            .as_object_mut()
+            .expect("run")
+            .remove("terminal_outcome");
+        let restored: RunState = serde_json::from_value(legacy).expect("legacy restore");
+        assert_eq!(restored.terminal_outcome, None);
+        assert_eq!(
+            fair_run_observation(&restored)
+                .expect("legacy complete")
+                .context
+                .outcome,
+            FairRunOutcome::UnknownComplete
+        );
+    }
+
+    #[test]
+    fn victory_continuations_do_not_prematurely_report_run_success() {
+        use sts_core::adapter_internals::{
+            run::apply_run_decision_action, EventAction, RunAction, RunDecisionAction,
+        };
+        for act in [3, 4] {
+            let mut run = RunState::seeded_ironclad(7, 0);
+            run.phase = RunPhase::Victory;
+            run.event = None;
+            run.current_act = act;
+            run.current_floor = if act == 3 { 50 } else { 55 };
+            run.current_room_override = Some(RoomKind::Boss);
+            let before = run.clone();
+            let observation = fair_run_observation(&run).expect("victory UI");
+            assert!(matches!(observation.screen, FairRunScreen::Complete));
+            assert_eq!(observation.context.outcome, FairRunOutcome::Ongoing);
+            assert_eq!(run, before, "outcome projection does not mutate state");
+            let mut next =
+                apply_run_decision_action(&run, RunDecisionAction::Run(RunAction::Proceed))
+                    .expect("victory Proceed");
+            if act == 3 {
+                for _ in 0..4 {
+                    assert_eq!(
+                        fair_run_observation(&next)
+                            .expect("Spire Heart continuation")
+                            .context
+                            .outcome,
+                        FairRunOutcome::Ongoing
+                    );
+                    next = apply_run_decision_action(
+                        &next,
+                        RunDecisionAction::Event(EventAction::Choose { choice_index: 0 }),
+                    )
+                    .expect("Spire Heart choice");
+                }
+            }
+            let expected = if act == 3 {
+                FairRunOutcome::Act3Clear
+            } else {
+                FairRunOutcome::HeartClear
+            };
+            assert_eq!(
+                fair_run_observation(&next)
+                    .expect("settled result")
+                    .context
+                    .outcome,
+                expected
+            );
+            let json = serde_json::to_string(&next).expect("terminal snapshot");
+            let restored: RunState = serde_json::from_str(&json).expect("terminal restore");
+            assert_eq!(
+                fair_run_observation(&restored)
+                    .expect("restored result")
+                    .context
+                    .outcome,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn contradictory_terminal_provenance_is_rejected_not_scored_as_death() {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.terminal_outcome = Some(RunTerminalOutcome::HeartClear);
+        assert!(run.validate_terminal_outcome().is_err());
+        assert!(fair_run_observation(&run).is_err());
+        run.phase = RunPhase::Complete;
+        assert!(
+            run.validate_terminal_outcome().is_err(),
+            "Act 1 cannot record a Heart clear"
+        );
+        run.current_act = 4;
+        run.hp = 0;
+        assert!(
+            run.validate_terminal_outcome().is_err(),
+            "death cannot record a Heart clear"
+        );
     }
 
     #[test]

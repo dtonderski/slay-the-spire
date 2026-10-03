@@ -52,6 +52,7 @@ def _card() -> dict[str, object]:
 def _context() -> dict[str, object]:
     return {
         "ascension": 0,
+        "outcome": "ongoing",
         "act": 1,
         "act_boss": "Hexaghost",
         "final_act_available": False,
