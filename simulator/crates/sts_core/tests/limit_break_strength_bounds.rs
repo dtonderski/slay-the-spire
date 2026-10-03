@@ -42,6 +42,26 @@ fn limit_break_caps_visible_strength_including_temporary_strength() {
 }
 
 #[test]
+fn temporary_loss_after_negative_cap_remains_bounded() {
+    let state = doubled(-700, 2);
+    assert_eq!(
+        state.player.powers.strength + state.player.temp_strength,
+        -999
+    );
+    let next = apply_combat_action(&state, CombatAction::EndTurn).unwrap();
+    assert_eq!(next.player.powers.strength, -999);
+    assert_eq!(next.player.temp_strength, 0);
+}
+
+#[test]
+fn temporary_loss_after_positive_cap_is_not_restored() {
+    let state = doubled(700, 2);
+    let next = apply_combat_action(&state, CombatAction::EndTurn).unwrap();
+    assert_eq!(next.player.powers.strength, 997);
+    assert_eq!(next.player.temp_strength, 0);
+}
+
+#[test]
 fn limit_break_at_strength_cap_does_not_grow_further() {
     let next = doubled(999, 0);
     assert_eq!(next.player.powers.strength, 999);
