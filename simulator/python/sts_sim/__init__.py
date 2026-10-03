@@ -171,8 +171,12 @@ class State:
         self._native = native
 
     @staticmethod
-    def new(seed: str, ascension: int = 0) -> State:
-        return State(_native.State.new(seed, ascension))
+    def new(seed: str, ascension: int = 0, *, final_act: bool = False) -> State:
+        """Natural starting state; optionally enable the pre-run Heart profile.
+
+        No keys are granted. This is initial configuration, not mid-run repair.
+        """
+        return State(_native.State.new(seed, ascension, final_act=final_act))
 
     @staticmethod
     def new_synthetic(
