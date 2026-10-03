@@ -5470,7 +5470,7 @@ pub static RECYCLE_ANY_COLOR: CardDefinition = CardDefinition {
     id: RECYCLE_ANY_COLOR_ID,
     key: "RECYCLE",
     name: "Recycle",
-    cost: 0,
+    cost: 1,
     card_type: CardType::Skill,
     rarity: Some(CardRarity::Uncommon),
     upgrade: None,
