@@ -127,8 +127,19 @@ HP must be positive. HP normalization does not consume RNG or rerun combat-start
 effects. They are scenario construction tools, never trace hydration, replay
 repair, or policy inputs. Ordinary `State.new` and verifier replay are unaffected.
 
-Run-observation schema **5** adds the public `MapNode.burning_elite` marker and
-allows `TreasureScreen.chest_size == "boss"`. Combat schema remains 4; numeric
+Run-observation schema **6** adds `context.act_boss` (only the current act's
+visible boss encounter), `context.final_act_available` (effective key-enabled
+profile capability), and immutable `context.keys` (`ruby`, `emerald`, `sapphire`
+collected indicators). These are public map/profile/key facts, not future bosses,
+seeds, or RNG. Python uses the closed `BossEncounter` literal and `RunKeys` type.
+The City boss is cached at seeded initialization using the existing encounter
+lookup, so observation never draws RNG. Legacy snapshots/non-seeded City fixtures
+without that cache expose `act_boss=None`; no observation-time reconstruction or
+state repair occurs. Boss/key visibility follows CommunicationMod's public
+`act_boss`/`keys` output (`GameStateConverter.getGameState`).
+
+Schema 5 introduced the public `MapNode.burning_elite` marker and
+`TreasureScreen.chest_size == "boss"`. Combat schema remains 4; numeric
 combat transport remains 1. Victory screens use kind `complete` but may still
 have a legal Proceed (notably before Act 4); run collectors should check actions
 rather than assuming every positive-HP `complete` screen is final.

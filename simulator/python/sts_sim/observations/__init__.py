@@ -53,8 +53,10 @@ from .common import (
     PotionSlot,
     Relic,
     RunContext,
+    RunKeys,
     decode_run_context,
 )
+from .common import BossEncounter as BossEncounter
 from .screens import (
     REST_OPTION_TYPES,
     CompleteObservation,
@@ -232,6 +234,7 @@ __all__ = [
     "OBSERVATION_TYPES",
     "ORB_TYPES",
     "REST_OPTION_TYPES",
+    "BossEncounter",
     "Card",
     "CardDynamicValues",
     "CardKey",
@@ -285,6 +288,7 @@ __all__ = [
     "RewardObservation",
     "RewardScreen",
     "RunContext",
+    "RunKeys",
     "Selection",
     "SelectionOption",
     "ShopObservation",

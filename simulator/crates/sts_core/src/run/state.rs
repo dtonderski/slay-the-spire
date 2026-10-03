@@ -1328,6 +1328,11 @@ pub struct RunState {
     pub emerald_key_reward_available: bool,
     #[serde(default, skip_serializing_if = "Act1Boss::is_default")]
     pub act1_boss: Act1Boss,
+    /// Cached City boss identity for projection without observation-time RNG.
+    /// Legacy snapshots and non-seeded fixtures can leave this unknown. This
+    /// cache does not change the existing gameplay encounter selection rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub act2_boss: Option<String>,
     #[serde(default, skip_serializing_if = "Act3Boss::is_default")]
     pub act3_boss: Act3Boss,
     #[serde(default)]
@@ -3016,6 +3021,7 @@ impl RunState {
             boss_chest_opened: false,
             pending_boss_relic_choices: Vec::new(),
             rest_room_complete: false,
+            act2_boss: None,
         };
         let combat = run
             .init_combat(CombatState::initial_fixture())
@@ -3128,6 +3134,7 @@ impl RunState {
             boss_chest_opened: false,
             pending_boss_relic_choices: Vec::new(),
             rest_room_complete: false,
+            act2_boss: None,
         }
     }
 
@@ -3214,6 +3221,11 @@ impl RunState {
             seed as i64,
             boss_unlocks,
         )?;
+        // Match the existing City boss combat lookup (which uses default unlocks).
+        // Cache its result here, not during observation or legal-action projection.
+        run.act2_boss = Some(crate::content::encounters::try_target_city_act_two_boss(
+            seed as i64,
+        )?);
         run.act3_boss = crate::content::encounters::target_beyond_act_three_boss_kind_with_unlocks(
             seed as i64,
             boss_unlocks,
