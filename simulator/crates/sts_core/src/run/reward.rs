@@ -2329,6 +2329,7 @@ fn apply_combat_loss_proceed(mut next: RunState) -> SimResult<RunState> {
         ));
     }
     next.phase = RunPhase::Complete;
+    next.terminal_outcome = Some(super::RunTerminalOutcome::Death);
     next.leave_combat_if_active();
     next.reward = None;
     next.event = None;
@@ -2515,6 +2516,7 @@ fn apply_final_boss_victory_proceed(mut next: RunState) -> SimResult<RunState> {
         // grants gold if the relic is not used up (FIDL02369).
         next.apply_floor_entry_relics()?;
         next.phase = RunPhase::Complete;
+        next.terminal_outcome = Some(super::RunTerminalOutcome::HeartClear);
         next.leave_combat_if_active();
         next.reward = None;
         next.event = None;
@@ -3396,6 +3398,10 @@ mod tests {
             .expect("Heart victory proceeds to TrueVictory");
         assert_eq!(complete.phase, RunPhase::Complete);
         assert_eq!(complete.current_floor, 56);
+        assert_eq!(
+            complete.terminal_outcome,
+            Some(crate::run::RunTerminalOutcome::HeartClear)
+        );
         assert!(complete.combat.is_none());
         assert!(complete.reward.is_none());
     }

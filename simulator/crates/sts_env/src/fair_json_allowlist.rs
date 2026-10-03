@@ -218,6 +218,7 @@ const RUN_KEYS: Schema = Schema::Object(&[
 ]);
 const RUN_CONTEXT: Schema = Schema::Object(&[
     ("ascension", Schema::Leaf),
+    ("outcome", Schema::Leaf),
     ("act", Schema::Leaf),
     ("act_boss", Schema::Leaf),
     ("final_act_available", Schema::Leaf),

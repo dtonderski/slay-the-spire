@@ -14,7 +14,7 @@ class FairApiTest(unittest.TestCase):
         decision = state.decision()
         self.assertEqual(decision.schema_version, 1)
         self.assertEqual(decision.revision, state.revision)
-        self.assertEqual(decision.observation.schema_version, 6)
+        self.assertEqual(decision.observation.schema_version, 7)
         self.assertIsInstance(decision.actions, tuple)
         self.assertEqual(len(decision.actions), len(state.legal_actions()))
 
@@ -49,6 +49,32 @@ class FairApiTest(unittest.TestCase):
             self.assertEqual(observation.kind, "map")
             if observation.kind == "map":
                 self.assertEqual(sum(node.burning_elite for node in observation.screen.nodes), 1)
+
+    def test_natural_death_is_explicit_before_and_after_ui_proceed(self) -> None:
+        state = sts_sim.State.new("1")
+        for _ in range(80):
+            decision = state.decision()
+            if decision.observation.context.outcome == "death":
+                break
+            action = next(
+                (
+                    a
+                    for a in decision.actions
+                    if a.kind in {"end_turn", "skip_reward", "confirm_grid"}
+                ),
+                decision.actions[0],
+            )
+            state.step(action)
+        decision = state.decision()
+        self.assertEqual(decision.observation.context.outcome, "death")
+        self.assertEqual(decision.observation.kind, "combat")
+        self.assertEqual([a.kind for a in decision.actions], ["proceed"])
+        self.assertEqual(state.clone().observation().context.outcome, "death")
+        complete = state.step(decision.actions[0])
+        self.assertEqual(complete.observation.kind, "complete")
+        self.assertEqual(complete.observation.context.outcome, "death")
+        self.assertFalse(complete.actions)
+        self.assertEqual(state.clone().observation().context.outcome, "death")
 
     def test_clone_and_step_preserve_revision_contract(self) -> None:
         state = sts_sim.State.new("1")

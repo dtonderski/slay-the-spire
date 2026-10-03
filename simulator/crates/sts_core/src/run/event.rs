@@ -2134,6 +2134,7 @@ fn settle_out_of_combat_lethal_hp(run: &mut RunState) -> SimResult<()> {
     }
 
     run.phase = RunPhase::Complete;
+    run.terminal_outcome = Some(super::RunTerminalOutcome::Death);
     run.event = None;
     run.match_and_keep = None;
     run.card_grid = None;
@@ -5954,6 +5955,10 @@ mod tests {
         assert_eq!(next.hp, 0);
         assert!(next.event.is_none());
         assert_eq!(next.gold, 95);
+        assert_eq!(
+            next.terminal_outcome,
+            Some(crate::run::RunTerminalOutcome::Death)
+        );
         next.validate().expect("event death completes cleanly");
     }
 
@@ -6027,6 +6032,10 @@ mod tests {
         assert_eq!(next.hp, 0);
         assert!(!next.lizard_tail_used);
         assert_eq!(next.occupied_potion_slots().len(), 1);
+        assert_eq!(
+            next.terminal_outcome,
+            Some(crate::run::RunTerminalOutcome::Death)
+        );
         next.validate().expect("bloom death completes cleanly");
     }
 

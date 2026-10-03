@@ -57,6 +57,7 @@ from .common import (
     decode_run_context,
 )
 from .common import BossEncounter as BossEncounter
+from .common import RunOutcome as RunOutcome
 from .screens import (
     REST_OPTION_TYPES,
     CompleteObservation,
@@ -289,6 +290,7 @@ __all__ = [
     "RewardScreen",
     "RunContext",
     "RunKeys",
+    "RunOutcome",
     "Selection",
     "SelectionOption",
     "ShopObservation",
