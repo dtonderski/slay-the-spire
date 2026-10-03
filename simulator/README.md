@@ -82,6 +82,16 @@ The manifest/journals record the profile; summaries count initial potion
 identities and accepted potion-use actions. Broader relic/counter coverage can
 be added in later campaigns.
 
+Pass `--profile cards-relics-potions-endurance` to exercise longer combats. This
+explicit synthetic profile keeps the potion-profile driver draws, deck, relics,
+encounter, and initial inventory unchanged, but starts at full HP with five times
+the sampled maximum HP (400–800). Starting health is recorded in coverage and the
+complete setup/initial state. It is not a claim about naturally reachable runs.
+The native equivalent is `combat_fuzz START COUNT OUTPUT_DIR --endurance`.
+The 2,000-action bound and 10-second subprocess timeout remain unchanged; hitting
+either is still only a candidate requiring diagnosis. Existing profile recipes
+remain unchanged.
+
 ## Python binding
 
 ```bash
