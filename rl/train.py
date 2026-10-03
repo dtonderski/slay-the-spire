@@ -539,22 +539,18 @@ def _decision_rounds_from_forward(rounds: list[ReplayRound], logits: Tensor, val
     entropies = distribution.entropy()
     max_probabilities = cast(Tensor, distribution.probs).max(dim=1).values.detach()
     flat_values = values.squeeze(-1)
-    output = []
-    offset = 0
-    for replay in rounds:
-        count = len(replay.owners)
-        output.append(
-            DecisionRound(
-                replay.owners,
-                replay.counts,
-                log_probs[offset : offset + count],
-                entropies[offset : offset + count],
-                max_probabilities[offset : offset + count],
-                flat_values[offset : offset + count],
-            )
+    # Losses consume flat decisions, not original round boundaries. Avoid slicing
+    # each grouped forward into tensors that the same loss immediately concatenates.
+    return [
+        DecisionRound(
+            tuple(owner for replay in rounds for owner in replay.owners),
+            tuple(count for replay in rounds for count in replay.counts),
+            log_probs,
+            entropies,
+            max_probabilities,
+            flat_values,
         )
-        offset += count
-    return output
+    ]
 
 
 def accumulate_replay_loss(
