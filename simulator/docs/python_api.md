@@ -143,7 +143,26 @@ HP must be positive. HP normalization does not consume RNG or rerun combat-start
 effects. They are scenario construction tools, never trace hydration, replay
 repair, or policy inputs. Default `State.new` and verifier replay are unaffected.
 
-Run-observation schema **7** adds the public `context.outcome` (`RunOutcome`):
+Run-observation schema **8** completes current visible offer metadata:
+
+- `RewardScreen.relic_offers` contains immutable `RelicOffer(slot, content_key)`
+  entries in exactly the current `take_relic_reward_at.reward_slot` order,
+  including all published Calling Bell / Matryoshka rewards. The legacy primary
+  `relic_offer` is retained. These are offered relics, not private relic pools.
+- `RewardScreen.sapphire_key_relic_slot` identifies the offered relic surrendered
+  for the Sapphire Key (`None` when unavailable); `emerald_key_offer` reports
+  an unclaimed Emerald Key reward. Collected indicators stay on `context.keys`.
+- `ShopScreen.cards` uses `ShopCardOffer`, a `ShopOffer[CardKey]` subtype that adds
+  the full public `card` projection: visible cost, upgrade level and dynamic
+  values. Its legacy `content_key` alias is retained and checked for consistency.
+  Closed merchant stock remains hidden; unopened queued card rewards still
+  expose only visible reward counts, never their pre-generated card identities.
+
+These are observation changes only. Numeric combat transport and gameplay rules
+are unchanged. Public visibility is backed by CommunicationMod's current reward
+items/Sapphire `link` and shop-card conversion. No unseen future offers are added.
+
+Schema 7 added the public `context.outcome` (`RunOutcome`):
 
 - `ongoing`: a continuing run, including final-boss victory UI / Spire Heart
   dialogue with legal continuation actions. A `complete` screen is not enough.
@@ -174,7 +193,7 @@ state repair occurs. Boss/key visibility follows CommunicationMod's public
 
 Schema 5 introduced the public `MapNode.burning_elite` marker and
 `TreasureScreen.chest_size == "boss"`. Combat schema remains 4; numeric
-combat transport remains 1. Victory screens use kind `complete` but may still
+combat transport is unchanged by these run-observation additions. Victory screens use kind `complete` but may still
 have a legal Proceed (notably before Act 4); run collectors must use the explicit
 outcome rather than assume every positive-HP `complete` screen is final. Numeric
 combat transport is unchanged and is not a lossless macro/run observation API.

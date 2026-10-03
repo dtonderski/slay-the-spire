@@ -13,7 +13,7 @@ use sts_core::adapter_internals::{
     CardInstance, RestAction, RunPhase,
 };
 
-pub const FAIR_RUN_OBSERVATION_SCHEMA_VERSION: u32 = 7;
+pub const FAIR_RUN_OBSERVATION_SCHEMA_VERSION: u32 = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FairRunObservation {
@@ -165,9 +165,20 @@ pub struct FairRewardObservation {
     pub stolen_gold_offer: i32,
     pub potion_offer: Option<String>,
     pub potion_offers: Vec<String>,
+    /// Legacy primary offer; use `relic_offers` for indexed reward decisions.
     pub relic_offer: Option<String>,
+    pub relic_offers: Vec<FairRelicOffer>,
+    /// Decision-local relic slot surrendered by claiming the Sapphire Key.
+    pub sapphire_key_relic_slot: Option<usize>,
+    pub emerald_key_offer: bool,
     pub boss_relic_choices: Vec<String>,
     pub card_reward_flow: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FairRelicOffer {
+    pub slot: usize,
+    pub content_key: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -220,7 +231,9 @@ pub struct FairShopObservation {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FairShopCard {
     pub slot: usize,
+    /// Preserved identity alias for existing consumers; identical to card.content_key.
     pub content_key: String,
+    pub card: FairCard,
     pub price: i32,
     pub sold: bool,
 }
@@ -443,6 +456,37 @@ fn reward_screen(run: &RunState) -> Result<FairRewardObservation, FairObservatio
         .reward
         .as_ref()
         .ok_or(FairObservationError::InvalidAuthoritativeState)?;
+    // This is the current published reward list, not unrevealed future relic pools.
+    // Order exactly matches TakeRelicRewardAt's decision-local indices.
+    let offered_relics = reward
+        .relic_offer
+        .iter()
+        .chain(reward.pending_relic_offer.iter())
+        .chain(reward.queued_relic_offers.iter())
+        .copied()
+        .collect::<Vec<_>>();
+    let sapphire_key_relic_slot = if !run.has_sapphire_key {
+        run.treasure_room
+            .as_ref()
+            .and_then(|room| room.sapphire_key_relic_offer)
+            .map(|linked| {
+                offered_relics
+                    .iter()
+                    .position(|relic| *relic == linked)
+                    .ok_or(FairObservationError::InvalidAuthoritativeState)
+            })
+            .transpose()?
+    } else {
+        None
+    };
+    let relic_offers = offered_relics
+        .into_iter()
+        .enumerate()
+        .map(|(slot, relic)| FairRelicOffer {
+            slot,
+            content_key: relic.trace_name().to_owned(),
+        })
+        .collect();
     Ok(FairRewardObservation {
         cards: reward
             .choices
@@ -472,6 +516,9 @@ fn reward_screen(run: &RunState) -> Result<FairRewardObservation, FairObservatio
         relic_offer: reward
             .relic_offer
             .map(|relic| relic.trace_name().to_owned()),
+        relic_offers,
+        sapphire_key_relic_slot,
+        emerald_key_offer: run.emerald_key_reward_available && !run.has_emerald_key,
         boss_relic_choices: reward
             .boss_relic_choices
             .iter()
@@ -554,9 +601,11 @@ fn shop_screen(run: &RunState) -> Result<FairShopObservation, FairObservationErr
                 .iter()
                 .enumerate()
                 .map(|(slot, offer)| {
+                    let card = project_card(&offer.card, false)?;
                     Ok(FairShopCard {
                         slot,
-                        content_key: project_card(&offer.card, false)?.content_key,
+                        content_key: card.content_key.clone(),
+                        card,
                         price: offer.price,
                         sold: offer.sold,
                     })
@@ -1185,6 +1234,148 @@ mod tests {
         assert_eq!(
             relic_counter(&combat_observation, "Ink Bottle", "cards"),
             Some(0)
+        );
+    }
+
+    #[test]
+    fn indexed_chest_relics_and_key_tradeoff_match_accepted_actions() {
+        use sts_core::adapter_internals::{
+            run::{apply_run_decision_action, reward::setup_treasure_room},
+            RunAction, RunDecisionAction,
+        };
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.set_final_act_available(Some(true))
+            .expect("Heart profile");
+        run.relics.push(Relic::Matryoshka);
+        run.phase = RunPhase::Treasure;
+        run.event = None;
+        run.current_room_override = Some(RoomKind::Treasure);
+        setup_treasure_room(&mut run);
+        run.treasure_room.as_mut().expect("chest").chest_size = ChestSize::Small;
+        let opened = apply_run_decision_action(&run, RunDecisionAction::Run(RunAction::OpenChest))
+            .expect("open chest");
+        let screen = reward_screen(&opened).expect("reward metadata");
+        assert_eq!(
+            screen.relic_offers.len(),
+            2,
+            "Matryoshka adds a published relic"
+        );
+        assert_eq!(
+            screen
+                .relic_offers
+                .iter()
+                .map(|offer| offer.slot)
+                .collect::<Vec<_>>(),
+            vec![0, 1]
+        );
+        let linked = screen.sapphire_key_relic_slot.expect("Sapphire tradeoff");
+        let linked_key = &screen.relic_offers[linked].content_key;
+        assert_eq!(
+            opened
+                .treasure_room
+                .as_ref()
+                .expect("chest")
+                .sapphire_key_relic_offer
+                .expect("linked relic")
+                .trace_name(),
+            linked_key
+        );
+        let selected = &screen.relic_offers[1];
+        let taken = apply_run_decision_action(
+            &opened,
+            RunDecisionAction::Run(RunAction::TakeRelicRewardAt {
+                index: selected.slot,
+            }),
+        )
+        .expect("indexed reward");
+        assert!(taken
+            .relics
+            .iter()
+            .any(|relic| relic.trace_name() == selected.content_key));
+        let keyed =
+            apply_run_decision_action(&opened, RunDecisionAction::Run(RunAction::TakeSapphireKey))
+                .expect("Sapphire claim");
+        let after = reward_screen(&keyed).expect("remaining rewards");
+        assert_eq!(after.sapphire_key_relic_slot, None);
+        assert!(after
+            .relic_offers
+            .iter()
+            .all(|offer| &offer.content_key != linked_key));
+        assert!(public_context(&keyed).expect("key context").keys.sapphire);
+
+        let mut emerald = opened.clone();
+        emerald.emerald_key_reward_available = true;
+        assert!(
+            reward_screen(&emerald)
+                .expect("Emerald offer")
+                .emerald_key_offer
+        );
+        let claimed =
+            apply_run_decision_action(&emerald, RunDecisionAction::Run(RunAction::TakeEmeraldKey))
+                .expect("Emerald claim");
+        assert!(
+            !reward_screen(&claimed)
+                .expect("claimed Emerald")
+                .emerald_key_offer
+        );
+        assert!(
+            public_context(&claimed)
+                .expect("collected Emerald")
+                .keys
+                .emerald
+        );
+
+        let mut queued = opened.clone();
+        queued.reward.as_mut().expect("reward").queued_card_rewards = vec![vec![queued.deck[0]]];
+        let before = fair_run_observation(&queued).expect("queued reward");
+        queued.reward.as_mut().expect("reward").queued_card_rewards[0][0] =
+            *queued.deck.last().expect("different card");
+        assert_eq!(
+            fair_run_observation(&queued).expect("unopened card remains hidden"),
+            before
+        );
+    }
+
+    #[test]
+    fn shop_card_metadata_is_public_only_while_the_merchant_is_open() {
+        use sts_core::adapter_internals::ShopCardSlot;
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Shop;
+        run.shop_merchant_open = true;
+        let mut card = run.deck[0];
+        card.upgrades = 1;
+        card.temp_cost = Some(0);
+        run.shop = Some(ShopScreen {
+            cards: vec![ShopCardSlot {
+                card,
+                price: 50,
+                sold: false,
+            }],
+            relics: Vec::new(),
+            potions: Vec::new(),
+            remove_cost: 75,
+            remove_available: true,
+            sale_slot: None,
+        });
+        let observation = fair_run_observation(&run).expect("shop");
+        let FairRunScreen::Shop(shop) = &observation.screen else {
+            panic!("shop screen");
+        };
+        assert_eq!(shop.cards[0].content_key, shop.cards[0].card.content_key);
+        assert_eq!(shop.cards[0].card.upgrade_level, 1);
+        assert_eq!(shop.cards[0].card.cost, 0);
+        assert!(shop.cards[0].card.cost_is_modified);
+        let mut json = serde_json::to_value(&observation).expect("serialize");
+        check_schema(&json, &FAIR_RUN_OBSERVATION_SCHEMA, "run").expect("public card metadata");
+        json["screen"]["value"]["cards"][0]["card"]["id"] = serde_json::json!(123);
+        assert!(check_schema(&json, &FAIR_RUN_OBSERVATION_SCHEMA, "run").is_err());
+        run.shop_merchant_open = false;
+        let closed = fair_run_observation(&run).expect("closed merchant");
+        run.shop.as_mut().expect("stock").cards[0].card = *run.deck.last().expect("different card");
+        run.merchant_rng_seed = 12345;
+        assert_eq!(
+            fair_run_observation(&run).expect("hidden closed stock"),
+            closed
         );
     }
 

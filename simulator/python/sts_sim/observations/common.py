@@ -19,7 +19,7 @@ from ._decode import (
     _seq,
 )
 
-FAIR_RUN_OBSERVATION_SCHEMA_VERSION = 7
+FAIR_RUN_OBSERVATION_SCHEMA_VERSION = 8
 
 RunOutcome = Literal["ongoing", "death", "act3_clear", "heart_clear", "unknown_complete"]
 
