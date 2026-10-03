@@ -61,6 +61,9 @@ def _context() -> dict[str, object]:
     return {
         "ascension": 0,
         "act": 1,
+        "act_boss": "Hexaghost",
+        "final_act_available": False,
+        "keys": {"ruby": False, "emerald": False, "sapphire": False},
         "floor": 1,
         "gold": 99,
         "player_hp": 80,
@@ -180,6 +183,38 @@ class TypedObservationRuntimeTest(unittest.TestCase):
             self.assertTrue(observation.screen.nodes)
             self.assertGreaterEqual(observation.screen.current_node, 0)
 
+    def test_public_keys_and_boss_are_strict_typed_context(self) -> None:
+        observation = State.new("HUMAN1").observation()
+        self.assertIsInstance(observation.context.keys, sts_sim.RunKeys)
+        self.assertIn(observation.context.act_boss, get_args(sts_sim.BossEncounter))
+        self.assertFalse(observation.context.final_act_available)
+        self.assertEqual(
+            observation.context.keys, sts_sim.RunKeys(ruby=False, emerald=False, sapphire=False)
+        )
+        self.assertFalse(hasattr(observation.context, "act2_boss"))
+        self.assertFalse(hasattr(observation.context, "act3_boss"))
+        for field, bad_value in (
+            ("keys", {"ruby": 1, "emerald": False, "sapphire": False}),
+            ("keys", {"ruby": False, "emerald": False, "sapphire": False, "seed": 1}),
+            ("keys", {"ruby": False, "emerald": False}),
+            ("act_boss", "future_hidden_encounter"),
+            ("final_act_available", 1),
+        ):
+            mapping = _observation("idle", None)
+            context = _context()
+            context[field] = bad_value
+            mapping["context"] = context
+            with (
+                self.subTest(field=field, bad_value=bad_value),
+                self.assertRaises((ValueError, TypeError)),
+            ):
+                decode_observation(mapping)
+        mapping = _observation("idle", None)
+        context = _context()
+        context["act_boss"] = None
+        mapping["context"] = context
+        self.assertIsNone(decode_observation(mapping).context.act_boss)
+
     def test_live_combat_nested_types(self) -> None:
         state = State.new("HUMAN1")
         observation = state.observation()
@@ -237,7 +272,15 @@ class TypedObservationRuntimeTest(unittest.TestCase):
                     "floor": 1,
                     "current_node": 0,
                     "reachable_nodes": (1,),
-                    "nodes": ({"slot": 0, "act": 1, "room_kind": "combat", "burning_elite": False, "children": (1,)},),
+                    "nodes": (
+                        {
+                            "slot": 0,
+                            "act": 1,
+                            "room_kind": "combat",
+                            "burning_elite": False,
+                            "children": (1,),
+                        },
+                    ),
                 },
             )
         )

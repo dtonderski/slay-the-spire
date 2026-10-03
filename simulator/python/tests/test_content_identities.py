@@ -53,6 +53,9 @@ def _context() -> dict[str, object]:
     return {
         "ascension": 0,
         "act": 1,
+        "act_boss": "Hexaghost",
+        "final_act_available": False,
+        "keys": {"ruby": False, "emerald": False, "sapphire": False},
         "floor": 1,
         "gold": 99,
         "player_hp": 80,

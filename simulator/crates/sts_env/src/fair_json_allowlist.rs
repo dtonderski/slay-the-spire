@@ -211,9 +211,17 @@ pub(crate) const FAIR_COMBAT_OBSERVATION_SCHEMA: Schema = Schema::Object(&[
     ("public_counters", Schema::Array(&COUNTER)),
 ]);
 
+const RUN_KEYS: Schema = Schema::Object(&[
+    ("ruby", Schema::Leaf),
+    ("emerald", Schema::Leaf),
+    ("sapphire", Schema::Leaf),
+]);
 const RUN_CONTEXT: Schema = Schema::Object(&[
     ("ascension", Schema::Leaf),
     ("act", Schema::Leaf),
+    ("act_boss", Schema::Leaf),
+    ("final_act_available", Schema::Leaf),
+    ("keys", RUN_KEYS),
     ("floor", Schema::Leaf),
     ("gold", Schema::Leaf),
     ("player_hp", Schema::Leaf),

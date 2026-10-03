@@ -12,7 +12,7 @@ use sts_core::adapter_internals::{
     CardInstance, RestAction, RunPhase,
 };
 
-pub const FAIR_RUN_OBSERVATION_SCHEMA_VERSION: u32 = 5;
+pub const FAIR_RUN_OBSERVATION_SCHEMA_VERSION: u32 = 6;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FairRunObservation {
@@ -39,6 +39,12 @@ pub enum FairRunPhase {
 pub struct FairRunContext {
     pub ascension: u8,
     pub act: i32,
+    /// The current act's public map boss; never a future act's encounter.
+    /// `None` means unknown, notably for legacy/non-seeded City fixtures.
+    pub act_boss: Option<String>,
+    /// Whether keys are enabled by this run's pre-run profile configuration.
+    pub final_act_available: bool,
+    pub keys: FairRunKeys,
     pub floor: i32,
     pub gold: i32,
     pub player_hp: i32,
@@ -46,6 +52,14 @@ pub struct FairRunContext {
     pub deck: Vec<FairCard>,
     pub relics: Vec<FairRelic>,
     pub potion_slots: Vec<FairRunPotionSlot>,
+}
+
+/// Public collected-key indicators, independent of pending reward choices.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FairRunKeys {
+    pub ruby: bool,
+    pub emerald: bool,
+    pub sapphire: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -251,6 +265,19 @@ fn public_context(run: &RunState) -> Result<FairRunContext, FairObservationError
     Ok(FairRunContext {
         ascension: run.ascension,
         act: run.current_act,
+        act_boss: match run.current_act {
+            1 => Some(run.act1_boss.trace_name().to_owned()),
+            2 => run.act2_boss.clone(),
+            3 => Some(run.act3_boss.trace_name().to_owned()),
+            4 => Some("Corrupt Heart".to_owned()),
+            _ => None,
+        },
+        final_act_available: run.final_act_available == Some(true),
+        keys: FairRunKeys {
+            ruby: run.has_ruby_key,
+            emerald: run.has_emerald_key,
+            sapphire: run.has_sapphire_key,
+        },
         floor: run.current_floor,
         gold: run.gold,
         player_hp: run.hp,
@@ -647,6 +674,136 @@ mod tests {
     }
 
     #[test]
+    fn current_boss_and_collected_keys_are_public_without_future_bosses() {
+        use sts_core::adapter_internals::content::encounters::{Act1Boss, Act3Boss};
+
+        let mut run = RunState::seeded_ironclad(7, 0);
+        let before = run.clone();
+        let first = fair_run_observation(&run).expect("public run");
+        assert_eq!(
+            first,
+            fair_run_observation(&run).expect("repeat projection")
+        );
+        assert_eq!(run, before, "observation must not mutate state or RNG");
+        assert_eq!(
+            first.context.act_boss.as_deref(),
+            Some(run.act1_boss.trace_name())
+        );
+        assert!(!first.context.final_act_available);
+        assert_eq!(
+            first.context.keys,
+            FairRunKeys {
+                ruby: false,
+                emerald: false,
+                sapphire: false
+            }
+        );
+
+        run.act2_boss = Some("Collector".to_owned());
+        run.act3_boss = Act3Boss::TimeEater;
+        run.monster_rng_seed = 12345;
+        run.monster_rng_counter = 123;
+        assert_eq!(fair_run_observation(&run).expect("hidden changes"), first);
+        run.act1_boss = Act1Boss::Guardian;
+        assert_eq!(
+            fair_run_observation(&run)
+                .expect("visible change")
+                .context
+                .act_boss
+                .as_deref(),
+            Some("The Guardian")
+        );
+
+        run.current_act = 2;
+        assert_eq!(
+            fair_run_observation(&run)
+                .expect("City")
+                .context
+                .act_boss
+                .as_deref(),
+            Some("Collector")
+        );
+        run.current_act = 3;
+        assert_eq!(
+            fair_run_observation(&run)
+                .expect("Beyond")
+                .context
+                .act_boss
+                .as_deref(),
+            Some("Time Eater")
+        );
+        run.current_act = 4;
+        assert_eq!(
+            fair_run_observation(&run)
+                .expect("Ending")
+                .context
+                .act_boss
+                .as_deref(),
+            Some("Corrupt Heart")
+        );
+        run.final_act_available = Some(true);
+        run.has_ruby_key = true;
+        run.has_emerald_key = true;
+        run.has_sapphire_key = true;
+        let context = public_context(&run).expect("collected keys");
+        assert!(context.final_act_available);
+        assert_eq!(
+            context.keys,
+            FairRunKeys {
+                ruby: true,
+                emerald: true,
+                sapphire: true
+            }
+        );
+    }
+
+    #[test]
+    fn city_boss_cache_matches_existing_encounter_lookup_and_preserves_snapshots() {
+        use sts_core::adapter_internals::content::encounters::try_target_city_act_two_boss;
+
+        for seed in [1, 7, 42, 100] {
+            let run = RunState::seeded_ironclad(seed, 0);
+            assert_eq!(
+                run.act2_boss,
+                Some(try_target_city_act_two_boss(seed as i64).expect("City boss"))
+            );
+            let json = serde_json::to_value(&run).expect("snapshot");
+            let restored: RunState = serde_json::from_value(json.clone()).expect("restore");
+            assert_eq!(restored, run);
+            let mut legacy = json;
+            legacy
+                .as_object_mut()
+                .expect("run object")
+                .remove("act2_boss");
+            let mut restored: RunState = serde_json::from_value(legacy).expect("legacy restore");
+            restored.current_act = 2;
+            assert_eq!(
+                public_context(&restored).expect("legacy context").act_boss,
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn key_context_is_allowlisted_at_only_its_public_path() {
+        let mut value =
+            serde_json::to_value(fair_run_observation(&RunState::map_fixture()).expect("map"))
+                .expect("serialize");
+        check_schema(&value, &FAIR_RUN_OBSERVATION_SCHEMA, "run").expect("public context");
+        value["context"]["keys"]["seed"] = serde_json::json!(1);
+        assert!(check_schema(&value, &FAIR_RUN_OBSERVATION_SCHEMA, "run").is_err());
+        value["context"]["keys"]
+            .as_object_mut()
+            .expect("keys")
+            .remove("seed");
+        value["context"]["keys"]
+            .as_object_mut()
+            .expect("keys")
+            .remove("ruby");
+        assert!(check_schema(&value, &FAIR_RUN_OBSERVATION_SCHEMA, "run").is_err());
+    }
+
+    #[test]
     fn rest_observation_never_serializes_card_ids() {
         let mut run = RunState::map_fixture();
         run.phase = RunPhase::Rest;
@@ -751,7 +908,10 @@ mod tests {
         run.empty_potion_slots = vec![1];
 
         let observation = fair_run_observation(&run).expect("combat projects");
-        assert_eq!(observation.schema_version, 5);
+        assert_eq!(
+            observation.schema_version,
+            FAIR_RUN_OBSERVATION_SCHEMA_VERSION
+        );
         assert_eq!(observation.context.relics.len(), 2);
         assert_eq!(relic_counter(&observation, "Ink Bottle", "cards"), Some(7));
         assert_eq!(

@@ -24,9 +24,9 @@ pub use fair_catalog::{fair_content_catalog, FairContentCatalog};
 pub use run_observation::{
     FairCardSlot, FairEventChoice, FairEventObservation, FairGridObservation, FairMapNode,
     FairMapObservation, FairMatchAndKeepCard, FairQueuedCardReward, FairRestObservation,
-    FairRestOption, FairRewardObservation, FairRunContext, FairRunObservation, FairRunPhase,
-    FairRunPotionSlot, FairRunScreen, FairShopCard, FairShopObservation, FairShopPotion,
-    FairShopRelic, FairTreasureObservation, FAIR_RUN_OBSERVATION_SCHEMA_VERSION,
+    FairRestOption, FairRewardObservation, FairRunContext, FairRunKeys, FairRunObservation,
+    FairRunPhase, FairRunPotionSlot, FairRunScreen, FairShopCard, FairShopObservation,
+    FairShopPotion, FairShopRelic, FairTreasureObservation, FAIR_RUN_OBSERVATION_SCHEMA_VERSION,
 };
 
 pub(crate) use run_observation::fair_run_observation;
