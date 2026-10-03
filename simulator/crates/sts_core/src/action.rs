@@ -54,6 +54,8 @@ pub enum InternalAction {
     SpendCardEnergy {
         card_id: CardId,
     },
+    /// RandomizeHandCostAction queued after Snecko Oil's DrawCardAction.
+    RandomizeHandCostsForSneckoOil,
     SetHandCardCostForTurn {
         card_id: CardId,
         cost: u8,

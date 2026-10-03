@@ -1,8 +1,31 @@
 use crate::{
     card::{CardInstance, CardType},
     content::cards::{get_card_definition, BLOOD_FOR_BLOOD_ID, BLOOD_FOR_BLOOD_PLUS_ID},
-    SimError, SimResult,
+    rng::StsRng,
+    CombatState, SimError, SimResult,
 };
+
+pub(crate) fn randomize_playable_hand_costs_for_snecko_oil(
+    combat: &mut CombatState,
+    rng: &mut StsRng,
+) -> SimResult<()> {
+    for card in &mut combat.piles.hand {
+        let Some(definition) = get_card_definition(card.content_id) else {
+            continue;
+        };
+        if definition.keywords.unplayable || definition.cost < 0 {
+            continue;
+        }
+        let rolled = rng.random_int(3) as u8;
+        if card.temp_cost_turn_only {
+            set_randomized_combat_cost_if_changed(card, rolled)?;
+        } else {
+            card.temp_cost = Some(rolled);
+            card.combat_cost_under_turn_override = None;
+        }
+    }
+    Ok(())
+}
 
 pub(crate) fn validate_combat_card_cost_metadata(card: &CardInstance) -> SimResult<()> {
     if card.temp_cost_turn_only && card.temp_cost.is_none() {
