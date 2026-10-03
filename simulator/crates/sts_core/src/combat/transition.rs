@@ -71,7 +71,7 @@ pub struct CombatTransition {
 /// settled and the visible hand discard has completed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DeferredMonsterDeath {
-    pub(crate) stasis_card: Option<CardInstance>,
+    pub(crate) stasis_owner: Option<MonsterId>,
     pub(crate) gremlin_horn: bool,
 }
 
@@ -1574,6 +1574,10 @@ fn apply_internal_action_with_defer(
         InternalAction::AddCardInstanceToHandOrDiscard { card } => {
             pile_actions::add_card_instance_to_hand_or_discard(state, card)
         }
+        InternalAction::ReturnMonsterStasisCard { monster_id } => {
+            return_monster_stasis_card(state, monster_id)?;
+            Ok(Vec::new())
+        }
         InternalAction::AddGeneratedCardToDrawPileRandomSpot { content_id } => {
             pile_actions::add_generated_card_to_random_draw_spot(state, content_id, None, false)
         }
@@ -2306,15 +2310,14 @@ pub(crate) fn queue_monster_death_hooks(
     state: &mut CombatState,
     monster_id: MonsterId,
 ) -> SimResult<Vec<InternalAction>> {
-    let stasis_card = state
-        .monsters
-        .iter_mut()
-        .find(|monster| monster.id == monster_id)
-        .and_then(|monster| monster.stasis_card.take());
+    // Keep the physical card owned by Stasis until its queued return. Taking
+    // it into an action payload here hides its ID from intervening generation
+    // (synthetic seed 142376: lethal Wild Strike reused the held card's ID).
+    let stasis_owner = monster_stasis_owner(state, monster_id);
     apply_monster_death_non_stasis_hooks(state, monster_id)?;
-    let mut follow_ups = stasis_card
+    let mut follow_ups = stasis_owner
         .into_iter()
-        .map(|card| InternalAction::AddCardInstanceToHandOrDiscard { card })
+        .map(|monster_id| InternalAction::ReturnMonsterStasisCard { monster_id })
         .collect::<Vec<_>>();
     // GremlinHorn.onMonsterDeath addToBots GainEnergy + Draw at the death
     // inside DamageAll / the lethal hit, after the already-queued UseCardAction
@@ -2337,22 +2340,39 @@ pub(crate) fn queue_end_turn_monster_death(
     monster_id: MonsterId,
     deferred: &mut Vec<DeferredMonsterDeath>,
 ) -> SimResult<()> {
-    let stasis_card = state
-        .monsters
-        .iter_mut()
-        .find(|monster| monster.id == monster_id)
-        .and_then(|monster| monster.stasis_card.take());
+    let stasis_owner = monster_stasis_owner(state, monster_id);
     apply_monster_death_non_stasis_hooks(state, monster_id)?;
     let gremlin_horn = combat_continues_after_monster_death(state)
         && state.player.authority.relics.contains(&Relic::GremlinHorn);
     if combat_continues_after_monster_death(state) {
         deferred.push(DeferredMonsterDeath {
-            stasis_card,
+            stasis_owner,
             gremlin_horn,
         });
-    } else if let Some(card) = stasis_card {
-        release_deferred_stasis_card(state, card);
+    } else if let Some(monster_id) = stasis_owner {
+        return_monster_stasis_card(state, monster_id)?;
     }
+    Ok(())
+}
+
+fn monster_stasis_owner(state: &CombatState, monster_id: MonsterId) -> Option<MonsterId> {
+    state
+        .monsters
+        .iter()
+        .find(|monster| monster.id == monster_id && monster.stasis_card.is_some())
+        .map(|monster| monster.id)
+}
+
+fn return_monster_stasis_card(state: &mut CombatState, monster_id: MonsterId) -> SimResult<()> {
+    let card = state
+        .monsters
+        .iter_mut()
+        .find(|monster| monster.id == monster_id)
+        .and_then(|monster| monster.stasis_card.take())
+        .ok_or(SimError::InvalidState(
+            "queued Stasis return has no held card",
+        ))?;
+    release_deferred_stasis_card(state, card);
     Ok(())
 }
 
@@ -2370,8 +2390,8 @@ pub(crate) fn resolve_deferred_end_turn_monster_deaths(
 ) -> SimResult<()> {
     let mut queue = VecDeque::new();
     for death in deferred {
-        if let Some(card) = death.stasis_card {
-            queue.push_back(InternalAction::AddCardInstanceToHandOrDiscard { card });
+        if let Some(monster_id) = death.stasis_owner {
+            queue.push_back(InternalAction::ReturnMonsterStasisCard { monster_id });
         }
         if death.gremlin_horn {
             queue.push_back(InternalAction::ApplyGremlinHornOnDeath);
@@ -10762,6 +10782,89 @@ mod tests {
 
         assert_eq!(next.piles.hand.len(), 2);
         assert_eq!(next.piles.draw_pile.len(), 2);
+    }
+
+    fn queued_stasis_identity_fixture() -> CombatState {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![
+            monster_state(&BRONZE_ORB_A0, MonsterId::new(1)),
+            monster_state(&JAW_WORM_A0, MonsterId::new(2)),
+        ];
+        state.monsters[0].hp = 0;
+        state.monsters[0].alive = false;
+        state.monsters[0].stasis_card = Some(CardInstance::new(CardId::new(99), IMMOLATE_ID));
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(98), DEFEND_R_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.validate().unwrap();
+        state
+    }
+
+    #[test]
+    fn queued_stasis_ownership_survives_snapshot_and_intervening_generation() {
+        let mut state = queued_stasis_identity_fixture();
+        let actions = queue_monster_death_hooks(&mut state, MonsterId::new(1)).unwrap();
+        assert!(state.piles.hand.is_empty(), "return must not happen early");
+        assert!(state.monsters[0].stasis_card.is_some());
+        state.validate().unwrap();
+        let (mut restored, actions): (CombatState, Vec<InternalAction>) =
+            serde_json::from_slice(&serde_json::to_vec(&(state, actions)).unwrap()).unwrap();
+        apply_internal_action(
+            &mut restored,
+            InternalAction::AddGeneratedCardToDrawPileRandomSpot {
+                content_id: WOUND_ID,
+            },
+        )
+        .unwrap();
+        assert!(restored
+            .piles
+            .draw_pile
+            .iter()
+            .any(|card| card.id == CardId::new(100)));
+        let rng = restored.rng.clone();
+        let next = process_internal_queue(&restored, actions.into())
+            .unwrap()
+            .state;
+        next.validate().unwrap();
+        assert_eq!(next.rng, rng, "Stasis transfer consumes no gameplay RNG");
+        assert_eq!(
+            next.piles.hand,
+            vec![CardInstance::new(CardId::new(99), IMMOLATE_ID)]
+        );
+        assert!(next.monsters[0].stasis_card.is_none());
+    }
+
+    #[test]
+    fn deferred_stasis_ownership_reserves_ids_until_full_hand_return() {
+        let mut state = queued_stasis_identity_fixture();
+        state.piles.hand = (1..=MAX_HAND_SIZE as u64)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        let mut deaths = Vec::new();
+        queue_end_turn_monster_death(&mut state, MonsterId::new(1), &mut deaths).unwrap();
+        assert!(state.monsters[0].stasis_card.is_some());
+        assert!(state.piles.discard_pile.is_empty());
+        apply_internal_action(
+            &mut state,
+            InternalAction::AddGeneratedCardToDrawPileRandomSpot {
+                content_id: WOUND_ID,
+            },
+        )
+        .unwrap();
+        assert!(state
+            .piles
+            .draw_pile
+            .iter()
+            .any(|card| card.id == CardId::new(100)));
+        resolve_deferred_end_turn_monster_deaths(&mut state, deaths).unwrap();
+        state.validate().unwrap();
+        assert_eq!(state.piles.hand.len(), MAX_HAND_SIZE);
+        assert_eq!(
+            state.piles.discard_pile,
+            vec![CardInstance::new(CardId::new(99), IMMOLATE_ID)]
+        );
+        assert!(state.monsters[0].stasis_card.is_none());
     }
 
     #[test]
