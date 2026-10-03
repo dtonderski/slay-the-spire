@@ -44,6 +44,35 @@ actions that subtract `getDeltaTime()` directly.
 match minigame’s flip timer and hitbox path are one-frame click sensitive;
 100× plus software GL left `CHOOSE` accepted with no completing boundary.
 
+`AbstractImageEvent.update` uses raw delta in collection.6. The installed target
+shows an image-event dialog only when its wait timer crosses strictly below zero,
+but stops decrementing at zero. Multiplied delta can land exactly on zero and
+permanently suppress the dialog; the raw target clock restores the target's
+natural transition behavior without changing timer state or synthesizing choices.
+
+`ShowCardAndObtainEffect.update` uses raw delta in collection.7. Omamori marks a
+blocked curse effect done in its constructor, but the game still invokes one
+update before removal. At target delta that update leaves the normal obtain
+duration positive; 100x delta can cross below zero and add the curse despite
+Omamori. Keeping this effect on the raw clock preserves its authored done/removal
+ordering without deleting a card or restoring the relic afterward.
+
+`ExhaustCardEffect.update` uses raw delta in collection.8. Its visual countdown
+also performs `resetAttributes()` on the exhausted card object; the same object
+can later be retrieved. CommunicationMod must wait for this natural completion
+before publishing a settled command boundary. Neither patch manually resets a
+card or changes the authored effect ordering within an active action chain.
+
+`CampfireSmithEffect.update` and `CampfireTokeEffect.update` use raw delta in
+collection.5. Their target implementations open a grid below duration 1 and
+complete below 0; amplified delta can cross both thresholds in one frame and
+discard the effect that should consume the later selection. Exempting those
+calls preserves original timer/selection ownership instead of resetting fields
+or applying upgrades/purges from another room. The shared campfire UI hide timer
+retains its existing clock; slowing it independently would change ordering
+relative to other accelerated options. CommunicationMod separately waits for
+unfinished Smith/Toke work after cancellation while permitting an open grid.
+
 Map-screen and many UI flicker mitigations from upstream are kept.
 
 ## Install
@@ -54,13 +83,17 @@ From WSL, after ensuring `javac`/`jar` are on `PATH` and the STS path is
 mounted:
 
 ```bash
-./simulator/mods/superfastmode-collection/install.sh
+NO_INSTALL=1 ./simulator/mods/superfastmode-collection/install.sh
 ```
 
-Restart the game/watchdog after install. Existing SuperFastMode config under
+This builds/tests the candidate without changing the installation. Omit
+`NO_INSTALL=1` only for an explicitly authorized deployment. The build uses `uv`
+for its Python audits. Restart the game manually after an authorized install. Existing SuperFastMode config under
 `%LOCALAPPDATA%/ModTheSpire/SuperFastMode/` is reused (`deltaMultiplier=100`).
-The installed manifest must report `1.0.9-collection.3` before collecting a
-promotable trace.
+The current candidate manifest reports `1.0.9-collection.8`. Pair it with the
+producer that removes the legacy Smith state-repair patches and fences Toke. Deployment alone
+is not collection qualification: fresh staged collection gates remain required.
+Previously captured payloads and their original artifact identities stay intact.
 
 ## License
 

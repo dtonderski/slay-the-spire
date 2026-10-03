@@ -2,6 +2,9 @@ package communicationmod;
 
 import com.megacrit.cardcrawl.actions.AbstractGameAction;
 import com.megacrit.cardcrawl.actions.GameActionManager;
+import com.megacrit.cardcrawl.actions.unique.CodexAction;
+import com.megacrit.cardcrawl.actions.unique.RetainCardsAction;
+import com.megacrit.cardcrawl.cards.SoulGroup;
 import com.megacrit.cardcrawl.core.CardCrawlGame;
 import com.megacrit.cardcrawl.dungeons.AbstractDungeon;
 import com.megacrit.cardcrawl.monsters.AbstractMonster;
@@ -11,7 +14,16 @@ import com.megacrit.cardcrawl.rooms.EventRoom;
 import com.megacrit.cardcrawl.rooms.VictoryRoom;
 import com.megacrit.cardcrawl.vfx.AbstractGameEffect;
 import com.megacrit.cardcrawl.vfx.ObtainKeyEffect;
+import com.megacrit.cardcrawl.vfx.ObtainPotionEffect;
+import com.megacrit.cardcrawl.vfx.FastCardObtainEffect;
+import com.megacrit.cardcrawl.vfx.campfire.CampfireRecallEffect;
+import com.megacrit.cardcrawl.vfx.campfire.CampfireDigEffect;
+import com.megacrit.cardcrawl.vfx.campfire.CampfireSmithEffect;
+import com.megacrit.cardcrawl.vfx.campfire.CampfireTokeEffect;
 import com.megacrit.cardcrawl.vfx.cardManip.ShowCardAndObtainEffect;
+import com.megacrit.cardcrawl.vfx.cardManip.ExhaustCardEffect;
+import com.megacrit.cardcrawl.events.shrines.GremlinMatchGame;
+import communicationmod.patches.GremlinMatchGamePatch;
 
 public class GameStateListener {
     private static AbstractDungeon.CurrentScreen previousScreen = null;
@@ -36,7 +48,7 @@ public class GameStateListener {
     // 5: every gameplay boundary carries a monotonic command-execution fence,
     //    so a late state from the preceding command cannot complete the next.
     // 6: readiness also waits for gameplay-mutating dungeon effects.
-    //    ObtainKeyEffect and ShowCardAndObtainEffect mutate gameplay state
+    //    ObtainKeyEffect, ShowCardAndObtainEffect, and FastCardObtainEffect mutate gameplay state
     //    after action queues are otherwise quiescent.
     // 7: every command attempt has a target-visible identity. Non-STATE/PROFILE
     //    attempts, including rejections, advance command_execution_seq once.
@@ -142,11 +154,16 @@ public class GameStateListener {
     /** Counts one process update without changing target game behavior. */
     public static void signalGameUpdate() {
         gameUpdateSeq += 1L;
+        // This is an observation seam, not a dungeon update.  In particular,
+        // do not spend a diagnostic lifecycle update at both ends of the
+        // paired callback sequence.
+        CampfireDiagnostics.gameUpdate("game_update_pre");
     }
 
     /** Counts one dungeon update without changing target game behavior. */
     public static void signalDungeonUpdate() {
         dungeonUpdateSeq += 1L;
+        CampfireDiagnostics.dungeonUpdate("dungeon_update_post");
     }
 
     /**
@@ -246,14 +263,38 @@ public class GameStateListener {
         }
         // Several effects that look visual own delayed gameplay mutations.
         // ObtainKeyEffect grants keys only when its duration expires, and
-        // ShowCardAndObtainEffect commits cards to the master deck. Decorative
-        // effects may coexist with input; these two must finish first.
+        // ShowCardAndObtainEffect and FastCardObtainEffect commit cards to the
+        // master deck. ObtainPotionEffect grants potions on its next update;
+        // Entropic Brew outside combat queues several of these and must not
+        // publish a reward-choice boundary while potion slots are still empty. ExhaustCardEffect resets the same card instance's
+        // costForTurn and other attributes after its animation; a card may be
+        // retrieved from exhaust, so this is not merely decorative.
+        // Recall/Dig must also finish: the room can be COMPLETE
+        // before these effects reach their key/reward-producing update.
+        // Decorative effects may coexist with input; gameplay-mutating
+        // effects must finish naturally first.
         if (!dungeonEffectQueuesAreSettled()) {
             return false;
         }
         // This check happens before the rest since dying can happen in combat and messes with the other cases.
         if (newScreen == AbstractDungeon.CurrentScreen.DEATH && newScreen != previousScreen) {
             return true;
+        }
+        // Travelling cards are not in the effect/action queues. Soul.update
+        // clears draw/discard card attributes and reapplies hand powers before
+        // marking the soul reusable. Let that gameplay work finish naturally.
+        if (AbstractDungeon.getCurrRoom().souls != null && SoulGroup.isActive()) {
+            return false;
+        }
+        // Smoke Bomb marks the room smoked and starts the player escape.
+        // The player clears isEscaping after endBattle(), but the room still
+        // has to complete its reward transition on a later update. Neither
+        // an empty action queue nor the cleared animation flag settles it.
+        if (inCombat && (AbstractDungeon.getCurrRoom().smoked
+                || playerEscapeAnimationPending(
+                AbstractDungeon.player != null,
+                AbstractDungeon.player != null && AbstractDungeon.player.isEscaping))) {
+            return false;
         }
         // These screens have no interaction available.
         if (newScreen == AbstractDungeon.CurrentScreen.DOOR_UNLOCK || newScreen == AbstractDungeon.CurrentScreen.NO_INTERACT) {
@@ -270,7 +311,15 @@ public class GameStateListener {
         if ((currentRoom instanceof EventRoom
                 || currentRoom instanceof NeowRoom
                 || (currentRoom instanceof VictoryRoom && ((VictoryRoom) currentRoom).eType == VictoryRoom.EventType.HEART))
-                && AbstractDungeon.getCurrRoom().event.waitTimer != 0.0F) {
+                && eventWaitTimerPending(AbstractDungeon.getCurrRoom().event.waitTimer)) {
+            return false;
+        }
+        // Match and Keep declares its own private waitTimer, shadowing the
+        // AbstractEvent countdown above. It is settled by the event update,
+        // not by a command-side reset or an invented WAIT duration.
+        if (currentRoom.event instanceof GremlinMatchGame
+                && GremlinMatchGamePatch.hasPendingMatchWait(
+                (GremlinMatchGame) currentRoom.event)) {
             return false;
         }
         // The state has always changed in some way when one of these variables is different.
@@ -290,8 +339,9 @@ public class GameStateListener {
                 // produces a second EndTurnAction and can drop a pending screen
                 // selection entirely. endTurnQueued stays true until the turn
                 // actually ends, so it distinguishes that window from a settled
-                // boundary. The same guard exists below at the externalChange
-                // case; this branch returns before reaching it.
+                // boundary. The non-interactive externalChange case below
+                // uses this guard too; an owned input screen is a distinct
+                // interaction-ready boundary, not a quiescent end of turn.
                 else if (quiescentCombatBoundaryIsReady()) {
                     return true;
                 }
@@ -306,6 +356,17 @@ public class GameStateListener {
             }
         } else if (waitOneUpdate) {
             waitOneUpdate = false;
+            return true;
+        }
+        // A real command can mutate state while an end-turn interaction is
+        // already open. Nilry's Codex retains its current action and the
+        // endTurnQueued flag until its card reward is chosen; discarding a
+        // potion on that screen changes the potion slots but not the screen.
+        // RetainCardPower (Well-Laid Plans) similarly queues RetainCardsAction
+        // and its HAND_SELECT screen. These source-backed owners wait for input
+        // while follow-up work remains queued; requiring an empty queue would
+        // deadlock them. An arbitrary overlay is not evidence of that ownership.
+        if (externalChange && inCombat && newScreenUp && endTurnInputOwnerIsWaiting(newScreen)) {
             return true;
         }
         // We are assuming that commands are only being submitted through our interface. Some actions that require
@@ -333,11 +394,6 @@ public class GameStateListener {
             if (previousScreen == AbstractDungeon.CurrentScreen.GRID && newGridSelectConfirmUp != previousGridSelectConfirmUp) {
                 return true;
             }
-        }
-        // Sometimes, we need to register an external change in combat while an action is resolving which brings
-        // the screen up. Because the screen did not change, this is not covered by other cases.
-        if (externalChange && inCombat && newScreenUp) {
-            return true;
         }
         if (timeout > 0) {
             timeout -= 1;
@@ -424,18 +480,43 @@ public class GameStateListener {
         return pending && !inCombat;
     }
 
-    static boolean effectQueuesAreSettled(
+    static boolean eventWaitTimerPending(float waitTimer) {
+        return waitTimer > 0.0F;
+    }
+
+    static boolean playerEscapeAnimationPending(
+            boolean playerExists,
+            boolean playerIsEscaping
+    ) {
+        return playerExists && playerIsEscaping;
+    }
+
+    private static boolean effectQueuesAreSettled(
             int effects,
+            int queuedEffects,
             int topLevelEffects,
             int queuedTopLevelEffects
     ) {
-        return effects == 0 && topLevelEffects == 0 && queuedTopLevelEffects == 0;
+        return effects == 0
+                && queuedEffects == 0
+                && topLevelEffects == 0
+                && queuedTopLevelEffects == 0;
     }
 
     private static boolean isPendingGameplayEffect(AbstractGameEffect effect) {
         return !effect.isDone
                 && (effect instanceof ObtainKeyEffect
-                || effect instanceof ShowCardAndObtainEffect);
+                || effect instanceof ObtainPotionEffect
+                || effect instanceof ShowCardAndObtainEffect
+                || effect instanceof FastCardObtainEffect
+                || effect instanceof ExhaustCardEffect
+                || effect instanceof CampfireRecallEffect
+                || effect instanceof CampfireDigEffect
+                // Smith/Toke pause duration while a screen is up. Allow that
+                // interaction, but drain the old effect after CANCEL before
+                // another option can hide the UI and let it complete the room.
+                || ((effect instanceof CampfireSmithEffect || effect instanceof CampfireTokeEffect)
+                    && !AbstractDungeon.isScreenUp));
     }
 
     private static int pendingGameplayEffectCount(Iterable<AbstractGameEffect> effects) {
@@ -451,6 +532,7 @@ public class GameStateListener {
     private static boolean dungeonEffectQueuesAreSettled() {
         return effectQueuesAreSettled(
                 pendingGameplayEffectCount(AbstractDungeon.effectList),
+                pendingGameplayEffectCount(AbstractDungeon.effectsQueue),
                 pendingGameplayEffectCount(AbstractDungeon.topLevelEffects),
                 pendingGameplayEffectCount(AbstractDungeon.topLevelEffectsQueue)
         );
@@ -462,6 +544,15 @@ public class GameStateListener {
             boolean monsterIntentsInitialized
     ) {
         return !endTurnQueued && actionManagerQuiescent && monsterIntentsInitialized;
+    }
+
+    private static boolean endTurnInputOwnerIsWaiting(AbstractDungeon.CurrentScreen screen) {
+        AbstractGameAction owner = AbstractDungeon.actionManager.currentAction;
+        if (owner == null || owner.isDone) {
+            return false;
+        }
+        return (screen == AbstractDungeon.CurrentScreen.CARD_REWARD && owner instanceof CodexAction)
+                || (screen == AbstractDungeon.CurrentScreen.HAND_SELECT && owner instanceof RetainCardsAction);
     }
 
     private static boolean quiescentCombatBoundaryIsReady() {
@@ -489,6 +580,7 @@ public class GameStateListener {
         commandSettlementSeq += 1L;
         commandResponseKind = "settled";
         commandResponseId = activeCommandId;
+        CampfireDiagnostics.statePublished("state_publish");
         transactionPending = false;
         waitingBeforeCommand = false;
         activeCommandId = null;
@@ -529,6 +621,14 @@ public class GameStateListener {
 
     public static long getCommandSettlementSeq() {
         return commandSettlementSeq;
+    }
+
+    public static String getActiveCommandId() {
+        return activeCommandId;
+    }
+
+    public static boolean isWaitingOneUpdate() {
+        return waitOneUpdate;
     }
 
     public static String getCommandResponseId() {
@@ -595,6 +695,11 @@ public class GameStateListener {
     public static int getTopLevelEffectQueueSize() {
         return CommandExecutor.isInDungeon()
                 ? pendingGameplayEffectCount(AbstractDungeon.topLevelEffects) : 0;
+    }
+
+    public static int getQueuedEffectQueueSize() {
+        return CommandExecutor.isInDungeon()
+                ? pendingGameplayEffectCount(AbstractDungeon.effectsQueue) : 0;
     }
 
     public static int getQueuedTopLevelEffectQueueSize() {

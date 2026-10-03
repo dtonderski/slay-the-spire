@@ -71,7 +71,7 @@ live_traces_codex/
 .claude/
 
 # Full verification payloads and generated corpus bookkeeping are external.
-simulator/verification/corpus/permanent_traces/
+simulator/verification/corpus/permanent_traces
 simulator/verification/corpus/legacy_pre_collection_2/*
 !simulator/verification/corpus/legacy_pre_collection_2/quarantine.txt
 simulator/verification/corpus/legacy_schema5_pilot/
@@ -84,6 +84,7 @@ simulator/verification/corpus/communication_mod/
 simulator/verification/schema_*_archive_*/
 agent_logs/
 simulator/tools/random_traces_loop/
+simulator/tools/random_traces_schema7/
 
 # Native extension build product
 simulator/python/sts_sim/*.so
@@ -101,6 +102,7 @@ sts
 
 # Generated outputs intentionally left in their pre-restructure locations.
 mods/CommunicationMod/dependency-reduced-pom.xml
+simulator/mods/CommunicationMod/dependency-reduced-pom.xml
 python/sts_sim/*.so
 python/sts_sim/__pycache__/
 mods/abandon-run-control/build/

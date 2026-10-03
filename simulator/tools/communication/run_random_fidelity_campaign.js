@@ -3,16 +3,13 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const crypto = require("crypto");
+const { parseIntegerEnv } = require("./random_fidelity_collector");
 
 const collector = path.join(__dirname, "random_fidelity_collector.js");
 const root = path.resolve(__dirname, "..", "..", "..");
-const maxRuns = Number.parseInt(process.env.STS_RANDOM_MAX_RUNS || "100", 10);
+const maxRuns = parseIntegerEnv("STS_RANDOM_MAX_RUNS", 100, 0);
 const seedPrefix = process.env.STS_RANDOM_GAME_SEED_PREFIX || "FIDL";
-const retryDelayMs = Number.parseInt(process.env.STS_RANDOM_RETRY_DELAY_MS || "5000", 10);
-const maxRetryDelayMs = Number.parseInt(
-  process.env.STS_RANDOM_MAX_RETRY_DELAY_MS || "30000",
-  10,
-);
 const outputDir = path.resolve(
   process.env.STS_RANDOM_OUTPUT_DIR || path.join(root, "target", "random-fidelity"),
 );
@@ -25,17 +22,6 @@ function writeStatus(status) {
   fs.writeFileSync(
     statusPath,
     `${JSON.stringify({ campaign_pid: process.pid, updated_at: new Date().toISOString(), ...status }, null, 2)}\n`,
-  );
-}
-
-function sleep(milliseconds) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
-}
-
-function retryDelayForFailures(failures) {
-  return Math.min(
-    maxRetryDelayMs,
-    retryDelayMs * (2 ** Math.min(failures - 1, 10)),
   );
 }
 
@@ -59,43 +45,81 @@ function traceCollectionMetadata(filePath) {
   }
 }
 
-// Resume from the smallest policy-seed gap backed by no sealed trace.
-// Historical skip ledgers and malformed/partial files are never completion evidence.
+// Resume only a clean, sealed campaign. Missing/broken evidence is not a gap
+// that authorizes retrying an interrupted run. Never remove an old owner lock.
 function firstUncollectedPolicySeed(directory, prefix, requested = 1) {
   const collected = new Set();
-  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`^${escapedPrefix}\\d+-p(\\d+)-.*\\.jsonl$`);
-  try {
-    for (const name of fs.readdirSync(path.join(directory, "traces"))) {
-      const match = pattern.exec(name);
-      if (!match) continue;
-      const policySeed = Number.parseInt(match[1], 10);
-      const metadata = traceCollectionMetadata(path.join(directory, "traces", name));
-      if (
-        Number.isInteger(policySeed)
-        && metadata?.policy_seed === policySeed
-        && metadata?.game_seed === `${prefix}${String(policySeed).padStart(5, "0")}`
-      ) {
-        collected.add(policySeed);
+  const sealed = new Map();
+  const freshDirectoryRequired = detail => new Error(`${detail}; explicit review and a fresh output directory required`);
+  for (const name of ["campaign_failures.jsonl"]) {
+    try {
+      if (fs.readFileSync(path.join(directory, name), "utf8").trim()) {
+        throw freshDirectoryRequired("campaign has a recorded failure");
       }
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
+  try {
+    const status = JSON.parse(fs.readFileSync(path.join(directory, "campaign_status.json"), "utf8"));
+    if (status.status === "failed" || (status.status === "running" && status.campaign_pid !== process.pid)) {
+      throw freshDirectoryRequired("campaign is failed or owned by another/interrupted supervisor");
     }
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
+  try {
+    for (const line of fs.readFileSync(path.join(directory, "ledger.jsonl"), "utf8").split(/\r?\n/).filter(Boolean)) {
+      const entry = JSON.parse(line);
+      if (entry.kind === "collected_incomplete") throw freshDirectoryRequired("campaign has an incomplete capture");
+      if (entry.kind !== "collected") continue;
+      if (entry.terminal_reason !== "game_over" || typeof entry.trace !== "string"
+          || !/^[a-f0-9]{64}$/.test(entry.trace_sha256)) {
+        throw freshDirectoryRequired("campaign has an unsealed collection record");
+      }
+      const trace = path.resolve(entry.trace);
+      if (path.dirname(trace) !== path.resolve(directory, "traces")) {
+        throw freshDirectoryRequired(`sealed trace is outside this campaign: ${trace}`);
+      }
+      if (!fs.existsSync(trace)) throw freshDirectoryRequired(`sealed trace is missing: ${trace}`);
+      sealed.set(trace, entry);
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`^${escapedPrefix}\\d+-p(\\d+)-.*\\.jsonl$`);
+  let names = [];
+  try {
+    names = fs.readdirSync(path.join(directory, "traces"));
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    if (sealed.size) throw freshDirectoryRequired("sealed campaign trace directory is missing");
+  }
+  // Only a never-created traces directory is an allowed ENOENT. Losing an
+  // individual sealed file during inspection must fail, not authorize retry.
+  for (const name of names) {
+    const match = pattern.exec(name);
+    if (!match) continue;
+    const policySeed = Number(match[1]);
+    if (!Number.isSafeInteger(policySeed) || policySeed < 1) throw freshDirectoryRequired(`invalid policy seed: ${name}`);
+    const trace = path.resolve(directory, "traces", name);
+    const entry = sealed.get(trace);
+    if (!entry || entry.policy_seed !== policySeed) throw freshDirectoryRequired(`unsealed trace: ${trace}`);
+    const metadata = traceCollectionMetadata(trace);
+    if (metadata?.policy_seed === policySeed
+        && metadata?.game_seed === `${prefix}${String(policySeed).padStart(5, "0")}`
+        && entry.game_seed === metadata.game_seed) {
+      const digest = crypto.createHash("sha256").update(fs.readFileSync(trace)).digest("hex");
+      if (digest !== entry.trace_sha256) throw new Error(`sealed trace hash mismatch: ${trace}`);
+      collected.add(policySeed);
+    } else {
+      throw freshDirectoryRequired(`sealed trace metadata mismatch: ${trace}`);
+    }
+  }
   let next = requested;
   while (collected.has(next)) next += 1;
   return next;
-}
-
-function isInfrastructureFailure(child) {
-  const detail = String(child.stderr || child.error || "");
-  if (/a command is already (?:queued|in flight)/i.test(detail)) return true;
-  if (/bridge ownership rejected|controller owner_token/i.test(detail)) return true;
-  if (/bridge is not ready for a command/i.test(detail)) return true;
-  if (/START_VERIFY did not become available at the main menu/i.test(detail)) return true;
-  return Number(child.elapsed_ms || 0) < 10_000 &&
-    /ECONNREFUSED|timed out waiting for bridge control response|bridge is already in a run/i
-      .test(detail);
 }
 
 function runCollector(gameSeed, policySeed) {
@@ -107,7 +131,6 @@ function runCollector(gameSeed, policySeed) {
         ...process.env,
         STS_GAME_SEED: gameSeed,
         STS_RANDOM_POLICY_SEED: String(policySeed),
-        STS_RANDOM_ABANDON_EXISTING: "1",
       },
       stdio: ["inherit", "inherit", "pipe"],
       windowsHide: true,
@@ -125,14 +148,19 @@ function runCollector(gameSeed, policySeed) {
 }
 
 async function main() {
-  const requestedPolicySeed = Number.parseInt(process.env.STS_RANDOM_POLICY_SEED || "1", 10);
+  const lockPath = path.join(outputDir, "campaign.lock");
+  const lockIdentity = JSON.stringify({ pid: process.pid, id: crypto.randomUUID(), started_at: new Date().toISOString() });
+  const lock = fs.openSync(lockPath, "wx");
+  fs.writeFileSync(lock, lockIdentity + "\n");
+  fs.closeSync(lock);
+  // Failure/interruption preserves this lock. No PID-based stale takeover.
+  let nextPolicySeed = parseIntegerEnv("STS_RANDOM_POLICY_SEED", 1);
   let completedRuns = 0;
-  let consecutiveFailures = 0;
   while (indefinite || completedRuns < maxRuns) {
     const policySeed = firstUncollectedPolicySeed(
       outputDir,
       seedPrefix,
-      requestedPolicySeed,
+      nextPolicySeed,
     );
     const gameSeed = `${seedPrefix}${String(policySeed).padStart(5, "0")}`;
     const total = indefinite ? "infinite" : maxRuns;
@@ -152,45 +180,28 @@ async function main() {
     } catch (error) {
       child = { code: null, signal: null, error: error.message };
     }
-    if (child.code !== 0) {
-      if (indefinite && isInfrastructureFailure(child)) {
-        appendJsonl(path.join(outputDir, "campaign_failures.jsonl"), {
-          recorded_at: new Date().toISOString(),
-          game_seed: gameSeed,
-          policy_seed: policySeed,
-          failure_kind: "infrastructure",
-          collector_exit_code: child.code,
-          collector_signal: child.signal,
-          elapsed_ms: child.elapsed_ms ?? null,
-          detail: String(child.stderr || child.error || "").trim().slice(-4000),
-        });
-        writeStatus({
-          status: "waiting_for_infrastructure",
-          mode: "indefinite",
-          run_number: completedRuns + 1,
-          game_seed: gameSeed,
-          policy_seed: policySeed,
-          collector_exit_code: child.code,
-          collector_signal: child.signal,
-          retry_delay_ms: retryDelayMs,
-        });
-        sleep(retryDelayMs);
-        continue;
+    if (child.code === 0) {
+      try {
+        nextPolicySeed = firstUncollectedPolicySeed(outputDir, seedPrefix, policySeed);
+        if (nextPolicySeed === policySeed) throw new Error("collector exited successfully without a sealed natural-completion trace");
+      } catch (error) {
+        child = { ...child, validation_error: error.message };
       }
-      consecutiveFailures += 1;
-      const effectiveRetryDelayMs = retryDelayForFailures(consecutiveFailures);
+    }
+    if (child.code !== 0 || child.validation_error) {
       const failure = {
         recorded_at: new Date().toISOString(),
         game_seed: gameSeed,
         policy_seed: policySeed,
-        attempt: consecutiveFailures,
+        attempt: 1,
+        validation_error: child.validation_error || null,
         collector_exit_code: child.code,
         collector_signal: child.signal,
         collector_error: child.error || null,
       };
       appendJsonl(path.join(outputDir, "campaign_failures.jsonl"), failure);
       writeStatus({
-        status: indefinite ? "retrying_same_seed_after_error" : "failed",
+        status: "failed",
         mode: indefinite ? "indefinite" : "finite",
         run_number: completedRuns + 1,
         game_seed: gameSeed,
@@ -198,20 +209,19 @@ async function main() {
         collector_exit_code: child.code,
         collector_signal: child.signal,
         collector_error: child.error || null,
-        consecutive_failures: consecutiveFailures,
-        retry_delay_ms: indefinite ? effectiveRetryDelayMs : null,
+        consecutive_failures: 1,
+        validation_error: child.validation_error || null,
+        retry_delay_ms: null,
       });
-      if (indefinite) {
-        sleep(effectiveRetryDelayMs);
-        continue;
-      }
+      // Includes indefinite mode: no implicit retry, takeover, or orphan recovery.
       process.exitCode = child.code || 1;
       return;
     }
-    consecutiveFailures = 0;
     completedRuns += 1;
   }
+  if (fs.readFileSync(lockPath, "utf8").trim() !== lockIdentity) throw new Error("campaign owner lock changed");
   writeStatus({ status: "complete", mode: "finite", captured_runs: completedRuns });
+  fs.unlinkSync(lockPath);
 }
 
 if (require.main === module) {
@@ -224,7 +234,5 @@ if (require.main === module) {
 module.exports = {
   appendJsonl,
   firstUncollectedPolicySeed,
-  isInfrastructureFailure,
-  retryDelayForFailures,
   runCollector,
 };

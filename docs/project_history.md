@@ -65,6 +65,17 @@ changed gameplay action lifecycles and later the dungeon playtime clock. Those
 cohorts were frozen outside the authoritative corpus. Visual acceleration,
 action ticks, and gameplay clocks must remain separate.
 
+PR #41 originally mixed simulator-fidelity changes with evidence from an
+unqualified collection epoch. The collection-first revision deliberately
+leaves those simulator changes for a separate, source-backed review. In
+particular CommunicationMod `WAIT` counts listener frames, not declared
+elapsed gameplay milliseconds; replay must not manufacture event timing from
+that command. Collection fixes, strict schema-7 transport support, independent
+capture review/promotion, and subsequent simulator fixes are separate stages.
+Missing or partial campaign evidence is a review stop, not permission to retry
+an interrupted run or take over another owner. Workspace/reviewed-corpus passes
+do not qualify the accelerated collection runtime or its new captures.
+
 ## Agent direction
 
 The deterministic combat search was useful for collection but was never the

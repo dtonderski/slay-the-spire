@@ -10,7 +10,21 @@ import javassist.CtBehavior;
 
 import java.util.ArrayList;
 
+@SpirePatch(
+        clz= CampfireDigEffect.class,
+        method="update"
+)
 public class CampfireDigEffectPatch {
+
+    @SpirePrefixPatch
+    public static void Prefix(CampfireDigEffect _instance) {
+        communicationmod.CampfireDiagnostics.effectUpdateEntered("CampfireDigEffect", _instance);
+    }
+
+    @SpirePostfixPatch
+    public static void Postfix(CampfireDigEffect _instance) {
+        communicationmod.CampfireDiagnostics.effectUpdateExited("CampfireDigEffect", _instance);
+    }
 
     @SpireInsertPatch(
             locator=LocatorAfter.class

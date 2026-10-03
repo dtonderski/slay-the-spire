@@ -222,6 +222,7 @@ function summarize(message) {
     in_game: message.in_game ?? false,
     ready_for_command: message.ready_for_command ?? false,
     boundary_schema: message.boundary_schema ?? null,
+    choice_index_schema: message.choice_index_schema ?? null,
     boundary_kind: message.boundary_kind ?? null,
     game_update_seq: message.game_update_seq ?? null,
     dungeon_update_seq: message.dungeon_update_seq ?? null,
@@ -263,6 +264,7 @@ function summarize(message) {
     potion_capacity: potions.length,
     open_potion_slots: openPotionSlots,
     choices: gs.choice_list ?? null,
+    selectable_choice_indices: gs.selectable_choice_indices ?? null,
     shop_potions: (screenState.potions ?? []).map((potion) => ({
       id: potion.id ?? null,
       name: potion.name ?? null,
@@ -884,7 +886,7 @@ async function enqueueAbandonRun(payload) {
     state: currentProtocolState(),
   };
   if (payload.wait_for_state_update) {
-    const timeoutMs = Math.max(1, Math.min(30000, Number(payload.update_timeout_ms ?? 10000)));
+    const timeoutMs = Math.max(1, Math.min(120000, Number(payload.update_timeout_ms ?? 10000)));
     const observed = await waitForStateAfterSeq(
       acceptedStateSeq,
       timeoutMs,
@@ -1111,7 +1113,7 @@ async function handleControlMessage(payload) {
       state: currentProtocolState(),
     };
     if (payload.wait_for_state_update) {
-      const timeoutMs = Math.max(1, Math.min(30000, Number(payload.update_timeout_ms ?? 5000)));
+      const timeoutMs = Math.max(1, Math.min(120000, Number(payload.update_timeout_ms ?? 5000)));
       const observed = await waitForStateAfterSeq(
         acceptedStateSeq,
         timeoutMs,
@@ -1172,6 +1174,22 @@ function startControlServer() {
     throw new Error("TRACE_CONTROL_PORT must be an integer TCP port");
   }
   controlServer = net.createServer((socket) => {
+    // A controller socket can disappear while its accepted command is still
+    // running. Record the transport failure without changing ownership,
+    // queue contents, or settlement fences. This is diagnostic bookkeeping only;
+    // an interrupted command fails closed and cannot use that cached observation
+    // as its completion or as authority for an automatic recovery.
+    socket.on("error", (error) => {
+      writeRecord({
+        type: "metadata",
+        event: "control_socket_error",
+        step,
+        error_code: error.code ?? null,
+        error: error.message,
+        received_at: new Date().toISOString(),
+      });
+      socket.destroy();
+    });
     socket.setEncoding("utf8");
     let buffer = "";
     function send(value) {

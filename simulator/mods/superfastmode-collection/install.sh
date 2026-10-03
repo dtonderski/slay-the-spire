@@ -33,12 +33,12 @@ echo "Using ModTheSpire: $MTS_JAR"
 
 command -v javac >/dev/null
 command -v jar >/dev/null
-command -v python3 >/dev/null
+command -v uv >/dev/null
 
 # Keep the direct-delta patch list complete for the pinned target jar. Most
 # actions inherit AbstractGameAction.tickDuration; these are the only classes
 # under the action package that call getDeltaTime directly.
-python3 - "$DESKTOP_JAR" <<'PY'
+uv run --no-project python - "$DESKTOP_JAR" <<'PY'
 import sys
 import zipfile
 
@@ -114,16 +114,10 @@ echo "Jar: $JAR_PATH"
 ls -la "$JAR_PATH"
 # Sanity: fork markers present
 jar tf "$JAR_PATH" | rg -n 'SuperFastMode|DefaultDelta|ModTheSpire' | head -n 20
-if ! jar xf "$JAR_PATH" ModTheSpire.json -C /tmp 2>/dev/null; then
-  cd /tmp && jar xf "$JAR_PATH" ModTheSpire.json
-fi
-python3 - <<'PY'
+uv run --no-project python - "$JAR_PATH" <<'PY'
 import json
-from pathlib import Path
-p=Path('/tmp/ModTheSpire.json')
-# may be extracted to cwd
-for cand in [Path('/tmp/ModTheSpire.json'), Path('ModTheSpire.json')]:
-  if cand.exists():
-    print(json.loads(cand.read_text())['version'], cand)
-    break
+import sys
+import zipfile
+with zipfile.ZipFile(sys.argv[1]) as artifact:
+    print(json.loads(artifact.read('ModTheSpire.json'))['version'], sys.argv[1])
 PY
