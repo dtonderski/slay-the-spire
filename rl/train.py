@@ -663,8 +663,11 @@ def train_batch(
         loss, policy_loss = trajectories.losses(episodes, entropy_coef, value_coef=value_coef)
         value_loss = None if trajectories.value_loss is None else trajectories.value_loss
     else:
-        # Only NumPy replay inputs cross into recomputation; collection tensors must never enter its autograd graph.
-        with torch.inference_mode():
+        # Preserve inference-only collection: only NumPy inputs cross into recomputation.
+        # Scope outer autocast to collection, leaving encoders/heads FP32 and
+        # exiting before gradient recomputation. Inference mode may disable the
+        # weight-cast cache; this combination makes no additive speedup claim.
+        with torch.inference_mode(), torch.autocast("cuda", enabled=False):
             episodes = play_combats(
                 [root.state for root in roots],
                 model,

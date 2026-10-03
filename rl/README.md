@@ -87,7 +87,10 @@ evaluation at `--eval-batch-size 64`, are a single call exactly as before.
 
 `--grad-chunk-decisions 0` (the default) retains the rollout graph until one
 backward. A positive value rolls out under `inference_mode`, stores the public numeric
-inputs and chosen actions, then recomputes that same objective. The count is a
+inputs and chosen actions, then recomputes that same objective. An outer disabled
+autocast scope ends before recomputation; encoders and heads remain FP32. Inference
+mode can disable weight-cast caching, so combining these changes does not establish
+an additional cache speedup. The count is a
 flush threshold, not a hard maximum: a round is never split, so one large round
 can exceed it. Rounds in a flush are grouped by similar token width and action
 count and stacked into fewer forwards. Every group is divided by the completed-fight
