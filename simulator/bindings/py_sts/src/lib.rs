@@ -226,10 +226,10 @@ pub struct PyState {
 #[pymethods]
 impl PyState {
     #[staticmethod]
-    #[pyo3(signature = (seed, ascension=0))]
-    fn new(seed: &str, ascension: u8) -> PyResult<Self> {
+    #[pyo3(signature = (seed, ascension=0, *, final_act=false))]
+    fn new(seed: &str, ascension: u8, final_act: bool) -> PyResult<Self> {
         let seed = parse_seed(seed).map_err(|error| PyValueError::new_err(error.to_string()))?;
-        let env = FairEnvironment::new_ironclad(seed, ascension)
+        let env = FairEnvironment::new_ironclad_with_final_act(seed, ascension, final_act)
             .map_err(|error| PyValueError::new_err(error.to_string()))?;
         Ok(Self { env })
     }

@@ -115,6 +115,22 @@ remain available through the full typed API. Noncombat rows carry outcome metada
 and actions but no combat feature rows. The exporter accepts only native fair
 projections, not external mappings or observed game state.
 
+## Ordinary Heart-enabled runs
+
+`State.new(seed, ascension=0, final_act=True)` starts a natural-HP Ironclad run
+with the existing Heart-unlocked pre-run profile enabled. At A0, initial HP/max
+HP remains 80 and the ordinary starter deck/relics are unchanged. It grants no
+keys: the player must collect them through the existing run actions. The burning
+elite is selected once using the named map RNG before the first policy decision.
+`context.final_act_available` reports the capability; `context.keys` reports
+collected keys. `final_act` is keyword-only and defaults to `False`, preserving
+existing callers. There is no mid-run setter on the policy API.
+
+Rust callers use `FairEnvironment::new_ironclad_with_final_act(seed, ascension,
+true)`; the existing two-argument `new_ironclad` keeps its behavior. This exposes
+existing initial profile rules, not a new gameplay/parity claim or an ascension
+fidelity guarantee. The present training target is A0.
+
 ## Synthetic scenarios
 
 For explicitly synthetic experiments only, `State.new_synthetic(seed, ascension=0,
@@ -125,7 +141,7 @@ the simulator's named map RNG. It does not grant any keys. On a combat state,
 maximum HP replaced and an advanced decision revision; the source is unchanged.
 HP must be positive. HP normalization does not consume RNG or rerun combat-start
 effects. They are scenario construction tools, never trace hydration, replay
-repair, or policy inputs. Ordinary `State.new` and verifier replay are unaffected.
+repair, or policy inputs. Default `State.new` and verifier replay are unaffected.
 
 Run-observation schema **6** adds `context.act_boss` (only the current act's
 visible boss encounter), `context.final_act_available` (effective key-enabled

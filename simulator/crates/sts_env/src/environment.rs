@@ -39,8 +39,24 @@ impl FairEnvironment {
     }
 
     pub fn new_ironclad(seed: u64, ascension: u8) -> Result<Self, FairError> {
-        let state = RunState::try_seeded_ironclad(seed, ascension)
+        Self::new_ironclad_with_final_act(seed, ascension, false)
+    }
+
+    /// Ordinary initial run with an explicit pre-run Heart-unlocked profile.
+    /// Uses natural starting HP/deck; grants no keys and offers no state repair.
+    /// The profile is installed once before the first policy decision.
+    pub fn new_ironclad_with_final_act(
+        seed: u64,
+        ascension: u8,
+        final_act: bool,
+    ) -> Result<Self, FairError> {
+        let mut state = RunState::try_seeded_ironclad(seed, ascension)
             .map_err(|_| FairError::DecisionUnavailable)?;
+        if final_act {
+            state
+                .set_final_act_available(Some(true))
+                .map_err(|_| FairError::DecisionUnavailable)?;
+        }
         Ok(Self {
             state,
             revision: DecisionRevision::new(0),
@@ -185,6 +201,55 @@ impl FairEnvironment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ordinary_final_act_constructor_preserves_natural_inputs_and_profile_rng() {
+        for seed in [1, 7, 42] {
+            let legacy = FairEnvironment::new_ironclad(seed, 0).expect("ordinary run");
+            let explicit =
+                FairEnvironment::new_ironclad_with_final_act(seed, 0, false).expect("ordinary run");
+            assert_eq!(legacy.state, explicit.state);
+            assert_eq!(
+                legacy.decision().expect("decision"),
+                explicit.decision().expect("decision")
+            );
+
+            let env =
+                FairEnvironment::new_ironclad_with_final_act(seed, 0, true).expect("Heart profile");
+            let mut expected = RunState::seeded_ironclad(seed, 0);
+            expected
+                .set_final_act_available(Some(true))
+                .expect("initial profile rule");
+            assert_eq!(env.state, expected);
+            assert_eq!(env.revision(), DecisionRevision::new(0));
+            assert_eq!(env.public_player_hp(), 80);
+            let observation = env.observation().expect("public observation");
+            assert_eq!(observation.context.player_max_hp, 80);
+            assert_eq!(
+                observation.context.deck,
+                legacy
+                    .observation()
+                    .expect("ordinary observation")
+                    .context
+                    .deck
+            );
+            assert!(observation.context.final_act_available);
+            assert!(!observation.context.keys.ruby);
+            assert!(!observation.context.keys.emerald);
+            assert!(!observation.context.keys.sapphire);
+            assert!(env.state.emerald_key_node.is_some());
+            let before = env.state.clone();
+            assert_eq!(
+                env.clone().decision().expect("clone"),
+                env.decision().expect("decision")
+            );
+            assert_eq!(env.observation().expect("repeat"), observation);
+            assert_eq!(
+                env.state, before,
+                "reads and clones do not reselect burning elite"
+            );
+        }
+    }
 
     #[test]
     fn stale_and_invalid_choices_are_atomic() {

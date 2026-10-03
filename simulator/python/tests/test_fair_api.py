@@ -18,6 +18,38 @@ class FairApiTest(unittest.TestCase):
         self.assertIsInstance(decision.actions, tuple)
         self.assertEqual(len(decision.actions), len(state.legal_actions()))
 
+    def test_natural_heart_profile_is_initial_configuration_not_synthetic_hp(self) -> None:
+        for seed in ("1", "7", "HUMAN1"):
+            ordinary = sts_sim.State.new(seed)
+            disabled = sts_sim.State.new(seed, final_act=False)
+            self.assertEqual(ordinary.observation(), disabled.observation())
+            state = sts_sim.State.new(seed, ascension=0, final_act=True)
+            observation = state.observation()
+            self.assertEqual(state.revision, 0)
+            self.assertEqual(observation.context.player_hp, 80)
+            self.assertEqual(observation.context.player_max_hp, 80)
+            self.assertEqual(observation.context.deck, ordinary.observation().context.deck)
+            self.assertTrue(observation.context.final_act_available)
+            self.assertEqual(
+                observation.context.keys, sts_sim.RunKeys(ruby=False, emerald=False, sapphire=False)
+            )
+            self.assertEqual(state.clone().observation(), observation)
+            self.assertEqual(sts_sim.State.new(seed, final_act=True).observation(), observation)
+            # Skip the initial Neow dialogue/reward without overriding game state.
+            for _ in range(12):
+                decision = state.decision()
+                if decision.observation.kind == "map":
+                    break
+                action = next(
+                    (a for a in decision.actions if a.kind in {"skip_reward", "confirm_grid"}),
+                    decision.actions[0],
+                )
+                state.step(action)
+            observation = state.observation()
+            self.assertEqual(observation.kind, "map")
+            if observation.kind == "map":
+                self.assertEqual(sum(node.burning_elite for node in observation.screen.nodes), 1)
+
     def test_clone_and_step_preserve_revision_contract(self) -> None:
         state = sts_sim.State.new("1")
         clone = state.clone()
