@@ -3086,16 +3086,13 @@ fn quick_slash_queue(
 }
 
 fn rip_and_tear_queue(
-    state: &CombatState,
+    _state: &CombatState,
     card_id: CardId,
     card: CardInstance,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    if !state.monsters.iter().any(|monster| monster.alive) {
-        return Err(SimError::InvalidState(
-            "Rip and Tear requires a living monster",
-        ));
-    }
+    // RipAndTear.use always queues its two hits. Their live target resolver
+    // handles an empty eligible group (including half-dead Awakened One).
     let amount = required_damage(definition)? + 2 * i32::from(card.upgrades > 0);
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
