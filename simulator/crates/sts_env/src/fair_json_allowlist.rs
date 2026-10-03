@@ -262,6 +262,8 @@ const EVENT_SCREEN: Schema = Schema::Object(&[
 ]);
 const QUEUED_REWARD: Schema =
     Schema::Object(&[("slot", Schema::Leaf), ("choice_count", Schema::Leaf)]);
+const RELIC_OFFER: Schema =
+    Schema::Object(&[("slot", Schema::Leaf), ("content_key", Schema::Leaf)]);
 const REWARD_SCREEN: Schema = Schema::Object(&[
     ("cards", Schema::Array(&CARD_SLOT)),
     ("queued_card_rewards", Schema::Array(&QUEUED_REWARD)),
@@ -270,6 +272,9 @@ const REWARD_SCREEN: Schema = Schema::Object(&[
     ("potion_offer", Schema::Optional(&Schema::Leaf)),
     ("potion_offers", Schema::Array(&Schema::Leaf)),
     ("relic_offer", Schema::Optional(&Schema::Leaf)),
+    ("relic_offers", Schema::Array(&RELIC_OFFER)),
+    ("sapphire_key_relic_slot", Schema::Leaf),
+    ("emerald_key_offer", Schema::Leaf),
     ("boss_relic_choices", Schema::Array(&Schema::Leaf)),
     ("card_reward_flow", Schema::Leaf),
 ]);
@@ -299,9 +304,16 @@ const REST_SCREEN: Schema = Schema::Object(&[
     ("complete", Schema::Leaf),
     ("options", Schema::Array(&REST_OPTION)),
 ]);
+const SHOP_OFFER: Schema = Schema::Object(&[
+    ("slot", Schema::Leaf),
+    ("content_key", Schema::Leaf),
+    ("price", Schema::Leaf),
+    ("sold", Schema::Leaf),
+]);
 const SHOP_CARD: Schema = Schema::Object(&[
     ("slot", Schema::Leaf),
     ("content_key", Schema::Leaf),
+    ("card", CARD),
     ("price", Schema::Leaf),
     ("sold", Schema::Leaf),
 ]);
@@ -309,8 +321,8 @@ const SHOP_SCREEN: Schema = Schema::Object(&[
     ("merchant_open", Schema::Leaf),
     ("remove_cost", Schema::Optional(&Schema::Leaf)),
     ("cards", Schema::Array(&SHOP_CARD)),
-    ("relics", Schema::Array(&SHOP_CARD)),
-    ("potions", Schema::Array(&SHOP_CARD)),
+    ("relics", Schema::Array(&SHOP_OFFER)),
+    ("potions", Schema::Array(&SHOP_OFFER)),
 ]);
 const GRID_SCREEN: Schema = Schema::Object(&[
     ("purpose", Schema::Leaf),

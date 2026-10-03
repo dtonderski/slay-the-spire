@@ -21,9 +21,11 @@ from ._decode import (
     _str,
 )
 from .common import (
+    Card,
     CardSlot,
     Phase,
     RunContext,
+    decode_card,
     decode_card_key,
     decode_card_slot,
     decode_potion_key,
@@ -100,6 +102,12 @@ class QueuedCardReward:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class RelicOffer:
+    slot: int
+    content_key: RelicKey
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class RewardScreen:
     cards: tuple[CardSlot, ...]
     queued_card_rewards: tuple[QueuedCardReward, ...]
@@ -108,6 +116,9 @@ class RewardScreen:
     potion_offer: PotionKey | None
     potion_offers: tuple[PotionKey, ...]
     relic_offer: RelicKey | None
+    relic_offers: tuple[RelicOffer, ...]
+    sapphire_key_relic_slot: int | None
+    emerald_key_offer: bool
     boss_relic_choices: tuple[RelicKey, ...]
     card_reward_flow: CardRewardFlow
 
@@ -193,10 +204,15 @@ class ShopOffer[IdentityT]:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ShopCardOffer(ShopOffer[CardKey]):
+    card: Card
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ShopScreen:
     merchant_open: bool
     remove_cost: int | None
-    cards: tuple[ShopOffer[CardKey], ...]
+    cards: tuple[ShopCardOffer, ...]
     relics: tuple[ShopOffer[RelicKey], ...]
     potions: tuple[ShopOffer[PotionKey], ...]
 
@@ -367,12 +383,25 @@ def decode_reward_screen(value: object, path: str) -> RewardScreen:
         ),
         potion_offers=_seq(data["potion_offers"], f"{path}.potion_offers", decode_potion_key),
         relic_offer=_optional_present_enum(data["relic_offer"], f"{path}.relic_offer", RelicKey),
+        relic_offers=_seq(data["relic_offers"], f"{path}.relic_offers", decode_relic_offer),
+        sapphire_key_relic_slot=_optional(
+            data["sapphire_key_relic_slot"], f"{path}.sapphire_key_relic_slot", _int
+        ),
+        emerald_key_offer=_bool(data["emerald_key_offer"], f"{path}.emerald_key_offer"),
         boss_relic_choices=_seq(
             data["boss_relic_choices"], f"{path}.boss_relic_choices", decode_relic_key
         ),
         card_reward_flow=_literal(
             data["card_reward_flow"], f"{path}.card_reward_flow", get_args(CardRewardFlow)
         ),
+    )
+
+
+def decode_relic_offer(value: object, path: str) -> RelicOffer:
+    data = _exact(value, path, RelicOffer)
+    return RelicOffer(
+        slot=_int(data["slot"], f"{path}.slot"),
+        content_key=decode_relic_key(data["content_key"], f"{path}.content_key"),
     )
 
 
@@ -451,8 +480,19 @@ def decode_shop_screen(value: object, path: str) -> ShopScreen:
     )
 
 
-def decode_shop_card_offer(value: object, path: str) -> ShopOffer[CardKey]:
-    return decode_shop_offer(value, path, decode_card_key)
+def decode_shop_card_offer(value: object, path: str) -> ShopCardOffer:
+    data = _exact(value, path, ShopCardOffer)
+    content_key = decode_card_key(data["content_key"], f"{path}.content_key")
+    card = decode_card(data["card"], f"{path}.card")
+    if card.content_key != content_key:
+        raise ValueError(f"{path}: inconsistent shop card identity")
+    return ShopCardOffer(
+        slot=_int(data["slot"], f"{path}.slot"),
+        content_key=content_key,
+        card=card,
+        price=_int(data["price"], f"{path}.price"),
+        sold=_bool(data["sold"], f"{path}.sold"),
+    )
 
 
 def decode_shop_relic_offer(value: object, path: str) -> ShopOffer[RelicKey]:
