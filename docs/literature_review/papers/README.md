@@ -1,10 +1,15 @@
 # Privileged-Search Combat RL Reading List
 
-This folder contains the initial reading set for an AlphaZero-style Slay the
-Spire combat agent. The policy/value network consumes fair public information;
-its bootstrap search is privileged and follows the one true authoritative
-simulator state. Training episodes start from collected combat roots rather
-than from a two-player game's standard opening position.
+This folder retains the reading set for a proposed AlphaZero-style combat
+agent: a fair-input policy/value network with a privileged search teacher.
+It is not the current training design. The [RL README](../../../rl/README.md)
+describes the implemented synthetic-root trainer and its privileged beam
+reference; that reference is not a search-target training loop.
+
+The proposal used collected combat roots and search over their actual hidden
+state. Such teacher search is privileged, even when the apprentice consumes
+only public inputs. Fair online belief search is a separate research branch;
+see the [research tree](../research_tree.md).
 
 ## Suggested reading order
 
@@ -54,7 +59,7 @@ than from a two-player game's standard opening position.
      bias, and parallel search.
    - Source: <https://www.lamsade.dauphine.fr/~cazenave/A%2BSurvey%2Bof%2BMonte%2BCarlo%2BTree%2BSearch%2BMethods.pdf>
 
-## Mapping to this project
+## Proposed mapping to combat research
 
 | Literature term | Slay the Spire combat agent |
 |---|---|
@@ -67,12 +72,14 @@ than from a two-player game's standard opening position.
 | Policy/value network | Priors and leaf values for combat search |
 
 Unlike AlphaZero's two-player games, combat has one decision-maker. Value
-backups must therefore not negate the value on alternating tree depths. The
-initial value is a versioned handcrafted terminal proxy where survival
-dominates HP, max-HP, gold, and exact remaining-potion preferences. There is no
-hard potion budget in the learned-agent design.
+backups must therefore not negate the value on alternating tree depths.
 
-The later fair-search phase replaces the single privileged root with a belief
-over hidden states while reusing the fair network, public choice scorer, and
-training infrastructure. POMCP, BetaZero, and particle-filter literature belong
-to that later search stage.
+The original proposal used a handcrafted terminal proxy prioritizing survival,
+then HP, max HP, gold, and remaining potions, without a hard potion budget.
+That is historical proposal context, not the current trainer's reward contract;
+consult the RL README rather than copying those preferences into training.
+
+A possible fair-search experiment would replace the single privileged root
+with an independently sampled belief over hidden states. POMCP, BetaZero, and
+particle-filter literature are relevant to that direction; it is not a promised
+next implementation phase.

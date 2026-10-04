@@ -7,9 +7,10 @@ This repository is organized into two source areas with a one-way dependency:
 
 - [`simulator/`](simulator/README.md): Rust simulator, verifier, Python binding,
   trace corpus, collection tools, and support mods.
-- [`rl/`](rl/README.md): RL-facing design notes and surviving notebooks.
-- [`docs/project_history.md`](docs/project_history.md): major project decisions
-  and rejected approaches.
+- [`rl/`](rl/README.md): synthetic combat training, evaluation, sampling tools,
+  and the simulator combat explorer.
+- [Project knowledge](docs/README.md): navigation to canonical contracts,
+  workflows, durable findings, research proposals, and project history.
 - [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md): objective and fair-state boundary.
 - [`AGENTS.md`](AGENTS.md): development and verification rules.
 

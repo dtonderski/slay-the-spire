@@ -3,7 +3,8 @@
 The `sts_sim` package is a thin binding over the state-owning Rust `sts_env`
 environment. Fair observations are concrete immutable Python types projected
 from the native fair records; there is no public `Record`/`getattr` observation
-surface.
+surface. See the [fair API contract](fair_api.md) for visibility, choice identity,
+and the distinction between cloning actual state and fair belief sampling.
 
 ```python
 from sts_sim import State

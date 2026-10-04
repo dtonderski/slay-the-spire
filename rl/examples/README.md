@@ -76,7 +76,7 @@ That is a separate design discussion, not something this demo works around.
 
 Public exposure is also not proof of simulator fidelity. Gameplay parity needs
 real-game traces; see the [project objective](../../PROJECT_OVERVIEW.md) and
-[boundary audit](../docs/fair_observation_hidden_state_audit.md), including known
+[boundary audit](../../simulator/docs/fair_observation_hidden_state_audit.md), including known
 public information that is not yet exposed.
 
 ## Suggested first exercise

@@ -1,4 +1,12 @@
-# Simulator Combat Explorer — Implementation Handoff
+# Simulator Combat Explorer — Historical Implementation Handoff
+
+**Historical product scope and recommendations; not a current implementation
+guide or open task list.** The explorer now exists. Use its
+[README](../../rl/combat_explorer/README.md) for supported behavior, launch
+commands, and checks, and the [RL README](../../rl/README.md) for current model
+and trainer APIs. The starting-point APIs, suggested architecture, and unchecked
+acceptance list below are retained as handoff history, not current claims.
+Paths in the original handoff are repository-relative unless stated otherwise.
 
 ## 1. Purpose and authority
 

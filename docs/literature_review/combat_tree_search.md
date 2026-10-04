@@ -1,5 +1,9 @@
 # Combat Tree Search Literature Review
 
+This is a research recommendation, not the implemented training architecture.
+See the [research tree](research_tree.md) for experiment branches and the
+[RL README](../../rl/README.md) for the current system.
+
 ## Purpose
 
 This note collects the papers that are most worth reading before implementing
@@ -60,7 +64,7 @@ Project notes:
   draw are no longer feasible. We do not need to philosophically "restart";
   practically, the root belief changes and the search tree can be pruned or
   rebuilt.
-- This should be our first serious planner design.
+- This is the review's recommended starting point if fair planning is pursued.
 
 ### 2. Information Set Monte Carlo Tree Search
 
@@ -323,7 +327,7 @@ Project notes:
 
 ## Project-Specific Initial Design
 
-For the first combat planner:
+Proposed design for a future fair combat planner:
 
 1. Define fair observation and visible action schema.
 2. Maintain a belief as particles of exact `CombatState` plus hidden RNG/pile
@@ -339,9 +343,14 @@ For the first combat planner:
 
 Important design constraint:
 
-- The fair planner may use hidden simulator state inside sampled particles, but
-  the policy/value network trained for fair play must never receive raw hidden
-  state unless it is explicitly an omniscient/debug baseline.
+- Particles must be hypotheses sampled from public information/history,
+  independently of the live environment's actual hidden state. Cloning the live
+  state is privileged search, not belief sampling.
+- Filtering hypothetical particles is not permission to hydrate or repair
+  authoritative simulator replay from observations.
+- A fair policy/value network must not receive raw hidden state. Omniscient/debug
+  baselines are separate and must be labeled as such. See the
+  [fair API contract](../../simulator/docs/fair_api.md).
 
 ## Open Questions For This Project
 

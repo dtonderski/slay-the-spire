@@ -15,7 +15,15 @@ RL code may consume the simulator's public APIs; the dependency is one-way:
 - `verification/`: committed fixtures and the ignored permanent trace corpus.
 - `tools/communication/`: bridge, immutable trace collector, and JavaScript tests.
 - `mods/`: collection support mods.
-- `docs/`: simulator research, verification, and Python API documentation.
+- `docs/`: simulator contracts, research, and verification documentation.
+
+## Documentation
+
+- [Fair API boundary](docs/fair_api.md) and [hidden-state audit](docs/fair_observation_hidden_state_audit.md).
+- [Python API and numeric transport](docs/python_api.md).
+- [Verification contract](docs/verification.md) and [trace corpus](verification/corpus/README.md).
+- [Durable source findings](docs/research.md), required reading for parity-sensitive changes.
+- [Workspace knowledge index](../docs/README.md) for consumers, research, and history.
 
 ## Checked vs normal execution
 

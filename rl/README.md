@@ -35,7 +35,11 @@ count. `CombatValueModel` adds policy and scalar value heads to the shared state
 
 Policies receive public observations only—not constructor seeds, hidden draw
 order, simulator debug state, or search results. Some public information is not
-yet encoded; see `docs/fair_observation_hidden_state_audit.md`.
+yet encoded; see the [boundary audit](../simulator/docs/fair_observation_hidden_state_audit.md).
+The [fair API contract](../simulator/docs/fair_api.md) belongs to the simulator;
+[research proposals](../docs/literature_review/README.md) are separate from this
+implemented training path. See the [knowledge index](../docs/README.md) for other
+canonical documentation.
 
 ## Run
 

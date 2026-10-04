@@ -2,7 +2,7 @@
 
 These rules apply across Rust, Python, bindings, collection tools, mods, and
 verification. Read `PROJECT_OVERVIEW.md` before implementation work and preserve
-its fair-state boundary.
+its fair-state boundary. Use `docs/README.md` to find the relevant canonical docs.
 
 `rl` may depend on `simulator`; `simulator` must not depend on `rl`.
 
@@ -87,9 +87,28 @@ Real-game control uses the CommunicationMod bridge documented in
   inventing a substitute. Continue independent work that is not blocked.
 - Read `simulator/docs/research.md` before changing RNG, action queues, save
   loading, or map/reward/shop generation.
+
+## Knowledge maintenance
+
+- Keep maintained knowledge small: durable findings, contracts, and major
+  decisions. Prefer source definitions and generated references for API details
+  rather than copying field lists, schema versions, or code into prose.
+- Keep one canonical explanation near its owning subsystem; link to it instead
+  of creating parallel guides. Use `docs/README.md` as the navigation index and
+  update affected links when moving or retiring a document.
+- As part of implementation, read the affected canonical docs and update any
+  changed contract, workflow, or durable finding in the same change. If no doc
+  update is needed, briefly explain why in the handoff; do not make cosmetic
+  edits just to show activity.
+- Distinguish current behavior from proposals and historical decisions. Remove
+  obsolete instructions or mark retained historical material clearly and link
+  to its current replacement. Do not retain a second live implementation guide.
+- Preserve provenance for durable findings: cite target source methods, papers,
+  or immutable traces as applicable. Never promote a hypothesis or source-backed
+  rule to trace-validated behavior without real-game evidence for that scope.
 - Update `docs/project_history.md` only for major assumptions, rejected
   approaches, or settled experiments. Git and commit messages hold routine
-  implementation history; do not create per-fix design documents.
+  implementation history; do not create per-fix design documents or session logs.
 
 ## Cursor Cloud
 

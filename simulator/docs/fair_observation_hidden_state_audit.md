@@ -1,11 +1,15 @@
 # Fair Observation Hidden-State Audit
 
-Source of truth:
+Companion to the [fair API contract](fair_api.md). This audit records boundary
+reasoning and known limitations, not a proof of complete non-interference or
+real-game parity.
 
-- `simulator/crates/sts_env/src/combat_observation.rs`
-- `simulator/crates/sts_env/src/run_observation.rs`
-- `simulator/crates/sts_env/src/action.rs`
-- `simulator/crates/sts_core/src/combat/pile_knowledge.rs`
+Source definitions and invariant tests:
+
+- [Combat projection](../crates/sts_env/src/combat_observation.rs)
+- [Run projection](../crates/sts_env/src/run_observation.rs)
+- [Public choices](../crates/sts_env/src/action.rs)
+- [Public pile-history tracking](../crates/sts_core/src/combat/pile_knowledge.rs)
 
 The current projection has no known hidden-state leak. Existing tests require
 byte-identical observations and choices after hidden pile permutations, RNG
