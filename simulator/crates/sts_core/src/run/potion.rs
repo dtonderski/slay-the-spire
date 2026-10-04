@@ -574,8 +574,10 @@ pub(crate) fn apply_validated_discard_select_choice_owned(
         )?;
         flush_pending_player_spikes_damage_if_ready(&mut combat)?;
     }
-    next.combat = Some(combat);
-    Ok(next)
+    // Closing the original selection may execute a queued copy whose damage
+    // wins combat. Use the same run handoff as hand/exhaust confirms instead
+    // of publishing a Won combat with no next action.
+    settle_run_after_select_confirm(next, combat)
 }
 
 pub fn apply_discard_select_confirm(run: &RunState) -> SimResult<RunState> {
@@ -600,8 +602,7 @@ pub(crate) fn apply_validated_discard_select_confirm_owned(
         exhaust_count.saturating_sub(handled_dead_branch_count),
     )?;
     flush_pending_player_spikes_damage_if_ready(&mut combat)?;
-    next.combat = Some(combat);
-    Ok(next)
+    settle_run_after_select_confirm(next, combat)
 }
 
 pub fn apply_exhaust_select_choice(run: &RunState, index: usize) -> SimResult<RunState> {
@@ -663,7 +664,8 @@ pub(crate) fn apply_validated_exhaust_select_confirm_owned(
     settle_run_after_select_confirm(next, combat)
 }
 
-/// Attach post-select combat and open rewards when CONFIRM left combat Won.
+/// Attach post-select combat and open rewards when selection settlement won.
+/// Both explicit CONFIRM and single-choice auto-confirm use this boundary.
 fn settle_run_after_select_confirm(
     mut next: RunState,
     mut combat: CombatState,
@@ -1595,7 +1597,8 @@ mod tests {
         combat::DiscardSelectState,
         content::cards::{
             BASH_ID, BURNING_PACT_ID, BURN_ID, CLASH_ID, CLEAVE_ID, DARK_EMBRACE_ID, DAZED_ID,
-            DEFEND_R_ID, PARASITE_ID, PURITY_ID, STRIKE_R_ID, WARCRY_ID,
+            DEFEND_R_ID, DOUBLE_TAP_ID, HEADBUTT_ID, HEADBUTT_PLUS_ID, PARASITE_ID, PURITY_ID,
+            STRIKE_R_ID, WARCRY_ID,
         },
         content::monsters::{monster_state, WRITHING_MASS_A0},
         content::shop_pool::ironclad_combat_discovery_pool,
@@ -1642,6 +1645,121 @@ mod tests {
         next.validate()
             .expect("potion victory does not keep a stale combat select");
         assert_ne!(next.phase, crate::RunPhase::Combat);
+    }
+
+    fn headbutt_selection_run(
+        content_id: crate::ContentId,
+        monster_hp: i32,
+        double_tap: bool,
+    ) -> RunState {
+        // Target Headbutt.use queues DamageAction, then
+        // DiscardPileToTopOfDeckAction; the selection must finish before the
+        // existing combat-end queue hands off to run rewards. Double Tap's
+        // queued copy executes only after the original grid closes.
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::BurningBlood]);
+        let target;
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.player.hp = 60;
+            combat.player.max_hp = 80;
+            combat.player.energy = 2;
+            combat.piles.hand = vec![CardInstance::new(CardId::new(1), content_id)];
+            if double_tap {
+                combat
+                    .piles
+                    .hand
+                    .push(CardInstance::new(CardId::new(4), DOUBLE_TAP_ID));
+            }
+            combat.piles.draw_pile.clear();
+            combat.piles.discard_pile = vec![
+                CardInstance::new(CardId::new(2), STRIKE_R_ID),
+                CardInstance::new(CardId::new(3), DEFEND_R_ID),
+            ];
+            combat.monsters.truncate(1);
+            combat.monsters[0].hp = monster_hp;
+            combat.monsters[0].alive = true;
+            target = combat.monsters[0].id;
+        }
+        if double_tap {
+            run = apply_combat_action_on_run(
+                &run,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(4),
+                    target: None,
+                },
+            )
+            .expect("Double Tap queues a copy behind the original selection");
+        }
+        let selecting = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Headbutt opens a discard choice");
+        assert_eq!(selecting.phase, RunPhase::Combat);
+        assert!(selecting
+            .combat
+            .as_ref()
+            .and_then(CombatState::discard_select)
+            .is_some());
+        selecting
+    }
+
+    #[test]
+    fn lethal_headbutt_choice_opens_rewards_once_for_base_and_upgrade() {
+        for content_id in [HEADBUTT_ID, HEADBUTT_PLUS_ID] {
+            let selecting = headbutt_selection_run(content_id, 13, true);
+            let restored: RunState = serde_json::from_str(
+                &serde_json::to_string(&selecting).expect("serialize selection"),
+            )
+            .expect("restore selection");
+            let action = RunAction::ChooseDiscardSelect { index: 1 };
+            let next = apply_run_action(&selecting, action).expect("choose discard card");
+            assert_eq!(next.phase, RunPhase::Reward);
+            assert!(next.reward.is_some());
+            assert!(next.combat.is_none());
+            assert_eq!(next.hp, 66, "Burning Blood heals only once");
+            assert!(!legal_run_decision_actions(&next)
+                .expect("reward actions")
+                .is_empty());
+            next.validate().expect("valid reward state");
+            assert_eq!(next, apply_run_action(&restored, action).expect("repeat"));
+            assert_eq!(
+                next,
+                apply_discard_select_choice(&selecting, 1).expect("direct selection API"),
+            );
+        }
+    }
+
+    #[test]
+    fn lethal_headbutt_explicit_confirm_opens_rewards() {
+        let mut selecting = headbutt_selection_run(HEADBUTT_ID, 13, true);
+        choose_discard_select(selecting.combat.as_mut().expect("combat"), 1)
+            .expect("select without auto-confirm");
+        let next = apply_discard_select_confirm(&selecting).expect("confirm");
+        assert_eq!(next.phase, RunPhase::Reward);
+        assert!(next.combat.is_none());
+        assert_eq!(next.hp, 66);
+        next.validate().expect("valid reward state");
+    }
+
+    #[test]
+    fn nonlethal_headbutt_choice_keeps_combat_and_selected_card_on_top() {
+        let selecting = headbutt_selection_run(HEADBUTT_ID, 40, false);
+        let next = apply_run_action(&selecting, RunAction::ChooseDiscardSelect { index: 1 })
+            .expect("choose discard card");
+        assert_eq!(next.phase, RunPhase::Combat);
+        assert!(next.reward.is_none());
+        let combat = next.combat.as_ref().expect("active combat");
+        assert!(combat.discard_select().is_none());
+        assert_eq!(
+            combat.piles.draw_pile.last().expect("draw top").id,
+            CardId::new(3)
+        );
+        assert_eq!(combat.player.hp, 60);
+        next.validate().expect("valid combat");
     }
 
     #[test]
