@@ -107,7 +107,10 @@ target action/effect lifecycle rather than an observed deck snapshot.
   unclaimed gold; FIDL00233 (step 5 RETURN) witnesses unclaimed Neow potions.
   `Beggar.update` likewise opens the map after purge while retaining its final
   Leave dialog (FIDL00179, step 481 RETURN after grid CONFIRM).
-  These witnesses do not certify every event's completed-dialog stage or other
+  `TombRedMask.buttonEffect` concludes an ignored initial offer at RESULT with
+  only Leave, so RETURN cannot reopen mask purchase or the 222-gold option
+  (FIDL00022, step 1403 RETURN).
+  These witnesses do not certify every other event's completed-dialog stage or
   later divergences.
 
 - Summoned Gremlins consume an identity draw and an otherwise ignored opening
