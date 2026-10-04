@@ -6465,6 +6465,14 @@ fn confirm_burning_pact_select(
     if card.id == source_card_id {
         return Err(SimError::IllegalAction("Burning Pact cannot select itself"));
     }
+    // take_exhaust_select moved this physical source out of state ownership.
+    // Deferred PlayTop resolutions temporarily replace card_in_use, so that
+    // marker alone cannot reserve the source ID during nested card generation.
+    // Keep it in limbo until the existing UseCardAction settlement boundary;
+    // publishing it to discard early would change intervening shuffle inputs.
+    if let Some(source_card) = exhaust_select.source_card {
+        state.piles.limbo.push(source_card);
+    }
     // Normal Burning Pact exhausts the selected card immediately (including
     // Havoc / Mayhem / Distilled Chaos top-draw plays where source_card is
     // already gone). FIDL00221 step 1274 shows Bash+Burning Pact both in
@@ -6529,6 +6537,13 @@ fn confirm_burning_pact_select(
     // discard pile. Under Corruption (or Exhaust), source on-exhaust callbacks
     // are queued behind those already-pending Evolve draws (FIDL00425).
     if let Some(source_card) = exhaust_select.source_card {
+        let source_index = state
+            .piles
+            .limbo
+            .iter()
+            .position(|card| card.id == source_card.id)
+            .ok_or(SimError::UnknownCard(source_card.id))?;
+        let source_card = state.piles.limbo.remove(source_index);
         let definition = get_card_definition(source_card.content_id)
             .ok_or(SimError::UnknownContent(source_card.content_id))?;
         let destination = if exhaust_select.source_card_force_exhaust {
