@@ -63,6 +63,21 @@ impl FairEnvironment {
         })
     }
 
+    /// Opt-in training profile with a private, independently seeded libGDX
+    /// environmental RNG provider. Natural HP/deck and named run streams are
+    /// unchanged. This does not reproduce the game's process-global RNG state.
+    pub fn new_ironclad_with_training_rng(
+        seed: u64,
+        ascension: u8,
+        final_act: bool,
+        training_rng_seed: u64,
+    ) -> Result<Self, FairError> {
+        let mut env = Self::new_ironclad_with_final_act(seed, ascension, final_act)?;
+        env.state.training_external_rng =
+            Some(sts_core::adapter_internals::rng::TrainingExternalRng::seeded(training_rng_seed));
+        Ok(env)
+    }
+
     /// Explicit synthetic experiment constructor; never a replay/trace repair path.
     pub fn new_synthetic_ironclad(
         seed: u64,
@@ -337,6 +352,79 @@ mod tests {
         let cloned = env.clone();
         assert_eq!(cloned.revision(), env.revision());
         assert_eq!(cloned.decision(), env.decision());
+    }
+
+    #[test]
+    fn training_constructor_preserves_natural_inputs_and_hides_environment_rng() {
+        for seed in [0, 7, u64::MAX] {
+            let strict = FairEnvironment::new_ironclad_with_final_act(seed, 0, true)
+                .expect("strict constructor");
+            let training = FairEnvironment::new_ironclad_with_training_rng(seed, 0, true, 42)
+                .expect("training constructor");
+            assert_eq!(strict.decision(), training.decision());
+            let mut comparable = training.state.clone();
+            assert!(comparable.training_external_rng.take().is_some());
+            assert_eq!(comparable, strict.state);
+            let before = training.state.clone();
+            let _ = training.observation().expect("observation");
+            let _ = training.legal_choices().expect("choices");
+            let _ = training.decision().expect("decision");
+            let _ = training.clone();
+            assert_eq!(
+                training.state, before,
+                "reads do not draw environmental RNG"
+            );
+        }
+    }
+
+    #[test]
+    fn training_courier_steps_clone_repeatably_and_rejections_preserve_rng() {
+        use sts_core::adapter_internals::{enter_shop_screen, rng::TrainingExternalRng};
+        let mut state = RunState::map_fixture();
+        state.gold = 999;
+        state.relics.push(Relic::TheCourier);
+        state.training_external_rng = Some(TrainingExternalRng::seeded(42));
+        enter_shop_screen(&mut state).expect("shop");
+        let mut env = FairEnvironment {
+            state,
+            revision: DecisionRevision::new(0),
+        };
+        let before = env.clone();
+        let decision = env.decision().expect("decision");
+        let choice = PublicChoice::BuyShopCard { shop_slot: 0 };
+        let index = decision
+            .choices
+            .iter()
+            .position(|c| *c == choice)
+            .expect("legal purchase");
+        assert_eq!(
+            env.step_at_public_index(DecisionRevision::new(999), index),
+            Err(FairError::StaleDecision)
+        );
+        assert_eq!(
+            env.step_at_public_index(decision.revision, usize::MAX),
+            Err(FairError::InvalidChoice)
+        );
+        assert_eq!(env.state, before.state);
+        let mut clone = env.clone();
+        let next = env
+            .step(PublicChoiceRequest {
+                revision: decision.revision,
+                choice,
+            })
+            .expect("training restock");
+        assert_eq!(
+            next,
+            clone
+                .step_at_public_index(decision.revision, index)
+                .expect("cloned indexed restock")
+        );
+        assert_eq!(env.state, clone.state);
+        assert_ne!(
+            env.state.training_external_rng,
+            before.state.training_external_rng
+        );
+        env.state.validate().expect("valid successor");
     }
 
     #[test]

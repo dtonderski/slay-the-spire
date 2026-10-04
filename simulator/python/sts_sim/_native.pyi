@@ -116,7 +116,13 @@ def numeric_steps(
 
 class State:
     @staticmethod
-    def new(seed: str, ascension: int = ..., *, final_act: bool = ...) -> State: ...
+    def new(
+        seed: str,
+        ascension: int = ...,
+        *,
+        final_act: bool = ...,
+        training_rng_seed: int | None = ...,
+    ) -> State: ...
     @staticmethod
     def new_synthetic(
         seed: str, ascension: int = ..., hp: int = ..., final_act: bool = ...

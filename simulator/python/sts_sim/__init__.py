@@ -177,12 +177,24 @@ class State:
         self._native = native
 
     @staticmethod
-    def new(seed: str, ascension: int = 0, *, final_act: bool = False) -> State:
-        """Natural starting state; optionally enable the pre-run Heart profile.
+    def new(
+        seed: str,
+        ascension: int = 0,
+        *,
+        final_act: bool = False,
+        training_rng_seed: int | None = None,
+    ) -> State:
+        """Natural starting state with optional initial Heart/training profiles.
 
-        No keys are granted. This is initial configuration, not mid-run repair.
+        No keys are granted. ``training_rng_seed`` opts into a private libGDX
+        environmental RNG for simulator-only training, not exact real-game replay.
+        No profile can be changed mid-run and observations never expose RNG state.
         """
-        return State(_native.State.new(seed, ascension, final_act=final_act))
+        return State(
+            _native.State.new(
+                seed, ascension, final_act=final_act, training_rng_seed=training_rng_seed
+            )
+        )
 
     @staticmethod
     def new_synthetic(
@@ -204,12 +216,16 @@ class State:
         return State(self._native.clone())
 
     @staticmethod
-    def numeric_decisions(states: list[State]) -> tuple:
+    def numeric_decisions(
+        states: list[State],
+    ) -> tuple[int, list[str], dict[str, tuple[int, bytes]], list[int]]:
         """Versioned raw public combat tables, without typed observation construction."""
         return _native.numeric_decisions([state._native for state in states])
 
     @staticmethod
-    def numeric_steps(states: list[State], indices: list[int], revisions: list[int]) -> tuple:
+    def numeric_steps(
+        states: list[State], indices: list[int], revisions: list[int]
+    ) -> tuple[int, list[str], dict[str, tuple[int, bytes]], list[int]]:
         """Step by index into each state's current public legal-action list.
 
         ``revisions`` are the revisions exported with those indices. A mismatch is

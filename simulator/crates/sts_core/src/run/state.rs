@@ -35,7 +35,10 @@ use crate::{
         TINY_CHEST_THRESHOLD, TINY_HOUSE_GOLD, TINY_HOUSE_MAX_HP, VELVET_CHOKER_ENERGY,
         WING_BOOTS_CHARGES,
     },
-    rng::{rng_counter_is_supported, ExternalRngInput, JavaRng, RngTraceStream, StsRng},
+    rng::{
+        rng_counter_is_supported, ExternalRngInput, ExternalRngKind, JavaRng, RngTraceStream,
+        StsRng, TrainingExternalRng,
+    },
     SimError, SimResult,
 };
 use serde::{Deserialize, Serialize};
@@ -1212,6 +1215,10 @@ pub struct RunState {
     /// Ordered call-time inputs for gameplay draws from process-global RNG.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_external_rng: Vec<ExternalRngInput>,
+    /// Explicit simulation-only source for environmental draws. Never enabled
+    /// by replay, never exported to a policy, and never mixed with captured inputs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub training_external_rng: Option<TrainingExternalRng>,
     #[serde(default)]
     pub event_rng_seed: u64,
     #[serde(default)]
@@ -1849,6 +1856,36 @@ impl std::ops::DerefMut for RunState {
 }
 
 impl RunState {
+    /// Resolve a typed environmental draw at its gameplay call site. Strict
+    /// replay still requires the exact ordered input; training is opt-in.
+    #[track_caller]
+    pub(crate) fn draw_external_rng(
+        &mut self,
+        kind: ExternalRngKind,
+        range_inclusive: u32,
+        call_site: &'static str,
+    ) -> SimResult<u32> {
+        if let Some(training) = self.training_external_rng.as_mut() {
+            if !self.pending_external_rng.is_empty() {
+                return Err(SimError::InvalidState(
+                    "training environmental RNG cannot be mixed with replay inputs",
+                ));
+            }
+            return training.draw(kind, range_inclusive);
+        }
+        let input = self
+            .pending_external_rng
+            .first()
+            .copied()
+            .ok_or(SimError::MissingExternalRng(call_site))?;
+        if input.kind != kind || input.range_inclusive != range_inclusive {
+            return Err(SimError::ExternalRngMismatch(call_site));
+        }
+        self.pending_external_rng.remove(0);
+        let mut rng = input.state;
+        Ok(rng.random_int(range_inclusive))
+    }
+
     pub(crate) fn transactional<T>(
         &mut self,
         operation: impl FnOnce(&mut Self) -> SimResult<T>,
@@ -1936,6 +1973,14 @@ impl RunState {
         FULL_VALIDATION_COUNT.with(|count| count.set(count.get() + 1));
 
         self.validate_terminal_outcome()?;
+        if let Some(training) = &self.training_external_rng {
+            training.validate()?;
+            if !self.pending_external_rng.is_empty() {
+                return Err(SimError::InvalidState(
+                    "training environmental RNG cannot be mixed with replay inputs",
+                ));
+            }
+        }
         match (&self.phase, &self.run_player, &self.combat) {
             (RunPhase::Combat, None, Some(_)) => {}
             (phase, Some(_), None) if *phase != RunPhase::Combat => {}
@@ -2959,6 +3004,7 @@ impl RunState {
             #[cfg(test)]
             clone_probe: RunCloneProbe,
             phase: RunPhase::Combat,
+            training_external_rng: None,
             deck,
             run_player: Some(PlayerAuthorityState {
                 hp: IRONCLAD_A0_BASE_HP,
@@ -3073,6 +3119,7 @@ impl RunState {
             #[cfg(test)]
             clone_probe: RunCloneProbe,
             phase: RunPhase::Idle,
+            training_external_rng: None,
             deck: crate::content::deck::ironclad_starter_deck_for_ascension(ascension),
             run_player: Some(PlayerAuthorityState {
                 hp: IRONCLAD_A0_BASE_HP,

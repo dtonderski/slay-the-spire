@@ -52,6 +52,21 @@ replacement identity. Initial merchant stock and colorless replacement remain
 seeded. Capture any non-seeded gameplay draw as a typed call-time external input;
 never infer it from the observed result. See [`verification.md`](verification.md).
 
+The audited path is `ShopScreen.purchaseCard` ->
+`AbstractDungeon.getCardFromPool(rarity, purchased.type, false)` ->
+`CardGroup.getRandomCard(type, false)`. It sorts the type-filtered rarity pool,
+then calls `MathUtils.random(size - 1)`; `RandomXS128.nextLong(bound)` uses
+rejection sampling, not a biased raw modulo. Rarity still uses `cardRng` and
+`cardBlizzRandomizer` with ShopRoom's 9/37 thresholds; common Power falls back to
+uncommon. Colorless replacements use seeded card selection instead.
+
+An explicitly opted-in training profile may supply this typed environmental draw
+from a separately seeded private `RandomXS128` provider. It must preserve the
+candidate distribution and all named run streams, advance only at implemented
+call sites, and retain state/counter across clones and snapshots. This is not a
+model of cosmetic global draws or the real process's RNG position. Strict replay
+never enables it or falls back to it. See [`python_api.md`](python_api.md#supported-surface-limits).
+
 ## Map and encounter generation
 
 Target bytecode establishes:
