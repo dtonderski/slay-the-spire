@@ -131,6 +131,22 @@ true)`; the existing two-argument `new_ironclad` keeps its behavior. This expose
 existing initial profile rules, not a new gameplay/parity claim or an ascension
 fidelity guarantee. The present training target is A0.
 
+### Supported-surface limits
+
+Prismatic Shard acquisition no longer rejects a successor solely for owning the
+relic. Its existing core equip and reward-pool rules are unchanged. Public cards
+are still checked individually: modeled cross-color cards can be exported, but
+unmodeled cards fail explicitly rather than receiving invented costs or effects.
+This does **not** establish full Prismatic/cross-color run support; synthetic
+combat-spec construction still rejects the broader Prismatic loadout.
+
+The Courier's colored-card restock identity uses vanilla process-global
+`MathUtils.random`, not a run-seeded stream. Core replay requires a typed
+call-time external RNG input for that draw. The seed-only fair Python environment
+cannot supply it; such a purchase currently fails atomically. Do not reroll,
+filter the purchase, or replace the missing input with a seeded stream. See
+[`research.md`](research.md#process-global-rng).
+
 ## Synthetic scenarios
 
 For explicitly synthetic experiments only, `State.new_synthetic(seed, ascension=0,

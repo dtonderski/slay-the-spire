@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use sts_core::adapter_internals::{Relic, RunState};
+use sts_core::adapter_internals::RunState;
 
 use crate::{
     action::{projected_choices, DecisionRevision, FairError, PublicChoice, PublicChoiceRequest},
@@ -130,12 +130,10 @@ impl FairEnvironment {
         state: &RunState,
         revision: DecisionRevision,
     ) -> Result<FairDecision, FairError> {
-        // The core Prismatic Shard pool contains cards whose public costs are
-        // not yet represented by this schema. Fail before such a state can be
-        // committed rather than fabricating metadata or stranding the policy.
-        if state.relics.contains(&Relic::PrismaticShard) {
-            return Err(FairError::DecisionUnavailable);
-        }
+        // Validate the actual public content below, not relic ownership.
+        // Prismatic acquisition/equip is modeled by the core; unmodeled
+        // cross-color cards still fail projection rather than gaining invented
+        // costs or mechanics. This is not blanket cross-color support.
         Ok(FairDecision {
             schema_version: FAIR_ENV_SCHEMA_VERSION,
             revision,
@@ -201,6 +199,7 @@ impl FairEnvironment {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sts_core::adapter_internals::Relic;
 
     #[test]
     fn ordinary_final_act_constructor_preserves_natural_inputs_and_profile_rng() {
@@ -341,12 +340,127 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_prismatic_mechanics_are_rejected_before_commit() {
+    fn courier_missing_environmental_input_rejects_atomically_without_rerolling() {
+        use sts_core::adapter_internals::{apply_run_decision_action, enter_shop_screen, SimError};
+
+        let mut state = RunState::map_fixture();
+        state.gold = 500;
+        state.relics.push(Relic::TheCourier);
+        enter_shop_screen(&mut state).expect("shop");
+        let mut env = FairEnvironment {
+            state,
+            revision: DecisionRevision::new(0),
+        };
+        let before = env.clone();
+        let decision = env.decision().expect("shop decision");
+        let choice = PublicChoice::BuyShopCard { shop_slot: 0 };
+        let (index, (_, action)) = projected_choices(&env.state)
+            .expect("projected choices")
+            .into_iter()
+            .enumerate()
+            .find(|(_, (c, _))| *c == choice)
+            .expect("advertised colored-card purchase");
+        assert_eq!(
+            apply_run_decision_action(&env.state, action),
+            Err(SimError::MissingExternalRng(
+                "courier_colored_card_selection"
+            )),
+        );
+        assert_eq!(
+            env.step(PublicChoiceRequest {
+                revision: decision.revision,
+                choice
+            }),
+            Err(FairError::InvalidChoice),
+        );
+        assert_eq!(env.state, before.state);
+        assert_eq!(env.revision, before.revision);
+        assert_eq!(
+            env.step_at_public_index(decision.revision, index),
+            Err(FairError::InvalidChoice),
+        );
+        assert_eq!(env.state, before.state);
+        assert_eq!(env.decision().expect("unchanged decision"), decision);
+    }
+
+    #[test]
+    fn prismatic_shop_purchase_publishes_successor_for_both_step_apis() {
+        use sts_core::adapter_internals::{enter_shop_screen, ShopRelicSlot};
+
+        let mut state = RunState::map_fixture();
+        state.gold = 500;
+        enter_shop_screen(&mut state).expect("shop");
+        state.shop.as_mut().expect("shop").relics = vec![ShopRelicSlot {
+            relic_key: Relic::PrismaticShard,
+            price: 150,
+            sold: false,
+        }];
+        let mut env = FairEnvironment {
+            state,
+            revision: DecisionRevision::new(0),
+        };
+        let before = env.decision().expect("shop decision");
+        let choice = PublicChoice::BuyShopRelic { shop_slot: 0 };
+        let index = before
+            .choices
+            .iter()
+            .position(|c| *c == choice)
+            .expect("legal purchase");
+        let mut by_index = env.clone();
+        let next = env
+            .step(PublicChoiceRequest {
+                revision: before.revision,
+                choice,
+            })
+            .expect("Prismatic acquisition is modeled");
+        assert_eq!(next.revision, DecisionRevision::new(1));
+        assert_eq!(env.state.gold, 350);
+        assert!(env.state.relics.contains(&Relic::PrismaticShard));
+        assert!(env.state.shop.as_ref().expect("shop").relics[0].sold);
+        assert!(!next.choices.contains(&choice));
+        assert!(!next.choices.is_empty());
+        assert_eq!(
+            next,
+            by_index
+                .step_at_public_index(before.revision, index)
+                .expect("index step")
+        );
+        assert_eq!(env.state, by_index.state);
+        env.state.validate().expect("valid purchased state");
+        let committed = env.clone();
+        assert_eq!(
+            env.step(PublicChoiceRequest {
+                revision: before.revision,
+                choice
+            }),
+            Err(FairError::StaleDecision)
+        );
+        assert_eq!(env.state, committed.state);
+        assert_eq!(env.decision().expect("stable successor"), next);
+    }
+
+    #[test]
+    fn prismatic_checks_actual_public_content_not_relic_ownership() {
+        use sts_core::adapter_internals::{
+            content::{cards::COOLHEADED_ANY_COLOR_ID, shop_pool::shop_card_content_id},
+            CardId, CardInstance,
+        };
+
         let mut env = FairEnvironment::new_ironclad(1, 0).expect("environment");
-        let before = env.decision().expect("initial decision");
         env.state.relics.push(Relic::PrismaticShard);
+        env.state
+            .deck
+            .push(CardInstance::new(CardId::new(100), COOLHEADED_ANY_COLOR_ID));
+        let before = env.state.clone();
+        let decision = env.decision().expect("modeled cross-color card");
+        assert_eq!(env.decision().expect("repeat"), decision);
+        assert_eq!(env.state, before, "export draws no RNG");
+        // This change is not a claim that all cross-color mechanics are modeled.
+        // Retain the content-level guard instead of fabricating a card cost.
+        env.state.deck.push(CardInstance::new(
+            CardId::new(101),
+            shop_card_content_id("FLYING_KNEE"),
+        ));
         assert_eq!(env.decision(), Err(FairError::DecisionUnavailable));
-        env.state.relics.pop();
-        assert_eq!(env.decision().expect("restored supported state"), before);
     }
 }
