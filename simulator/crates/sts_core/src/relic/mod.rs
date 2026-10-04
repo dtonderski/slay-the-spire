@@ -2472,14 +2472,21 @@ fn sync_red_skull_strength_present(state: &mut CombatState, has_red_skull: bool)
             state.relic_counters.red_skull_active = true;
         }
         (false, true) => {
-            state.player.powers.strength = state
-                .player
-                .powers
-                .strength
-                .checked_sub(RED_SKULL_STRENGTH)
-                .ok_or(SimError::InvalidState(
-                    "Red Skull Strength removal underflows i32",
-                ))?;
+            // RedSkull.onNotBloodied applies negative StrengthPower through
+            // ApplyPowerAction: Artifact blocks that debuff. The relic still
+            // deactivates, so later healing must not retry the removal.
+            if state.player.powers.artifact > 0 {
+                state.player.powers.artifact -= 1;
+            } else {
+                state.player.powers.strength = state
+                    .player
+                    .powers
+                    .strength
+                    .checked_sub(RED_SKULL_STRENGTH)
+                    .ok_or(SimError::InvalidState(
+                        "Red Skull Strength removal underflows i32",
+                    ))?;
+            }
             state.relic_counters.red_skull_active = false;
         }
         _ => {}
