@@ -14,7 +14,9 @@ This page routes readers to canonical documents; it does not duplicate them.
 | Python usage and numeric transport | [Python API](../simulator/docs/python_api.md), [first-contact example](../rl/examples/README.md) |
 | Replay rules and evidence | [Verification](../simulator/docs/verification.md), [corpus](../simulator/verification/corpus/README.md) |
 | Real-game control and collection | [Communication bridge](../simulator/tools/communication/README.md), [support mods](../simulator/mods/README.md) |
-| Synthetic training and evaluation | [RL README](../rl/README.md) |
+| Synthetic combat training and evaluation | [RL README](../rl/README.md) |
+| Experimental fair A0 run training | [Run-training guide](../rl/run_training/README.md) |
+| Queued work and investigation ideas | [Shared backlog](../TODO.md) |
 | Loadout data and sampling tools | [RL tools](../rl/tools/README.md) |
 | Interactive policy inspection | [Combat explorer](../rl/combat_explorer/README.md) |
 
@@ -36,6 +38,10 @@ experiments, not the current training architecture or an approved work queue.
 
 ## Historical handoffs
 
+- [Run-level training investigation](../rl/docs/run_level_training.md): original
+  API audit, simulator-only evidence and proposed architecture. Its dated
+  prerequisites and proposals are not a second live implementation guide; the
+  run-training guide above describes the implemented baseline.
 - [Combat explorer implementation handoff](archive/combat_explorer_implementation_plan.md):
   original product scope and recommendations. The explorer README above documents
   the implemented tool; the handoff is not maintained as a second API guide.

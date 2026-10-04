@@ -8,8 +8,8 @@ simulator whose fidelity is established with immutable real-game traces.
 The current workspace separates mechanics from their consumers: `sts_core`
 implements the simulator, `sts_env` owns the fair observation/action boundary,
 `sts_verify` replays CommunicationMod traces, and `py_sts` exposes the Python
-interface. `rl/` contains synthetic combat training, evaluation, and a combat
-explorer. Search and learning remain consumer responsibilities; `simulator`
+interface. `rl/` contains synthetic combat training, experimental natural-HP A0
+run training, evaluation, and a combat explorer. Search and learning remain consumer responsibilities; `simulator`
 must not depend on `rl`.
 
 See the [knowledge index](docs/README.md) for current contracts, research

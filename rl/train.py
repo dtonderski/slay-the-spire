@@ -1,4 +1,8 @@
-"""Synthetic combat training: rollout, update, evaluation, and one training loop."""
+"""Training entry point: --task combat (default) or --task run.
+
+Run training has a separate collector/model/trainer in run_training; the existing
+synthetic combat loop and its command-line defaults remain unchanged.
+"""
 
 import argparse
 import hashlib
@@ -1003,8 +1007,21 @@ def evaluation_due(iteration: int, every: int, elapsed: float, interval: float |
     return elapsed >= interval if interval is not None else iteration % every == 0
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    selector = argparse.ArgumentParser(add_help=False)
+    selector.add_argument("--task", choices=("combat", "run"), default="combat")
+    task, remaining = selector.parse_known_args(argv)
+    if task.task == "run":
+        from run_training.trainer import main as train_run
+
+        train_run(remaining)
+    else:
+        combat_main(remaining)
+
+
+def combat_main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--task", choices=("combat", "run"), default="combat", help="Training task (default: combat)")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--distributions", type=Path, required=True)
     parser.add_argument("--validation-manifest", type=Path, required=True)
@@ -1054,7 +1071,7 @@ def main() -> None:
     parser.add_argument("--continue-on-simulator-error", action="store_true")
     parser.add_argument("--wandb-project", default="sts-combat-v1")
     parser.add_argument("--wandb-mode", choices=("online", "offline", "disabled"), default="online")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if (
         min(
             args.updates,

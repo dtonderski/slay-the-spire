@@ -1,8 +1,10 @@
-# Synthetic combat training
+# Training
 
-One training entry point: **`train.py`**. One model input format and one
-rollout implementation: public numeric observation batches. No legacy trainers,
-epoch-based root collection, typed-model fallback, or alternate loss implementation.
+One training entry point: **`train.py --task combat|run`**. Combat remains the
+default, using public numeric observation batches and the existing training loop.
+Run-level A0 training has a separate collector, macro model and trainer under
+[`run_training/`](run_training/README.md); it is not forced into the combat loop.
+The combat policy/encoder is unchanged and frozen during run training.
 
 ## Read the code in this order
 
@@ -14,10 +16,10 @@ epoch-based root collection, typed-model fallback, or alternate loss implementat
    Card, monster, relic, potion, power, and counter columns are content vocabulary v1 ids, not batch-local symbol positions.
 3. `trajectories.py::Trajectories.losses`: policy loss and entropy regularization.
 4. `train.py::train_batch`: collect → loss → backward → optimizer step.
-5. `train.py::main`: fresh batches, evaluation, logging, checkpoints.
+5. `train.py::combat_main`: fresh batches, evaluation, logging, checkpoints.
 
-Rollout, update, evaluation, and orchestration are all in `train.py`.
-The other training files have been deleted, not retained as wrappers.
+The above describes combat training. `train.py::main` dispatches the task;
+`run_training/trainer.py` owns the separate run-learning loop.
 
 ## Model
 
@@ -40,6 +42,23 @@ The [fair API contract](../simulator/docs/fair_api.md) belongs to the simulator;
 [research proposals](../docs/literature_review/README.md) are separate from this
 implemented training path. See the [knowledge index](../docs/README.md) for other
 canonical documentation.
+
+## Run-level A0 training
+
+See [`run_training/README.md`](run_training/README.md) for `--task run`, pilot
+commands, checkpoint continuation and explicit environment limitations. The first
+trainer uses natural-HP A0 runs, frozen sampled combat, a small public-only macro
+candidate scorer and a fresh value head, with undiscounted completed-episode
+Monte Carlo targets. It fails closed on simulator errors and training cutoffs by
+default. Explicit bounded experiments may use `--max-hours 8 --compress-journals
+--continue-on-collection-failure` to quarantine entire incomplete batches, with
+coverage accounting and a repeated-failure stop guard. This remains experimental:
+known simulator gaps can bias training toward supported paths. Start with a
+`--collect-only` pilot and see the run-training README before an overnight launch.
+
+The original investigation and measured findings are preserved in
+[`docs/run_level_training.md`](docs/run_level_training.md). Its design includes
+later numeric macro batching and stronger models not implemented by this baseline.
 
 ## Run
 
