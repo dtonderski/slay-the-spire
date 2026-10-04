@@ -314,6 +314,14 @@ pub(super) fn apply_act_two_event_action(
             0 if (choice_index == 2 && next.gold >= ADDICT_GOLD_COST)
                 || (choice_index == 1 && next.gold < ADDICT_GOLD_COST) =>
             {
+                // Addict.buttonEffect clears the initial offers and concludes
+                // at screenNum=1; Return must not reopen the purchase/rob menu.
+                next.event = Some(EventScreen {
+                    event: Event::Addict,
+                    choices: addict_choices(1, next.gold),
+                    stage: 1,
+                    event_data: 0,
+                });
                 crate::run::map_overlay::open_completed_room_map(next);
             }
             1 if choice_index == 0 => {

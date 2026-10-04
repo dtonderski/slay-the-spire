@@ -107,7 +107,10 @@ target action/effect lifecycle rather than an observed deck snapshot.
   unclaimed gold; FIDL00233 (step 5 RETURN) witnesses unclaimed Neow potions.
   `Beggar.update` likewise opens the map after purge while retaining its final
   Leave dialog (FIDL00179, step 481 RETURN after grid CONFIRM).
-  These witnesses do not certify every event's completed-dialog stage or other
+  `Addict.buttonEffect` decline clears the initial offers and settles at
+  screenNum 1 with only Leave. Returning from that map cannot reopen Offer Gold
+  or Rob (FIDL00783, step 677 RETURN).
+  These witnesses do not certify every other event's completed-dialog stage or
   later divergences.
 
 - Summoned Gremlins consume an identity draw and an otherwise ignored opening
