@@ -92,6 +92,12 @@ target action/effect lifecycle rather than an observed deck snapshot.
 
 ## Source-backed interaction findings
 
+- `Flex.use` applies Strength then `LoseStrengthPower`. `StrengthPower.stackPower`
+  clamps the visible total to ±999, but the loss inherits uncapped
+  `AbstractPower.stackPower` and retains the nominal amount. Expiry can therefore
+  leave Strength below its pre-Flex value when the gain was clipped. Artifact can
+  block creation or later application of the loss. This boundary finding is
+  source-backed, not established by a dedicated real-game boundary trace.
 - Summoned Gremlins consume an identity draw and an otherwise ignored opening
   AI roll before their fixed opening move.
 - Writhing Mass attack-triggered rerolls are queued, consume AI RNG, and update
