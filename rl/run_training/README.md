@@ -42,7 +42,7 @@ returns 0.5, death at the boss returns 1, and accepted entry into Act 2 returns 
 (full progress plus clear bonus). This is computed once at episode completion,
 not per action; errors/cutoffs receive no terminal reward. The macro value head
 remains an unconstrained linear output trained against targets in [0, 6].
-`act3` and `heart` retain binary rewards from explicit settled outcomes. All starts
+`act3` and `heart` retain binary rewards from explicit settled outcomes. Default starts
 are **natural HP, A0**, with Heart profile enabled by default (`--no-final-act`
 disables it for non-Heart objectives). No seeds, revisions, private state or
 simulator futures enter the macro model.
@@ -98,12 +98,92 @@ SIGTERM to the Python PID in `trainer.pid`, rather than terminating the entire
 service process group (which can kill W&B's helper before it flushes).
 
 Validation sampling uses separate fixed macro/combat RNGs and never consumes the
-training seed sampler. Every held-out seed is excluded from training draws. This
-serial baseline favors testability, not throughput; numeric macro tables/batching,
-stronger encoders, recurrent history and PPO remain follow-up work.
+training seed sampler. Every held-out seed is excluded from training draws.
+Collection and learning are batched by default as described below. Stronger
+encoders, recurrent history and PPO remain separate research questions.
 
 Future work and investigation ideas are tracked in the repository-wide
 [`TODO.md`](../../TODO.md).
+
+## Batched execution and throughput
+
+`--task run` now defaults to **`--collection-width 32 --learner-batch-size 128`**.
+The first bounds concurrently active episodes; the second bounds macro decisions
+per learner forward/backward chunk. Neither changes `--batch-size` (episodes per
+optimizer update). Width cannot exceed the currently scheduled episode batch;
+do not increase the learning batch size merely to fill the GPU.
+
+- A single cooperative scheduler owns independent journaled trajectories. It
+  batches combat and macro inference, not game transitions. Each episode retains
+  its own policy RNGs, history, budget, revision checks and immutable journal.
+  Results and seed/HP draws remain in input order, not completion order.
+- Ragged weighted embedding bags and padded candidate scoring retain every legal
+  choice, including escape potions. Padding is never sampled. Each run samples
+  its true-length row with its own generator, without global policy RNG draws.
+- Public hash paths, immutable public map contributions and candidate facts have
+  bounded caches. Cached entries contain no learned activations or hidden state;
+  feature bucket values and collision accumulation order remain unchanged.
+- The learner packs public inputs once, verifies all inference/recomputation
+  pairs **before any backward**, then backpropagates chunks. Actor sums are still
+  divided by episodes; value/entropy terms are still divided by macro decisions.
+  There is one gradient clip and one optimizer step per complete episode batch.
+- A failed action is never retried. Explicit continuation mode still quarantines
+  the whole learner batch. Unlocalized collective numeric-export failures and
+  model/infrastructure errors are fatal, not per-episode death labels. Open peer
+  journals receive cancellation records. Cooperative stops finish in-flight
+  decisions, launch no new episodes, and leave incomplete batches untrained.
+
+For the serial reference path use
+`--collection-width 1 --learner-batch-size 0`. Larger reductions can differ in
+FP32 rounding; bitwise equality with the old serial learner is not promised.
+Execution settings and source hashes are part of strict resume validation.
+Changing execution mode requires a new identity; use compatible weights-only
+warm start rather than bypassing resume checks. Default combat-task training is
+unchanged, and this does **not** change macro rewards or fix weak learning.
+
+An October 2026 fixed-weight benchmark on one RTX 5080 included collection,
+compressed journals, one real Adam update and checkpoint output. Warm medians:
+
+| Workload | Serial | Batched | Gain |
+| --- | ---: | ---: | ---: |
+| 64 natural starts, width64 | 24.36 s | 6.21 s | 3.92× |
+| 128 campfire starts, width32 | 5.31 s | 1.39 s | 3.82× |
+
+Each uses two warm trials after one cold trial; all commands, accepted revisions
+and outcomes matched across implementations (12,428 and 2,968 actions per trial).
+Learner-only gains were about 16× and 21×, **not end-to-end speedups**. A complete
+16-update, batch16 CLI reference took 47.44 s. Two optimized checks of the same
+work took 26.42 s and 14.82 s (1.80–3.20×), including imports, cold root
+reconstruction, validation and local telemetry (W&B disabled). Whole-job timings
+showed more variation; do not extrapolate warm throughput to every job. These are
+workload-specific measurements, not learning-strength claims. All 448 CLI episode
+setups and execution fingerprints matched. A CUDA split/resume check reproduced
+the uninterrupted 16-update model, optimizer and saved RNG states exactly.
+
+`train/collection_seconds`, `train/update_seconds` and
+`validation/collection_seconds` expose phase timings. Typed projection and public
+feature assembly remain CPU costs. Native `numeric_steps` is deliberately not used:
+its non-atomic batch failure contract needs trustworthy per-state settlement
+accounting before replacing individually journaled transitions.
+
+The bounded comparison tool is [`benchmark_run_training.py`](../tools/benchmark_run_training.py).
+It is not an alternative training entry point. It resets fixed macro weights per
+trial, pins combat/native/source hashes, records complete-case coverage and
+execution fingerprints, and skips the entire optimizer update on any unresolved
+episode. Example (use a new directory):
+
+```bash
+PYTHONPATH=rl uv run --project rl --no-sync python rl/tools/benchmark_run_training.py \
+  --profile natural --macro-checkpoint /path/to/macro/latest.pt \
+  --combat-checkpoint /path/to/combat/latest.pt --seeds /path/to/seeds.json \
+  --episodes 64 --trials 3 --width 64 --learner-batch-size 128 --out /path/to/new-benchmark
+```
+
+Both benchmark profiles use binary Act-1 completion targets. For
+`--profile campfire`, also supply `--root-manifest`; initial reconstruction is included in
+cold timing. Run comparisons sequentially on the same hardware, retain every
+journal, and report warm/cold results separately. A serial baseline can be run
+under its own checkout's `PYTHONPATH` with `--width 1 --learner-batch-size 0`.
 
 ## Synthetic pre-boss campfire experiment
 

@@ -371,6 +371,8 @@ class RunTrainerTests(unittest.TestCase):
             args = [
                 "--run-id",
                 "quarantine",
+                "--collection-width",
+                "1",  # Mocked serial collector; batching has separate tests.
                 "--combat-checkpoint",
                 str(combat),
                 "--validation-seeds",
@@ -438,6 +440,8 @@ class RunTrainerTests(unittest.TestCase):
                     [
                         "--run-id",
                         "metrics",
+                        "--collection-width",
+                        "1",
                         "--combat-checkpoint",
                         str(combat),
                         "--validation-seeds",
@@ -559,6 +563,8 @@ class RunTrainerTests(unittest.TestCase):
                         [
                             "--run-id",
                             "telemetry",
+                            "--collection-width",
+                            "1",
                             "--combat-checkpoint",
                             str(root / "combat.pt"),
                             "--validation-seeds",
@@ -602,6 +608,8 @@ class RunTrainerTests(unittest.TestCase):
             combat = root / "combat.pt"
             combat.write_bytes(b"test hash only; combat loader is mocked")
             common = [
+                "--collection-width",
+                "1",
                 "--combat-checkpoint",
                 str(combat),
                 "--validation-seeds",

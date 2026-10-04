@@ -34,15 +34,15 @@ baseline and its reward/behavior metrics are documented in the
   [settled experiment](docs/project_history.md#run-level-health-conditioning-and-campfire-pilot-october-2026)
   and [curriculum workflow](rl/run_training/README.md#synthetic-pre-boss-campfire-experiment).
 
-- [ ] **[RL] Batch run collection and learning.** Investigate concurrent independent
-  episodes with batched frozen-combat inference, batched macro forward/backward,
-  and numeric combat stepping between typed macro boundaries. Compare end-to-end
-  throughput, not just model microbenchmarks; small serial GPU calls can lose to
-  CPU inference. Preserve complete legal candidates, per-run RNG ownership,
-  quarantine semantics and loss weighting. Establish equivalence and explicitly
-  version changed protocols. See the
-  [run-training guide](rl/run_training/README.md) and
-  [numeric transport](simulator/docs/python_api.md).
+- [ ] **[RL] Reduce remaining run-collection CPU work.** Profile typed observation
+  projection and public feature assembly under the batched collector. Before
+  adopting native numeric batch stepping, require per-state settlement/error
+  attribution: the current multi-state transition API is not atomic. Preserve
+  immutable journals, complete candidates, independent RNGs and whole-batch
+  quarantine. Measure end-to-end gains at unchanged learning batch sizes; do not
+  infer them from isolated inference speedups. See the
+  [batched workflow](rl/run_training/README.md#batched-execution-and-throughput)
+  and [numeric transport](simulator/docs/python_api.md).
 
 - [ ] **[RL] Better map representation — deferred.** Is the position-dependent
   hashed map encoding limiting route decisions? First compare explicit public-map
