@@ -9,9 +9,9 @@ use crate::{
         confirm_draw_select, confirm_exhaust_select_with_dead_branch_count, confirm_hand_select,
         confirm_hand_select_without_retrieval, discard_select_ui_to_discard_index,
         draw_select_ui_to_draw_index, flush_pending_player_spikes_damage_if_ready,
-        hand_select_ui_to_hand_index, open_discard_select_with_max_choices, open_exhaust_select,
-        open_gambling_chip_select, player_draw_cards, player_shuffle_discard_into_draw,
-        top_draw_card_definition,
+        gain_temp_strength, hand_select_ui_to_hand_index, open_discard_select_with_max_choices,
+        open_exhaust_select, open_gambling_chip_select, player_draw_cards,
+        player_shuffle_discard_into_draw, top_draw_card_definition,
     },
     combat::{
         apply_burning_blood, CombatDecisionState, CombatPhase, CombatState, DiscardSelectPurpose,
@@ -1194,11 +1194,13 @@ pub(crate) fn apply_validated_potion_action_owned(
                 }
                 Potion::Flex => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.temp_strength = checked_potion_stat_gain(
-                        combat.player.temp_strength,
-                        FLEX_POTION_TEMP_STRENGTH,
-                        multiplier,
-                    )?;
+                    // SteroidPotion.use applies the same ordered Strength /
+                    // LoseStrengthPower pair as Flex.use, including Artifact.
+                    let amount =
+                        checked_potion_stat_gain(0, FLEX_POTION_TEMP_STRENGTH, multiplier)?;
+                    gain_temp_strength(combat, amount).map_err(|_| {
+                        SimError::InvalidState("combat potion stat gain overflows i32")
+                    })?;
                 }
                 Potion::Speed => {
                     let combat = next.combat.as_mut().expect("validated combat state");
