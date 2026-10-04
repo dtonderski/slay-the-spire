@@ -2659,7 +2659,8 @@ fn apply_validated_reward_action_owned(
             next.gain_gold(stolen_gold_offer)?;
         }
         RunAction::TakePotionReward { index } => {
-            if next.open_potion_slots() == 0 {
+            let sozu_blocks_obtain = next.relics.contains(&Relic::Sozu);
+            if !sozu_blocks_obtain && next.open_potion_slots() == 0 {
                 return Ok(next);
             }
             let potion = {
@@ -2670,7 +2671,9 @@ fn apply_validated_reward_action_owned(
                     reward.potion_offer.take().expect("validated potion offer")
                 }
             };
-            next.gain_potion(potion)?;
+            if !sozu_blocks_obtain {
+                next.gain_potion(potion)?;
+            }
         }
         RunAction::TakeRelicReward => {
             // Claiming the leading reward-list relic drops Matryoshka's
@@ -3024,6 +3027,62 @@ pub(crate) fn advance_pending_relic_offer(run: &mut RunState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CardRewardFlow;
+
+    fn potion_claim_fixture() -> RunState {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.phase = RunPhase::Reward;
+        run.event = None;
+        run.reward = Some(RewardScreen {
+            continuation: RewardContinuation::None,
+            choices: Vec::new(),
+            queued_card_rewards: Vec::new(),
+            gold_offer: 0,
+            stolen_gold_offer: 0,
+            potion_offer: Some(Potion::Fear),
+            potion_offers: Vec::new(),
+            relic_offer: None,
+            pending_relic_offer: None,
+            queued_relic_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
+            card_reward_flow: CardRewardFlow::None,
+        });
+        run
+    }
+
+    #[test]
+    fn sozu_consumes_offered_potion_without_obtain_or_rng() {
+        let mut run = potion_claim_fixture();
+        run.relics.push(Relic::Sozu);
+        let claimed = apply_run_action(&run, RunAction::TakePotionReward { index: 0 }).unwrap();
+        let mut expected = run.clone();
+        expected.reward.as_mut().unwrap().potion_offer = None;
+        assert_eq!(claimed, expected);
+        assert!(apply_run_action(&claimed, RunAction::TakePotionReward { index: 0 }).is_err());
+    }
+
+    #[test]
+    fn sozu_consumes_only_addressed_offer_and_preserves_belt() {
+        let mut run = potion_claim_fixture();
+        run.relics.push(Relic::Sozu);
+        run.potions = vec![Potion::Strength, Potion::Fear, Potion::Dexterity];
+        let reward = run.reward.as_mut().unwrap();
+        reward.potion_offer = None;
+        reward.potion_offers = vec![Potion::Strength, Potion::Fear, Potion::Dexterity];
+        let claimed = apply_run_action(&run, RunAction::TakePotionReward { index: 1 }).unwrap();
+        let mut expected = run.clone();
+        expected.reward.as_mut().unwrap().potion_offers.remove(1);
+        assert_eq!(claimed, expected);
+        assert!(apply_run_action(&run, RunAction::TakePotionReward { index: 3 }).is_err());
+    }
+
+    #[test]
+    fn full_belt_without_sozu_leaves_reward_unclaimed() {
+        let mut run = potion_claim_fixture();
+        run.potions = vec![Potion::Strength, Potion::Fear, Potion::Dexterity];
+        let claimed = apply_run_action(&run, RunAction::TakePotionReward { index: 0 }).unwrap();
+        assert_eq!(claimed, run);
+    }
 
     use crate::{
         content::cards::{
