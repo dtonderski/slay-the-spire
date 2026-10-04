@@ -1199,8 +1199,9 @@ pub(crate) fn apply_validated_grid_confirmation(mut next: RunState) -> SimResult
             next.remove_deck_card(card.id)
                 .expect("event remove selected a deck card");
             next.card_grid = None;
-            next.phase = RunPhase::Idle;
-            next.event = None;
+            // Beggar.update opens map(false) after purge while retaining its
+            // completed Leave dialog, rather than entering another room.
+            super::map_overlay::open_completed_room_map(&mut next);
         }
         GridPurpose::EventRemoveReturnToEvent { event } => {
             let card = selected_grid_card(&grid)?;

@@ -105,6 +105,8 @@ target action/effect lifecycle rather than an observed deck snapshot.
   Mind Bloom exceptions open the map. Do not generalize the later non-event
   COMBAT_REWARD branch to all reward origins. FIDL00002 (step 61 RETURN) witnesses
   unclaimed gold; FIDL00233 (step 5 RETURN) witnesses unclaimed Neow potions.
+  `Beggar.update` likewise opens the map after purge while retaining its final
+  Leave dialog (FIDL00179, step 481 RETURN after grid CONFIRM).
   These witnesses do not certify every event's completed-dialog stage or other
   later divergences.
 

@@ -209,6 +209,39 @@ mod tests {
     }
 
     #[test]
+    fn beggar_purge_preserves_completed_owner_and_removes_only_once() {
+        let mut run = event_owner();
+        run.current_room_override = Some(crate::map::RoomKind::Event);
+        run.event = Some(EventScreen {
+            event: crate::run::event::Event::Beggar,
+            choices: vec![crate::run::event::EventChoice {
+                label: "Leave".to_owned(),
+            }],
+            stage: 2,
+            event_data: 0,
+        });
+        crate::run::grid::open_event_remove_grid(&mut run);
+        let selected =
+            apply_run_decision_action(&run, RunDecisionAction::GridSelect { index: 0 }).unwrap();
+        let removed_id = selected.card_grid.as_ref().unwrap().cards[0].id;
+        let map = apply_run_decision_action(&selected, RunDecisionAction::GridConfirm).unwrap();
+        assert!(map.deck.iter().all(|card| card.id != removed_id));
+        let returned = apply_run_decision_action(&map, RunDecisionAction::MapReturn).unwrap();
+        let mut expected = map.clone();
+        expected.map_room_screen = None;
+        expected.phase = RunPhase::Event;
+        expected.event = run.event;
+        assert_eq!(returned, expected);
+        assert_eq!(returned.deck.len(), run.deck.len() - 1);
+        assert_eq!(
+            legal_run_decision_actions(&returned).unwrap(),
+            vec![RunDecisionAction::Event(EventAction::Choose {
+                choice_index: 0
+            })]
+        );
+    }
+
+    #[test]
     fn actual_node_entry_discards_suspended_owner() {
         let run = event_owner();
         let map = apply_run_decision_action(
