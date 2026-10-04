@@ -1386,6 +1386,10 @@ fn is_duplicated_card_effect(action: InternalAction, card_id: CardId) -> bool {
 
 fn duplicated_card_effect(action: InternalAction, card_id: CardId) -> Option<InternalAction> {
     match action {
+        action @ InternalAction::AwaitExhaustSelect {
+            source_card_id,
+            purpose: crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand,
+        } if source_card_id == card_id => Some(action),
         InternalAction::AwaitDiscardSelect {
             source_card_id,
             purpose: crate::combat::DiscardSelectPurpose::HeadbuttPutOnDraw,
@@ -4499,36 +4503,18 @@ fn sadistic_nature_queue(
     ]))
 }
 
-fn exhume_queue(state: &CombatState, card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
-    let exhumable_cards = exhumable_card_ids(state);
-    let mut queue = VecDeque::from([
+fn exhume_queue(_state: &CombatState, card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
+    // ExhumeAction.update inspects the live hand/exhaust pile. A copied use
+    // runs after the original return and source settlement, not against IDs
+    // frozen when the original card's queue was constructed.
+    Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
-    ]);
-
-    match exhumable_cards.as_slice() {
-        [] => queue.push_back(InternalAction::MoveCard {
-            card_id,
-            from: CardPile::Hand,
-            to: CardPile::ExhaustPile,
-        }),
-        [exhumed_card_id] => {
-            queue.push_back(InternalAction::ReturnExhaustCardToHand {
-                card_id: *exhumed_card_id,
-            });
-            queue.push_back(InternalAction::MoveCard {
-                card_id,
-                from: CardPile::Hand,
-                to: CardPile::ExhaustPile,
-            });
-        }
-        _ => queue.push_back(InternalAction::AwaitExhaustSelect {
+        InternalAction::AwaitExhaustSelect {
             source_card_id: card_id,
             purpose: crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand,
-        }),
-    }
-
-    Ok(queue)
+        },
+    ]))
 }
 
 fn purity_queue(state: &CombatState, card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
@@ -4549,16 +4535,6 @@ fn purity_queue(state: &CombatState, card_id: CardId) -> SimResult<VecDeque<Inte
         });
     }
     Ok(queue)
-}
-
-fn exhumable_card_ids(state: &CombatState) -> Vec<CardId> {
-    state
-        .piles
-        .exhaust_pile
-        .iter()
-        .filter(|card| card.content_id != EXHUME_ID && card.content_id != EXHUME_PLUS_ID)
-        .map(|card| card.id)
-        .collect()
 }
 
 fn sever_soul_queue(
