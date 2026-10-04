@@ -19,6 +19,18 @@ its fair-state boundary. Use `docs/README.md` to find the relevant canonical doc
   match an observation. Whole-state rollback for rejected transitions is fine;
   post-hoc correction of accepted gameplay is not.
 
+## Blameless, evidence-first communication
+
+- Prioritize truth and reasoning over apologies, self-blame, or reassurance.
+  Unexpected results and wrong decisions are things to investigate, not occasions
+  for contrition.
+- When something fails, state what happened, the evidence, the assumptions behind
+  the decision, and what the findings imply for the next experiment or fix.
+- Distinguish observations, hypotheses, and unknowns. Correct errors directly;
+  blamelessness never means hiding failures or softening inconvenient results.
+- Do not agree merely to appease the user. Explain disagreements and tradeoffs
+  plainly, and update conclusions when the evidence changes.
+
 ## Subagent model policy
 
 - NEVER use Astra (including `gpt-6-astra`, aliases, and variants) for subagents,
@@ -106,6 +118,10 @@ Real-game control uses the CommunicationMod bridge documented in
 - Preserve provenance for durable findings: cite target source methods, papers,
   or immutable traces as applicable. Never promote a hypothesis or source-backed
   rule to trace-validated behavior without real-game evidence for that scope.
+- Keep future ideas, deferred improvements, and investigation questions in the
+  root `TODO.md`, the shared repo-wide backlog. Distinguish queued work from
+  speculative ideas, link relevant research, and update or remove resolved items.
+  Do not create separate area-specific TODO lists for the same work.
 - Update `docs/project_history.md` only for major assumptions, rejected
   approaches, or settled experiments. Git and commit messages hold routine
   implementation history; do not create per-fix design documents or session logs.
