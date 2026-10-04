@@ -225,6 +225,11 @@ pub enum InternalAction {
     AddCardInstanceToHandOrDiscard {
         card: CardInstance,
     },
+    /// Transfer a physical Stasis card at the queued return boundary. Until
+    /// then the monster retains ownership, including its reserved instance ID.
+    ReturnMonsterStasisCard {
+        monster_id: MonsterId,
+    },
     AddGeneratedCardToDrawPileRandomSpot {
         content_id: crate::ContentId,
     },
