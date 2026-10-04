@@ -1001,14 +1001,21 @@ fn checked_turn_increment(value: &mut u32) -> SimResult<()> {
 
 fn resolve_player_temp_strength(state: &mut CombatState) -> SimResult<()> {
     let amount = std::mem::take(&mut state.player.temp_strength);
-    if amount <= 0 || state.player.powers.artifact <= 0 {
+    if amount <= 0 {
+        return Ok(());
+    }
+    if state.player.powers.artifact <= 0 {
+        // LoseStrengthPower applies negative Strength through StrengthPower,
+        // so removing the temporary component also respects its lower bound.
+        state.player.powers.strength = state.player.powers.strength.clamp(-999, 999);
         return Ok(());
     }
 
     // Flex's LoseStrengthPower applies negative Strength at end of turn. Artifact
     // can therefore block it even when Artifact was gained after Flex resolved.
     state.player.powers.artifact -= 1;
-    state.player.powers.strength = checked_turn_add(state.player.powers.strength, amount)?;
+    state.player.powers.strength =
+        checked_turn_add(state.player.powers.strength, amount)?.clamp(-999, 999);
     Ok(())
 }
 

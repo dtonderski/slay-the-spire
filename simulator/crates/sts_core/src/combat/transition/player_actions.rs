@@ -579,7 +579,17 @@ pub(super) fn gain_strength(
     state: &mut CombatState,
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
-    checked_add_combat_value(&mut state.player.powers.strength, amount)?;
+    // StrengthPower.stackPower clamps the visible power to [-999, 999].
+    // This representation separates its temporary component, so apply the
+    // bound to their sum while retaining the later temporary-loss amount.
+    let current = checked_combat_sum(state.player.powers.strength, state.player.temp_strength)?;
+    let bounded = checked_combat_sum(current, amount)?.clamp(-999, 999);
+    state.player.powers.strength =
+        bounded
+            .checked_sub(state.player.temp_strength)
+            .ok_or(SimError::InvalidState(
+                "strength component subtraction overflows i32",
+            ))?;
     Ok(Vec::new())
 }
 
