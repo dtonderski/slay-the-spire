@@ -1,6 +1,7 @@
 //! Seeded robustness research, not training or real-game parity evidence.
-//! cargo run -p sts_core --example combat_fuzz --release -- START COUNT OUTPUT_DIR [--potions] [--durable]
-//! --durable starts at full (seeded) max HP to exercise longer combats.
+//! cargo run -p sts_core --example combat_fuzz --release -- START COUNT OUTPUT_DIR [--potions] [--durable | --endurance]
+//! --durable starts at full seeded max HP; --endurance includes potions and
+//! starts at full 5x max HP while preserving potion-profile driver draws.
 use serde_json::{json, Value};
 use std::{
     fs,
@@ -42,10 +43,52 @@ fn event(file: &mut fs::File, record: Value) -> Result<(), String> {
     file.flush().map_err(|e| e.to_string())
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct ProbeOptions {
+    with_potions: bool,
+    durable: bool,
+    endurance: bool,
+}
+
+impl ProbeOptions {
+    fn from_flags(flags: &[String]) -> Result<Self, String> {
+        let potions = flags.iter().any(|flag| flag == "--potions");
+        let durable = flags.iter().any(|flag| flag == "--durable");
+        let endurance = flags.iter().any(|flag| flag == "--endurance");
+        if flags.len() != usize::from(potions) + usize::from(durable) + usize::from(endurance) {
+            return Err(
+                "optional flags must be distinct --potions, --durable, or --endurance".into(),
+            );
+        }
+        if durable && endurance {
+            return Err("--durable and --endurance are mutually exclusive".into());
+        }
+        Ok(Self {
+            with_potions: potions || endurance,
+            durable,
+            endurance,
+        })
+    }
+
+    fn profile(&self) -> &'static str {
+        if self.endurance {
+            "cards-relics-potions-endurance"
+        } else {
+            match (self.with_potions, self.durable) {
+                (false, false) => "cards-relics",
+                (true, false) => "cards-relics-potions",
+                (false, true) => "cards-relics-durable",
+                (true, true) => "cards-relics-potions-durable",
+            }
+        }
+    }
+}
+
 fn generate(
     seed: u64,
     with_potions: bool,
     durable: bool,
+    endurance: bool,
     journal: &mut Value,
     live: &mut fs::File,
 ) -> Result<RunState, String> {
@@ -163,13 +206,19 @@ fn generate(
                 .map_err(|error| format!("initial potion inventory: {error}"))?;
         }
     }
+    if endurance {
+        // Explicit synthetic starting inputs, before combat entry. Preserve
+        // every driver draw and all other seeded loadout choices.
+        run.max_hp *= 5;
+        run.hp = run.max_hp;
+    }
     journal["setup"] = serde_json::to_value(&run).map_err(|e| e.to_string())?;
     journal["encounter"] = json!(encounter);
     journal["room_kind"] = json!(kind);
     journal["coverage"] = json!({"generation_profile": journal["generation_profile"], "act": run.current_act, "ascension": run.ascension,
         "encounter": encounter, "deck_size": run.deck.len(),
         "relics": run.relics.iter().map(|relic| relic.trace_name()).collect::<Vec<_>>(),
-        "potions": run.potions});
+        "potions": run.potions, "initial_hp": run.hp, "initial_max_hp": run.max_hp});
     event(
         live,
         json!({"stage": "combat_entry", "setup": journal["setup"], "encounter": encounter, "room_kind": kind}),
@@ -326,18 +375,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start: u64 = args.get(1).ok_or("missing START")?.parse()?;
     let count: u64 = args.get(2).ok_or("missing COUNT")?.parse()?;
     let out = PathBuf::from(args.get(3).ok_or("missing OUTPUT_DIR")?);
-    let options = &args[4..];
-    let with_potions = options.iter().any(|flag| flag == "--potions");
-    let durable = options.iter().any(|flag| flag == "--durable");
-    if options.len() != usize::from(with_potions) + usize::from(durable) {
-        return Err("optional flags must be distinct --potions and/or --durable".into());
-    }
-    let profile = match (with_potions, durable) {
-        (false, false) => "cards-relics",
-        (true, false) => "cards-relics-potions",
-        (false, true) => "cards-relics-durable",
-        (true, true) => "cards-relics-potions-durable",
-    };
+    let options = ProbeOptions::from_flags(&args[4..])?;
+    let profile = options.profile();
     if let Some(parent) = out.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -385,7 +424,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             json!({"stage": "generation", "metadata": journal}),
         )?;
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let initial = generate(seed, with_potions, durable, &mut journal, &mut live)?;
+            let initial = generate(
+                seed,
+                options.with_potions,
+                options.durable,
+                options.endurance,
+                &mut journal,
+                &mut live,
+            )?;
             journal["initial_state"] = serde_json::to_value(&initial).map_err(|e| e.to_string())?;
             event(
                 &mut live,
@@ -451,4 +497,90 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "done start={start} count={count} terminal={terminal} failures={failures} capped={capped}"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn setup(seed: u64, endurance: bool) -> RunState {
+        let path = std::env::temp_dir().join(format!(
+            "sts-fuzz-profile-{}-{seed}-{endurance}.jsonl",
+            std::process::id()
+        ));
+        let mut live = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        let mut journal = json!({"generation_profile": if endurance {
+            "cards-relics-potions-endurance"
+        } else {
+            "cards-relics-potions"
+        }});
+        let initial = generate(seed, true, false, endurance, &mut journal, &mut live).unwrap();
+        check(&initial).unwrap();
+        drop(live);
+        fs::remove_file(path).unwrap();
+        let setup: RunState = serde_json::from_value(journal["setup"].clone()).unwrap();
+        assert_eq!(journal["coverage"]["initial_hp"], json!(setup.hp));
+        assert_eq!(journal["coverage"]["initial_max_hp"], json!(setup.max_hp));
+        setup
+    }
+
+    #[test]
+    fn flag_handling_preserves_existing_profiles_and_adds_endurance() {
+        for (flags, profile) in [
+            (vec![], "cards-relics"),
+            (vec!["--potions"], "cards-relics-potions"),
+            (vec!["--durable"], "cards-relics-durable"),
+            (
+                vec!["--potions", "--durable"],
+                "cards-relics-potions-durable",
+            ),
+            (
+                vec!["--durable", "--potions"],
+                "cards-relics-potions-durable",
+            ),
+            (vec!["--endurance"], "cards-relics-potions-endurance"),
+            (
+                vec!["--potions", "--endurance"],
+                "cards-relics-potions-endurance",
+            ),
+            (
+                vec!["--endurance", "--potions"],
+                "cards-relics-potions-endurance",
+            ),
+        ] {
+            let flags: Vec<String> = flags.into_iter().map(String::from).collect();
+            let options = ProbeOptions::from_flags(&flags).unwrap();
+            assert_eq!(options.profile(), profile);
+            assert_eq!(options.with_potions, profile.contains("potions"));
+        }
+        for flags in [
+            vec!["--unknown"],
+            vec!["--potions", "--potions"],
+            vec!["--durable", "--durable"],
+            vec!["--endurance", "--endurance"],
+            vec!["--durable", "--endurance"],
+            vec!["--endurance", "--durable"],
+            vec!["--potions", "--durable", "--endurance"],
+        ] {
+            let flags: Vec<String> = flags.into_iter().map(String::from).collect();
+            assert!(ProbeOptions::from_flags(&flags).is_err());
+        }
+    }
+
+    #[test]
+    fn endurance_changes_only_declared_starting_health_inputs() {
+        for seed in 0..16 {
+            let mut regular = setup(seed, false);
+            let durable = setup(seed, true);
+            regular.max_hp *= 5;
+            regular.hp = regular.max_hp;
+            assert_eq!(regular, durable, "driver recipe changed at seed {seed}");
+            assert!((400..=800).contains(&durable.max_hp));
+            durable.validate().unwrap();
+        }
+    }
 }
