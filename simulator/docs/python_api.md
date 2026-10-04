@@ -24,6 +24,9 @@ while decision := state.decision():
 `legal_actions`, and `step`. `Decision` atomically carries a schema version,
 revision, fair observation, and an immutable tuple of decision-local actions.
 Actions expose only stable kinds and visible slots and are rejected when stale.
+A dismissable completed-room map offers `return_to_room`, which reopens its
+existing room screen without entering a room or reapplying effects. The numeric
+kind vocabulary appends this kind without renumbering existing kinds.
 
 ## Explicit synthetic combat construction
 
