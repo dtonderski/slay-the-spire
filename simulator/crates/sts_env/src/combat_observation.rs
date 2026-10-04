@@ -931,6 +931,7 @@ fn project_selection(
         CombatDecisionState::PotionCardReward {
             choices,
             reward_kind,
+            ..
         } => FairSelection {
             kind: match reward_kind {
                 PotionCardRewardKind::Attack => FairSelectionKind::PotionAttackReward,
@@ -941,7 +942,7 @@ fn project_selection(
             options: ordered_options(choices, corruption_active)?,
             selected_slots: Vec::new(),
         },
-        CombatDecisionState::ToolboxCardReward { choices } => FairSelection {
+        CombatDecisionState::ToolboxCardReward { choices, .. } => FairSelection {
             kind: FairSelectionKind::ToolboxReward,
             options: ordered_options(choices, corruption_active)?,
             selected_slots: Vec::new(),
@@ -1517,9 +1518,52 @@ mod tests {
             .queued_decisions
             .push_back(CombatDecisionState::ToolboxCardReward {
                 choices: vec![CardInstance::new(CardId::new(7_778), STRIKE_R_ID)],
+                pending_actions: Default::default(),
             });
 
         assert_hidden_equivalent("private counters, queues, and limbo", &left, &right);
+    }
+
+    #[test]
+    fn active_card_reward_pending_actions_are_hidden() {
+        for toolbox in [false, true] {
+            let mut left = RunState::combat_fixture();
+            let choices = vec![CardInstance::new(CardId::new(9_001), STRIKE_R_ID)];
+            left.combat.as_mut().expect("combat").decision = Some(if toolbox {
+                CombatDecisionState::ToolboxCardReward {
+                    choices,
+                    pending_actions: Default::default(),
+                }
+            } else {
+                CombatDecisionState::PotionCardReward {
+                    choices,
+                    reward_kind: PotionCardRewardKind::Attack,
+                    pending_actions: Default::default(),
+                }
+            });
+            let mut right = left.clone();
+            let decision = right
+                .combat
+                .as_mut()
+                .expect("combat")
+                .decision
+                .as_mut()
+                .expect("reward");
+            let pending = match decision {
+                CombatDecisionState::PotionCardReward {
+                    pending_actions, ..
+                }
+                | CombatDecisionState::ToolboxCardReward {
+                    pending_actions, ..
+                } => pending_actions,
+                _ => unreachable!(),
+            };
+            pending.push_back(sts_core::adapter_internals::InternalAction::DrawCards { count: 99 });
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::RandomizeHandCostsForSneckoOil,
+            );
+            assert_hidden_equivalent("active card reward pending actions", &left, &right);
+        }
     }
 
     #[test]

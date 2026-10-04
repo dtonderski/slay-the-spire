@@ -109,7 +109,16 @@ target action/effect lifecycle rather than an observed deck snapshot.
   in limbo and are excluded from an intervening empty-deck shuffle. Combat potions
   that `addToBot(DrawCardAction)` (Swift Potion) likewise wait behind an open
   `AttackFromDeckToHandAction` / `SkillFromDeckToHandAction` grid; the draw pile
-  on screen is still the live deck.
+  on screen is still the live deck. `DiscoveryAction` (potion rewards) and
+  `ChooseOneColorless` (Toolbox) likewise remain the action manager's current
+  action until retrieval completes. Swift's draw and Snecko Oil's draw followed
+  by `RandomizeHandCostAction` append behind that action, not into the open
+  screen's hand. Toolbox's already-queued opening draw precedes potions drunk
+  during the offer. A later queued potion reward is another FIFO barrier: draws
+  appended before it settle before it, while draws appended after it wait for
+  its selection. These are source-backed ordering rules, not dedicated
+  real-game interaction trace parity. Nilry's Codex's paused end-turn path
+  remains a separate audit.
 - Boss identity first follows unseen-profile progression; traces requiring it
   carry explicit `boss_unlocks` input.
 - Dead Adventurer searches consume encounter RNG immediately; safe rewards and
