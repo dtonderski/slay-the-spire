@@ -14,7 +14,7 @@ from torch import Tensor, nn
 
 from run_training.contracts import PolicyAction
 
-FEATURE_VERSION = 2
+FEATURE_VERSION = 3
 BUCKETS = 8192
 Features = tuple[tuple[int, float], ...]
 
@@ -60,6 +60,7 @@ def features(value: object) -> Features:
 class MacroInput:
     context: Features
     candidates: tuple[Features, ...]
+    health: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
 
 def candidate_facts(
@@ -150,6 +151,11 @@ def encode(
     return MacroInput(
         features((observation, map_screen, previous)),
         tuple(features(candidate_facts(observation, action)) for action in actions),
+        (
+            observation.context.player_hp / max(1, observation.context.player_max_hp),
+            observation.context.player_hp / 100.0,
+            observation.context.player_max_hp / 100.0,
+        ),
     )
 
 
@@ -188,3 +194,35 @@ class MacroModel(nn.Module):
             torch.cat((context.expand_as(candidates), candidates), dim=1)
         ).squeeze(-1)
         return logits, self.value(context).squeeze(-1)
+
+
+class HealthMacroModel(MacroModel):
+    """Ablation: normalized public HP bypasses the pooled/saturated context.
+
+    No heuristic action preference or known healing effect is installed. Candidate
+    semantics remain the same hashed features; all candidates are still scored.
+    Zero output heads preserve uniform initial policy and zero initial value.
+    """
+
+    def __init__(self, width: int = 64) -> None:
+        super().__init__(width)
+        self.health_value = nn.Sequential(
+            nn.Linear(3, width), nn.ReLU(), nn.Linear(width, 1)
+        )
+        self.health_policy = nn.Sequential(
+            nn.Linear(width + 3, width), nn.ReLU(), nn.Linear(width, 1)
+        )
+        for head in (self.health_value, self.health_policy):
+            output = head[-1]
+            assert isinstance(output, nn.Linear)
+            nn.init.zeros_(output.weight)
+            nn.init.zeros_(output.bias)
+
+    def forward(self, inputs: MacroInput) -> tuple[Tensor, Tensor]:
+        logits, value = super().forward(inputs)
+        hp = self.embedding.weight.new_tensor(inputs.health)
+        candidates = torch.stack([self.pool(row) for row in inputs.candidates])
+        residual = self.health_policy(
+            torch.cat((candidates, hp.expand(len(candidates), -1)), dim=1)
+        ).squeeze(-1)
+        return logits + residual, value + self.health_value(hp).squeeze(-1)

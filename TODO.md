@@ -25,6 +25,15 @@ baseline and its reward/behavior metrics are documented in the
   [run-training limitations](rl/run_training/README.md#environment-limitations)
   and [RNG research](simulator/docs/research.md).
 
+- [ ] **[RL] Learn calibrated macro values and HP-conditioned choices.** The first
+  synthetic campfire curriculum and simple explicit-health paths did not improve
+  held-out clearing. Test root-level value targets/weighting and explicit
+  state–action-family interactions; distinguish representational failure from
+  sparse positive experience and flat candidate-family exploration. Keep all
+  legal candidates and separate natural-start evaluation. See the
+  [settled experiment](docs/project_history.md#run-level-health-conditioning-and-campfire-pilot-october-2026)
+  and [curriculum workflow](rl/run_training/README.md#synthetic-pre-boss-campfire-experiment).
+
 - [ ] **[RL] Batch run collection and learning.** Investigate concurrent independent
   episodes with batched frozen-combat inference, batched macro forward/backward,
   and numeric combat stepping between typed macro boundaries. Compare end-to-end

@@ -20,7 +20,7 @@ from encoders.numeric import (
     NumericBatch,
 )
 from model import CombatValueModel
-from sts_sim import Decision, State
+from sts_sim import Decision, Observation, State
 
 from run_training.contracts import PolicyAction, controller, outcome
 from run_training.metrics import BehaviorStats
@@ -131,12 +131,12 @@ def task_result(
     if status == "death":
         return status, terminal_parts(objective, status, furthest_act1_floor).total
     # Act-1 curriculum terminates at the observable transition into Act 2.
-    if objective == "act1" and decision.observation.context.act >= 2:
+    if objective in ("act1", "act1_binary") and decision.observation.context.act >= 2:
         return "act1_clear", terminal_parts(
             objective, "act1_clear", furthest_act1_floor
         ).total
     if status != "ongoing":
-        if objective == "act1":
+        if objective in ("act1", "act1_binary"):
             raise CollectionFailure("Unexpected Act-1 terminal boundary")
         return status, terminal_parts(objective, status, furthest_act1_floor).total
     return status, None
@@ -155,18 +155,21 @@ def collect(
     journal: Path,
     state_factory: Callable[..., State] = State.new,
     stop_requested: Callable[[], bool] | None = None,
+    initial_visible_map: Observation | None = None,
+    initial_previous: PolicyAction | None = None,
+    initial_metadata: dict | None = None,
 ) -> RunEpisode:
     """Completed-episode MC collector. No bootstrap from arbitrary combat cutoffs.
 
     A cutoff returns reward=None and trainer rejects the entire update. This
     intentionally avoids selectively training only short/completed trajectories.
     """
-    if objective not in ("act1", "act3", "heart") or max_actions < 1:
+    if objective not in ("act1", "act1_binary", "act3", "heart") or max_actions < 1:
         raise ValueError("Invalid run collection configuration")
     steps: list[MacroStep] = []
     accepted = 0
-    visible_map = None
-    previous = None
+    visible_map = initial_visible_map
+    previous = initial_previous
     furthest_act1_floor = 0
     behavior = BehaviorStats()
     journal.parent.mkdir(parents=True, exist_ok=True)
@@ -190,6 +193,7 @@ def collect(
                 "max_actions": max_actions,
                 "macro_policy_seed": macro_rng.initial_seed(),
                 "combat_policy_seed": combat_rng.initial_seed(),
+                "initial_state": initial_metadata or {"protocol": "natural_start"},
             }
         )
         try:

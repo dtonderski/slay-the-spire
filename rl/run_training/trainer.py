@@ -19,12 +19,12 @@ from threading import Event
 
 import torch
 import wandb
-from sts_sim import FAIR_RUN_OBSERVATION_SCHEMA_VERSION, _native
+from sts_sim import FAIR_RUN_OBSERVATION_SCHEMA_VERSION, State, _native
 from torch.distributions import Categorical
 
 from run_training.collector import CollectionFailure, FrozenCombat, RunEpisode, collect
 from run_training.metrics import behavior_scores
-from run_training.model import FEATURE_VERSION, MacroModel
+from run_training.model import FEATURE_VERSION, HealthMacroModel, MacroModel
 from run_training.rewards import (
     ACT1_BOSS_FLOOR,
     ACT1_CLEAR_BONUS,
@@ -32,6 +32,7 @@ from run_training.rewards import (
     succeeded,
     terminal_parts,
 )
+from run_training.roots import RootBank, file_hash
 
 PROTOCOL = "a0_macro_mc_frozen_sampled_combat_v3"
 
@@ -60,6 +61,7 @@ def load_warm_start(model: MacroModel, path: Path, settings: dict) -> dict:
     for key in (
         "protocol",
         "feature_version",
+        "encoder",
         "reward_protocol",
         "model_width",
         "objective",
@@ -223,7 +225,7 @@ def parser() -> argparse.ArgumentParser:
         help="Held-out JSON list of decimal run seeds",
     )
     result.add_argument(
-        "--objective", choices=("act1", "act3", "heart"), default="act1"
+        "--objective", choices=("act1", "act1_binary", "act3", "heart"), default="act1"
     )
     result.add_argument(
         "--final-act", action=argparse.BooleanOptionalAction, default=True
@@ -256,6 +258,16 @@ def parser() -> argparse.ArgumentParser:
         help="Stop rather than repeatedly sampling unusable batches",
     )
     result.add_argument("--compress-journals", action="store_true")
+    result.add_argument(
+        "--root-manifest",
+        type=Path,
+        help="Explicit synthetic pre-boss campfire curriculum; requires act1_binary",
+    )
+    result.add_argument("--encoder", choices=("hashed", "health"), default="hashed")
+    result.add_argument("--root-hp-min", type=float, default=0.1)
+    result.add_argument(
+        "--root-eval-hp", type=float, nargs="+", default=[0.15, 0.5, 0.85]
+    )
     result.add_argument("--model-width", type=int, default=64)
     result.add_argument("--seed", type=int, default=123)
     result.add_argument("--lr", type=float, default=1e-4)
@@ -326,10 +338,30 @@ def main(argv: list[str] | None = None) -> None:
     if args.device == "cuda" and not torch.cuda.is_available():
         cli.error("CUDA unavailable")
     held_out = validation_seeds(args.validation_seeds)
+    if not 0 < args.root_hp_min <= 1 or any(not 0 < x <= 1 for x in args.root_eval_hp):
+        cli.error("Root HP fractions must be finite and in (0, 1]")
+    bank = (
+        RootBank(args.root_manifest, final_act=args.final_act)
+        if args.root_manifest
+        else None
+    )
+    if bank:
+        if args.objective != "act1_binary":
+            cli.error("Root curriculum requires the declared binary Act-1 objective")
+        if set(bank.training) & set(held_out) or not set(bank.validation) <= set(
+            held_out
+        ):
+            cli.error("Root splits must respect original held-out run seeds")
+    evaluation_cases = (
+        [(seed, hp) for seed in bank.validation for hp in args.root_eval_hp]
+        if bank
+        else [(seed, None) for seed in held_out]
+    )
     torch.set_num_threads(1)
     torch.manual_seed(args.seed)
     rng = random.Random(args.seed)
-    model = MacroModel(args.model_width).to(args.device)
+    model_type = HealthMacroModel if args.encoder == "health" else MacroModel
+    model = model_type(args.model_width).to(args.device)
     combat = FrozenCombat(args.combat_checkpoint, args.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     settings = {
@@ -354,7 +386,15 @@ def main(argv: list[str] | None = None) -> None:
         if (args.warm_start or args.resume_from)
         else None,
         protocol=PROTOCOL,
-        reward_protocol=REWARD_PROTOCOL,
+        initial_state_profile="synthetic_preboss_campfire_hp_only"
+        if bank
+        else "natural_start",
+        root_manifest_sha256=file_hash(args.root_manifest) if bank else None,
+        root_train_count=len(bank.training) if bank else 0,
+        root_validation_count=len(bank.validation) if bank else 0,
+        reward_protocol="act1_binary_v1"
+        if args.objective == "act1_binary"
+        else REWARD_PROTOCOL,
         act1_progress_floor_normalizer=ACT1_BOSS_FLOOR,
         act1_clear_bonus=ACT1_CLEAR_BONUS,
         behavior_metric_protocol="accepted_rest_decisions_hp_quartiles_and_map_entries_v1",
@@ -452,7 +492,25 @@ def main(argv: list[str] | None = None) -> None:
     def stopped() -> bool:
         return stop_flag.is_set() or time.monotonic() >= deadline
 
-    def episode(seed: str, directory: Path, policy_seed: int) -> RunEpisode:
+    def episode(
+        seed: str, directory: Path, policy_seed: int, hp_fraction: float | None = None
+    ) -> RunEpisode:
+        factory = State.new
+        visible = None
+        previous = None
+        metadata = None
+        if bank:
+            fraction = (
+                rng.uniform(args.root_hp_min, 1.0)
+                if hp_fraction is None
+                else hp_fraction
+            )
+            state, visible, previous, metadata = bank.initial(seed, fraction)
+
+            def start_root(*_args, **_kwargs) -> State:
+                return state
+
+            factory = start_root
         try:
             return collect(
                 seed,
@@ -467,6 +525,10 @@ def main(argv: list[str] | None = None) -> None:
                 ),
                 journal=directory,
                 stop_requested=stopped,
+                state_factory=factory,
+                initial_visible_map=visible,
+                initial_previous=previous,
+                initial_metadata=metadata,
             )
         except CollectionFailure as error:
             if not args.continue_on_collection_failure:
@@ -525,21 +587,45 @@ def main(argv: list[str] | None = None) -> None:
 
         def evaluate(step: int) -> None:
             evaluated = []
-            for i, seed in enumerate(held_out):
+            for i, (seed, hp_fraction) in enumerate(evaluation_cases):
                 if stopped():
                     break
                 evaluated.append(
                     episode(
                         seed,
                         output / "journals" / f"eval-{step}-{i}{suffix}",
-                        100000 + i,
+                        100000 + (i // len(args.root_eval_hp) if bank else i),
+                        hp_fraction,
                     )
                 )
+            root_scores = {}
+            if bank:
+                for index, fraction in enumerate(args.root_eval_hp):
+                    group = evaluated[index :: len(args.root_eval_hp)]
+                    prefix = f"validation/root_hp_{round(100 * fraction):02d}"
+                    root_scores.update(
+                        {f"{prefix}/{k}": v for k, v in scores(group).items()}
+                    )
+                    initial_values = [ep.steps[0].value for ep in group if ep.steps]
+                    if initial_values:
+                        root_scores[f"{prefix}/initial_value_mean"] = sum(
+                            initial_values
+                        ) / len(initial_values)
+                    targets = [
+                        (ep.steps[0].value, ep.reward)
+                        for ep in group
+                        if ep.steps and ep.reward is not None
+                    ]
+                    if targets:
+                        root_scores[f"{prefix}/initial_value_mse"] = sum(
+                            (v - r) ** 2 for v, r in targets
+                        ) / len(targets)
             log(
                 {
+                    **root_scores,
                     **{f"validation/{k}": v for k, v in scores(evaluated).items()},
-                    "validation/scheduled": len(held_out),
-                    "validation/unattempted": len(held_out) - len(evaluated),
+                    "validation/scheduled": len(evaluation_cases),
+                    "validation/unattempted": len(evaluation_cases) - len(evaluated),
                 },
                 step,
             )
@@ -556,9 +642,12 @@ def main(argv: list[str] | None = None) -> None:
                 for index in range(args.batch_size):
                     if stopped():
                         break
-                    seed = str(rng.getrandbits(63))
-                    while seed in held_out:
+                    if bank:
+                        seed = rng.choice(bank.training)
+                    else:
                         seed = str(rng.getrandbits(63))
+                        while seed in held_out:
+                            seed = str(rng.getrandbits(63))
                     batch.append(
                         episode(
                             seed,

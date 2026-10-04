@@ -105,6 +105,67 @@ stronger encoders, recurrent history and PPO remain follow-up work.
 Future work and investigation ideas are tracked in the repository-wide
 [`TODO.md`](../../TODO.md).
 
+## Synthetic pre-boss campfire experiment
+
+This separate curriculum starts from reconstructed natural action prefixes at
+unused floor-15 campfires, then configures **only current HP** on independent
+synthetic initial states. Inventory, maximum HP, settled entry effects and RNG
+are unchanged. No simulator state is hydrated from observations. Root seeds and
+provenance are logged, never policy features. The original journals are copied
+unchanged, with hashes; they are simulator diagnostics, not real-game traces.
+
+Prepare a bank from an existing natural-run training output (requires both
+training journals and a completed scheduled validation):
+
+```bash
+PYTHONPATH=rl uv run --project rl --no-sync python rl/tools/build_campfire_roots.py \
+  --source-run /path/to/natural-run-output --evaluation-iteration 440 \
+  --train-count 128 --validation-count 32 --out /path/to/new-root-bank
+```
+
+The builder records rejected sources and fails if the requested counts cannot be
+met. Its narrow eligibility condition (reached pre-boss campfire, legal heal and
+smith) is a declared curriculum distribution, not an unrestricted training claim.
+Splits are by original run seed, not HP variant. Banks pin the native hash and
+validate every accepted prefix on construction; source changes require rebuilding
+and validating a new bank, never rewriting original journals.
+
+Use the same training entry point:
+
+```bash
+uv run --project rl --no-sync python rl/train.py --task run \
+  --run-id campfire-hashed-pilot --combat-checkpoint /path/to/combat/latest.pt \
+  --validation-seeds /path/to/new-root-bank/validation-seeds.json \
+  --root-manifest /path/to/new-root-bank/manifest.json \
+  --objective act1_binary --encoder hashed --root-hp-min 0.1 \
+  --root-eval-hp 0.15 0.5 0.85 --batch-size 16 --updates 128 \
+  --eval-every 64 --max-hours 0.5 --compress-journals --wandb-mode disabled
+```
+
+Repeat with a new run ID and `--encoder health` for a matched ablation. Both use
+fresh weights, the same initialization seed, root/HP sampling and frozen combat;
+neither installs a healing heuristic or removes legal candidates. `health` adds
+zero-initialized-output ReLU residual paths using normalized public HP/max-HP for
+value and candidate scoring, bypassing the pooled tanh context. It adds parameters
+and explicit HP access, so it is a feature/architecture ablation, not proof about
+saturation alone. `hashed` ignores the extra health tuple and retains the original
+mathematical encoder. Feature version changes make old checkpoints incompatible
+with strict continuation. Existing natural-run checkpoints remain preserved;
+exact resume requires restoring their original source and matching native build.
+
+`act1_binary` gives **1 only on accepted entry into Act 2, 0 on death**, with no
+pre-earned floor reward. Errors/cutoffs still have no targets. HP fractions are
+sampled uniformly in `[root_hp_min, 1]`, rounded to positive integer HP. Evaluation
+uses each validation root at every fixed HP fraction, with matched policy RNG
+seeds across variants. `validation/root_hp_XX/*` reports per-stratum scores and
+initial-value mean/MSE. HP variants of a root are correlated; uncertainty analysis
+must group by original seed. These are conditional synthetic-root results, not
+natural-start clear rates. Do not mix them into the natural-run learning curve.
+
+The initial bounded experiment did **not** improve held-out clearing; explicit
+HP paths alone did not teach HP-conditioned healing. See the settled result and
+limitations in [project history](../../docs/project_history.md#run-level-health-conditioning-and-campfire-pilot-october-2026).
+
 ## Training and W&B metrics
 
 `--wandb-mode online` publishes metrics; `tracking.json` stores the run URL.

@@ -1,0 +1,18 @@
+[
+  {
+    "seed": "8257716864277523305",
+    "split": "train",
+    "stop_step": 313,
+    "journal": "train.jsonl.gz",
+    "journal_sha256": "9af7f5dea8b0e7490000c90c59d1362ac4f34806cb12e080dc6e0e0b651c3be9",
+    "original_journal": "run-a0-shaped-master-20261004-080218/journals/train-1-100.jsonl.gz"
+  },
+  {
+    "seed": "6349699116296176671",
+    "split": "validation",
+    "stop_step": 186,
+    "journal": "validation.jsonl.gz",
+    "journal_sha256": "ae498d7059db308488d7fd6d03ab8a824895eb5f52abd398311d3dd974d60d1d",
+    "original_journal": "run-a0-shaped-master-20261004-080218/journals/eval-440-0.jsonl.gz"
+  }
+]
