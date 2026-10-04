@@ -1,5 +1,6 @@
 //! Seeded robustness research, not training or real-game parity evidence.
-//! cargo run -p sts_core --example combat_fuzz --release -- START COUNT OUTPUT_DIR
+//! cargo run -p sts_core --example combat_fuzz --release -- START COUNT OUTPUT_DIR [--potions] [--durable]
+//! --durable starts at full (seeded) max HP to exercise longer combats.
 use serde_json::{json, Value};
 use std::{
     fs,
@@ -44,6 +45,7 @@ fn event(file: &mut fs::File, record: Value) -> Result<(), String> {
 fn generate(
     seed: u64,
     with_potions: bool,
+    durable: bool,
     journal: &mut Value,
     live: &mut fs::File,
 ) -> Result<RunState, String> {
@@ -106,7 +108,11 @@ fn generate(
         _ => 41,
     };
     run.max_hp = 80 + rng.index(81) as i32;
-    run.hp = 1 + rng.index(run.max_hp as usize) as i32;
+    run.hp = if durable {
+        run.max_hp
+    } else {
+        1 + rng.index(run.max_hp as usize) as i32
+    };
     let relic_pool = [
         Relic::SneckoEye,
         Relic::RunicPyramid,
@@ -320,14 +326,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start: u64 = args.get(1).ok_or("missing START")?.parse()?;
     let count: u64 = args.get(2).ok_or("missing COUNT")?.parse()?;
     let out = PathBuf::from(args.get(3).ok_or("missing OUTPUT_DIR")?);
-    let with_potions = args.get(4).is_some_and(|flag| flag == "--potions");
-    if args.len() > 5 || (args.len() == 5 && !with_potions) {
-        return Err("optional fifth argument must be --potions".into());
+    let options = &args[4..];
+    let with_potions = options.iter().any(|flag| flag == "--potions");
+    let durable = options.iter().any(|flag| flag == "--durable");
+    if options.len() != usize::from(with_potions) + usize::from(durable) {
+        return Err("optional flags must be distinct --potions and/or --durable".into());
     }
-    let profile = if with_potions {
-        "cards-relics-potions"
-    } else {
-        "cards-relics"
+    let profile = match (with_potions, durable) {
+        (false, false) => "cards-relics",
+        (true, false) => "cards-relics-potions",
+        (false, true) => "cards-relics-durable",
+        (true, true) => "cards-relics-potions-durable",
     };
     if let Some(parent) = out.parent() {
         fs::create_dir_all(parent)?;
@@ -376,7 +385,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             json!({"stage": "generation", "metadata": journal}),
         )?;
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let initial = generate(seed, with_potions, &mut journal, &mut live)?;
+            let initial = generate(seed, with_potions, durable, &mut journal, &mut live)?;
             journal["initial_state"] = serde_json::to_value(&initial).map_err(|e| e.to_string())?;
             event(
                 &mut live,
