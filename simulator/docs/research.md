@@ -92,6 +92,13 @@ target action/effect lifecycle rather than an observed deck snapshot.
 
 ## Source-backed interaction findings
 
+- `OrangePellets.onUseCard` queues `RemoveDebuffsAction.update`, which removes
+  powers whose current type is `DEBUFF`. `StrengthPower.updateDescription`
+  classifies the actual current amount, not a permanent/temporary bookkeeping
+  component. Removing `LoseStrengthPower` does not execute its expiry: positive
+  current Strength stays unchanged, while negative current Strength is removed.
+  This classification finding is source-backed, not established by a dedicated
+  real-game boundary trace.
 - Summoned Gremlins consume an identity draw and an otherwise ignored opening
   AI roll before their fixed opening move.
 - Writhing Mass attack-triggered rerolls are queued, consume AI RNG, and update
