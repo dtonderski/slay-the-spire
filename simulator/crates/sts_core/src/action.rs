@@ -486,6 +486,8 @@ pub enum InternalAction {
     GainStrength {
         amount: i32,
     },
+    /// LimitBreakAction reads the live Strength power at execution time.
+    DoublePlayerStrength,
     GainMantra {
         amount: i32,
     },
