@@ -2461,14 +2461,11 @@ fn sync_red_skull_strength_present(state: &mut CombatState, has_red_skull: bool)
     let should_be_active = state.player.hp <= state.player.max_hp / 2;
     match (should_be_active, state.relic_counters.red_skull_active) {
         (true, false) => {
-            state.player.powers.strength = state
-                .player
-                .powers
-                .strength
-                .checked_add(RED_SKULL_STRENGTH)
-                .ok_or(SimError::InvalidState(
-                    "Red Skull Strength activation overflows i32",
-                ))?;
+            apply_red_skull_strength(
+                state,
+                RED_SKULL_STRENGTH,
+                "Red Skull Strength activation overflows i32",
+            )?;
             state.relic_counters.red_skull_active = true;
         }
         (false, true) => {
@@ -2478,19 +2475,40 @@ fn sync_red_skull_strength_present(state: &mut CombatState, has_red_skull: bool)
             if state.player.powers.artifact > 0 {
                 state.player.powers.artifact -= 1;
             } else {
-                state.player.powers.strength = state
-                    .player
-                    .powers
-                    .strength
-                    .checked_sub(RED_SKULL_STRENGTH)
-                    .ok_or(SimError::InvalidState(
-                        "Red Skull Strength removal underflows i32",
-                    ))?;
+                apply_red_skull_strength(
+                    state,
+                    -RED_SKULL_STRENGTH,
+                    "Red Skull Strength removal underflows i32",
+                )?;
             }
             state.relic_counters.red_skull_active = false;
         }
         _ => {}
     }
+    Ok(())
+}
+
+fn apply_red_skull_strength(
+    state: &mut CombatState,
+    amount: i32,
+    overflow_error: &'static str,
+) -> SimResult<()> {
+    // RedSkull applies +/-3 StrengthPower. StrengthPower.stackPower bounds
+    // the current combined amount; retain the full pending temporary loss.
+    let current = state
+        .player
+        .powers
+        .strength
+        .checked_add(state.player.temp_strength)
+        .ok_or(SimError::InvalidState(overflow_error))?;
+    let bounded = current
+        .checked_add(amount)
+        .ok_or(SimError::InvalidState(overflow_error))?
+        .clamp(-999, 999);
+    let permanent = bounded
+        .checked_sub(state.player.temp_strength)
+        .ok_or(SimError::InvalidState(overflow_error))?;
+    state.player.powers.strength = permanent;
     Ok(())
 }
 
