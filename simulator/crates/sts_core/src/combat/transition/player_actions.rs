@@ -579,6 +579,10 @@ pub(super) fn gain_strength(
     state: &mut CombatState,
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
+    gain_strength_power(state, amount).map(|()| Vec::new())
+}
+
+pub(crate) fn gain_strength_power(state: &mut CombatState, amount: i32) -> SimResult<()> {
     // StrengthPower.stackPower clamps the visible power to [-999, 999].
     // This representation separates its temporary component, so apply the
     // bound to their sum while retaining the later temporary-loss amount.
@@ -590,7 +594,7 @@ pub(super) fn gain_strength(
             .ok_or(SimError::InvalidState(
                 "strength component subtraction overflows i32",
             ))?;
-    Ok(Vec::new())
+    Ok(())
 }
 
 pub(super) fn gain_mantra(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {

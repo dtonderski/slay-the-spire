@@ -40,6 +40,7 @@ use crate::{
     rng::JavaRng,
     CardInstance, CombatState, MonsterState, SimError, SimResult,
 };
+pub(crate) use player_actions::gain_strength_power;
 use std::collections::VecDeque;
 
 pub use super::card_effects::top_draw_card_definition;
