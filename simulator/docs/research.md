@@ -92,6 +92,14 @@ target action/effect lifecycle rather than an observed deck snapshot.
 
 ## Source-backed interaction findings
 
+- `GainStrengthPower` has ID `Shackled` and type `DEBUFF`, but
+  `SadisticPower.onApplyPower` explicitly excludes that ID before its damage
+  callback. Dark Shackles therefore triggers Sadistic Nature only for incoming
+  negative Strength, not for its recovery power, including existing/capped
+  stacks. Do not infer callbacks from the DEBUFF type alone: a rejected
+  double-callback experiment diverged in six unchanged reviewed traces. The
+  existing single-callback behavior passes those traces and source-backed
+  synthetic controls; no gameplay fix was needed for this finding.
 - Summoned Gremlins consume an identity draw and an otherwise ignored opening
   AI roll before their fixed opening move.
 - Writhing Mass attack-triggered rerolls are queued, consume AI RNG, and update
