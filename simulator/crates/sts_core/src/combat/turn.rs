@@ -134,9 +134,28 @@ pub(crate) fn end_player_turn_owned(mut next: CombatState) -> SimResult<CombatSt
         // before power/orb hooks and `triggerOnEndOfTurnForPlayingCard`. Resume
         // continues that queue with the hand still held, then the ordinary
         // DiscardAtEndOfTurnAction path below (FIDL00108 Ghostly Armor).
-        next.resume_end_turn_after_nilrys_codex = false;
         apply_pending_nilry_end_powers(&mut next)?;
         crate::relic::nilrys_codex_flush_pending_draw_inserts(&mut next)?;
+        if !next.pending_nilrys_codex_potion_actions.is_empty() {
+            if finish_combat_if_over(&mut next, started_with_living_monster)? {
+                next.pending_nilrys_codex_potion_actions.clear();
+                next.resume_end_turn_after_nilrys_codex = false;
+                return Ok(next);
+            }
+            let actions = std::mem::take(&mut next.pending_nilrys_codex_potion_actions);
+            next = crate::combat::transition::process_internal_queue(&next, actions)?.state;
+            if matches!(next.phase, CombatPhase::Won | CombatPhase::Lost) {
+                next.resume_end_turn_after_nilrys_codex = false;
+                return Ok(next);
+            }
+        }
+        // An additional potion reward is itself ahead of the ordinary discard
+        // and monster-turn actions. Keep the resume marker until its retrieval.
+        if next.decision.is_none() && !next.queued_decisions.is_empty() {
+            next.activate_next_queued_decision_if_idle();
+            return Ok(next);
+        }
+        next.resume_end_turn_after_nilrys_codex = false;
         deferred_stasis_cards = Vec::new();
         // Constricted.atEndOfTurn addToBots THORNS after CodexAction. Without
         // Combust it is not in the pre-hand power window, so resume must still
@@ -653,6 +672,10 @@ pub fn apply_pending_nilry_end_powers(state: &mut CombatState) -> SimResult<()> 
         &mut deferred_monster_deaths,
     )?;
     apply_end_of_turn_orb_passives(state)?;
+    // NoDrawPower.atEndOfTurn queues its removal behind the original power
+    // callbacks, but before potions appended while CodexAction is current.
+    // Keep the earlier pre-Combust removal above for its own queued draws.
+    state.player.cannot_draw = false;
     state.nilrys_end_powers_pending = false;
     Ok(())
 }

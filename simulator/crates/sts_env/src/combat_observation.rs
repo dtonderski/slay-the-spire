@@ -1567,6 +1567,25 @@ mod tests {
     }
 
     #[test]
+    fn nilry_pending_potion_actions_are_hidden() {
+        let mut left = RunState::combat_fixture_with_relics(vec![Relic::NilrysCodex]);
+        left.combat.as_mut().expect("combat").decision =
+            Some(CombatDecisionState::NilrysCodexCardReward {
+                choices: vec![CardInstance::new(CardId::new(9_001), STRIKE_R_ID)],
+            });
+        let mut right = left.clone();
+        let pending = &mut right
+            .combat
+            .as_mut()
+            .expect("combat")
+            .pending_nilrys_codex_potion_actions;
+        pending.push_back(sts_core::adapter_internals::InternalAction::DrawCards { count: 99 });
+        pending
+            .push_back(sts_core::adapter_internals::InternalAction::RandomizeHandCostsForSneckoOil);
+        assert_hidden_equivalent("Nilry pending potion actions", &left, &right);
+    }
+
+    #[test]
     fn public_orb_slots_poison_and_windmill_damage_are_projected() {
         let mut run = RunState::combat_fixture();
         let combat = run.combat.as_mut().expect("combat");
