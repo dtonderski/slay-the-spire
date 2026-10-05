@@ -2681,6 +2681,7 @@ fn apply_player_card_block_gain(
     }
     let gained = calculate_block(amount, state.player.powers);
     checked_add_combat_value(&mut state.player.block, gained)?;
+    state.player.block = state.player.block.min(999);
     Ok(juggernaut_follow_up_for_positive_block_gain(state, gained))
 }
 
@@ -2692,7 +2693,7 @@ pub(crate) fn apply_player_direct_block_gain_without_juggernaut(
     // ordinary card GainBlock path remains suppressed by that power.
     // The target runtime uses signed 32-bit arithmetic. Authoritative combat
     // transitions validate that block remains nonnegative before returning.
-    state.player.block = state.player.block.wrapping_add(amount);
+    state.player.block = state.player.block.wrapping_add(amount).min(999);
     Ok(())
 }
 
@@ -2715,6 +2716,7 @@ pub(crate) fn apply_player_end_turn_automatic_block_gain(
     // power hooks; Frail modifies card block, not these automatic callbacks.
     let gained = amount.max(0);
     checked_add_combat_value(&mut state.player.block, gained)?;
+    state.player.block = state.player.block.min(999);
     apply_juggernaut_after_direct_block_gain(state, gained)
 }
 
