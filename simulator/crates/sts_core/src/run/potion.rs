@@ -923,6 +923,10 @@ pub(crate) fn apply_validated_combat_card_reward_skip_owned(
             settle_card_reward_potion_actions(combat, pending_actions)?;
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             combat.activate_next_queued_decision_if_idle();
+            // Queued draws can win via on-draw effects just as choosing can.
+            if combat.phase == CombatPhase::Won {
+                enter_combat_reward_for_current_room(&mut next)?;
+            }
             Ok(next)
         }
         Some(CombatDecisionState::NilrysCodexCardReward { .. }) => {
