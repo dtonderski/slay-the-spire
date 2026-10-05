@@ -163,6 +163,14 @@ target action/effect lifecycle rather than an observed deck snapshot.
   double-callback experiment diverged in six unchanged reviewed traces. The
   existing single-callback behavior passes those traces and source-backed
   synthetic controls; no gameplay fix was needed for this finding.
+- Lagavulin's `takeTurn` queues negative Dexterity **before** negative
+  Strength. A single Artifact therefore blocks Dexterity, not Strength.
+  Its constructor chooses -2 at A18+, otherwise -1. A near-limit clipped
+  final stat can mask a missing potency increase; inspect the actual action
+  order/amount separately. The initial Strength-first cap-test expectation
+  was invalidated, not accepted as gameplay evidence. These ordering/potency
+  findings remain distinct from the actual Dexterity reduction cap fix.
+
 - `StrengthPower` caps its constructor amount, but `ApplyPowerAction.update`
   calls an existing matching power's `stackPower` with the action's raw
   `amount`, not the newly constructed power's capped amount. Do not preclip
