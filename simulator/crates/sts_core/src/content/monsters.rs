@@ -10415,7 +10415,7 @@ fn apply_monster_intent_with_card_rng_inner(
             (damage_taken, 1)
         }
         MonsterIntent::Block { block } => {
-            checked_add_monster_intent_value(&mut monster.block, block)?;
+            checked_add_monster_block_value(&mut monster.block, block)?;
             (0, 0)
         }
         MonsterIntent::Ritual { amount } => {
@@ -10448,11 +10448,11 @@ fn apply_monster_intent_with_card_rng_inner(
                 checked_add_monster_intent_value(&mut monster.powers.spiker_thorns_buffs, 1)?;
                 checked_add_monster_intent_value(&mut monster.powers.spikes, SPIKER_THORNS_BUFF)?;
             } else if monster.content_id == CHAMP_ID {
-                checked_add_monster_intent_value(&mut monster.block, block)?;
+                checked_add_monster_block_value(&mut monster.block, block)?;
                 checked_add_monster_intent_value(&mut monster.powers.metallicize, strength)?;
             } else {
                 checked_add_monster_intent_value(&mut monster.powers.strength, strength)?;
-                checked_add_monster_intent_value(&mut monster.block, block)?;
+                checked_add_monster_block_value(&mut monster.block, block)?;
             }
             (0, 0)
         }
@@ -10824,7 +10824,7 @@ fn apply_monster_intent_with_card_rng_inner(
             (0, 0)
         }
         MonsterIntent::DefensiveCharge { block, strength } => {
-            checked_add_monster_intent_value(&mut monster.block, block)?;
+            checked_add_monster_block_value(&mut monster.block, block)?;
             checked_add_monster_intent_value(&mut monster.powers.strength, strength)?;
             if monster.defensive_turns_remaining > 0 {
                 monster.defensive_turns_remaining -= 1;
@@ -10857,7 +10857,7 @@ fn apply_monster_intent_with_card_rng_inner(
     // A lethal hit opens the death screen and cancels that later block
     // (FIDL02375 Spire Shield smash).
     if monster.alive && block_after_thorns > 0 && player_survives_single_hit {
-        checked_add_monster_intent_value(&mut monster.block, block_after_thorns)?;
+        checked_add_monster_block_value(&mut monster.block, block_after_thorns)?;
     }
     // strength_up (Orb Walker) applies at end of turn via turn_powers, not mid-attack.
     if monster.content_id == GUARDIAN_ID
