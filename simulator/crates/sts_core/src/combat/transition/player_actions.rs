@@ -173,6 +173,12 @@ pub(super) fn gain_berserk(state: &mut CombatState, amount: i32) -> SimResult<Ve
 }
 
 pub(super) fn gain_fasting(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
+    // Fasting applies EnergyDownPower (DEBUFF) after its positive stat gains.
+    // Reject only this incoming loss, retaining any previous EnergyDown stack.
+    if amount > 0 && state.player.powers.artifact > 0 {
+        state.player.powers.artifact -= 1;
+        return Ok(Vec::new());
+    }
     checked_add_combat_value(&mut state.player.powers.fasting, amount)?;
     Ok(Vec::new())
 }
