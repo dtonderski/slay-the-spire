@@ -165,6 +165,18 @@ target action/effect lifecycle rather than an observed deck snapshot.
   synthetic controls; no gameplay fix was needed for this finding.
 - Summoned Gremlins consume an identity draw and an otherwise ignored opening
   AI roll before their fixed opening move.
+- `TimeWarpPower.onAfterUseCard` calls the early-end sequence and queues
+  positive `StrengthPower` with `addToBot` after the card's use effects. Capped
+  Strength gains are noncommutative with Disarm: reduce first, then apply the
+  gain; do not clamp an eager gain before resolving the queued reduction.
+  Same-frame duplicate Time Eater queues can already hold pre-gain
+  `DamageInfo`; lagged-confirm queues instead use live Strength. Preserve the
+  actual pre-gain power context in serialized internal queue state, not by
+  subtracting nominal2 from a clipped total, or by temporarily changing
+  accepted Strength and restoring selected fields after damage preparation.
+  Missing pending damage context is invalid state, not permission to infer it
+  from an observation. Synthetic boundary tests supplement unchanged reviewed
+  traces; they do not establish dedicated boundary-interaction trace parity.
 - Writhing Mass attack-triggered rerolls are queued, consume AI RNG, and update
   move history; Mega Debuff adds Parasite but no ordinary debuffs.
 - Secret Portal eligibility depends on target gameplay time, not wall-clock
