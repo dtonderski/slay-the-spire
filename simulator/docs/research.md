@@ -213,8 +213,20 @@ target action/effect lifecycle rather than an observed deck snapshot.
   potion HealActions and drain them before victory/Burning Blood settlement;
   `clearPostCombatActions` removes draws, not heals.
   The synthetic FIFO tests cover these boundaries, not dedicated trace parity.
-  Post-lethal shared draw/cost-action cancellation and other potions' queued
-  on-use callback timing remain separate audits.
+  `DamageAction` and `DamageAllEnemiesAction` call `clearPostCombatActions`
+  at the final lethal boundary. It removes already-queued `DrawCardAction`,
+  `RandomizeHandCostAction`, `GainEnergyAction`, and queued potion offers/hand
+  selectors, while preserving HealAction, GainBlockAction, UseCardAction and
+  DAMAGE-type actions. Dropping a queued selector must not strand its later
+  potion-use heal behind an unanswerable post-victory screen. This is a point-in-time
+  filter, not a perpetual dead-room veto: `getNextAction` still services a
+  nonempty queue without testing for living enemies. A later completed THORNS
+  DamageAction or DamageAllEnemiesAction invokes another clear when the room
+  is still dead, cancelling actions appended since the previous clear. Awakened One's first-form
+  half-death is not a final kill. Keep later-created actions distinct from those
+  queued at the clear boundary. These are source-backed, not dedicated trace
+  parity; mappings of other action classes and other potion callback timing
+  remain separate audits.
 - Boss identity first follows unseen-profile progression; traces requiring it
   carry explicit `boss_unlocks` input.
 - Grid preview cancellation is not whole-grid cancellation: target
