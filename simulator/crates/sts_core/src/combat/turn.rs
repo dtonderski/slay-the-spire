@@ -145,9 +145,15 @@ pub(crate) fn end_player_turn_owned(mut next: CombatState) -> SimResult<CombatSt
                     .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
             {
                 // Earlier end-turn damage cleared the pending draw/manipulation
-                // actions, but clearPostCombatActions retains HealAction.
-                // Drain it before settling victory, not after Burning Blood.
-                actions.retain(|action| matches!(action, crate::InternalAction::HealPlayer { .. }));
+                // actions, but clearPostCombatActions retains Heal/GainBlock.
+                // Drain them before settling victory, not after Burning Blood.
+                actions.retain(|action| {
+                    matches!(
+                        action,
+                        crate::InternalAction::HealPlayer { .. }
+                            | crate::InternalAction::GainBlockFromPotion { .. }
+                    )
+                });
             } else if finish_combat_if_over(&mut next, started_with_living_monster)? {
                 next.resume_end_turn_after_nilrys_codex = false;
                 return Ok(next);
