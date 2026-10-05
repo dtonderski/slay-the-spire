@@ -836,6 +836,20 @@ fn push_follow_up(
         }
     }
 
+    if matches!(follow_up, InternalAction::ApplyTimeWarpStrengthGain) {
+        // The onAfterUseCard gain follows card.use effects but precedes source
+        // settlement/forced-turn completion. An open selector remains ahead.
+        if let Some(index) = queue.iter().position(|action| {
+            matches!(
+                action,
+                InternalAction::MoveCard { .. } | InternalAction::EndPlayTopCardResolution { .. }
+            )
+        }) {
+            queue.insert(index, follow_up);
+            return;
+        }
+    }
+
     if matches!(follow_up, InternalAction::GainBlockDirect { .. }) {
         // Rage and Ornamental Fan addToBot their GainBlockAction during
         // UseCardAction, before that action queues source-card settlement.
@@ -1372,6 +1386,10 @@ fn apply_internal_action_with_defer(
             card_actions::play_card(state, card_id, defer_time_warp_card_play)
         }
         InternalAction::ApplyDeferredTimeWarpCardPlay => apply_deferred_time_warp_card_play(state),
+        InternalAction::ApplyTimeWarpStrengthGain => {
+            apply_time_warp_strength_gain(state)?;
+            Ok(Vec::new())
+        }
         InternalAction::PlayCardCopy {
             card_id,
             content_id,
@@ -2016,6 +2034,19 @@ fn apply_mummified_hand_on_power_play(
     crate::combat::cost::set_card_cost_for_turn(card, 0)
 }
 
+fn apply_time_warp_strength_gain(state: &mut CombatState) -> SimResult<()> {
+    state.time_warp_pre_gain_strength = state
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .map(|monster| (monster.id, monster.powers.strength))
+        .collect();
+    for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
+        checked_add_card_callback_monster_strength(&mut monster.powers.strength, 2)?;
+    }
+    Ok(())
+}
+
 fn apply_deferred_time_warp_card_play(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
     let mut triggered = false;
     for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
@@ -2029,9 +2060,7 @@ fn apply_deferred_time_warp_card_play(state: &mut CombatState) -> SimResult<Vec<
     }
     if triggered {
         state.time_warp_end_turn = true;
-        for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
-            checked_add_combat_value(&mut monster.powers.strength, 2)?;
-        }
+        apply_time_warp_strength_gain(state)?;
     }
     Ok(Vec::new())
 }
@@ -2068,11 +2097,9 @@ fn apply_on_card_play_powers(
     }
     if time_warp_triggered {
         state.time_warp_end_turn = true;
-        for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
-            // Time Warp's source power applies +2 Strength and calls the early
-            // end-turn sequence; it does not grant monster block.
-            checked_add_combat_value(&mut monster.powers.strength, 2)?;
-        }
+        // ApplyPowerAction is queued after the card's use effects. In
+        // particular, Disarm must reduce Strength before this capped gain.
+        follow_ups.push(InternalAction::ApplyTimeWarpStrengthGain);
     }
 
     if card_type == CardType::Attack {
