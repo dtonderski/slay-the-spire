@@ -140,8 +140,16 @@ target action/effect lifecycle rather than an observed deck snapshot.
   potion-use heal; a subsequent Gremlin Horn draw is not retroactively given
   Snecko Oil costs. Toy Ornithopter's heal also stays behind an open reward/grid
   for these draw potions. These are source-backed, not dedicated trace parity.
-  Post-lethal shared draw/cost-action cancellation and other potions' queued
-  on-use callback timing remain separate audits.
+  `DamageAction` and `DamageAllEnemiesAction` call `clearPostCombatActions`
+  at the final lethal boundary. It removes already-queued `DrawCardAction`,
+  `RandomizeHandCostAction` and `GainEnergyAction`, while preserving HealAction,
+  GainBlockAction, UseCardAction and DAMAGE-type actions. This is a point-in-time
+  filter, not a perpetual dead-room veto: `getNextAction` still services a
+  nonempty queue without testing for living enemies. Awakened One's first-form
+  half-death is not a final kill. Keep later-created actions distinct from those
+  queued at the clear boundary. These are source-backed, not dedicated trace
+  parity; mappings of other action classes and other potion callback timing
+  remain separate audits.
 - Boss identity first follows unseen-profile progression; traces requiring it
   carry explicit `boss_unlocks` input.
 - Dead Adventurer searches consume encounter RNG immediately; safe rewards and
