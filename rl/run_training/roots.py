@@ -62,7 +62,14 @@ def reconstruct(
             or decision.revision != row["revision"]
         ):
             raise ValueError("Root source accepted prefix/revision mismatch")
-        action = decision.actions[row["index"]]
+        index = row["index"]
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or not 0 <= index < len(decision.actions)
+        ):
+            raise ValueError("Root source public action index unavailable under current rules")
+        action = decision.actions[index]
         descriptor = PolicyAction.from_action(action)
         if asdict(descriptor) != row["action"]:
             raise ValueError("Root source public action mismatch")

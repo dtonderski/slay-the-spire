@@ -31,7 +31,7 @@ FIXTURES = (
 class RootCurriculumTests(unittest.TestCase):
     def setUp(self):
         torch.set_num_threads(1)
-        self.cases = json.loads((FIXTURES / "metadata.json").read_text())
+        self.cases = json.loads((FIXTURES / "metadata-current.json").read_text())
 
     def manifest(self):
         return {
@@ -46,6 +46,15 @@ class RootCurriculumTests(unittest.TestCase):
     def bank(self, path, manifest):
         path.write_text(json.dumps(manifest))
         return RootBank(path, final_act=True)
+
+    def test_every_current_prefix_and_obsolete_preview_rejection(self):
+        for case in self.cases:
+            state, _, _ = reconstruct(FIXTURES / case["journal"], case["stop_step"])
+            self.assertEqual(state.observation().context.floor, 15)
+            self.assertEqual(state.observation().kind, "rest")
+        legacy = json.loads((FIXTURES / "metadata.json").read_text())[1]
+        with self.assertRaisesRegex(ValueError, "action index unavailable"):
+            reconstruct(FIXTURES / legacy["journal"], legacy["stop_step"])
 
     def test_split_by_source_seed_and_journal_integrity(self):
         with tempfile.TemporaryDirectory() as directory:

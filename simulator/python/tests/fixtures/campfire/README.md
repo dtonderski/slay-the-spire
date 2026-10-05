@@ -1,12 +1,21 @@
 # Synthetic campfire API fixtures
 
-These are two **unchanged simulator-generated training journals**, not captured
-real-game traces or parity evidence. `metadata.json` identifies each original
-journal, its SHA-256 and the accepted-prefix length ending at a natural unused
+These are **unchanged simulator-generated training journals**, not captured
+real-game traces or parity evidence. `metadata-current.json` selects the current
+pair; `metadata.json` preserves the original pair and their provenance. Each
+entry gives its SHA-256 and accepted-prefix length ending at a natural unused
 Act-1 floor-15 campfire. Tests construct a natural state from the journal's seed
 and replay checked public actions; they never hydrate from recorded observations.
 The full original payloads, including suffixes unused by the fixture tests, remain
 intact. HP variants are new independent synthetic initial states.
+
+Owner integration confirmed that `validation.jsonl.gz` is obsolete after the
+correct grid-preview fence in #95: step 51 requests another toggle while only
+Confirm/Cancel are legal. Its bytes and original metadata remain unchanged, and
+negative tests assert rejection rather than replay repair. The current validation
+fixture is the byte-for-byte original `eval-440-103.jsonl.gz` from the same
+simulator training run, under a new fixture filename/identity. Its 276-action
+natural prefix is independently verified; this does not make the old prefix pass.
 
 They cover source immutability, revision fencing, deterministic variant creation,
 HP-only configuration, and root-bank seed-split/provenance validation. Changes in
