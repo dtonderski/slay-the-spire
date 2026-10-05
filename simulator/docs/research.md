@@ -92,6 +92,14 @@ target action/effect lifecycle rather than an observed deck snapshot.
 
 ## Source-backed interaction findings
 
+- `StrengthPower` caps its constructor amount, but `ApplyPowerAction.update`
+  calls an existing matching power's `stackPower` with the action's raw
+  `amount`, not the newly constructed power's capped amount. Do not preclip
+  that stacking input: existing -999 Strength plus a raw1000 application
+  becomes1, not0. Bound the resulting actual power through `stackPower`.
+  This distinction is source-backed synthetic coverage, not a dedicated
+  real-game extreme-amount interaction trace.
+
 - A legacy hand-discard publication must retain the typed addToBot exhaust
   callbacks, not execute Feel No Pain and restore block or derive its amount
   from a clipped block delta. `CardGroup.moveToExhaustPile` invokes relics
