@@ -273,6 +273,15 @@ impl PyState {
         })
     }
 
+    fn synthetic_rest_root(&self, hp: i32) -> PyResult<Self> {
+        Ok(Self {
+            env: self
+                .env
+                .synthetic_rest_root(hp)
+                .map_err(|error| PyValueError::new_err(error.to_string()))?,
+        })
+    }
+
     fn clone(&self) -> Self {
         Clone::clone(self)
     }

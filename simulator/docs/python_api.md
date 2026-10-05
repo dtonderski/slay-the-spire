@@ -188,6 +188,15 @@ HP must be positive. HP normalization does not consume RNG or rerun combat-start
 effects. They are scenario construction tools, never trace hydration, replay
 repair, or policy inputs. Default `State.new` and verifier replay are unaffected.
 
+`state.synthetic_rest_root(hp)` starts an independent synthetic episode at an
+unused A0 Act-1 campfire. It changes **current HP only**, within `[1, max_hp]`,
+and advances the decision revision. Maximum HP, deck, potions, relics, already
+settled campfire-entry effects and RNG are preserved; the source remains unchanged.
+Completed camps, selection overlays and other phases are rejected. This is an
+explicit initial-state curriculum constructor, not an accepted game action,
+in-place setter, or replay repair mechanism. Synthetic-root scores must remain
+separate from natural-start evaluation.
+
 Run-observation schema **8** completes current visible offer metadata:
 
 - `RewardScreen.relic_offers` contains immutable `RelicOffer(slot, content_key)`

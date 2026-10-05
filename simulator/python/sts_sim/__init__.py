@@ -212,6 +212,14 @@ class State:
         """Independent HP/max-HP-normalized combat root; does not mutate this state."""
         return State(self._native.synthetic_combat_root(hp))
 
+    def synthetic_rest_root(self, hp: int) -> State:
+        """Independent synthetic unused A0 Act-1 campfire; current HP only.
+
+        Preserves max HP, inventory, settled entry effects and RNG. Never an
+        in-place game-state setter or replay repair; source remains unchanged.
+        """
+        return State(self._native.synthetic_rest_root(hp))
+
     def clone(self) -> State:
         return State(self._native.clone())
 
