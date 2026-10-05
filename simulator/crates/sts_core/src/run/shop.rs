@@ -12,7 +12,6 @@ use crate::{
     run::grid::open_shop_remove_grid,
     run::reward::{
         enter_orrery_reward_screen, queue_orrery_card_reward_choices, target_random_potion,
-        target_uniform_random_potion,
     },
     RunAction, RunPhase, RunState, SimError, SimResult,
 };
@@ -385,7 +384,9 @@ fn restock_courier_potion_slot(next: &mut RunState, slot: usize) {
     let mut potion_rng = StsRng::with_counter(next.potion_rng_seed as i64, next.potion_rng_counter);
     let mut merchant_rng =
         StsRng::with_counter(next.merchant_rng_seed as i64, next.merchant_rng_counter);
-    let potion = target_uniform_random_potion(&mut potion_rng);
+    // StorePotion.purchasePotion calls AbstractDungeon.returnRandomPotion(),
+    // not PotionHelper.getRandomPotion(): rarity roll, then matching identities.
+    let potion = target_random_potion(&mut potion_rng);
     let price = apply_relic_discounts_to_price(potion_price(potion, &mut merchant_rng), next);
     next.potion_rng_counter = potion_rng.counter();
     next.merchant_rng_counter = merchant_rng.counter();
@@ -800,6 +801,7 @@ pub fn shop_action_for_choice_index(run: &RunState, choice_index: usize) -> SimR
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::run::reward::target_uniform_random_potion;
 
     #[test]
     fn courier_restock_casts_combined_jitter_and_discount_once() {
@@ -942,14 +944,66 @@ mod tests {
     }
 
     #[test]
-    fn shop_potions_use_one_uniform_potion_rng_draw_each() {
-        let mut run = RunState::map_fixture();
-        enter_shop_room(&mut run).expect("shop entry succeeds");
+    fn courier_potion_restock_rolls_rarity_then_retries_matching_identities() {
+        for seed in 0..128 {
+            let mut run = RunState::seeded_ironclad(seed, 0);
+            enter_shop_room(&mut run).expect("shop entry succeeds");
+            run.relics.push(Relic::TheCourier);
+            let before = run.clone();
+            let mut expected_rng =
+                StsRng::with_counter(run.potion_rng_seed as i64, run.potion_rng_counter);
+            let rarity = match expected_rng.random_int_range(0, 99) {
+                0..=64 => crate::potion::PotionRarity::Common,
+                65..=89 => crate::potion::PotionRarity::Uncommon,
+                _ => crate::potion::PotionRarity::Rare,
+            };
+            let replacement = loop {
+                let potion = target_uniform_random_potion(&mut expected_rng);
+                if potion.rarity() == rarity {
+                    break potion;
+                }
+            };
+            let mut expected_merchant_rng =
+                StsRng::with_counter(run.merchant_rng_seed as i64, run.merchant_rng_counter);
+            let price = apply_relic_discounts_to_price(
+                potion_price(replacement, &mut expected_merchant_rng),
+                &run,
+            );
+            restock_courier_potion_slot(&mut run, 0);
+            let mut expected = before.clone();
+            expected.potion_rng_counter = expected_rng.counter();
+            expected.merchant_rng_counter = expected_merchant_rng.counter();
+            expected.shop.as_mut().unwrap().potions[0] = ShopPotionSlot {
+                potion: replacement,
+                price,
+                sold: false,
+            };
+            assert_eq!(run, expected);
+            assert!(run.potion_rng_counter >= before.potion_rng_counter + 2);
+        }
+    }
 
-        let before_restock = run.potion_rng_counter;
+    #[test]
+    fn courier_potion_purchase_snapshot_replays_without_restock_reroll() {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.event = None;
+        run.gold = 999;
         run.relics.push(Relic::TheCourier);
-        restock_courier_potion_slot(&mut run, 0);
-        assert_eq!(run.potion_rng_counter, before_restock + 1);
+        enter_shop_room(&mut run).unwrap();
+        run.shop_merchant_open = true;
+        let purchased = apply_shop_action(&run, RunAction::BuyShopPotion { slot: 0 }).unwrap();
+        let snapshot = crate::snapshot::Snapshot {
+            schema_version: crate::snapshot::SNAPSHOT_SCHEMA_VERSION,
+            state: purchased.clone(),
+        };
+        let restored =
+            crate::snapshot::restore_run_snapshot_json(&snapshot.canonical_json().unwrap())
+                .unwrap();
+        assert_eq!(restored.state, purchased);
+        assert_eq!(
+            apply_shop_action(&restored.state, RunAction::BuyShopPotion { slot: 1 }).unwrap(),
+            apply_shop_action(&purchased, RunAction::BuyShopPotion { slot: 1 }).unwrap()
+        );
     }
 
     #[test]
