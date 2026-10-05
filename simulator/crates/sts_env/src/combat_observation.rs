@@ -1569,6 +1569,9 @@ mod tests {
             pending.push_back(
                 sts_core::adapter_internals::InternalAction::GainBlockFromPotion { amount: 999 },
             );
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::GainEnergyFromPotion { amount: 99 },
+            );
             pending.push_back(sts_core::adapter_internals::InternalAction::DrawCards { count: 99 });
             pending.push_back(
                 sts_core::adapter_internals::InternalAction::RandomizeHandCostsForSneckoOil,
