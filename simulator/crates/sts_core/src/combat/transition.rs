@@ -283,7 +283,7 @@ fn apply_play_card(
     Ok(transition)
 }
 
-fn is_post_lethal_cancelled_draw_cost_or_energy(action: &InternalAction) -> bool {
+fn is_post_lethal_cancelled_action(action: &InternalAction) -> bool {
     matches!(
         action,
         InternalAction::DrawCards { .. }
@@ -294,6 +294,9 @@ fn is_post_lethal_cancelled_draw_cost_or_energy(action: &InternalAction) -> bool
             | InternalAction::RandomizeHandCostsForSneckoOil
             | InternalAction::GainEnergy { .. }
             | InternalAction::GainEnergyFromPotion { .. }
+            | InternalAction::OpenPotionCardReward { .. }
+            | InternalAction::OpenElixirSelection
+            | InternalAction::OpenGamblersBrewSelection
     )
 }
 
@@ -472,10 +475,10 @@ fn process_internal_queue_owned(
         {
             // DamageAction/DamageAllEnemiesAction call clearPostCombatActions
             // at the lethal boundary, not whenever the room is already dead.
-            // Remove already-queued DrawCardAction, cost randomization and
-            // GainEnergyAction equivalents. Heal/Block/UseCard settlement stay.
-            queue.retain(|action| !is_post_lethal_cancelled_draw_cost_or_energy(action));
-            follow_ups.retain(|action| !is_post_lethal_cancelled_draw_cost_or_energy(action));
+            // Remove already-queued draw, cost, energy and potion-selection
+            // actions. Heal/Block/UseCard settlement stay in their FIFO lane.
+            queue.retain(|action| !is_post_lethal_cancelled_action(action));
+            follow_ups.retain(|action| !is_post_lethal_cancelled_action(action));
         }
         if matches!(
             internal_action,

@@ -215,8 +215,10 @@ target action/effect lifecycle rather than an observed deck snapshot.
   The synthetic FIFO tests cover these boundaries, not dedicated trace parity.
   `DamageAction` and `DamageAllEnemiesAction` call `clearPostCombatActions`
   at the final lethal boundary. It removes already-queued `DrawCardAction`,
-  `RandomizeHandCostAction` and `GainEnergyAction`, while preserving HealAction,
-  GainBlockAction, UseCardAction and DAMAGE-type actions. This is a point-in-time
+  `RandomizeHandCostAction`, `GainEnergyAction`, and queued potion offers/hand
+  selectors, while preserving HealAction, GainBlockAction, UseCardAction and
+  DAMAGE-type actions. Dropping a queued selector must not strand its later
+  potion-use heal behind an unanswerable post-victory screen. This is a point-in-time
   filter, not a perpetual dead-room veto: `getNextAction` still services a
   nonempty queue without testing for living enemies. Awakened One's first-form
   half-death is not a final kill. Keep later-created actions distinct from those

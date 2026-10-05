@@ -76,6 +76,20 @@ fn actions_enqueued_after_clear_are_not_repeatedly_cancelled() {
     assert_eq!(n.piles.hand.len(), 1);
 }
 #[test]
+fn potion_offer_enqueued_after_clear_is_not_perpetually_cancelled() {
+    let mut state = setup();
+    state.monsters[0].alive = false;
+    state.monsters[0].hp = 0;
+    let n = run(
+        &state,
+        VecDeque::from([InternalAction::OpenPotionCardReward {
+            reward_kind: crate::combat::PotionCardRewardKind::Skill,
+        }]),
+    );
+    assert!(n.rng.card_random_rng.counter() > state.rng.card_random_rng.counter());
+}
+
+#[test]
 fn awakened_one_half_death_does_not_cancel_queued_draw_cost_or_energy() {
     let mut state = setup();
     state.monsters[0].content_id = crate::content::monsters::AWAKENED_ONE_ID;
