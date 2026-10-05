@@ -1564,6 +1564,16 @@ mod tests {
             pending.push_back(
                 sts_core::adapter_internals::InternalAction::GainBlockFromPotion { amount: 999 },
             );
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::GainDexterityFromSpeedPotion {
+                    amount: 999,
+                },
+            );
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::ApplyDexLossFromSpeedPotion {
+                    amount: 999,
+                },
+            );
             pending.push_back(sts_core::adapter_internals::InternalAction::DrawCards { count: 99 });
             pending.push_back(
                 sts_core::adapter_internals::InternalAction::RandomizeHandCostsForSneckoOil,
@@ -1585,6 +1595,16 @@ mod tests {
             .as_mut()
             .expect("combat")
             .pending_nilrys_codex_potion_actions;
+        pending.push_back(
+            sts_core::adapter_internals::InternalAction::GainDexterityFromSpeedPotion {
+                amount: 999,
+            },
+        );
+        pending.push_back(
+            sts_core::adapter_internals::InternalAction::ApplyDexLossFromSpeedPotion {
+                amount: 999,
+            },
+        );
         pending.push_back(sts_core::adapter_internals::InternalAction::DrawCards { count: 99 });
         pending
             .push_back(sts_core::adapter_internals::InternalAction::RandomizeHandCostsForSneckoOil);

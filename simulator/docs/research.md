@@ -224,6 +224,15 @@ target action/effect lifecycle rather than an observed deck snapshot.
   upgraded opens an any-number/`canPickZero` screen. A copied Forethought must
   re-read the live hand instead of replaying the original auto-place card id.
 
+`SpeedPotion.use` addToBots positive Dexterity's ApplyPowerAction, then
+DexLoss's ApplyPowerAction; its use-heal follows both. They wait behind the
+current offer/selector and read live amounts at execution. During Codex, the
+already-queued end powers run before these incoming potion powers: new DexLoss
+therefore survives until the next end-power window, not the intervening player
+start. Retain nominal debt and Artifact rejection before rejected-debt arithmetic.
+This is source-backed synthetic coverage, not dedicated interaction trace parity;
+other stat/power potions' own action queues remain separate audits.
+
 ## Collection timing lesson
 
 A historical SuperFastMode fork multiplied gameplay delta and caused frame-rate-
