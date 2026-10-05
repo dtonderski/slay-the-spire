@@ -347,7 +347,8 @@ pub fn reduce_player_strength(powers: &mut PlayerPowers, amount: i32) -> SimResu
             .checked_sub(amount)
             .ok_or(SimError::InvalidState(
                 "player Strength reduction underflows i32",
-            ))?;
+            ))?
+            .clamp(-999, 999);
         Ok(())
     })
 }
@@ -359,19 +360,29 @@ pub fn reduce_player_dexterity(powers: &mut PlayerPowers, amount: i32) -> SimRes
             .checked_sub(amount)
             .ok_or(SimError::InvalidState(
                 "player Dexterity reduction underflows i32",
-            ))?;
+            ))?
+            .clamp(-999, 999);
         Ok(())
     })
 }
 
 pub fn reduce_player_focus(powers: &mut PlayerPowers, amount: i32) -> SimResult<bool> {
     apply_player_debuff(powers, amount, |powers, amount| {
-        powers.focus = powers
+        let had_focus = powers.focus != 0;
+        let next = powers
             .focus
             .checked_sub(amount)
             .ok_or(SimError::InvalidState(
                 "player Focus reduction underflows i32",
             ))?;
+        // FocusPower's constructor preserves its raw initial amount. Only
+        // stacking an existing power applies its +/-999 bounds. Zero Focus
+        // is removed before subsequent applications in the settled model.
+        powers.focus = if had_focus {
+            next.clamp(-999, 999)
+        } else {
+            next
+        };
         Ok(())
     })
 }
@@ -449,6 +460,9 @@ pub fn clear_player_debuffs(powers: &mut PlayerPowers) {
     powers.confusion = 0;
     powers.entangled = 0;
     powers.constricted = 0;
+    // Fasting's EnergyDownPower is DEBUFF; remove its future-turn penalty,
+    // without refunding any energy already spent or lost this turn.
+    powers.fasting = 0;
 }
 
 fn apply_player_debuff(

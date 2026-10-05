@@ -104,8 +104,8 @@ const LAGAVULIN_SLEEP_TURNS: u32 = 3;
 /// Lagavulin.usePreBattleAction applies Metallicize 8; changeState(OPEN)
 /// ReducePowerAction removes that same 8 and leaves any stacked amount.
 const LAGAVULIN_SLEEP_METALLICIZE: i32 = 8;
-const LAGAVULIN_SIPHON_STRENGTH: i32 = 1;
-const LAGAVULIN_SIPHON_DEXTERITY: i32 = 1;
+const LAGAVULIN_SIPHON_AMOUNT: i32 = 1;
+const LAGAVULIN_A18_SIPHON_AMOUNT: i32 = 2;
 const LAGAVULIN_ATTACK_DAMAGE: i32 = 18;
 const LAGAVULIN_A3_ATTACK_DAMAGE: i32 = 20;
 
@@ -9656,9 +9656,14 @@ fn lagavulin_intent(
     if sleep_turns_remaining > 0 {
         MonsterIntent::Sleep
     } else if moves_executed % 3 == 2 {
+        let amount = if ascension >= 18 {
+            LAGAVULIN_A18_SIPHON_AMOUNT
+        } else {
+            LAGAVULIN_SIPHON_AMOUNT
+        };
         MonsterIntent::SiphonPlayer {
-            strength: LAGAVULIN_SIPHON_STRENGTH,
-            dexterity: LAGAVULIN_SIPHON_DEXTERITY,
+            strength: amount,
+            dexterity: amount,
         }
     } else {
         MonsterIntent::Attack {
@@ -10701,8 +10706,10 @@ fn apply_monster_intent_with_card_rng_inner(
             strength,
             dexterity,
         } => {
-            reduce_player_strength(&mut player.powers, strength)?;
+            // Lagavulin queues DexterityPower before StrengthPower. Artifact
+            // must reject the real first application, not a reordered result.
             reduce_player_dexterity(&mut player.powers, dexterity)?;
+            reduce_player_strength(&mut player.powers, strength)?;
             bronze_orb_apply_stasis(monster, piles, card_random_rng);
             monster.has_siphoned = true;
             (0, 0)
