@@ -135,14 +135,10 @@ fn apply_player_end_of_turn_powers_for_combat_state(
     apply_regeneration: bool,
 ) -> SimResult<()> {
     if state.player.powers.ritual > 0 {
-        state.player.powers.strength = state
-            .player
-            .powers
-            .strength
-            .checked_add(state.player.powers.ritual)
-            .ok_or(SimError::InvalidState(
-                "combat integer addition overflows i32",
-            ))?;
+        // RitualPower.atEndOfTurn(true) queues StrengthPower. Apply its cap
+        // to the actual permanent+temporary amount before nominal loss expires.
+        let amount = state.player.powers.ritual;
+        crate::combat::transition::gain_strength_power(state, amount)?;
     }
     if state.player.powers.like_water > 0
         && state.player.powers.calm > 0
