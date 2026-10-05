@@ -148,6 +148,9 @@ pub(crate) fn end_player_turn_owned(mut next: CombatState) -> SimResult<CombatSt
                 next.resume_end_turn_after_nilrys_codex = false;
                 return Ok(next);
             }
+            if next.decision.is_some() {
+                return Ok(next);
+            }
         }
         // An additional potion reward is itself ahead of the ordinary discard
         // and monster-turn actions. Keep the resume marker until its retrieval.

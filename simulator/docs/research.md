@@ -189,8 +189,15 @@ target action/effect lifecycle rather than an observed deck snapshot.
   pending potion actions outside the Codex decision so the existing explicit
   multi-stage publication hooks do not discard them; preservation by those
   hooks is infrastructure coverage, not dedicated interaction-trace parity.
-  Hand-selection potions replacing an open offer (Elixir) and post-lethal
-  draw/cost-action cancellation require separate fixes/audits.
+  `Elixir.use` queues `ExhaustAction`; `GamblersBrew.use` queues
+  `GamblingChipAction` only when the hand is nonempty at use time. Keep these
+  as pending actions, not prebuilt decisions: their selectors read the live
+  hand at action start and must not replace the current offer/grid. In combat,
+  `ToyOrnithopter.onUsePotion` queues `HealAction` after the potion's selector;
+  that heal therefore waits for confirmation too. These selection boundaries
+  remain source-backed synthetic coverage, not dedicated interaction traces.
+  Post-lethal shared draw/cost-action cancellation and other potions' queued
+  on-use callback timing remain separate audits.
 - Boss identity first follows unseen-profile progression; traces requiring it
   carry explicit `boss_unlocks` input.
 - Grid preview cancellation is not whole-grid cancellation: target

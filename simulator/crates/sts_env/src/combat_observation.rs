@@ -1558,6 +1558,9 @@ mod tests {
                 } => pending_actions,
                 _ => unreachable!(),
             };
+            pending.push_back(sts_core::adapter_internals::InternalAction::OpenElixirSelection);
+            pending
+                .push_back(sts_core::adapter_internals::InternalAction::OpenGamblersBrewSelection);
             pending.push_back(sts_core::adapter_internals::InternalAction::DrawCards { count: 99 });
             pending.push_back(
                 sts_core::adapter_internals::InternalAction::RandomizeHandCostsForSneckoOil,
