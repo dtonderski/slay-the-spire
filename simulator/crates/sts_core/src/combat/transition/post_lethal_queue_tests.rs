@@ -76,6 +76,38 @@ fn actions_enqueued_after_clear_are_not_repeatedly_cancelled() {
     assert_eq!(n.piles.hand.len(), 1);
 }
 #[test]
+fn later_thorns_damage_clears_newly_pending_actions_again() {
+    // DamageAction with THORNS still updates in a dead room and invokes clear.
+    let mut state = setup();
+    state.monsters[0].alive = false;
+    state.monsters[0].hp = 0;
+    let mut queue = tail();
+    queue.push_front(InternalAction::DealThornsDamageToPlayer { amount: 1 });
+    let n = run(&state, queue);
+    assert_eq!(
+        n.rng.card_random_rng.counter(),
+        state.rng.card_random_rng.counter()
+    );
+    assert_eq!(n.player.energy, 3);
+    assert_eq!(n.player.hp, 34);
+}
+
+#[test]
+fn later_damage_all_clears_newly_pending_actions_again() {
+    let mut state = setup();
+    state.monsters[0].alive = false;
+    state.monsters[0].hp = 0;
+    let mut queue = tail();
+    queue.push_front(InternalAction::FireBreathingDamage { amount: 6 });
+    let n = run(&state, queue);
+    assert_eq!(
+        n.rng.card_random_rng.counter(),
+        state.rng.card_random_rng.counter()
+    );
+    assert_eq!(n.player.energy, 3);
+}
+
+#[test]
 fn potion_offer_enqueued_after_clear_is_not_perpetually_cancelled() {
     let mut state = setup();
     state.monsters[0].alive = false;

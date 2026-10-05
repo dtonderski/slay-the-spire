@@ -467,14 +467,25 @@ fn process_internal_queue_owned(
             apply_internal_action_with_defer(&mut next, internal_action, defer_time_warp_card_play)?
         };
         record_event(&mut event_log, internal_action);
-        if had_living_or_reviving_monster
+        // THORNS DamageAction and DamageAllEnemiesAction can complete even
+        // in an already-dead room; each completion performs another clear.
+        let completed_post_combat_clear = had_living_or_reviving_monster
+            || matches!(
+                internal_action,
+                InternalAction::DealSharpHideDamageToPlayer { .. }
+                    | InternalAction::DealThornsDamageToPlayer { .. }
+                    | InternalAction::FireBreathingDamage { .. }
+                    | InternalAction::DealDamageAll { .. }
+                    | InternalAction::DealDamageAllRepeated { .. }
+            );
+        if completed_post_combat_clear
             && next
                 .monsters
                 .iter()
                 .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
         {
             // DamageAction/DamageAllEnemiesAction call clearPostCombatActions
-            // at the lethal boundary, not whenever the room is already dead.
+            // on damage completion, not on every later queue item.
             // Remove already-queued draw, cost, energy and potion-selection
             // actions. Heal/Block/UseCard settlement stay in their FIFO lane.
             queue.retain(|action| !is_post_lethal_cancelled_action(action));
