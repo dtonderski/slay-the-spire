@@ -1188,11 +1188,21 @@ pub(crate) fn apply_validated_potion_action_owned(
                 }
                 Potion::Strength => {
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.powers.strength = checked_potion_stat_gain(
+                    // StrengthPotion.use applies StrengthPower: bound the current
+                    // amount, not just the permanent bookkeeping component, and
+                    // retain the full loss already scheduled by Flex.
+                    let current = checked_potion_stat_gain(
                         combat.player.powers.strength,
-                        STRENGTH_POTION_STRENGTH,
-                        multiplier,
+                        combat.player.temp_strength,
+                        1,
                     )?;
+                    let bounded =
+                        checked_potion_stat_gain(current, STRENGTH_POTION_STRENGTH, multiplier)?
+                            .clamp(-999, 999);
+                    combat.player.powers.strength =
+                        bounded.checked_sub(combat.player.temp_strength).ok_or(
+                            SimError::InvalidState("combat potion stat gain overflows i32"),
+                        )?;
                 }
                 Potion::Flex => {
                     let combat = next.combat.as_mut().expect("validated combat state");
