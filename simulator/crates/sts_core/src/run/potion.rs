@@ -1238,7 +1238,8 @@ pub(crate) fn apply_validated_potion_action_owned(
                         combat.player.powers.dexterity,
                         DEXTERITY_POTION_DEXTERITY,
                         multiplier,
-                    )?;
+                    )?
+                    .clamp(-999, 999);
                 }
                 Potion::Energy => {
                     let combat = next.combat.as_mut().expect("validated combat state");
