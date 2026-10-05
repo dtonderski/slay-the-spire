@@ -5107,6 +5107,82 @@ mod tests {
     }
 
     #[test]
+    fn addict_decline_return_retains_only_completed_leave_for_either_offer_layout() {
+        for gold in [
+            0,
+            ADDICT_GOLD_COST - 1,
+            ADDICT_GOLD_COST,
+            ADDICT_GOLD_COST + 1,
+        ] {
+            let mut run = RunState::seeded_ironclad(1, 0);
+            run.gold = gold;
+            run.phase = RunPhase::Event;
+            run.event = Some(event_screen_for_run(&run, Event::Addict));
+            let decline = run.event.as_ref().unwrap().choices.len() - 1;
+            let map = apply_event_action(
+                &run,
+                EventAction::Choose {
+                    choice_index: decline,
+                },
+            )
+            .unwrap();
+            let returned = crate::run::apply_run_decision_action(
+                &map,
+                crate::run::RunDecisionAction::MapReturn,
+            )
+            .unwrap();
+            let mut expected = run.clone();
+            expected.event = Some(make_event_screen(Event::Addict, addict_choices(1, gold), 1));
+            assert_eq!(returned, expected);
+            assert_eq!(
+                legal_event_actions(&returned).unwrap(),
+                vec![EventAction::Choose { choice_index: 0 }]
+            );
+            assert!(
+                apply_event_action(&returned, EventAction::Choose { choice_index: 1 }).is_err()
+            );
+            let second_map =
+                apply_event_action(&returned, EventAction::Choose { choice_index: 0 }).unwrap();
+            let second_return = crate::run::apply_run_decision_action(
+                &second_map,
+                crate::run::RunDecisionAction::MapReturn,
+            )
+            .unwrap();
+            assert_eq!(second_return, expected);
+        }
+    }
+
+    #[test]
+    fn addict_declined_owner_snapshot_preserves_next_return() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen_for_run(&run, Event::Addict));
+        let map = apply_event_action(
+            &run,
+            EventAction::Choose {
+                choice_index: run.event.as_ref().unwrap().choices.len() - 1,
+            },
+        )
+        .unwrap();
+        let snapshot = crate::snapshot::Snapshot {
+            schema_version: crate::snapshot::SNAPSHOT_SCHEMA_VERSION,
+            state: map.clone(),
+        };
+        let restored =
+            crate::snapshot::restore_run_snapshot_json(&snapshot.canonical_json().unwrap())
+                .unwrap();
+        assert_eq!(
+            crate::run::apply_run_decision_action(&map, crate::run::RunDecisionAction::MapReturn)
+                .unwrap(),
+            crate::run::apply_run_decision_action(
+                &restored.state,
+                crate::run::RunDecisionAction::MapReturn
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
     fn pending_obtain_imports_require_exact_event_authority() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;
