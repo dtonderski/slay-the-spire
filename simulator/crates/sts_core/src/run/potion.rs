@@ -3029,7 +3029,20 @@ mod tests {
             combat.decision,
             Some(CombatDecisionState::ExhaustSelect { .. })
         ));
-        assert_eq!(combat.queued_decisions.len(), 1);
+        assert!(combat.queued_decisions.is_empty());
+        assert_eq!(
+            combat
+                .exhaust_select()
+                .expect("active exhaust decision")
+                .pending_actions,
+            std::collections::VecDeque::from([crate::InternalAction::OpenPotionCardReward {
+                reward_kind: PotionCardRewardKind::Skill
+            },]),
+        );
+        assert_eq!(
+            combat.rng.card_random_rng,
+            run.combat.as_ref().unwrap().rng.card_random_rng
+        );
         assert!(combat.potion_card_reward_choices().is_none());
     }
 
