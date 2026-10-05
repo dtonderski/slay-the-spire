@@ -1,6 +1,6 @@
 use super::{
     apply_player_card_block_gain, apply_player_vulnerable_debuff, checked_add_combat_value,
-    juggernaut_follow_up_for_positive_block_gain, living_monster_mut_opt,
+    checked_combat_sum, juggernaut_follow_up_for_positive_block_gain, living_monster_mut_opt,
     sadistic_nature_follow_up_after_monster_debuff,
 };
 use crate::{
@@ -194,7 +194,10 @@ pub(super) fn reduce_strength_this_turn(
     if let Some(monster) = living_monster_mut_opt(state, target) {
         applied = reduce_monster_strength(&mut monster.powers, amount)?;
         if applied {
-            checked_add_combat_value(&mut monster.temp_strength_down, amount)?;
+            // GainStrengthPower (Shackled) bounds its own stack, unlike the
+            // player's uncapped LoseStrengthPower nominal-expiry bookkeeping.
+            monster.temp_strength_down =
+                checked_combat_sum(monster.temp_strength_down, amount)?.min(999);
         }
     }
     Ok(
