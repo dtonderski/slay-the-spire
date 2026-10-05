@@ -203,6 +203,13 @@ target action/effect lifecycle rather than an observed deck snapshot.
   potion-use heal; a subsequent Gremlin Horn draw is not retroactively given
   Snecko Oil costs. Toy Ornithopter's heal also stays behind an open reward/grid
   for these draw potions. These are source-backed, not dedicated trace parity.
+  Queue later potion offers as typed actions too: `DiscoveryAction.update`
+  generates choices at action start, not at potion use. `returnTrulyRandomCardInCombat`
+  uses `cardRandomRng`, so an earlier Snecko randomizer changes a later offer.
+  A draw's `FireBreathingPower.onCardDraw` damage appends behind that later
+  offer and must wait for its retrieval. Keep reward-potion Toy Ornithopter
+  heals in the same FIFO lane rather than applying them outside the queue.
+  The synthetic FIFO tests cover these boundaries, not dedicated trace parity.
   Post-lethal shared draw/cost-action cancellation and other potions' queued
   on-use callback timing remain separate audits.
 - Boss identity first follows unseen-profile progression; traces requiring it
