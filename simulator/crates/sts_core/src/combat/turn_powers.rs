@@ -380,16 +380,17 @@ fn apply_end_of_monster_turn_powers_with_ritual(
             .checked_add(monster.powers.ritual)
             .ok_or(SimError::InvalidState(
                 "monster end-turn arithmetic overflow",
-            ))?;
+            ))?
+            .clamp(-999, 999);
     }
     // GenericStrengthUpPower (Orb Walker): gain Strength at end of turn.
     if monster.powers.strength_up > 0 {
-        strength =
-            strength
-                .checked_add(monster.powers.strength_up)
-                .ok_or(SimError::InvalidState(
-                    "monster end-turn arithmetic overflow",
-                ))?;
+        strength = strength
+            .checked_add(monster.powers.strength_up)
+            .ok_or(SimError::InvalidState(
+                "monster end-turn arithmetic overflow",
+            ))?
+            .clamp(-999, 999);
     }
     let mut block = monster.block;
     if monster.powers.metallicize > 0 {
