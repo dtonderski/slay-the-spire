@@ -31,6 +31,7 @@ pub(super) fn gain_precomputed_player_card_block(
         return Ok(Vec::new());
     }
     checked_add_combat_value(&mut state.player.block, amount)?;
+    state.player.block = state.player.block.min(999);
     Ok(juggernaut_follow_up_for_positive_block_gain(state, amount))
 }
 
@@ -41,6 +42,7 @@ pub(super) fn gain_player_block_direct(
     // Relic/power callbacks using the direct path (Rage, Abacus, Fan) bypass
     // No Block; ordinary card block uses gain_player_block above.
     checked_add_combat_value(&mut state.player.block, amount)?;
+    state.player.block = state.player.block.min(999);
     Ok(juggernaut_follow_up_for_positive_block_gain(state, amount))
 }
 
@@ -66,6 +68,7 @@ pub(super) fn gain_player_block_from_exhaust(
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
     checked_add_combat_value(&mut state.player.block, amount)?;
+    state.player.block = state.player.block.min(999);
     Ok(juggernaut_follow_up_for_positive_block_gain(state, amount))
 }
 
@@ -106,10 +109,15 @@ pub(super) fn gain_temporary_thorns(
 pub(super) fn double_player_block(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
     // Entrench doubles block; the added half is a block gain for Juggernaut.
     let before = state.player.block;
-    state.player.block = before.checked_mul(2).ok_or(SimError::InvalidState(
-        "combat integer multiplication overflows i32",
-    ))?;
-    let gained = state.player.block - before;
+    state.player.block = before
+        .checked_mul(2)
+        .ok_or(SimError::InvalidState(
+            "combat integer multiplication overflows i32",
+        ))?
+        .min(999);
+    // DoubleYourBlockAction calls addBlock(before): the callback sees the
+    // nominal incoming half, even when the resulting block reaches the cap.
+    let gained = before;
     Ok(juggernaut_follow_up_for_positive_block_gain(state, gained))
 }
 
