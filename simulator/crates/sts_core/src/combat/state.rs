@@ -214,7 +214,8 @@ pub struct CombatState {
     /// Colosseum fight-two leftover EndTurn already ran callEndOfTurnActions
     /// before the ready PLAY. Flex applied on that frame must survive the
     /// following start_player_turn (FIDL01576). Other leftover ends still
-    /// expire temp strength at the next start.
+    /// expire temp strength at the next start. New Flex-potion loss applied
+    /// after Codex's old END power window also survives that intervening start.
     #[serde(default, skip_serializing_if = "is_false")]
     pub preserve_temp_strength_on_next_start: bool,
     /// Opening DrawCardAction parked behind a first-turn Toolbox choice.

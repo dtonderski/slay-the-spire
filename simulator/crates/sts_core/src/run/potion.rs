@@ -1334,12 +1334,17 @@ pub(crate) fn apply_validated_potion_action_owned(
                     }
                 }
                 Potion::Flex => {
+                    defer_potion_use_relics = true;
+                    let amount =
+                        checked_potion_stat_gain(0, FLEX_POTION_TEMP_STRENGTH, multiplier)?;
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.temp_strength = checked_potion_stat_gain(
-                        combat.player.temp_strength,
-                        FLEX_POTION_TEMP_STRENGTH,
-                        multiplier,
-                    )?;
+                    let actions = std::collections::VecDeque::from([
+                        crate::InternalAction::GainStrengthFromPotion { amount },
+                        crate::InternalAction::ApplyStrengthLossFromFlexPotion { amount },
+                    ]);
+                    if queue_combat_potion_actions(combat, actions)? {
+                        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+                    }
                 }
                 Potion::Speed => {
                     defer_potion_use_relics = true;
