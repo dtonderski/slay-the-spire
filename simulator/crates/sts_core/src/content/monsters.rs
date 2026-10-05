@@ -8046,6 +8046,7 @@ pub fn apply_gremlin_leader_encourage(
                     .block
                     .checked_add(block)
                     .ok_or(SimError::InvalidState("monster group arithmetic overflow"))?
+                    .min(999)
             };
             Ok((next_strength, next_block))
         })
