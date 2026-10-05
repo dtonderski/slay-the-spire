@@ -1423,6 +1423,9 @@ fn apply_internal_action_with_defer(
         InternalAction::GainBlockDirect { amount } => {
             defense_actions::gain_player_block_direct(state, amount)
         }
+        InternalAction::GainBlockFromPotion { amount } => {
+            defense_actions::gain_player_block_from_potion(state, amount)
+        }
         InternalAction::GainBlockFromExhaust { amount } => {
             defense_actions::gain_player_block_from_exhaust(state, amount)
         }
