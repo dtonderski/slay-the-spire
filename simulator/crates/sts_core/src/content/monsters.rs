@@ -8008,6 +8008,7 @@ pub fn apply_strength_all_monsters(monsters: &mut [MonsterState], amount: i32) -
                     .powers
                     .strength
                     .checked_add(amount)
+                    .map(|strength| strength.clamp(-999, 999))
                     .ok_or(SimError::InvalidState("monster group arithmetic overflow"))
             } else {
                 Ok(monster.powers.strength)
@@ -8036,7 +8037,8 @@ pub fn apply_gremlin_leader_encourage(
                 .powers
                 .strength
                 .checked_add(strength)
-                .ok_or(SimError::InvalidState("monster group arithmetic overflow"))?;
+                .ok_or(SimError::InvalidState("monster group arithmetic overflow"))?
+                .clamp(-999, 999);
             let next_block = if monster.id == leader_id {
                 monster.block
             } else {
@@ -10187,6 +10189,12 @@ fn checked_add_monster_block_value(value: &mut i32, amount: i32) -> SimResult<()
     Ok(())
 }
 
+// StrengthPower constructor/stackPower bound the resulting visible power.
+fn checked_add_monster_strength_value(value: &mut i32, amount: i32) -> SimResult<()> {
+    *value = checked_monster_intent_add(*value, amount)?.clamp(-999, 999);
+    Ok(())
+}
+
 fn checked_monster_intent_mul(value: i32, amount: i32) -> SimResult<i32> {
     value
         .checked_mul(amount)
@@ -10451,7 +10459,7 @@ fn apply_monster_intent_with_card_rng_inner(
                 checked_add_monster_block_value(&mut monster.block, block)?;
                 checked_add_monster_intent_value(&mut monster.powers.metallicize, strength)?;
             } else {
-                checked_add_monster_intent_value(&mut monster.powers.strength, strength)?;
+                checked_add_monster_strength_value(&mut monster.powers.strength, strength)?;
                 checked_add_monster_block_value(&mut monster.block, block)?;
             }
             (0, 0)
@@ -10466,13 +10474,13 @@ fn apply_monster_intent_with_card_rng_inner(
                 if monster.powers.strength < 0 {
                     monster.powers.strength = 0;
                 }
-                checked_add_monster_intent_value(&mut monster.powers.strength, amount)?;
+                checked_add_monster_strength_value(&mut monster.powers.strength, amount)?;
                 match monster.powers.heart_buff_count {
                     0 => checked_add_monster_intent_value(&mut monster.powers.artifact, 2)?,
                     1 => checked_add_monster_intent_value(&mut monster.powers.beat_of_death, 1)?,
                     2 => monster.powers.painful_stabs = 1,
-                    3 => checked_add_monster_intent_value(&mut monster.powers.strength, 10)?,
-                    _ => checked_add_monster_intent_value(&mut monster.powers.strength, 50)?,
+                    3 => checked_add_monster_strength_value(&mut monster.powers.strength, 10)?,
+                    _ => checked_add_monster_strength_value(&mut monster.powers.strength, 50)?,
                 }
                 monster.powers.heart_buff_count = monster
                     .powers
@@ -10484,7 +10492,7 @@ fn apply_monster_intent_with_card_rng_inner(
             } else if monster.content_id == GREMLIN_NOB_ID {
                 checked_add_monster_intent_value(&mut monster.powers.anger, amount)?;
             } else {
-                checked_add_monster_intent_value(&mut monster.powers.strength, amount)?;
+                checked_add_monster_strength_value(&mut monster.powers.strength, amount)?;
             }
             (0, 0)
         }
@@ -10578,7 +10586,7 @@ fn apply_monster_intent_with_card_rng_inner(
         }
         MonsterIntent::ApplyPlayerWeakStrengthSelf { weak, strength } => {
             apply_player_weak_from_monster(player, relics, weak)?;
-            checked_add_monster_intent_value(&mut monster.powers.strength, strength)?;
+            checked_add_monster_strength_value(&mut monster.powers.strength, strength)?;
             (0, 0)
         }
         MonsterIntent::ApplyPlayerConfusion => {
@@ -10620,7 +10628,7 @@ fn apply_monster_intent_with_card_rng_inner(
             let damage_taken =
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
             if monster.content_id == TASKMASTER_ID && ascension >= 18 {
-                checked_add_monster_intent_value(
+                checked_add_monster_strength_value(
                     &mut monster.powers.strength,
                     TASKMASTER_A18_STRENGTH,
                 )?;
@@ -10825,7 +10833,7 @@ fn apply_monster_intent_with_card_rng_inner(
         }
         MonsterIntent::DefensiveCharge { block, strength } => {
             checked_add_monster_block_value(&mut monster.block, block)?;
-            checked_add_monster_intent_value(&mut monster.powers.strength, strength)?;
+            checked_add_monster_strength_value(&mut monster.powers.strength, strength)?;
             if monster.defensive_turns_remaining > 0 {
                 monster.defensive_turns_remaining -= 1;
             }
