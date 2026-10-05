@@ -615,9 +615,6 @@ pub(super) fn gain_dexterity(
     state: &mut CombatState,
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
-    if amount > 0 && state.player.powers.fasting > 0 {
-        return Ok(Vec::new());
-    }
     // Actual Dexterity already includes temporary gains; temp_dexterity is
     // separate nominal loss debt, not another component of this amount.
     state.player.powers.dexterity =
