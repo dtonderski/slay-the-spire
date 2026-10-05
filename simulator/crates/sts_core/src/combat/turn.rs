@@ -1419,6 +1419,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                 ActorTurnDisposition::StopPlayerDead
             ) {
                 state.time_warp_duplicate_monster_queue = false;
+                state.time_warp_pre_gain_strength.clear();
                 let _ = crate::combat::damage::resolve_darkling_life_link(&mut state.monsters);
                 return Ok(());
             }
@@ -1426,6 +1427,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
         }
     }
     state.time_warp_duplicate_monster_queue = false;
+    state.time_warp_pre_gain_strength.clear();
 
     finish_monster_turn_cleanup(state, &skip_ritual_tick)
 }
@@ -1501,16 +1503,23 @@ fn execute_generic_monster_intent(
             crate::MonsterIntent::Attack { .. } | crate::MonsterIntent::AttackMultiple { .. }
         )
         && !state.time_warp_end_turn;
-    // TimeWarpPower queues its +2 Strength action, while the monster queue's
-    // DamageInfo objects were created from the pre-action intent. Preserve that
-    // source FIFO for the duplicated queue; the monster's +2 remains in state
-    // for subsequent rolls and observations.
-    let strength_before_time_warp_snapshot = state.monsters[index].powers.strength;
-    if time_warp_queued_damage_snapshot {
-        state.monsters[index].powers.strength =
-            strength_before_time_warp_snapshot.saturating_sub(2);
-    }
-    let damage_result = prepare_monster_intent_with_card_rng_and_revival(
+    // The source queue's DamageInfo captured powers before the gain. Do not
+    // invert a clipped gain or temporarily replace accepted monster fields.
+    let queued_strength = if time_warp_queued_damage_snapshot {
+        Some(
+            state
+                .time_warp_pre_gain_strength
+                .iter()
+                .find(|(id, _)| *id == actor_id)
+                .map(|(_, strength)| *strength)
+                .ok_or(SimError::InvalidState(
+                    "queued Time Warp damage has no Strength snapshot",
+                ))?,
+        )
+    } else {
+        None
+    };
+    let prepared_intent = prepare_monster_intent_with_card_rng_and_revival(
         &mut state.monsters[index],
         &mut state.player,
         &mut state.piles,
@@ -1520,11 +1529,8 @@ fn execute_generic_monster_intent(
         relics,
         player_can_revive,
         &mut state.rng.card_random_rng,
-    );
-    if time_warp_queued_damage_snapshot {
-        state.monsters[index].powers.strength = strength_before_time_warp_snapshot;
-    }
-    let prepared_intent = damage_result?;
+        queued_strength,
+    )?;
     let damage = prepared_intent.damage;
     if state.monsters[index].content_id == WRITHING_MASS_ID
         && matches!(intent, crate::MonsterIntent::ApplyPlayerFrailAndWeak { .. })

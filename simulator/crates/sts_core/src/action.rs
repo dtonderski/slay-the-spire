@@ -36,6 +36,8 @@ pub enum InternalAction {
     /// Time Eater's on-use-card counter deferred until a card-selection screen
     /// closes; the target publishes that lag frame before the card is settled.
     ApplyDeferredTimeWarpCardPlay,
+    /// Apply the queued gain after the card's already-queued use effects.
+    ApplyTimeWarpStrengthGain,
     PlayCardCopy {
         card_id: CardId,
         /// Retain the source identity after a played Power leaves all piles.

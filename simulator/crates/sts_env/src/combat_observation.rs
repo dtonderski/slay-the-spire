@@ -1592,6 +1592,19 @@ mod tests {
     }
 
     #[test]
+    fn time_warp_damage_strength_context_is_hidden() {
+        let left = RunState::combat_fixture();
+        let mut right = left.clone();
+        right
+            .combat
+            .as_mut()
+            .expect("combat")
+            .time_warp_pre_gain_strength =
+            vec![(MonsterId::new(777), 998), (MonsterId::new(123), -99)];
+        assert_hidden_equivalent("Time Warp DamageInfo context", &left, &right);
+    }
+
+    #[test]
     fn public_orb_slots_poison_and_windmill_damage_are_projected() {
         let mut run = RunState::combat_fixture();
         let combat = run.combat.as_mut().expect("combat");

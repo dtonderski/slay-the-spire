@@ -306,6 +306,10 @@ pub struct CombatState {
     /// intent before its RollMoveAction ran.
     #[serde(default, skip_serializing_if = "is_false")]
     pub time_warp_duplicate_monster_queue: bool,
+    /// Internal DamageInfo context captured before Time Warp applies Strength.
+    /// A clipped gain cannot be inverted by subtracting its nominal amount.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub time_warp_pre_gain_strength: Vec<(MonsterId, i32)>,
     /// Feel No Pain / other end-turn exhaust block granted while leftover
     /// EndTurn is still flushing. The first leftover STATE can publish the
     /// discarded hand before that GainBlockAction (FIDL01727 step 821).
@@ -1318,6 +1322,7 @@ impl CombatState {
             time_warp_end_turn_pre_discard_settled: false,
             time_warp_end_powers_applied: false,
             time_warp_duplicate_monster_queue: false,
+            time_warp_pre_gain_strength: Vec::new(),
             pending_end_turn_feel_no_pain_block: 0,
             time_warp_pending_monster_action: false,
             defer_time_warp_end_turn: false,
