@@ -5183,6 +5183,73 @@ mod tests {
     }
 
     #[test]
+    fn tomb_decline_return_cannot_reopen_gold_or_mask_offer() {
+        for owns_mask in [false, true] {
+            let mut run = RunState::seeded_ironclad(1, 0);
+            run.gold = 83;
+            if owns_mask {
+                run.relics.push(Relic::RedMask);
+            }
+            run.phase = RunPhase::Event;
+            run.event = Some(event_screen_for_run(&run, Event::TombOfLordRedMask));
+            let map = apply_event_action(&run, EventAction::Choose { choice_index: 1 }).unwrap();
+            let returned = crate::run::apply_run_decision_action(
+                &map,
+                crate::run::RunDecisionAction::MapReturn,
+            )
+            .unwrap();
+            let mut expected = run.clone();
+            expected.event = Some(make_event_screen(
+                Event::TombOfLordRedMask,
+                tomb_of_lord_red_mask_choices(&run, 1),
+                1,
+            ));
+            assert_eq!(returned, expected);
+            assert_eq!(
+                legal_event_actions(&returned).unwrap(),
+                vec![EventAction::Choose { choice_index: 0 }]
+            );
+            assert!(
+                apply_event_action(&returned, EventAction::Choose { choice_index: 1 }).is_err()
+            );
+            let second_map =
+                apply_event_action(&returned, EventAction::Choose { choice_index: 0 }).unwrap();
+            assert_eq!(
+                crate::run::apply_run_decision_action(
+                    &second_map,
+                    crate::run::RunDecisionAction::MapReturn
+                )
+                .unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn tomb_wear_mask_gain_survives_return_without_repeating() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.relics.push(Relic::RedMask);
+        run.phase = RunPhase::Event;
+        run.event = Some(event_screen_for_run(&run, Event::TombOfLordRedMask));
+        let gained = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).unwrap();
+        assert_eq!(gained.gold, run.gold + 222);
+        let map = apply_event_action(&gained, EventAction::Choose { choice_index: 0 }).unwrap();
+        let snapshot = crate::snapshot::Snapshot {
+            schema_version: crate::snapshot::SNAPSHOT_SCHEMA_VERSION,
+            state: map,
+        };
+        let restored =
+            crate::snapshot::restore_run_snapshot_json(&snapshot.canonical_json().unwrap())
+                .unwrap();
+        let returned = crate::run::apply_run_decision_action(
+            &restored.state,
+            crate::run::RunDecisionAction::MapReturn,
+        )
+        .unwrap();
+        assert_eq!(returned, gained);
+    }
+
+    #[test]
     fn pending_obtain_imports_require_exact_event_authority() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.phase = RunPhase::Event;

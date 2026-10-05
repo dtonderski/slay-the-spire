@@ -264,6 +264,13 @@ pub(super) fn apply_act_three_event_action(
             if (screen.stage == 0 && choice_index == 1)
                 || (screen.stage == 1 && choice_index == 0) =>
         {
+            // TombRedMask.buttonEffect concludes even an ignored initial
+            // offer at RESULT, with only Leave when the map is dismissed.
+            next.event = Some(make_event_screen(
+                Event::TombOfLordRedMask,
+                tomb_of_lord_red_mask_choices(next, 1),
+                1,
+            ));
             crate::run::map_overlay::open_completed_room_map(next);
         }
         Event::MindBloom if screen.stage == 0 && choice_index == 0 => {
