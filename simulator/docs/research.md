@@ -127,6 +127,12 @@ target action/effect lifecycle rather than an observed deck snapshot.
   on screen is still the live deck.
 - Boss identity first follows unseen-profile progression; traces requiring it
   carry explicit `boss_unlocks` input.
+- Grid preview cancellation is not whole-grid cancellation: target
+  `CancelButton.update` dispatches to `GridCardSelectScreen.cancelUpgrade` while
+  an upgrade/transform/purge confirmation preview is open. It clears that
+  preview but keeps the grid and its owner, even when the underlying selection
+  is mandatory. QLFR00001's Neow purge select/CANCEL/reselect/CONFIRM sequence
+  pins this distinction; cancellation itself does not commit the card effect.
 - Dead Adventurer searches consume encounter RNG immediately; safe rewards and
   failed-fight exposure occur in that transition.
 - The Library adds rolled cards to the bottom at index zero, reversing visible
