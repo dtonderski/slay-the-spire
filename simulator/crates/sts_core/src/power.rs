@@ -429,7 +429,8 @@ pub fn reduce_monster_strength(powers: &mut MonsterPowers, amount: i32) -> SimRe
             .checked_sub(amount)
             .ok_or(SimError::InvalidState(
                 "monster Strength reduction underflows i32",
-            ))?;
+            ))?
+            .clamp(-999, 999);
         Ok(())
     })
 }
