@@ -1251,12 +1251,16 @@ pub(crate) fn apply_validated_potion_action_owned(
                     )?;
                 }
                 Potion::Dexterity => {
+                    defer_potion_use_relics = true;
+                    let amount =
+                        checked_potion_stat_gain(0, DEXTERITY_POTION_DEXTERITY, multiplier)?;
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.powers.dexterity = checked_potion_stat_gain(
-                        combat.player.powers.dexterity,
-                        DEXTERITY_POTION_DEXTERITY,
-                        multiplier,
-                    )?;
+                    let actions = std::collections::VecDeque::from([
+                        crate::InternalAction::GainDexterityFromPotion { amount },
+                    ]);
+                    if queue_combat_potion_actions(combat, actions)? {
+                        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+                    }
                 }
                 Potion::Energy => {
                     let combat = next.combat.as_mut().expect("validated combat state");

@@ -1589,6 +1589,9 @@ mod tests {
                     amount: 99,
                 },
             );
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::GainDexterityFromPotion { amount: 99 },
+            );
             assert_hidden_equivalent("active card reward pending actions", &left, &right);
         }
     }
@@ -1635,6 +1638,14 @@ mod tests {
             .as_mut()
             .expect("combat")
             .preserve_temp_strength_on_next_start = true;
+        right
+            .combat
+            .as_mut()
+            .expect("combat")
+            .pending_nilrys_codex_potion_actions
+            .push_back(
+                sts_core::adapter_internals::InternalAction::GainDexterityFromPotion { amount: 99 },
+            );
         assert_hidden_equivalent("Nilry pending potion actions", &left, &right);
     }
 
