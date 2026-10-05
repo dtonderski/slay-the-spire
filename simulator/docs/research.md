@@ -131,6 +131,9 @@ target action/effect lifecycle rather than an observed deck snapshot.
   `Addict.buttonEffect` decline clears the initial offers and settles at
   screenNum 1 with only Leave. Returning from that map cannot reopen Offer Gold
   or Rob (FIDL00783, step 677 RETURN).
+  `TombRedMask.buttonEffect` concludes an ignored initial offer at RESULT with
+  only Leave, so RETURN cannot reopen mask purchase or the 222-gold option
+  (FIDL00022, step 1403 RETURN).
   These witnesses do not certify every other event's completed-dialog stage or
   later divergences.
 
