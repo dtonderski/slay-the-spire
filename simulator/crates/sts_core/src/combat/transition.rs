@@ -1865,6 +1865,12 @@ fn apply_internal_action_with_defer(
         InternalAction::ExitCalm => player_actions::enter_neutral(state),
         InternalAction::DiscardToHand { card_id } => pile_actions::discard_to_hand(state, card_id),
         InternalAction::GainDexterity { amount } => player_actions::gain_dexterity(state, amount),
+        InternalAction::GainDexterityFromSpeedPotion { amount } => {
+            player_actions::gain_dexterity_from_speed_potion(state, amount)
+        }
+        InternalAction::ApplyDexLossFromSpeedPotion { amount } => {
+            player_actions::apply_dex_loss_from_speed_potion(state, amount)
+        }
         InternalAction::GainTempStrength { amount } => {
             player_actions::gain_temp_strength(state, amount).map(|()| Vec::new())
         }
@@ -3770,6 +3776,8 @@ fn is_play_top_deferred_power_gain(action: &InternalAction) -> bool {
             | InternalAction::GainStrength { .. }
             | InternalAction::DoublePlayerStrength
             | InternalAction::GainDexterity { .. }
+            | InternalAction::GainDexterityFromSpeedPotion { .. }
+            | InternalAction::ApplyDexLossFromSpeedPotion { .. }
             | InternalAction::GainTempStrength { .. }
             | InternalAction::GainIntangible { .. }
             | InternalAction::GainRitual { .. }
@@ -7488,6 +7496,16 @@ mod tests {
     use crate::rng::StsRng;
     use crate::run::potion::apply_exhaust_select_choice;
     use crate::{apply_combat_action_on_run, legal_combat_actions, RunState};
+
+    #[test]
+    fn speed_potion_pair_is_classified_as_apply_power_actions() {
+        for action in [
+            InternalAction::GainDexterityFromSpeedPotion { amount: 5 },
+            InternalAction::ApplyDexLossFromSpeedPotion { amount: 5 },
+        ] {
+            assert!(is_play_top_deferred_power_gain(&action));
+        }
+    }
 
     #[test]
     fn no_event_path_matches_recording_path() {
