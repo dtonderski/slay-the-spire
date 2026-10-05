@@ -15,16 +15,9 @@ pub(crate) fn apply_demon_form_strength_post_draw(state: &mut CombatState) -> Si
     if amount <= 0 {
         return Ok(());
     }
-    state.player.powers.strength =
-        state
-            .player
-            .powers
-            .strength
-            .checked_add(amount)
-            .ok_or(SimError::InvalidState(
-                "combat integer addition overflows i32",
-            ))?;
-    Ok(())
+    // Apply the incoming StrengthPower's actual combined-amount bound at
+    // this existing post-draw callback, retaining nominal temporary debt.
+    crate::combat::transition::gain_strength_power(state, amount)
 }
 
 pub fn apply_end_of_player_turn_powers(state: &mut CombatState) -> SimResult<()> {
