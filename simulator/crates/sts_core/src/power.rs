@@ -474,6 +474,9 @@ pub fn clear_player_debuffs(powers: &mut PlayerPowers) {
     if powers.dexterity < 0 {
         powers.dexterity = 0;
     }
+    if powers.focus < 0 {
+        powers.focus = 0;
+    }
     powers.weak = 0;
     powers.frail = 0;
     powers.vulnerable = 0;
