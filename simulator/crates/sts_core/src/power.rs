@@ -359,7 +359,8 @@ pub fn reduce_player_dexterity(powers: &mut PlayerPowers, amount: i32) -> SimRes
             .checked_sub(amount)
             .ok_or(SimError::InvalidState(
                 "player Dexterity reduction underflows i32",
-            ))?;
+            ))?
+            .clamp(-999, 999);
         Ok(())
     })
 }
