@@ -1242,14 +1242,16 @@ pub(crate) fn apply_validated_potion_action_owned(
                     )?;
                 }
                 Potion::Energy => {
+                    defer_potion_use_relics = true;
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.energy = combat
-                        .player
-                        .energy
-                        .checked_add(ENERGY_POTION_ENERGY * multiplier)
-                        .ok_or(SimError::InvalidState(
-                            "Energy Potion energy gain overflows i32",
-                        ))?;
+                    let actions = std::collections::VecDeque::from([
+                        crate::InternalAction::GainEnergyFromPotion {
+                            amount: ENERGY_POTION_ENERGY * multiplier,
+                        },
+                    ]);
+                    if queue_combat_potion_actions(combat, actions)? {
+                        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+                    }
                 }
                 Potion::EssenceOfSteel => {
                     let combat = next.combat.as_mut().expect("validated combat state");

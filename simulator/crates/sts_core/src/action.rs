@@ -344,6 +344,10 @@ pub enum InternalAction {
     GainEnergy {
         amount: i32,
     },
+    /// GainEnergyAction queued by Energy Potion, retaining its overflow error.
+    GainEnergyFromPotion {
+        amount: i32,
+    },
     /// VoidCard.triggerWhenDrawn addToBot's LoseEnergyAction.
     LoseEnergy {
         amount: i32,
