@@ -209,6 +209,9 @@ target action/effect lifecycle rather than an observed deck snapshot.
   A draw's `FireBreathingPower.onCardDraw` damage appends behind that later
   offer and must wait for its retrieval. Keep reward-potion Toy Ornithopter
   heals in the same FIFO lane rather than applying them outside the queue.
+  If the earlier Nilry end-turn power queue kills the final enemy, retain pending
+  potion HealActions and drain them before victory/Burning Blood settlement;
+  `clearPostCombatActions` removes draws, not heals.
   The synthetic FIFO tests cover these boundaries, not dedicated trace parity.
   Post-lethal shared draw/cost-action cancellation and other potions' queued
   on-use callback timing remain separate audits.
