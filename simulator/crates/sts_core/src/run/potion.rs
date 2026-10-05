@@ -1210,12 +1210,17 @@ pub(crate) fn apply_validated_potion_action_owned(
                     }
                 }
                 Potion::Ancient => {
+                    defer_potion_use_relics = true;
+                    let amount = checked_potion_stat_gain(0, ANCIENT_POTION_ARTIFACT, multiplier)?;
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.powers.artifact = checked_potion_stat_gain(
-                        combat.player.powers.artifact,
-                        ANCIENT_POTION_ARTIFACT,
-                        multiplier,
-                    )?;
+                    // AncientPotion.use addToBots ApplyPowerAction. Its Artifact
+                    // cannot reject earlier queued losses before it is applied.
+                    let actions = std::collections::VecDeque::from([
+                        crate::InternalAction::GainArtifactFromPotion { amount },
+                    ]);
+                    if queue_combat_potion_actions(combat, actions)? {
+                        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+                    }
                 }
                 Potion::HeartOfIron => {
                     let combat = next.combat.as_mut().expect("validated combat state");
