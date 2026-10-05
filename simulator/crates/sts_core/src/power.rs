@@ -347,7 +347,8 @@ pub fn reduce_player_strength(powers: &mut PlayerPowers, amount: i32) -> SimResu
             .checked_sub(amount)
             .ok_or(SimError::InvalidState(
                 "player Strength reduction underflows i32",
-            ))?;
+            ))?
+            .clamp(-999, 999);
         Ok(())
     })
 }
