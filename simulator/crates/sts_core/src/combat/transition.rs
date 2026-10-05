@@ -40,6 +40,7 @@ use crate::{
     rng::JavaRng,
     CardInstance, CombatState, MonsterState, SimError, SimResult,
 };
+pub(crate) use player_actions::gain_temp_strength;
 use std::collections::VecDeque;
 
 pub use super::card_effects::top_draw_card_definition;
@@ -1768,7 +1769,7 @@ fn apply_internal_action_with_defer(
         InternalAction::DiscardToHand { card_id } => pile_actions::discard_to_hand(state, card_id),
         InternalAction::GainDexterity { amount } => player_actions::gain_dexterity(state, amount),
         InternalAction::GainTempStrength { amount } => {
-            player_actions::gain_temp_strength(state, amount)
+            player_actions::gain_temp_strength(state, amount).map(|()| Vec::new())
         }
         InternalAction::GainIntangible { amount } => player_actions::gain_intangible(state, amount),
         InternalAction::GainRitual { amount } => player_actions::gain_ritual(state, amount),

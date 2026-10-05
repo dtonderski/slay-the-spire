@@ -618,10 +618,7 @@ pub(super) fn gain_dexterity(
     Ok(Vec::new())
 }
 
-pub(super) fn gain_temp_strength(
-    state: &mut CombatState,
-    amount: i32,
-) -> SimResult<Vec<InternalAction>> {
+pub(crate) fn gain_temp_strength(state: &mut CombatState, amount: i32) -> SimResult<()> {
     // Flex.use applies bounded Strength, then the nominal LoseStrengthPower.
     // The latter inherits uncapped AbstractPower stacking. Retain its full
     // amount even when StrengthPower.stackPower clips the visible gain.
@@ -644,7 +641,7 @@ pub(super) fn gain_temp_strength(
     if blocks_loss {
         state.player.powers.artifact -= 1;
     }
-    Ok(Vec::new())
+    Ok(())
 }
 
 pub(super) fn gain_intangible(
