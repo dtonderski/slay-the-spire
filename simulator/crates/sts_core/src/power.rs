@@ -341,14 +341,35 @@ pub fn apply_player_draw_reduction(powers: &mut PlayerPowers, amount: i32) -> Si
 }
 
 pub fn reduce_player_strength(powers: &mut PlayerPowers, amount: i32) -> SimResult<bool> {
+    reduce_player_strength_with_temporary(powers, 0, amount)
+}
+
+pub(crate) fn reduce_player_strength_with_temporary(
+    powers: &mut PlayerPowers,
+    temp_strength: i32,
+    amount: i32,
+) -> SimResult<bool> {
     apply_player_debuff(powers, amount, |powers, amount| {
-        powers.strength = powers
+        // StrengthPower bounds the actual combined amount. The permanent
+        // bookkeeping component can legitimately be below -999 while nominal
+        // loss is pending; clamping that component would invent Strength.
+        let actual = powers
             .strength
+            .checked_add(temp_strength)
+            .ok_or(SimError::InvalidState(
+                "player combined Strength overflows i32",
+            ))?;
+        let reduced = actual
             .checked_sub(amount)
             .ok_or(SimError::InvalidState(
                 "player Strength reduction underflows i32",
             ))?
             .clamp(-999, 999);
+        powers.strength = reduced
+            .checked_sub(temp_strength)
+            .ok_or(SimError::InvalidState(
+                "strength component subtraction overflows i32",
+            ))?;
         Ok(())
     })
 }
