@@ -151,6 +151,10 @@ target action/effect lifecycle rather than an observed deck snapshot.
   current Strength stays unchanged, while negative current Strength is removed.
   This classification finding is source-backed, not established by a dedicated
   real-game boundary trace.
+- `RedSkull.onNotBloodied` applies negative `StrengthPower` through
+  `ApplyPowerAction`, so Artifact can block its removal. The relic's active flag
+  still resets; a subsequent heal does not retry the blocked loss. This is
+  source-backed, not established by a dedicated real-game interaction trace.
 - Summoned Gremlins consume an identity draw and an otherwise ignored opening
   AI roll before their fixed opening move.
 - Writhing Mass attack-triggered rerolls are queued, consume AI RNG, and update
