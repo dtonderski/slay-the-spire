@@ -1561,6 +1561,9 @@ mod tests {
             pending.push_back(sts_core::adapter_internals::InternalAction::OpenElixirSelection);
             pending
                 .push_back(sts_core::adapter_internals::InternalAction::OpenGamblersBrewSelection);
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::GainBlockFromPotion { amount: 999 },
+            );
             pending.push_back(sts_core::adapter_internals::InternalAction::DrawCards { count: 99 });
             pending.push_back(
                 sts_core::adapter_internals::InternalAction::RandomizeHandCostsForSneckoOil,

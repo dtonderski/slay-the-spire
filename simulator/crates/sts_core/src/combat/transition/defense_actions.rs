@@ -44,6 +44,23 @@ pub(super) fn gain_player_block_direct(
     Ok(juggernaut_follow_up_for_positive_block_gain(state, amount))
 }
 
+pub(super) fn gain_player_block_from_potion(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    // GainBlockAction calls addBlock directly, bypassing card Dex/Frail/NoBlock
+    // calculation. onGainedBlock sees the nominal amount even at the 999 cap.
+    let block = state
+        .player
+        .block
+        .checked_add(amount)
+        .ok_or(SimError::InvalidState(
+            "combat potion stat gain overflows i32",
+        ))?;
+    state.player.block = block.min(999);
+    Ok(juggernaut_follow_up_for_positive_block_gain(state, amount))
+}
+
 pub(super) fn gain_player_block_from_exhaust(
     state: &mut CombatState,
     amount: i32,
