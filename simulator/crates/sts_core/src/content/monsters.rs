@@ -10095,6 +10095,7 @@ pub(crate) fn apply_monster_intent_with_card_rng_and_revival(
         player_can_revive,
         card_random_rng,
         true,
+        None,
     )
     .map(|prepared| prepared.damage)
 }
@@ -10110,6 +10111,7 @@ pub(crate) fn prepare_monster_intent_with_card_rng_and_revival(
     relics: &[crate::Relic],
     player_can_revive: bool,
     card_random_rng: &mut StsRng,
+    queued_strength: Option<i32>,
 ) -> SimResult<PreparedMonsterIntent> {
     resolve_monster_intent_with_card_rng_and_revival(
         monster,
@@ -10122,6 +10124,7 @@ pub(crate) fn prepare_monster_intent_with_card_rng_and_revival(
         player_can_revive,
         card_random_rng,
         false,
+        queued_strength,
     )
 }
 
@@ -10137,6 +10140,7 @@ fn resolve_monster_intent_with_card_rng_and_revival(
     player_can_revive: bool,
     card_random_rng: &mut StsRng,
     apply_queued_post_attack_debuffs: bool,
+    queued_strength: Option<i32>,
 ) -> SimResult<PreparedMonsterIntent> {
     let local_allocated_through = monster
         .stasis_card
@@ -10163,6 +10167,7 @@ fn resolve_monster_intent_with_card_rng_and_revival(
         relics,
         player_can_revive,
         &mut next_card_random_rng,
+        queued_strength,
     )?;
     if apply_queued_post_attack_debuffs {
         apply_queued_post_attack_player_debuffs(queued_intent, &mut next_player, relics)?;
@@ -10323,6 +10328,7 @@ fn apply_monster_intent_with_card_rng_inner(
     relics: &[crate::Relic],
     player_can_revive: bool,
     card_random_rng: &mut StsRng,
+    queued_strength: Option<i32>,
 ) -> SimResult<PreparedMonsterIntent> {
     use crate::combat::damage::deal_unmodified_damage_to_monster;
     use crate::combat::turn_powers::monster_damage_to_player_with_relics;
@@ -10379,7 +10385,19 @@ fn apply_monster_intent_with_card_rng_inner(
         monster.content_id == GUARDIAN_ID && monster.in_defensive_mode;
     let monster_damage_to_player =
         |player: &crate::PlayerState, monster: &MonsterState, base: i32| {
-            let damage = monster_damage_to_player_with_relics(player, monster, base, relics)?;
+            // Read immutable DamageInfo power context, never temporarily
+            // replace accepted Strength and restore selected fields later.
+            let damage_context = queued_strength.map(|strength| {
+                let mut context = monster.clone();
+                context.powers.strength = strength;
+                context
+            });
+            let damage = monster_damage_to_player_with_relics(
+                player,
+                damage_context.as_ref().unwrap_or(monster),
+                base,
+                relics,
+            )?;
             // DamageInfo.applyPowers calls atDamageFinalReceive after Weak/
             // Vulnerable and before AbstractMonster's Back Attack 1.5x.
             // IntangiblePlayerPower caps that intermediate output at 1, so

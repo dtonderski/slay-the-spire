@@ -1239,7 +1239,8 @@ pub(crate) fn apply_validated_potion_action_owned(
                         combat.player.powers.dexterity,
                         DEXTERITY_POTION_DEXTERITY,
                         multiplier,
-                    )?;
+                    )?
+                    .clamp(-999, 999);
                 }
                 Potion::Energy => {
                     defer_potion_use_relics = true;
@@ -1341,13 +1342,25 @@ pub(crate) fn apply_validated_potion_action_owned(
                         combat.player.powers.dexterity,
                         SPEED_POTION_TEMP_DEXTERITY,
                         multiplier,
-                    )?;
-                    let temp_dexterity = checked_potion_stat_gain(
-                        combat.player.temp_dexterity,
-                        SPEED_POTION_TEMP_DEXTERITY,
-                        multiplier,
-                    )?;
+                    )?
+                    .clamp(-999, 999);
+                    // Dexterity is the actual power; DexLoss is separate,
+                    // uncapped nominal debt. Artifact rejects only the new
+                    // DEBUFF application, not this positive gain or old debt.
+                    let blocked_loss = combat.player.powers.artifact > 0;
+                    let temp_dexterity = if blocked_loss {
+                        combat.player.temp_dexterity
+                    } else {
+                        checked_potion_stat_gain(
+                            combat.player.temp_dexterity,
+                            SPEED_POTION_TEMP_DEXTERITY,
+                            multiplier,
+                        )?
+                    };
                     combat.player.powers.dexterity = dexterity;
+                    if blocked_loss {
+                        combat.player.powers.artifact -= 1;
+                    }
                     combat.player.temp_dexterity = temp_dexterity;
                 }
                 Potion::Swift | Potion::SneckoOil => {
