@@ -4387,9 +4387,8 @@ impl RunState {
                 if offered.is_none() {
                     return Err(SimError::IllegalAction("no potion reward offered"));
                 }
-                if !self.can_gain_potions() {
-                    return Err(SimError::IllegalAction("potions cannot be obtained"));
-                }
+                // RewardItem.claimReward flashes Sozu and returns true. The
+                // reward can be consumed even though no potion is obtained.
                 Ok(())
             }
             RunAction::TakeRelicReward => {
