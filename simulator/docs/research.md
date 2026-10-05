@@ -92,6 +92,15 @@ target action/effect lifecycle rather than an observed deck snapshot.
 
 ## Source-backed interaction findings
 
+- `FocusPower` differs from Strength/Dexterity: its constructor retains the
+  raw initial amount; `stackPower` caps an **existing** Focus amount to +/-999.
+  `stackPower`/`reducePower` queue removal at zero, so the settled model's zero
+  Focus denotes absence for subsequent monster applications. Do not globally
+  cap initial raw Focus or preclip incoming stack input. Shield's Focus branch
+  must retain its real AI boolean draw and empty-orb-slot condition; initialize
+  its rolled intents through combat entry rather than treating a pending-roll
+  monster constructor as an accepted combat state.
+
 - Lagavulin's `takeTurn` queues negative Dexterity **before** negative
   Strength. A single Artifact therefore blocks Dexterity, not Strength.
   Its constructor chooses -2 at A18+, otherwise -1. A near-limit clipped

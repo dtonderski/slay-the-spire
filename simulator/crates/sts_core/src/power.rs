@@ -368,12 +368,21 @@ pub fn reduce_player_dexterity(powers: &mut PlayerPowers, amount: i32) -> SimRes
 
 pub fn reduce_player_focus(powers: &mut PlayerPowers, amount: i32) -> SimResult<bool> {
     apply_player_debuff(powers, amount, |powers, amount| {
-        powers.focus = powers
+        let had_focus = powers.focus != 0;
+        let next = powers
             .focus
             .checked_sub(amount)
             .ok_or(SimError::InvalidState(
                 "player Focus reduction underflows i32",
             ))?;
+        // FocusPower's constructor preserves its raw initial amount. Only
+        // stacking an existing power applies its +/-999 bounds. Zero Focus
+        // is removed before subsequent applications in the settled model.
+        powers.focus = if had_focus {
+            next.clamp(-999, 999)
+        } else {
+            next
+        };
         Ok(())
     })
 }
