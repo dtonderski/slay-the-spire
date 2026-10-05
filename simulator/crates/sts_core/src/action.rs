@@ -303,6 +303,10 @@ pub enum InternalAction {
     /// Potion addToBot selectors read the live hand only when this action starts.
     OpenElixirSelection,
     OpenGamblersBrewSelection,
+    /// Discovery potions generate their offer only when their queued action starts.
+    OpenPotionCardReward {
+        reward_kind: crate::combat::PotionCardRewardKind,
+    },
     DrawCards {
         count: usize,
     },
