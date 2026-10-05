@@ -274,6 +274,11 @@ pub struct CombatState {
     /// of the draw pile during the second offer frame).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_nilrys_codex_draw_inserts: Vec<crate::ContentId>,
+    /// Potion addToBot actions queued behind CodexAction and the earlier
+    /// end-turn power/orb callbacks. Kept outside the decision so parking a
+    /// multi-stage Codex choice does not drop the action queue.
+    #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
+    pub pending_nilrys_codex_potion_actions: VecDeque<InternalAction>,
     /// Dead Branch cards held across the Nilry pause until post-discard hand rebuild.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_end_turn_dead_branch_cards: Vec<CardInstance>,
@@ -1151,6 +1156,7 @@ impl CombatState {
         if matches!(self.phase, CombatPhase::Won | CombatPhase::Lost) {
             self.decision = None;
             self.queued_decisions.clear();
+            self.pending_nilrys_codex_potion_actions.clear();
         }
     }
 
@@ -1308,6 +1314,7 @@ impl CombatState {
             resume_end_turn_after_nilrys_codex: false,
             nilrys_end_powers_pending: false,
             pending_nilrys_codex_draw_inserts: Vec::new(),
+            pending_nilrys_codex_potion_actions: VecDeque::new(),
             pending_end_turn_dead_branch_cards: Vec::new(),
             pending_end_turn_dark_embrace_draws: 0,
             pending_end_turn_juggernaut_damage: Vec::new(),
