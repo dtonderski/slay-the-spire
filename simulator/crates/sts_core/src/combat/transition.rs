@@ -5,6 +5,8 @@ mod decision_actions;
 mod defense_actions;
 mod pile_actions;
 mod player_actions;
+#[cfg(test)]
+mod post_lethal_queue_tests;
 use crate::{
     action::{CardPile, CombatAction, HpLossSource, InternalAction},
     card::{CardType, TargetRequirement},
@@ -281,6 +283,20 @@ fn apply_play_card(
     Ok(transition)
 }
 
+fn is_post_lethal_cancelled_draw_cost_or_energy(action: &InternalAction) -> bool {
+    matches!(
+        action,
+        InternalAction::DrawCards { .. }
+            | InternalAction::DrawCardsWithoutEvolve { .. }
+            | InternalAction::DrawCardsWhilePlayedCardIsInLimbo { .. }
+            | InternalAction::DrawCardsWhilePlayedCardIsInLimboWithoutEvolve { .. }
+            | InternalAction::DrawCardsFromInkBottle { .. }
+            | InternalAction::RandomizeHandCostsForSneckoOil
+            | InternalAction::GainEnergy { .. }
+            | InternalAction::GainEnergyFromPotion { .. }
+    )
+}
+
 pub(crate) fn process_internal_queue(
     state: &CombatState,
     queue: VecDeque<InternalAction>,
@@ -379,6 +395,10 @@ fn process_internal_queue_owned(
             record_event(&mut event_log, internal_action);
             continue;
         }
+        let had_living_or_reviving_monster = next
+            .monsters
+            .iter()
+            .any(|monster| monster.alive || awakened_one_is_half_dead(monster));
         let had_hand_select = matches!(next.decision, Some(CombatDecisionState::HandSelect { .. }));
         let pain_before_reaper = matches!(
             internal_action,
@@ -406,7 +426,7 @@ fn process_internal_queue_owned(
             && next.monsters.iter().any(|monster| {
                 monster.alive && monster.content_id == crate::content::monsters::TIME_EATER_ID
             });
-        let follow_ups = if let InternalAction::PlayTopDrawCard {
+        let mut follow_ups = if let InternalAction::PlayTopDrawCard {
             target,
             exhaust_played_card,
             random_living_target,
@@ -444,6 +464,19 @@ fn process_internal_queue_owned(
             apply_internal_action_with_defer(&mut next, internal_action, defer_time_warp_card_play)?
         };
         record_event(&mut event_log, internal_action);
+        if had_living_or_reviving_monster
+            && next
+                .monsters
+                .iter()
+                .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
+        {
+            // DamageAction/DamageAllEnemiesAction call clearPostCombatActions
+            // at the lethal boundary, not whenever the room is already dead.
+            // Remove already-queued DrawCardAction, cost randomization and
+            // GainEnergyAction equivalents. Heal/Block/UseCard settlement stay.
+            queue.retain(|action| !is_post_lethal_cancelled_draw_cost_or_energy(action));
+            follow_ups.retain(|action| !is_post_lethal_cancelled_draw_cost_or_energy(action));
+        }
         if matches!(
             internal_action,
             InternalAction::ResolveStormOfSteel { .. }
@@ -10840,8 +10873,10 @@ mod tests {
         )
         .expect("Pommel Strike+ should play");
 
-        assert_eq!(next.piles.hand.len(), 2);
-        assert_eq!(next.piles.draw_pile.len(), 2);
+        // The original's lethal DamageAction clears its queued DrawCardAction;
+        // the later copied card fizzles rather than drawing either batch.
+        assert!(next.piles.hand.is_empty());
+        assert_eq!(next.piles.draw_pile.len(), 4);
     }
 
     fn queued_stasis_identity_fixture() -> CombatState {
