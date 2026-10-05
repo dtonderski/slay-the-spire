@@ -1074,7 +1074,8 @@ fn finish_monster_turn_after_player_revival_inner(state: &mut CombatState) -> Si
             }
             if monster.temp_strength_down > 0 {
                 monster.powers.strength =
-                    checked_turn_add(monster.powers.strength, monster.temp_strength_down)?;
+                    checked_turn_add(monster.powers.strength, monster.temp_strength_down)?
+                        .clamp(-999, 999);
                 monster.temp_strength_down = 0;
             }
         }
@@ -1920,7 +1921,8 @@ fn execute_state_oriented_special_intent(
                 state.monsters[index].powers.strength = checked_turn_add(
                     state.monsters[index].powers.strength,
                     crate::relic::PHILOSOPHERS_STONE_MONSTER_STRENGTH,
-                )?;
+                )?
+                .clamp(-999, 999);
             }
             checked_turn_increment(&mut state.monsters[index].moves_executed)?;
             prepare_next_intent_for_actor(state, actor_id)?;
@@ -1958,7 +1960,7 @@ fn execute_state_oriented_special_intent(
             state.monsters[index].temp_strength_down = 0;
             state.monsters[index].powers.strength = state.monsters[index].powers.strength.max(0);
             state.monsters[index].powers.strength =
-                checked_turn_add(state.monsters[index].powers.strength, amount)?;
+                checked_turn_add(state.monsters[index].powers.strength, amount)?.clamp(-999, 999);
             checked_turn_increment(&mut state.monsters[index].moves_executed)?;
             prepare_next_intent_for_actor(state, actor_id)?;
             Ok(true)
@@ -2246,7 +2248,8 @@ fn apply_spawn_relic_effects(
         monster.powers.strength = checked_turn_add(
             monster.powers.strength,
             crate::relic::PHILOSOPHERS_STONE_MONSTER_STRENGTH,
-        )?;
+        )?
+        .clamp(-999, 999);
     }
     Ok(())
 }
@@ -2286,7 +2289,8 @@ fn finish_monster_turn_cleanup(
             }
             if monster.temp_strength_down > 0 {
                 monster.powers.strength =
-                    checked_turn_add(monster.powers.strength, monster.temp_strength_down)?;
+                    checked_turn_add(monster.powers.strength, monster.temp_strength_down)?
+                        .clamp(-999, 999);
                 monster.temp_strength_down = 0;
             }
         }
