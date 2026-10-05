@@ -1,6 +1,5 @@
 use crate::{
-    card::{CardInstance, CardType, TargetRequirement},
-    combat::cost::randomize_playable_hand_costs_for_snecko_oil,
+    card::{CardInstance, TargetRequirement},
     combat::damage::deal_unmodified_damage_to_monster,
     combat::transition::{
         apply_monster_death_hooks, apply_play_top_draw_card_action, choose_discard_select,
@@ -10,7 +9,6 @@ use crate::{
         confirm_hand_select_without_retrieval, discard_select_ui_to_discard_index,
         draw_select_ui_to_draw_index, flush_pending_player_spikes_damage_if_ready,
         gain_temp_strength, hand_select_ui_to_hand_index, open_discard_select_with_max_choices,
-        player_draw_cards,
         player_shuffle_discard_into_draw, top_draw_card_definition,
     },
     combat::{
@@ -19,10 +17,7 @@ use crate::{
     },
     content::cards::upgrade_card_instance,
     content::monsters::wake_lagavulin_on_damage,
-    content::shop_pool::{
-        burn_all_discovery_card_choice_generations, colorless_discovery_card_choices,
-        discovery_card_choices,
-    },
+    content::shop_pool::burn_all_discovery_card_choice_generations,
     ids::{CardId, MonsterId},
     map::RoomKind,
     potion::{
@@ -801,7 +796,6 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
                 // CommunicationMod exposes potion-generated cards after the cards that
                 // were already in hand, unlike Toolbox and Discovery rewards.
                 combat.piles.hand.push(card);
-                crate::relic::apply_potion_use_relics_to_combat(combat)?;
                 settle_card_reward_potion_actions(combat, pending_actions)?;
                 next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             }
@@ -935,7 +929,6 @@ pub(crate) fn apply_validated_combat_card_reward_skip_owned(
         Some(CombatDecisionState::PotionCardReward {
             pending_actions, ..
         }) => {
-            crate::relic::apply_potion_use_relics_to_combat(combat)?;
             settle_card_reward_potion_actions(combat, pending_actions)?;
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             combat.activate_next_queued_decision_if_idle();
@@ -1008,28 +1001,38 @@ fn queue_potion_hand_selection(
 ) -> SimResult<()> {
     // GamblersBrew.use tests emptiness at use time before enqueuing its action.
     // A later reward/draw must not create a selector that was never queued.
-    let mut actions = if matches!(action, crate::InternalAction::OpenGamblersBrewSelection)
+    let actions = if matches!(action, crate::InternalAction::OpenGamblersBrewSelection)
         && combat.piles.hand.is_empty()
     {
         std::collections::VecDeque::new()
     } else {
         std::collections::VecDeque::from([action])
     };
-    // PotionPopUp invokes onUsePotion after use; Toy Ornithopter addToBots
-    // HealAction behind the selector, not into its still-open hand screen.
+    queue_combat_potion_actions(combat, actions).map(|_| ())
+}
+
+// Returns whether the actions ran now. Merely appending behind a screen must
+// not publish an unrelated combat RNG advance into the run-owned counter.
+fn queue_combat_potion_actions(
+    combat: &mut CombatState,
+    mut actions: std::collections::VecDeque<crate::InternalAction>,
+) -> SimResult<bool> {
+    // PotionPopUp invokes onUsePotion after use. Its HealAction follows the
+    // potion's actions and waits behind the same open offer/grid.
     if combat.relics.contains(&Relic::ToyOrnithopter) {
         actions.push_back(crate::InternalAction::HealPlayer {
             amount: crate::relic::TOY_ORNITHOPTER_HEAL,
         });
     }
     if actions.is_empty() {
-        return Ok(());
+        return Ok(false);
     }
     if let Some(pending) = combat_open_decision_pending_mut(combat) {
         pending.extend(actions);
-        Ok(())
+        Ok(false)
     } else {
-        settle_card_reward_potion_actions(combat, actions)
+        settle_card_reward_potion_actions(combat, actions)?;
+        Ok(true)
     }
 }
 
@@ -1342,33 +1345,26 @@ pub(crate) fn apply_validated_potion_action_owned(
                     combat.player.powers.dexterity = dexterity;
                     combat.player.temp_dexterity = temp_dexterity;
                 }
-                Potion::Swift => {
+                Potion::Swift | Potion::SneckoOil => {
+                    defer_potion_use_relics = true;
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    let count = SWIFT_POTION_DRAW * multiplier as usize;
-                    // SwiftPotion.use addToBot's DrawCardAction. While
-                    // AttackFromDeckToHandAction's grid is open, that draw
-                    // waits behind the current action instead of mutating the
-                    // still-visible draw pile.
-                    if let Some(pending) = combat_open_decision_pending_mut(combat) {
-                        pending.push_back(crate::InternalAction::DrawCards { count });
+                    let count = if potion == Potion::Swift {
+                        SWIFT_POTION_DRAW
                     } else {
-                        player_draw_cards(combat, count)?;
+                        SNECKO_OIL_DRAW
+                    } * multiplier as usize;
+                    let mut actions =
+                        std::collections::VecDeque::from([crate::InternalAction::DrawCards {
+                            count,
+                        }]);
+                    if potion == Potion::SneckoOil {
+                        actions.push_back(crate::InternalAction::RandomizeHandCostsForSneckoOil);
                     }
-                }
-                Potion::SneckoOil => {
-                    let mut rng = next.card_random_rng();
-                    let combat = next.combat.as_mut().expect("validated combat state");
-                    let count = SNECKO_OIL_DRAW * multiplier as usize;
-                    // SneckoOil.use addToBot's DrawCardAction followed by
-                    // RandomizeHandCostAction. Neither mutates an open select.
-                    if let Some(pending) = combat_open_decision_pending_mut(combat) {
-                        pending.push_back(crate::InternalAction::DrawCards { count });
-                        pending.push_back(crate::InternalAction::RandomizeHandCostsForSneckoOil);
-                    } else {
-                        player_draw_cards(combat, count)?;
-                        randomize_playable_hand_costs_for_snecko_oil(combat, &mut rng)?;
-                        combat.rng.card_random_rng = rng.clone();
-                        next.card_random_rng_counter = rng.counter();
+                    // Use the same queue with or without a screen: draw-time
+                    // Confusion advances the live card RNG, while addToBot
+                    // callbacks (Fire Breathing, Evolve) follow existing actions.
+                    if queue_combat_potion_actions(combat, actions)? {
+                        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
                     }
                 }
                 Potion::SmokeBomb => {
@@ -1632,46 +1628,20 @@ pub(crate) fn apply_validated_potion_action_owned(
                 }
                 Potion::Attack | Potion::Skill | Potion::Colorless | Potion::Power => {
                     defer_potion_use_relics = true;
-                    let mut combat = next
-                        .combat
-                        .as_ref()
-                        .expect("validated combat state")
-                        .clone();
-                    let next_card_id = combat.reserve_card_instance_ids(3)?;
-                    let rng = &mut combat.rng.card_random_rng;
-                    let (kind, content_ids) = match potion {
-                        Potion::Attack => (
-                            PotionCardRewardKind::Attack,
-                            discovery_card_choices(rng, CardType::Attack, 3),
-                        ),
-                        Potion::Skill => (
-                            PotionCardRewardKind::Skill,
-                            discovery_card_choices(rng, CardType::Skill, 3),
-                        ),
-                        Potion::Colorless => (
-                            PotionCardRewardKind::Colorless,
-                            colorless_discovery_card_choices(rng, 3),
-                        ),
-                        Potion::Power => (
-                            PotionCardRewardKind::Power,
-                            discovery_card_choices(rng, CardType::Power, 3),
-                        ),
+                    let reward_kind = match potion {
+                        Potion::Attack => PotionCardRewardKind::Attack,
+                        Potion::Skill => PotionCardRewardKind::Skill,
+                        Potion::Colorless => PotionCardRewardKind::Colorless,
+                        Potion::Power => PotionCardRewardKind::Power,
                         _ => unreachable!("matched discovery potion"),
                     };
-                    next.card_random_rng_counter = rng.counter();
-                    let reward_cards = content_ids
-                        .into_iter()
-                        .enumerate()
-                        .map(|(index, content_id)| {
-                            CardInstance::new(CardId::new(next_card_id + index as u64), content_id)
-                        })
-                        .collect();
-                    combat.queue_or_activate_decision(CombatDecisionState::PotionCardReward {
-                        choices: reward_cards,
-                        reward_kind: kind,
-                        pending_actions: Default::default(),
-                    });
-                    next.combat = Some(combat);
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    let actions = std::collections::VecDeque::from([
+                        crate::InternalAction::OpenPotionCardReward { reward_kind },
+                    ]);
+                    if queue_combat_potion_actions(combat, actions)? {
+                        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+                    }
                 }
                 _ => {
                     return Err(SimError::IllegalAction(
@@ -3059,7 +3029,20 @@ mod tests {
             combat.decision,
             Some(CombatDecisionState::ExhaustSelect { .. })
         ));
-        assert_eq!(combat.queued_decisions.len(), 1);
+        assert!(combat.queued_decisions.is_empty());
+        assert_eq!(
+            combat
+                .exhaust_select()
+                .expect("active exhaust decision")
+                .pending_actions,
+            std::collections::VecDeque::from([crate::InternalAction::OpenPotionCardReward {
+                reward_kind: PotionCardRewardKind::Skill
+            },]),
+        );
+        assert_eq!(
+            combat.rng.card_random_rng,
+            run.combat.as_ref().unwrap().rng.card_random_rng
+        );
         assert!(combat.potion_card_reward_choices().is_none());
     }
 
@@ -3097,7 +3080,7 @@ mod tests {
         ];
         let mut rng = StsRng::new(3);
 
-        randomize_playable_hand_costs_for_snecko_oil(&mut combat, &mut rng)
+        crate::combat::cost::randomize_playable_hand_costs_for_snecko_oil(&mut combat, &mut rng)
             .expect("Snecko Oil randomizes playable hand costs");
 
         assert_eq!(combat.piles.hand[0].temp_cost, None);

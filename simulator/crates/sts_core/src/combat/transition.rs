@@ -615,7 +615,10 @@ fn process_internal_queue_owned(
                     state.pending_actions.extend(queue.drain(..));
                     break;
                 }
-                Some(CombatDecisionState::DiscoveryCardReward {
+                Some(CombatDecisionState::PotionCardReward {
+                    pending_actions, ..
+                })
+                | Some(CombatDecisionState::DiscoveryCardReward {
                     pending_actions, ..
                 }) => {
                     // FIDL00233: Hex onUseCard Dazed must wait until Discovery
@@ -1280,6 +1283,7 @@ fn is_player_selection_action(action: &InternalAction) -> bool {
             | InternalAction::AwaitExhaustSelect { .. }
             | InternalAction::OpenElixirSelection
             | InternalAction::OpenGamblersBrewSelection
+            | InternalAction::OpenPotionCardReward { .. }
             | InternalAction::OpenDiscoveryCardReward { .. }
     )
 }
@@ -1885,6 +1889,9 @@ fn apply_internal_action_with_defer(
             source_card_id,
             purpose,
         } => decision_actions::await_exhaust_select(state, source_card_id, purpose),
+        InternalAction::OpenPotionCardReward { reward_kind } => {
+            decision_actions::open_potion_card_reward(state, reward_kind)
+        }
         InternalAction::OpenDiscoveryCardReward { source_card_id } => {
             decision_actions::open_discovery_card_reward(state, source_card_id)
         }
