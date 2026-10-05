@@ -468,9 +468,13 @@ pub enum CombatDecisionState {
     PotionCardReward {
         choices: Vec<CardInstance>,
         reward_kind: PotionCardRewardKind,
+        #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
+        pending_actions: VecDeque<InternalAction>,
     },
     ToolboxCardReward {
         choices: Vec<CardInstance>,
+        #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
+        pending_actions: VecDeque<InternalAction>,
     },
     DiscoveryCardReward {
         choices: Vec<CardInstance>,
@@ -991,9 +995,9 @@ impl CombatState {
     pub fn combat_card_reward_choices(&self) -> Option<&[CardInstance]> {
         match self.decision.as_ref()? {
             CombatDecisionState::PotionCardReward { choices, .. }
-            | CombatDecisionState::ToolboxCardReward { choices }
+            | CombatDecisionState::ToolboxCardReward { choices, .. }
             | CombatDecisionState::DiscoveryCardReward { choices, .. }
-            | CombatDecisionState::NilrysCodexCardReward { choices } => Some(choices),
+            | CombatDecisionState::NilrysCodexCardReward { choices, .. } => Some(choices),
             _ => None,
         }
     }
@@ -1009,7 +1013,7 @@ impl CombatState {
     #[must_use]
     pub fn toolbox_card_reward_choices(&self) -> Option<&[CardInstance]> {
         match self.decision.as_ref()? {
-            CombatDecisionState::ToolboxCardReward { choices } => Some(choices),
+            CombatDecisionState::ToolboxCardReward { choices, .. } => Some(choices),
             _ => None,
         }
     }
@@ -1710,9 +1714,9 @@ fn validate_combat_card(card: &CardInstance) -> SimResult<()> {
 fn extend_decision_cards<'a>(cards: &mut Vec<&'a CardInstance>, decision: &'a CombatDecisionState) {
     match decision {
         CombatDecisionState::PotionCardReward { choices, .. }
-        | CombatDecisionState::ToolboxCardReward { choices }
+        | CombatDecisionState::ToolboxCardReward { choices, .. }
         | CombatDecisionState::DiscoveryCardReward { choices, .. }
-        | CombatDecisionState::NilrysCodexCardReward { choices } => cards.extend(choices),
+        | CombatDecisionState::NilrysCodexCardReward { choices, .. } => cards.extend(choices),
         CombatDecisionState::DiscardSelect { state } => cards.extend(state.source_card.iter()),
         CombatDecisionState::ExhaustSelect { state } => cards.extend(state.source_card.iter()),
         CombatDecisionState::HandSelect { state, .. } => {

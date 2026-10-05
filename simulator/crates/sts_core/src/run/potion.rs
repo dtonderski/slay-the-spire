@@ -786,6 +786,7 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
             CombatDecisionState::PotionCardReward {
                 choices,
                 reward_kind: _,
+                pending_actions,
             } => {
                 let card_id = CardId::new(combat.next_card_instance_id()?);
                 let choice = choices[index];
@@ -795,6 +796,7 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
                 // were already in hand, unlike Toolbox and Discovery rewards.
                 combat.piles.hand.push(card);
                 crate::relic::apply_potion_use_relics_to_combat(combat)?;
+                settle_card_reward_potion_actions(combat, pending_actions)?;
                 next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             }
             CombatDecisionState::DiscoveryCardReward {
@@ -838,7 +840,10 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
                 combat.play_top_force_exhaust_active = false;
                 next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             }
-            CombatDecisionState::ToolboxCardReward { choices } => {
+            CombatDecisionState::ToolboxCardReward {
+                choices,
+                pending_actions,
+            } => {
                 let choice = choices[index];
                 let card_id = CardId::new(combat.next_card_instance_id()?);
                 combat.piles.hand.insert(
@@ -851,6 +856,7 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
                 next.card_random_rng_counter = combat.rng.card_random_rng.counter();
                 crate::relic::settle_pending_opening_combat_actions(combat)?;
                 crate::relic::settle_pending_start_of_turn_relic_actions(combat)?;
+                settle_card_reward_potion_actions(combat, pending_actions)?;
                 next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             }
             CombatDecisionState::NilrysCodexCardReward { choices } => {
@@ -910,8 +916,11 @@ pub(crate) fn apply_validated_combat_card_reward_skip_owned(
 ) -> SimResult<RunState> {
     let combat = next.combat.as_mut().expect("validated combat");
     match combat.decision.take() {
-        Some(CombatDecisionState::PotionCardReward { .. }) => {
+        Some(CombatDecisionState::PotionCardReward {
+            pending_actions, ..
+        }) => {
             crate::relic::apply_potion_use_relics_to_combat(combat)?;
+            settle_card_reward_potion_actions(combat, pending_actions)?;
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             combat.activate_next_queued_decision_if_idle();
             Ok(next)
@@ -942,22 +951,42 @@ pub(crate) fn apply_validated_combat_card_reward_skip_owned(
     }
 }
 
+fn settle_card_reward_potion_actions(
+    combat: &mut CombatState,
+    pending_actions: std::collections::VecDeque<crate::InternalAction>,
+) -> SimResult<()> {
+    if !pending_actions.is_empty() {
+        *combat = crate::combat::transition::process_internal_queue(combat, pending_actions)?.state;
+    }
+    Ok(())
+}
+
 fn combat_open_decision_pending_mut(
     combat: &mut CombatState,
 ) -> Option<&mut std::collections::VecDeque<crate::InternalAction>> {
-    match combat.decision.as_mut()? {
+    // addToBot follows any potion reward already queued behind the open screen.
+    // Earlier draws already attached to the current decision still drain first.
+    let decision = combat
+        .queued_decisions
+        .back_mut()
+        .or(combat.decision.as_mut())?;
+    match decision {
         CombatDecisionState::HandSelect {
             pending_actions, ..
         }
         | CombatDecisionState::DiscoveryCardReward {
             pending_actions, ..
+        }
+        | CombatDecisionState::PotionCardReward {
+            pending_actions, ..
+        }
+        | CombatDecisionState::ToolboxCardReward {
+            pending_actions, ..
         } => Some(pending_actions),
         CombatDecisionState::DrawSelect { state } => Some(&mut state.pending_actions),
         CombatDecisionState::DiscardSelect { state } => Some(&mut state.pending_actions),
         CombatDecisionState::ExhaustSelect { state } => Some(&mut state.pending_actions),
-        CombatDecisionState::PotionCardReward { .. }
-        | CombatDecisionState::ToolboxCardReward { .. }
-        | CombatDecisionState::NilrysCodexCardReward { .. } => None,
+        CombatDecisionState::NilrysCodexCardReward { .. } => None,
     }
 }
 
@@ -1548,6 +1577,7 @@ pub(crate) fn apply_validated_potion_action_owned(
                     combat.queue_or_activate_decision(CombatDecisionState::PotionCardReward {
                         choices: reward_cards,
                         reward_kind: kind,
+                        pending_actions: Default::default(),
                     });
                     next.combat = Some(combat);
                 }
@@ -2889,6 +2919,7 @@ mod tests {
                 choice_content,
             )],
             reward_kind: PotionCardRewardKind::Colorless,
+            pending_actions: Default::default(),
         });
         combat.rng.card_random_rng = StsRng::new(123);
         let rng_counter_before = combat.rng.card_random_rng.counter();
@@ -3743,6 +3774,7 @@ mod tests {
                 CardId::new(chosen_id.get() + 1),
                 choice_content,
             )],
+            pending_actions: Default::default(),
         });
 
         let next = apply_combat_card_reward_choice(&run, 0).expect("Toolbox card choice");
@@ -3886,6 +3918,7 @@ mod tests {
         combat.pending_start_of_turn_relic_energy = 1;
         combat.decision = Some(CombatDecisionState::ToolboxCardReward {
             choices: vec![CardInstance::new(CardId::new(10_000), choice_content)],
+            pending_actions: Default::default(),
         });
         let combat_before = combat.clone();
 
