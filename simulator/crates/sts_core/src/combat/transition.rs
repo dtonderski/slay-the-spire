@@ -1668,6 +1668,9 @@ fn apply_internal_action_with_defer(
             })
         }
         InternalAction::GainEnergy { amount } => player_actions::gain_energy(state, amount),
+        InternalAction::GainEnergyFromPotion { amount } => {
+            player_actions::gain_energy_from_potion(state, amount)
+        }
         InternalAction::LoseEnergy { amount } => player_actions::lose_energy(state, amount),
         InternalAction::LoseHp { amount, source } => player_actions::lose_hp(state, amount, source),
         InternalAction::SetCannotDraw => player_actions::set_cannot_draw(state),
