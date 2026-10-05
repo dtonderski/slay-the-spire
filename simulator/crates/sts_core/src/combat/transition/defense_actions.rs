@@ -200,6 +200,8 @@ pub(super) fn reduce_strength_this_turn(
                 checked_combat_sum(monster.temp_strength_down, amount)?.min(999);
         }
     }
+    // SadisticPower.onApplyPower explicitly excludes the DEBUFF ID Shackled;
+    // only the incoming negative Strength schedules Sadistic Nature damage.
     Ok(
         sadistic_nature_follow_up_after_monster_debuff(state, target, applied)
             .into_iter()
