@@ -315,6 +315,10 @@ pub struct CombatState {
     /// discarded hand before that GainBlockAction (FIDL01727 step 821).
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub pending_end_turn_feel_no_pain_block: i32,
+    /// Privileged hand-publication queue, not fair observation data. Generated
+    /// cards stay authoritative here until their typed insertion executes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_end_turn_hand_resolution: Option<super::hand::EndOfTurnHandResolution>,
     /// The first forced Time Warp END can publish after monster turn setup and
     /// before its captured attack action; the next END resumes that action.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -1320,6 +1324,7 @@ impl CombatState {
             time_warp_duplicate_monster_queue: false,
             time_warp_pre_gain_strength: Vec::new(),
             pending_end_turn_feel_no_pain_block: 0,
+            pending_end_turn_hand_resolution: None,
             time_warp_pending_monster_action: false,
             defer_time_warp_end_turn: false,
         }
@@ -1399,6 +1404,13 @@ impl CombatState {
     pub fn validate(&self) -> SimResult<()> {
         #[cfg(test)]
         FULL_VALIDATION_COUNT.with(|count| count.set(count.get() + 1));
+        if self.pending_end_turn_hand_resolution.is_some()
+            && !self.time_warp_end_turn_pre_discard_settled
+        {
+            return Err(SimError::InvalidState(
+                "deferred end-turn hand callbacks have no publication marker",
+            ));
+        }
         if [
             self.rng.shuffle_rng.counter(),
             self.rng.monster_rng.counter(),
@@ -1651,6 +1663,15 @@ impl CombatState {
         // END. They must reserve instance IDs so generated wounds (Wild Strike)
         // cannot collide and later fail unique-pile validation (FIDL00222).
         cards.extend(self.pending_hidden_hand_card_until_end_turn.iter());
+        if let Some(resolution) = &self.pending_end_turn_hand_resolution {
+            cards.extend(resolution.ethereal_follow_ups.iter().filter_map(|action| {
+                if let super::hand::EtherealEndTurnFollowUp::DeadBranch(card) = action {
+                    Some(card)
+                } else {
+                    None
+                }
+            }));
+        }
         cards.extend(
             self.deferred_mayhem_play_top_settlements
                 .iter()

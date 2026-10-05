@@ -1618,6 +1618,31 @@ mod tests {
     }
 
     #[test]
+    fn deferred_hand_callback_context_is_not_policy_data() {
+        let left = RunState::combat_fixture();
+        let mut right = left.clone();
+        let combat = right.combat.as_mut().expect("combat");
+        combat.time_warp_end_turn_pre_discard_settled = true;
+        combat.pending_end_turn_hand_resolution = Some(
+            serde_json::from_value(serde_json::json!({
+                "auto_play_emptied_hand": false,
+                "ethereal_follow_ups": [
+                    {"GainBlock": {"amount": 6}},
+                    {"DeadBranch": CardInstance::new(CardId::new(777), STRIKE_R_ID)},
+                    "DarkEmbraceDraw"
+                ],
+                "deferred_juggernaut_damage": [5, 5]
+            }))
+            .expect("privileged queue fixture"),
+        );
+        assert_hidden_equivalent(
+            "deferred hand callbacks and held generated identity",
+            &left,
+            &right,
+        );
+    }
+
+    #[test]
     fn public_orb_slots_poison_and_windmill_damage_are_projected() {
         let mut run = RunState::combat_fixture();
         let combat = run.combat.as_mut().expect("combat");
