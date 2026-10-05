@@ -397,14 +397,16 @@ fn apply_end_of_monster_turn_powers_with_ritual(
             .checked_add(monster.powers.metallicize)
             .ok_or(SimError::InvalidState(
                 "monster end-turn arithmetic overflow",
-            ))?;
+            ))?
+            .min(999);
     }
     if monster.powers.plated_armor > 0 {
         block = block
             .checked_add(monster.powers.plated_armor)
             .ok_or(SimError::InvalidState(
                 "monster end-turn arithmetic overflow",
-            ))?;
+            ))?
+            .min(999);
     }
     monster.powers.strength = strength;
     monster.block = block;
