@@ -2002,7 +2002,11 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
                 heal_combat_player_with_relics(combat, BLOOD_VIAL_HEAL)?;
             }
             Relic::Vajra => {
-                checked_add_relic_value(&mut combat.player.powers.strength, VAJRA_STRENGTH)?;
+                checked_add_relic_strength(
+                    &mut combat.player.powers.strength,
+                    combat.player.temp_strength,
+                    VAJRA_STRENGTH,
+                )?;
             }
             Relic::OddlySmoothStone => {
                 checked_add_relic_value(
@@ -3265,8 +3269,12 @@ fn checked_add_relic_value(value: &mut i32, amount: i32) -> SimResult<()> {
     Ok(())
 }
 
-fn checked_add_relic_strength(value: &mut i32, temporary: i32, amount: i32) -> SimResult<()> {
-    // Brimstone applies StrengthPower: bound the combined current amount,
+pub(crate) fn checked_add_relic_strength(
+    value: &mut i32,
+    temporary: i32,
+    amount: i32,
+) -> SimResult<()> {
+    // Relics apply StrengthPower: bound the combined current amount,
     // retaining the full pending temporary loss rather than capping its debt.
     let mut current = *value;
     checked_add_relic_value(&mut current, temporary)?;
