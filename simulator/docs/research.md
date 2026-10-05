@@ -133,6 +133,13 @@ target action/effect lifecycle rather than an observed deck snapshot.
   `ToyOrnithopter.onUsePotion` queues `HealAction` after the potion's selector;
   that heal therefore waits for confirmation too. These selection boundaries
   remain source-backed synthetic coverage, not dedicated interaction traces.
+  Swift/Snecko must use the same action queue even without a screen. Draw-time
+  Confusion advances the live `cardRandomRng` before hand randomization; never
+  randomize from a run RNG cloned before the draw. Fire Breathing's on-draw
+  damage is `addToBot`, behind Snecko's already-queued randomizer and the
+  potion-use heal; a subsequent Gremlin Horn draw is not retroactively given
+  Snecko Oil costs. Toy Ornithopter's heal also stays behind an open reward/grid
+  for these draw potions. These are source-backed, not dedicated trace parity.
   Post-lethal shared draw/cost-action cancellation and other potions' queued
   on-use callback timing remain separate audits.
 - Boss identity first follows unseen-profile progression; traces requiring it
