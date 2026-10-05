@@ -155,6 +155,10 @@ pub enum InternalAction {
     GainBlockDirect {
         amount: i32,
     },
+    /// BlockPotion's GainBlockAction: unmodified block with potion error semantics.
+    GainBlockFromPotion {
+        amount: i32,
+    },
     /// Feel No Pain's on-exhaust block is queued after the exhaust action and
     /// is not prevented by Panic Button's NoBlockPower.
     GainBlockFromExhaust {
@@ -338,6 +342,10 @@ pub enum InternalAction {
         count: usize,
     },
     GainEnergy {
+        amount: i32,
+    },
+    /// GainEnergyAction queued by Energy Potion, retaining its overflow error.
+    GainEnergyFromPotion {
         amount: i32,
     },
     /// VoidCard.triggerWhenDrawn addToBot's LoseEnergyAction.

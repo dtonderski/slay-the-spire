@@ -145,9 +145,15 @@ pub(crate) fn end_player_turn_owned(mut next: CombatState) -> SimResult<CombatSt
                     .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
             {
                 // Earlier end-turn damage cleared the pending draw/manipulation
-                // actions, but clearPostCombatActions retains HealAction.
-                // Drain it before settling victory, not after Burning Blood.
-                actions.retain(|action| matches!(action, crate::InternalAction::HealPlayer { .. }));
+                // actions, but clearPostCombatActions retains Heal/GainBlock.
+                // Drain them before settling victory, not after Burning Blood.
+                actions.retain(|action| {
+                    matches!(
+                        action,
+                        crate::InternalAction::HealPlayer { .. }
+                            | crate::InternalAction::GainBlockFromPotion { .. }
+                    )
+                });
             } else if finish_combat_if_over(&mut next, started_with_living_monster)? {
                 next.resume_end_turn_after_nilrys_codex = false;
                 return Ok(next);
@@ -1673,9 +1679,13 @@ fn execute_generic_monster_intent(
     {
         for (other_index, monster) in state.monsters.iter_mut().enumerate() {
             if other_index != index && monster.alive {
-                monster.block = monster.block.checked_add(30).ok_or(SimError::InvalidState(
-                    "Spire Shield Fortify block overflows i32",
-                ))?;
+                monster.block = monster
+                    .block
+                    .checked_add(30)
+                    .ok_or(SimError::InvalidState(
+                        "Spire Shield Fortify block overflows i32",
+                    ))?
+                    .min(999);
             }
         }
     }
@@ -1838,7 +1848,8 @@ fn execute_state_oriented_special_intent(
                 state.monsters[index].hp = target_hp;
             }
             if ascension >= 19 {
-                state.monsters[index].block = checked_turn_add(state.monsters[index].block, 32)?;
+                state.monsters[index].block =
+                    checked_turn_add(state.monsters[index].block, 32)?.min(999);
             }
             checked_turn_increment(&mut state.monsters[index].moves_executed)?;
             prepare_next_intent_for_actor(state, actor_id)?;
@@ -1976,7 +1987,7 @@ fn execute_state_oriented_special_intent(
                 .iter_mut()
                 .find(|monster| monster.id == actor_id)
             {
-                monster.block = checked_turn_add(monster.block, block)?;
+                monster.block = checked_turn_add(monster.block, block)?.min(999);
                 checked_turn_increment(&mut monster.moves_executed)?;
             }
             prepare_next_intent_for_actor(state, actor_id)?;
@@ -1985,7 +1996,8 @@ fn execute_state_oriented_special_intent(
         crate::MonsterIntent::StrengthAndBlock { strength, block }
             if state.monsters[index].content_id == CHAMP_ID =>
         {
-            state.monsters[index].block = checked_turn_add(state.monsters[index].block, block)?;
+            state.monsters[index].block =
+                checked_turn_add(state.monsters[index].block, block)?.min(999);
             state.monsters[index].powers.metallicize =
                 checked_turn_add(state.monsters[index].powers.metallicize, strength)?;
             checked_turn_increment(&mut state.monsters[index].moves_executed)?;
@@ -2184,7 +2196,7 @@ fn execute_spawning_or_targeted_special_intent(
                 .iter_mut()
                 .find(|monster| monster.alive && monster.content_id == BRONZE_AUTOMATON_ID)
             {
-                automaton.block = checked_turn_add(automaton.block, block)?;
+                automaton.block = checked_turn_add(automaton.block, block)?.min(999);
             }
             if let Some(monster) = state
                 .monsters
@@ -3470,7 +3482,8 @@ fn apply_shield_gremlin_random_block(
         Some(candidates[rng.random_int(candidates.len() as i32 - 1) as usize])
     };
     if let Some(target_index) = target_index {
-        monsters[target_index].block = checked_turn_add(monsters[target_index].block, block)?;
+        monsters[target_index].block =
+            checked_turn_add(monsters[target_index].block, block)?.min(999);
     }
     Ok(())
 }
@@ -3486,7 +3499,7 @@ fn apply_deca_square(
             if !monster.alive {
                 return Ok((monster.block, monster.powers.plated_armor));
             }
-            let next_block = checked_turn_add(monster.block, block)?;
+            let next_block = checked_turn_add(monster.block, block)?.min(999);
             let next_plated_armor = if ascension >= 19 {
                 checked_turn_add(monster.powers.plated_armor, 3)?
             } else {

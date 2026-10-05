@@ -657,16 +657,9 @@ pub(super) fn open_potion_card_reward(
     use crate::combat::PotionCardRewardKind;
     use crate::content::shop_pool::{colorless_discovery_card_choices, discovery_card_choices};
 
-    // GameActionManager.clearPostCombatActions drops queued card manipulation,
-    // but not HealAction. Do not create an offer or draw RNG after final lethal.
-    if state.player.hp <= 0
-        || state
-            .monsters
-            .iter()
-            .all(|monster| !monster.alive && !super::awakened_one_is_half_dead(monster))
-    {
-        return Ok(Vec::new());
-    }
+    // The queue's clearPostCombatActions boundary cancels already-pending
+    // offers. Do not add a perpetual dead-room veto here: DiscoveryAction
+    // itself can still run if enqueued after that point-in-time clear.
     if state.decision.is_some() {
         return Err(SimError::InvalidState(
             "potion reward started before prior decision closed",
