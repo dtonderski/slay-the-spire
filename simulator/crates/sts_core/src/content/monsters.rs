@@ -10701,8 +10701,10 @@ fn apply_monster_intent_with_card_rng_inner(
             strength,
             dexterity,
         } => {
-            reduce_player_strength(&mut player.powers, strength)?;
+            // Lagavulin queues DexterityPower before StrengthPower. Artifact
+            // must reject the real first application, not a reordered result.
             reduce_player_dexterity(&mut player.powers, dexterity)?;
+            reduce_player_strength(&mut player.powers, strength)?;
             bronze_orb_apply_stasis(monster, piles, card_random_rng);
             monster.has_siphoned = true;
             (0, 0)
