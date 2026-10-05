@@ -1877,6 +1877,9 @@ fn apply_internal_action_with_defer(
         InternalAction::GainIntangible { amount } => player_actions::gain_intangible(state, amount),
         InternalAction::GainRitual { amount } => player_actions::gain_ritual(state, amount),
         InternalAction::GainArtifact { amount } => player_actions::gain_artifact(state, amount),
+        InternalAction::GainArtifactFromPotion { amount } => {
+            player_actions::gain_artifact_from_potion(state, amount)
+        }
         InternalAction::UpgradeCombatCards => player_actions::upgrade_all_combat_cards(state),
         InternalAction::UnceasingTopDraw => {
             if state.piles.hand.is_empty() {
@@ -3782,6 +3785,7 @@ fn is_play_top_deferred_power_gain(action: &InternalAction) -> bool {
             | InternalAction::GainIntangible { .. }
             | InternalAction::GainRitual { .. }
             | InternalAction::GainArtifact { .. }
+            | InternalAction::GainArtifactFromPotion { .. }
             | InternalAction::GainRage { .. }
     )
 }
@@ -7505,6 +7509,13 @@ mod tests {
         ] {
             assert!(is_play_top_deferred_power_gain(&action));
         }
+    }
+
+    #[test]
+    fn ancient_potion_is_classified_as_apply_power_action() {
+        assert!(is_play_top_deferred_power_gain(
+            &InternalAction::GainArtifactFromPotion { amount: 1 }
+        ));
     }
 
     #[test]

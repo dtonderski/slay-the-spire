@@ -718,6 +718,22 @@ pub(super) fn gain_ritual(state: &mut CombatState, amount: i32) -> SimResult<Vec
     Ok(Vec::new())
 }
 
+pub(super) fn gain_artifact_from_potion(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    state.player.powers.artifact =
+        state
+            .player
+            .powers
+            .artifact
+            .checked_add(amount)
+            .ok_or(SimError::InvalidState(
+                "combat potion stat gain overflows i32",
+            ))?;
+    Ok(Vec::new())
+}
+
 pub(super) fn gain_artifact(
     state: &mut CombatState,
     amount: i32,
