@@ -1294,6 +1294,11 @@ fn checked_add_combat_value(value: &mut i32, amount: i32) -> SimResult<()> {
     Ok(())
 }
 
+fn checked_add_card_callback_monster_strength(value: &mut i32, amount: i32) -> SimResult<()> {
+    *value = checked_combat_sum(*value, amount)?.clamp(-999, 999);
+    Ok(())
+}
+
 fn apply_internal_action(
     state: &mut CombatState,
     action: InternalAction,
@@ -1997,7 +2002,7 @@ fn apply_on_card_play_powers(
             && monster.mode_shift == 0
         {
             let curiosity = if state.ascension >= 19 { 2 } else { 1 };
-            checked_add_combat_value(&mut monster.powers.strength, curiosity)?;
+            checked_add_card_callback_monster_strength(&mut monster.powers.strength, curiosity)?;
         }
     }
     if defer_time_warp {
@@ -3415,7 +3420,10 @@ fn apply_enrage_on_card_type(state: &mut CombatState, card_type: CardType) -> Si
         if get_monster_definition(monster.content_id).is_some_and(|definition| {
             definition.enrage_weak_on_skill > 0 && monster.powers.anger > 0
         }) {
-            checked_add_combat_value(&mut monster.powers.strength, monster.powers.anger)?;
+            checked_add_card_callback_monster_strength(
+                &mut monster.powers.strength,
+                monster.powers.anger,
+            )?;
         }
     }
     Ok(())
