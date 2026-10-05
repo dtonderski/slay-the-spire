@@ -2565,14 +2565,14 @@ mod tests {
             run.combat.as_ref().expect("combat").decision,
             Some(CombatDecisionState::HandSelect { .. })
         ));
-        let restored = observation(&run)
-            .draw_pile
-            .cards
-            .iter()
-            .map(|card| card.content_key.clone())
-            .collect::<Vec<_>>();
-        assert!(restored.iter().any(|key| key == "Anger"));
-        assert!(restored.iter().any(|key| key == "WILD_STRIKE"));
+        // All three PlayTop actions extract before the card lane runs.
+        // Unplayed siblings stay privately held in limbo, not restored into
+        // the draw pile or exposed as draw-pile identities/order.
+        let combat = run.combat.as_ref().expect("combat");
+        for id in [CardId::new(101), CardId::new(102)] {
+            assert!(combat.piles.limbo.iter().any(|card| card.id == id));
+        }
+        assert!(observation(&run).draw_pile.cards.is_empty());
         assert!(
             known_keys(&run).is_empty(),
             "unplayed Distilled Chaos tops must not become known_positions: {:?}",

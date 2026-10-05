@@ -154,14 +154,6 @@ impl CardPiles {
         self.draw_pile.push(card);
     }
 
-    /// Gameplay top restore that is not a public insert (hidden hold-outs).
-    /// Remaining positional knowledge is cleared rather than shifted from a
-    /// private pre-pop.
-    pub(crate) fn restore_hidden_draw_top(&mut self, card: CardInstance) {
-        self.draw_pile.push(card);
-        self.draw_pile_knowledge.shuffle_or_replace_unknown();
-    }
-
     pub(crate) fn pop_draw_top(&mut self) -> Option<CardInstance> {
         let card = self.draw_pile.pop()?;
         self.draw_pile_knowledge.remove_top();
@@ -255,22 +247,6 @@ mod tests {
         knowledge.insert_top(id(1));
         knowledge.remove_unknown_index();
         assert!(knowledge.is_empty());
-    }
-
-    #[test]
-    fn hidden_restore_does_not_record_the_restored_card() {
-        let mut piles = CardPiles {
-            hand: Vec::new(),
-            draw_pile: vec![CardInstance::new(id(1), STRIKE_R_ID)],
-            discard_pile: Vec::new(),
-            exhaust_pile: Vec::new(),
-            limbo: Vec::new(),
-            draw_pile_knowledge: DrawPilePublicKnowledge::default(),
-        };
-        piles.push_draw_top(CardInstance::new(id(2), BASH_ID));
-        piles.restore_hidden_draw_top(CardInstance::new(id(3), DEFEND_R_ID));
-        assert_eq!(piles.draw_pile.last().map(|card| card.id), Some(id(3)));
-        assert!(piles.draw_pile_knowledge.is_empty());
     }
 
     #[test]
