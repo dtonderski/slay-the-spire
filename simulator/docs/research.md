@@ -95,6 +95,13 @@ change the chance by ±10, then roll rarity and retry pool identities until the
 rarity matches. Lab and Woman in Blue instead draw direct pool indices without
 a rarity roll.
 
+Courier potion replacement uses `StorePotion.purchasePotion` →
+`AbstractDungeon.returnRandomPotion()`: roll potion rarity, then retry uniform
+pool identities until rarity matches; only afterward price the replacement.
+It does not use the single-draw `PotionHelper.getRandomPotion()` variant.
+FIDL00591 step 1617 CHOOSE 11 witnesses Entropic Brew replaced by Flex Potion.
+This seeded potion path is distinct from Courier's non-seeded colored cards.
+
 Normal fights do not grant relics; elite rewards roll common/uncommon/rare with
 target thresholds. Relic pools are Java-shuffled from `relicRng.randomLong()`
 and ordinary offers pop from the front. Rejected spawn candidates are removed
@@ -144,6 +151,10 @@ target action/effect lifecycle rather than an observed deck snapshot.
   current Strength stays unchanged, while negative current Strength is removed.
   This classification finding is source-backed, not established by a dedicated
   real-game boundary trace.
+- `RedSkull.onNotBloodied` applies negative `StrengthPower` through
+  `ApplyPowerAction`, so Artifact can block its removal. The relic's active flag
+  still resets; a subsequent heal does not retry the blocked loss. This is
+  source-backed, not established by a dedicated real-game interaction trace.
 - Summoned Gremlins consume an identity draw and an otherwise ignored opening
   AI roll before their fixed opening move.
 - Writhing Mass attack-triggered rerolls are queued, consume AI RNG, and update
