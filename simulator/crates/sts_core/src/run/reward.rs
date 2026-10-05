@@ -2523,8 +2523,7 @@ fn apply_validated_treasure_action_owned(
                 next.flush_pending_obtain_cards()?;
                 enter_next_act_map(&mut next)?;
             } else {
-                next.phase = RunPhase::Idle;
-                next.treasure_room = None;
+                super::map_overlay::open_completed_room_map(&mut next);
             }
             Ok(next)
         }
@@ -2838,12 +2837,14 @@ fn apply_validated_reward_action_owned(
                     .reward
                     .as_ref()
                     .is_some_and(|reward| reward.continuation == RewardContinuation::Shop);
-                close_reward_overlay(&mut next, RewardCloseReason::Proceed)?;
-                if rest_reward_leaves_room {
-                    next.rest_room_complete = false;
-                    next.phase = RunPhase::Idle;
-                } else if shop_overlay_leaves_room {
-                    super::shop::leave_shop_room(&mut next);
+                if rest_reward_leaves_room || shop_overlay_leaves_room {
+                    // Non-event reward Proceed retains COMBAT_REWARD as the
+                    // previous screen. Do not close its continuation first.
+                    next.flush_pending_obtain_cards()?;
+                    super::map_overlay::open_completed_room_map(&mut next);
+                } else {
+                    // EventRoom has a separate target close-to-dialog branch.
+                    close_reward_overlay(&mut next, RewardCloseReason::Proceed)?;
                 }
             }
         }
@@ -2965,7 +2966,7 @@ fn close_reward_overlay(run: &mut RunState, reason: RewardCloseReason) -> SimRes
         .as_ref()
         .map(|reward| reward.continuation)
         .unwrap_or(RewardContinuation::None);
-    run.phase = match continuation {
+    let next_phase = match continuation {
         RewardContinuation::None => RunPhase::Idle,
         RewardContinuation::Rest => RunPhase::Rest,
         RewardContinuation::Event => RunPhase::Event,
@@ -2975,8 +2976,15 @@ fn close_reward_overlay(run: &mut RunState, reason: RewardCloseReason) -> SimRes
         RewardContinuation::Neow if reason == RewardCloseReason::Automatic => RunPhase::Event,
         RewardContinuation::Neow => RunPhase::Idle,
     };
-    run.reward = None;
-    run.emerald_key_reward_available = false;
+    if next_phase == RunPhase::Idle {
+        // Suspend the still-active reward owner before changing input ownership.
+        // There is no destructive close followed by state restoration.
+        super::map_overlay::open_completed_room_map(run);
+    } else {
+        run.phase = next_phase;
+        run.reward = None;
+        run.emerald_key_reward_available = false;
+    }
     if continuation == RewardContinuation::Map {
         run.treasure_room = None;
     }

@@ -247,6 +247,11 @@ pub(super) fn direct_decision(run: &RunState, command: &str) -> Result<RunDecisi
             .iter()
             .copied()
             .find(|action| matches!(action, RunDecisionAction::GridCancel))
+    } else if command_head_eq(command, "RETURN") {
+        legal
+            .iter()
+            .copied()
+            .find(|action| matches!(action, RunDecisionAction::MapReturn))
     } else if command_head_eq(command, "PROCEED") {
         legal.iter().copied().find(|action| {
             matches!(

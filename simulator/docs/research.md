@@ -113,6 +113,24 @@ target action/effect lifecycle rather than an observed deck snapshot.
   leave Strength below its pre-Flex value when the gain was clipped. Artifact can
   block creation or later application of the loss. This boundary finding is
   source-backed, not established by a dedicated real-game boundary trace.
+- The dungeon map overlays the current completed room. `ProceedButton.update`
+  opens `DungeonMapScreen.open(false)` and sets `previousScreen=COMBAT_REWARD`
+  when leaving reward UI. `CancelButton.update` delegates MAP cancellation to
+  `AbstractDungeon.closeCurrentScreen`; `openPreviousScreen` reopens existing
+  reward UI rather than regenerating rewards. `AbstractEvent.openMap` likewise
+  opens a dismissable map, not a new room. Retain simulator-owned room screen
+  payloads at that transition; RETURN changes screen ownership only. Actual map
+  node entry discards the suspended owner. The earlier EventRoom branch in
+  `ProceedButton.update` (offsets 282–385) is distinct: most event-owned rewards
+  close back to the dialog, while the enumerated fight/Lab/Colosseum/Sphere/
+  Mind Bloom exceptions open the map. Do not generalize the later non-event
+  COMBAT_REWARD branch to all reward origins. FIDL00002 (step 61 RETURN) witnesses
+  unclaimed gold; FIDL00233 (step 5 RETURN) witnesses unclaimed Neow potions.
+  `Beggar.update` likewise opens the map after purge while retaining its final
+  Leave dialog (FIDL00179, step 481 RETURN after grid CONFIRM).
+  These witnesses do not certify every event's completed-dialog stage or other
+  later divergences.
+
 - Summoned Gremlins consume an identity draw and an otherwise ignored opening
   AI roll before their fixed opening move.
 - Writhing Mass attack-triggered rerolls are queued, consume AI RNG, and update

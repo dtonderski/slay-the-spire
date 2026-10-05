@@ -48,6 +48,7 @@ type ActionKind = Literal[
     "enter_shop",
     "leave_shop",
     "open_shop_remove",
+    "return_to_room",
 ]
 type Phase = Literal["combat", "reward", "treasure", "rest", "event", "shop", "idle", "complete"]
 type ObservationKind = Literal[
