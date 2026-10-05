@@ -1560,7 +1560,7 @@ mod tests {
             };
             pending.push_back(
                 sts_core::adapter_internals::InternalAction::OpenPotionCardReward {
-                    reward_kind: sts_core::adapter_internals::PotionCardRewardKind::Skill,
+                    reward_kind: PotionCardRewardKind::Skill,
                 },
             );
             pending.push_back(sts_core::adapter_internals::InternalAction::OpenElixirSelection);
@@ -1592,7 +1592,7 @@ mod tests {
             .push_back(sts_core::adapter_internals::InternalAction::RandomizeHandCostsForSneckoOil);
         pending.push_back(
             sts_core::adapter_internals::InternalAction::OpenPotionCardReward {
-                reward_kind: sts_core::adapter_internals::PotionCardRewardKind::Skill,
+                reward_kind: PotionCardRewardKind::Skill,
             },
         );
         assert_hidden_equivalent("Nilry pending potion actions", &left, &right);
