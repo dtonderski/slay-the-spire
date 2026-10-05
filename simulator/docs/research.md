@@ -163,6 +163,28 @@ target action/effect lifecycle rather than an observed deck snapshot.
   double-callback experiment diverged in six unchanged reviewed traces. The
   existing single-callback behavior passes those traces and source-backed
   synthetic controls; no gameplay fix was needed for this finding.
+- `StrengthPower` caps its constructor amount, but `ApplyPowerAction.update`
+  calls an existing matching power's `stackPower` with the action's raw
+  `amount`, not the newly constructed power's capped amount. Do not preclip
+  that stacking input: existing -999 Strength plus a raw1000 application
+  becomes1, not0. Bound the resulting actual power through `stackPower`.
+  This distinction is source-backed synthetic coverage, not a dedicated
+  real-game extreme-amount interaction trace.
+
+- A legacy hand-discard publication must retain the typed addToBot exhaust
+  callbacks, not execute Feel No Pain and restore block or derive its amount
+  from a clipped block delta. `CardGroup.moveToExhaustPile` invokes relics
+  before powers; Dead Branch creates its card at that callback, while its
+  insertion, Feel No Pain's nominal GainBlockAction, and Dark Embrace's draw
+  remain queued. Keep generated cards authoritative during the hold and
+  preserve each positive gain's later Juggernaut callback, including capped
+  gains. Nonzero old debug block aggregates lack that per-exhaust context;
+  reject rather than infer it from current amounts or observations. This is
+  initialized lifecycle/ownership coverage, not proof that the exposed legacy
+  helper is reached by vanilla or dedicated publication-trace parity. The
+  existing FNP-before-DE mapping and normal END pipeline remain separate from
+  a universal power-list insertion-order audit.
+
 - `LoseDexterityPower.atEndOfTurn` queues an incoming negative
   `DexterityPower`, then removal of `DexLoss` even when Artifact blocks the
   loss. Resolve this in the end-turn power window, before monster debuffs,
