@@ -622,15 +622,27 @@ pub(super) fn gain_temp_strength(
     state: &mut CombatState,
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
-    // Flex applies Strength and a debuff that removes it at end of turn.
-    // Artifact blocks that debuff when it is created, consuming one Artifact
-    // and leaving the gained Strength permanent.
-    if state.player.powers.artifact > 0 {
-        let strength = checked_combat_sum(state.player.powers.strength, amount)?;
-        state.player.powers.artifact -= 1;
-        state.player.powers.strength = strength;
+    // Flex.use applies bounded Strength, then the nominal LoseStrengthPower.
+    // The latter inherits uncapped AbstractPower stacking. Retain its full
+    // amount even when StrengthPower.stackPower clips the visible gain.
+    // Artifact blocks creation of only the new loss, not an existing one.
+    let current = checked_combat_sum(state.player.powers.strength, state.player.temp_strength)?;
+    let bounded = checked_combat_sum(current, amount)?.clamp(-999, 999);
+    let blocks_loss = state.player.powers.artifact > 0;
+    let pending_loss = if blocks_loss {
+        state.player.temp_strength
     } else {
-        checked_add_combat_value(&mut state.player.temp_strength, amount)?;
+        checked_combat_sum(state.player.temp_strength, amount)?
+    };
+    let strength = bounded
+        .checked_sub(pending_loss)
+        .ok_or(SimError::InvalidState(
+            "strength component subtraction overflows i32",
+        ))?;
+    state.player.powers.strength = strength;
+    state.player.temp_strength = pending_loss;
+    if blocks_loss {
+        state.player.powers.artifact -= 1;
     }
     Ok(Vec::new())
 }
