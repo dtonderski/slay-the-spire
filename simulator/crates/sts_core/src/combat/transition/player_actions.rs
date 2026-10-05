@@ -632,7 +632,10 @@ pub(super) fn gain_dexterity(
     if amount > 0 && state.player.powers.fasting > 0 {
         return Ok(Vec::new());
     }
-    checked_add_combat_value(&mut state.player.powers.dexterity, amount)?;
+    // Actual Dexterity already includes temporary gains; temp_dexterity is
+    // separate nominal loss debt, not another component of this amount.
+    state.player.powers.dexterity =
+        checked_combat_sum(state.player.powers.dexterity, amount)?.clamp(-999, 999);
     Ok(Vec::new())
 }
 
