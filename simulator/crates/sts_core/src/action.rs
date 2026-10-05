@@ -518,6 +518,13 @@ pub enum InternalAction {
     GainDexterity {
         amount: i32,
     },
+    /// SpeedPotion.use's ordered addToBot ApplyPowerAction pair.
+    GainDexterityFromSpeedPotion {
+        amount: i32,
+    },
+    ApplyDexLossFromSpeedPotion {
+        amount: i32,
+    },
     GainTempStrength {
         amount: i32,
     },

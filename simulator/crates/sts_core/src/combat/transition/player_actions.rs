@@ -631,6 +631,43 @@ pub(super) fn gain_mantra(state: &mut CombatState, amount: i32) -> SimResult<Vec
     Ok(Vec::new())
 }
 
+pub(super) fn gain_dexterity_from_speed_potion(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    state.player.powers.dexterity = state
+        .player
+        .powers
+        .dexterity
+        .checked_add(amount)
+        .ok_or(SimError::InvalidState(
+            "combat potion stat gain overflows i32",
+        ))?
+        .clamp(-999, 999);
+    Ok(Vec::new())
+}
+
+pub(super) fn apply_dex_loss_from_speed_potion(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    // Only this incoming DEBUFF is rejected; old nominal debt stays intact.
+    // Rejection precedes any arithmetic on the rejected new debt.
+    if state.player.powers.artifact > 0 {
+        state.player.powers.artifact -= 1;
+    } else {
+        state.player.temp_dexterity =
+            state
+                .player
+                .temp_dexterity
+                .checked_add(amount)
+                .ok_or(SimError::InvalidState(
+                    "combat potion stat gain overflows i32",
+                ))?;
+    }
+    Ok(Vec::new())
+}
+
 pub(super) fn gain_dexterity(
     state: &mut CombatState,
     amount: i32,

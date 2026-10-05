@@ -1337,31 +1337,19 @@ pub(crate) fn apply_validated_potion_action_owned(
                     })?;
                 }
                 Potion::Speed => {
+                    defer_potion_use_relics = true;
+                    let amount =
+                        checked_potion_stat_gain(0, SPEED_POTION_TEMP_DEXTERITY, multiplier)?;
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    let dexterity = checked_potion_stat_gain(
-                        combat.player.powers.dexterity,
-                        SPEED_POTION_TEMP_DEXTERITY,
-                        multiplier,
-                    )?
-                    .clamp(-999, 999);
-                    // Dexterity is the actual power; DexLoss is separate,
-                    // uncapped nominal debt. Artifact rejects only the new
-                    // DEBUFF application, not this positive gain or old debt.
-                    let blocked_loss = combat.player.powers.artifact > 0;
-                    let temp_dexterity = if blocked_loss {
-                        combat.player.temp_dexterity
-                    } else {
-                        checked_potion_stat_gain(
-                            combat.player.temp_dexterity,
-                            SPEED_POTION_TEMP_DEXTERITY,
-                            multiplier,
-                        )?
-                    };
-                    combat.player.powers.dexterity = dexterity;
-                    if blocked_loss {
-                        combat.player.powers.artifact -= 1;
+                    // SpeedPotion.use queues positive Dexterity, then DexLoss.
+                    // Both read live amounts at execution, before the onUse heal.
+                    let actions = std::collections::VecDeque::from([
+                        crate::InternalAction::GainDexterityFromSpeedPotion { amount },
+                        crate::InternalAction::ApplyDexLossFromSpeedPotion { amount },
+                    ]);
+                    if queue_combat_potion_actions(combat, actions)? {
+                        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
                     }
-                    combat.player.temp_dexterity = temp_dexterity;
                 }
                 Potion::Swift | Potion::SneckoOil => {
                     defer_potion_use_relics = true;
