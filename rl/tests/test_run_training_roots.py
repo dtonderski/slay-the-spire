@@ -1,18 +1,27 @@
 """Synthetic-root curriculum contracts, not natural-run or parity evidence."""
 
+import gzip
 import json
 import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 import torch
 from run_training.collector import task_result
 from run_training.contracts import PolicyAction
 from run_training.model import HealthMacroModel, MacroModel, encode
 from run_training.rewards import succeeded, terminal_parts
-from run_training.roots import ROOT_PROTOCOL, RootBank, file_hash, reconstruct
+from run_training.roots import (
+    ROOT_PROTOCOL,
+    RootBank,
+    file_hash,
+    reconstruct,
+    validate_natural_setup,
+)
 from sts_sim import _native
+from tools.build_campfire_roots import find_root
 
 FIXTURES = (
     Path(__file__).resolve().parents[2] / "simulator/python/tests/fixtures/campfire"
@@ -77,6 +86,42 @@ class RootCurriculumTests(unittest.TestCase):
             for fraction in (0, -1, 1.01, float("nan")):
                 with self.assertRaises(ValueError):
                     bank.initial(bank.training[0], fraction)
+
+    def test_sources_must_declare_natural_start_or_be_legacy_natural(self):
+        setup = {
+            "type": "setup",
+            "seed": self.cases[0]["seed"],
+            "ascension": 0,
+            "final_act": True,
+        }
+        validate_natural_setup(setup)
+        validate_natural_setup(
+            {**setup, "initial_state": {"protocol": "natural_start"}}
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            journal = root / "new-non-natural-source.jsonl.gz"
+            for initial in (
+                {"protocol": ROOT_PROTOCOL},
+                {"protocol": "unknown"},
+                {},
+                None,
+                [],
+            ):
+                with gzip.open(journal, "wt") as stream:
+                    stream.write(json.dumps({**setup, "initial_state": initial}) + "\n")
+                with patch("run_training.roots.State.new") as new:
+                    with self.assertRaisesRegex(ValueError, "natural A0"):
+                        reconstruct(journal, 0)
+                    with self.assertRaisesRegex(ValueError, "natural A0"):
+                        find_root(journal)
+                    manifest = self.manifest()
+                    manifest["cases"][0].update(
+                        journal=str(journal), journal_sha256=file_hash(journal)
+                    )
+                    with self.assertRaisesRegex(ValueError, "natural A0"):
+                        self.bank(root / "manifest.json", manifest)
+                    new.assert_not_called()
 
     def test_binary_reward_has_no_preearned_progress(self):
         for floor in (0, 8, 15, 16):

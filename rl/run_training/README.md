@@ -53,7 +53,8 @@ Known failure classes include Prismatic Shard and Courier purchase successors,
 and Headbutt selection completion leaving a won combat without a legal next
 run action. These have simulator-only reproductions; they are not real-game
 parity findings. The default **aborts** on simulator errors or incomplete training
-batches. For an
+batches. Both serial and batched modes log localized collection failures in
+`collection-errors.jsonl`, including failures that abort the run. For an
 explicitly authorized bounded experiment, `--continue-on-collection-failure`
 quarantines the **whole batch**, logs the failed seed/action, and samples fresh
 runs. It never retries a failed action, silently filters legal candidates, assigns
@@ -91,6 +92,14 @@ observation, reward, objective and frozen-combat contracts must match; native/so
 hash changes are allowed and parent checkpoint/native hashes are recorded. The
 optimizer, sampler and local iteration counters start fresh. This is not exact
 resume and does not restore simulator states or unfinished episodes.
+
+The unchanged `hashed` encoder retains feature version **2**. Weights-only warm
+starts from #93 checkpoints interpret a missing `encoder` field as `hashed`.
+Pre-review #141 checkpoints explicitly tagged `encoder=hashed, feature_version=3`
+can also transfer weights to hashed version2; their parent encoder/version are
+recorded. The opt-in `health` encoder remains version3. Unknown feature versions,
+encoder changes and incompatible reward/model contracts still fail. These narrow
+compatibility rules apply only to `--warm-start`; exact resume checks are unchanged.
 
 Checkpoints commit before telemetry publishing, so a W&B connection failure cannot
 lose an already processed optimizer update. For a manual graceful stop, send
@@ -193,6 +202,9 @@ synthetic initial states. Inventory, maximum HP, settled entry effects and RNG
 are unchanged. No simulator state is hydrated from observations. Root seeds and
 provenance are logged, never policy features. The original journals are copied
 unchanged, with hashes; they are simulator diagnostics, not real-game traces.
+The builder, bank loader and prefix reconstructor require a natural-start setup:
+legacy journals may omit `initial_state`, but an explicit protocol must be
+`natural_start`. Synthetic or unknown protocols are rejected before state creation.
 
 Prepare a bank from an existing natural-run training output (requires both
 training journals and a completed scheduled validation):
@@ -222,13 +234,19 @@ uv run --project rl --no-sync python rl/train.py --task run \
   --eval-every 64 --max-hours 0.5 --compress-journals --wandb-mode disabled
 ```
 
+`--root-eval-hp` values must yield distinct rounded-percent metric names; e.g.
+0.149 and 0.151 are rejected because both would write `root_hp_15`.
+
 Repeat with a new run ID and `--encoder health` for a matched ablation. Both use
 fresh weights, the same initialization seed, root/HP sampling and frozen combat;
 neither installs a healing heuristic or removes legal candidates. `health` adds
 zero-initialized-output ReLU residual paths using normalized public HP/max-HP for
 value and candidate scoring, bypassing the pooled tanh context. It adds parameters
 and explicit HP access, so it is a feature/architecture ablation, not proof about
-saturation alone. `hashed` ignores the extra health tuple and retains the original
+saturation alone. `health` is retained only as an opt-in research ablation for
+controlled critic/representation follow-ups, not as a recommended training recipe;
+the negative pilot below did not establish a benefit. `hashed` remains the default,
+ignores the extra health tuple and retains the original
 mathematical encoder. Feature version changes make old checkpoints incompatible
 with strict continuation. Existing natural-run checkpoints remain preserved;
 exact resume requires restoring their original source and matching native build.

@@ -1,7 +1,7 @@
 """Experimental A0 Monte Carlo actor-critic, invoked only by train.py --task run.
 
 Completed episodes, gamma=1, one on-policy update, fresh run value head. No PPO,
-privileged search, synthetic HP, or optimizer step after incomplete collection.
+privileged search, live-state HP mutation, or optimizer step after incomplete collection.
 """
 
 import argparse
@@ -32,7 +32,12 @@ from run_training.collector import (
     failed_episode,
 )
 from run_training.metrics import behavior_scores
-from run_training.model import FEATURE_VERSION, HealthMacroModel, MacroModel
+from run_training.model import (
+    FEATURE_VERSION,
+    HEALTH_FEATURE_VERSION,
+    HealthMacroModel,
+    MacroModel,
+)
 from run_training.rewards import (
     ACT1_BOSS_FLOOR,
     ACT1_CLEAR_BONUS,
@@ -66,10 +71,23 @@ def digest(path: Path) -> str:
 def load_warm_start(model: MacroModel, path: Path, settings: dict) -> dict:
     """Explicit weights-only transfer across simulator/source revisions, not resume."""
     source = torch.load(path, map_location="cpu", weights_only=True)
+    config = source["config"]
+    # #93 predates the encoder option and only implements the hashed model.
+    if config.get("encoder", "hashed") != settings.get("encoder", "hashed"):
+        raise ValueError("Run warm-start mismatch: encoder")
+    version = config.get("feature_version")
+    # Pre-review #141 checkpoints labeled the unchanged hashed features as v3.
+    # Migrate only that explicit weights-only case; exact resume remains strict.
+    if (
+        config.get("encoder") == "hashed"
+        and version == 3
+        and settings.get("feature_version") == FEATURE_VERSION
+    ):
+        version = FEATURE_VERSION
+    if version != settings.get("feature_version"):
+        raise ValueError("Run warm-start mismatch: feature_version")
     for key in (
         "protocol",
-        "feature_version",
-        "encoder",
         "reward_protocol",
         "model_width",
         "objective",
@@ -85,6 +103,8 @@ def load_warm_start(model: MacroModel, path: Path, settings: dict) -> dict:
     if not all(torch.isfinite(p).all() for p in model.parameters()):
         raise ValueError("Nonfinite macro checkpoint")
     return {
+        "parent_feature_version": config.get("feature_version"),
+        "parent_encoder": config.get("encoder", "hashed"),
         "parent_iteration": source["iteration"],
         "parent_optimizer_updates": source["optimizer_updates"],
         "parent_native_sha256": source["config"]["native_sha256"],
@@ -451,6 +471,11 @@ def main(argv: list[str] | None = None) -> None:
     held_out = validation_seeds(args.validation_seeds)
     if not 0 < args.root_hp_min <= 1 or any(not 0 < x <= 1 for x in args.root_eval_hp):
         cli.error("Root HP fractions must be finite and in (0, 1]")
+    hp_labels = [round(100 * fraction) for fraction in args.root_eval_hp]
+    if len(hp_labels) != len(set(hp_labels)):
+        cli.error(
+            "root-eval-hp fractions must have distinct rounded-percent metric names"
+        )
     bank = (
         RootBank(args.root_manifest, final_act=args.final_act)
         if args.root_manifest
@@ -516,7 +541,9 @@ def main(argv: list[str] | None = None) -> None:
         failure_policy="quarantine whole batches; conditional supported training"
         if args.continue_on_collection_failure
         else "abort",
-        feature_version=FEATURE_VERSION,
+        feature_version=HEALTH_FEATURE_VERSION
+        if args.encoder == "health"
+        else FEATURE_VERSION,
         ascension=0,
         gamma=1.0,
         observation_schema=FAIR_RUN_OBSERVATION_SCHEMA_VERSION,
@@ -679,9 +706,9 @@ def main(argv: list[str] | None = None) -> None:
             try:
                 result.append(collect(job.seed, model, combat, **job.options))
             except CollectionFailure as error:
+                record_failure(job, error)
                 if not args.continue_on_collection_failure:
                     raise
-                record_failure(job, error)
                 result.append(failed_episode(error, job.options["objective"]))
         return result
 

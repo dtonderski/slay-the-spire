@@ -17,7 +17,10 @@ from torch import Tensor, nn
 
 from run_training.contracts import PolicyAction
 
-FEATURE_VERSION = 3
+# The hashed representation is unchanged from #93. Only the opt-in health
+# encoder consumes the additional normalized-HP input introduced in version 3.
+FEATURE_VERSION = 2
+HEALTH_FEATURE_VERSION = 3
 BUCKETS = 8192
 Features = tuple[tuple[int, float], ...]
 
@@ -66,6 +69,11 @@ def _visit(
         raise TypeError(f"Unsupported public feature type: {type(item).__name__}")
 
 
+# Cache-key contract (_map_terms and _candidate_features): keys come from
+# strictly decoded public schemas with a fixed primitive type per field. Python
+# structural equality conflates True/1 and 0.0/-0.0; these caches are not for
+# arbitrary hand-built objects. If a schema admits mixed types or signed-zero
+# floats, use type/bit-sensitive nested keys before caching that schema.
 @lru_cache(maxsize=256)
 def _map_terms(screen: MapScreen, path: str) -> Features:
     # Cache immutable *public* maps only, including their semantic path. Store
@@ -157,6 +165,7 @@ def candidate_facts(
 
 @lru_cache(maxsize=8192)
 def _candidate_features(facts: tuple[object, ...]) -> Features:
+    # Same strict-schema cache-key contract as _map_terms above.
     return features(facts)
 
 

@@ -23,6 +23,19 @@ def file_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def validate_natural_setup(setup: dict) -> None:
+    # Legacy natural-run journals predate initial_state. Explicit protocols must
+    # identify a natural start: never reinterpret a synthetic prefix as State.new.
+    initial = setup.get("initial_state", {"protocol": "natural_start"})
+    if (
+        setup.get("type") != "setup"
+        or setup.get("ascension") != 0
+        or not isinstance(initial, dict)
+        or initial.get("protocol") != "natural_start"
+    ):
+        raise ValueError("Root source must be a natural A0 trainer journal")
+
+
 def reconstruct(
     path: Path, stop_step: int
 ) -> tuple[State, Observation | None, PolicyAction | None]:
@@ -31,8 +44,7 @@ def reconstruct(
     with gzip.open(path, "rt") if path.suffix == ".gz" else path.open() as source:
         rows = [json.loads(line) for line in source]
     setup = rows[0]
-    if setup["type"] != "setup" or setup["ascension"] != 0:
-        raise ValueError("Root source must be a natural A0 trainer journal")
+    validate_natural_setup(setup)
     state = State.new(setup["seed"], ascension=0, final_act=setup["final_act"])
     decision = state.decision()
     visible = None
@@ -121,6 +133,7 @@ class RootBank:
                 gzip.open(path, "rt") if path.suffix == ".gz" else path.open() as source
             ):
                 setup = json.loads(source.readline())
+            validate_natural_setup(setup)
             if (
                 setup["seed"] != seed
                 or setup["final_act"] != final_act

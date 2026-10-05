@@ -10,5 +10,15 @@ intact. HP variants are new independent synthetic initial states.
 
 They cover source immutability, revision fencing, deterministic variant creation,
 HP-only configuration, and root-bank seed-split/provenance validation. Changes in
-legitimate simulator behavior can invalidate a prefix; investigate that rather
-than rewriting either original journal to make replay pass.
+legitimate simulator behavior can invalidate a prefix. First investigate and
+confirm the intended simulator change; never edit an existing journal's commands,
+observations or suffix to manufacture replay success.
+
+After a confirmed legitimate change, replacing an obsolete fixture with a **newly
+generated simulator journal** is allowed. Use a new fixture identity and SHA-256,
+record its source and prefix length in `metadata.json`, update both binding and RL
+tests as needed, and document the replacement in the commit. Keep the old payload
+and provenance available in Git history; do not present the replacement as a
+successful replay of the old fixture. This exception applies only to these
+simulator-generated infrastructure fixtures, never to captured real-game traces
+or reviewed corpus payloads.

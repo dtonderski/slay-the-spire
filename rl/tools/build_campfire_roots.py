@@ -12,7 +12,12 @@ from dataclasses import asdict
 from pathlib import Path
 
 from run_training.contracts import PolicyAction
-from run_training.roots import ROOT_PROTOCOL, file_hash, reconstruct
+from run_training.roots import (
+    ROOT_PROTOCOL,
+    file_hash,
+    reconstruct,
+    validate_natural_setup,
+)
 from sts_sim import State, _native
 
 
@@ -20,7 +25,8 @@ def find_root(path: Path):
     with gzip.open(path, "rt") as source:
         rows = [json.loads(s) for s in source]
     setup = rows[0]
-    if setup["ascension"] != 0 or not setup["final_act"]:
+    validate_natural_setup(setup)
+    if not setup["final_act"]:
         raise ValueError("Expected natural A0 Heart-profile source")
     state = State.new(setup["seed"], ascension=0, final_act=True)
     decision = state.decision()
