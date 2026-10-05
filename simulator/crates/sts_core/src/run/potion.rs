@@ -766,6 +766,12 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
     index: usize,
 ) -> SimResult<RunState> {
     let mut resumed_nilry_before = None;
+    let closing_nilry = matches!(
+        next.combat
+            .as_ref()
+            .and_then(|combat| combat.decision.as_ref()),
+        Some(CombatDecisionState::NilrysCodexCardReward { .. })
+    );
     let mut won = {
         let combat = next.combat.as_mut().expect("validated combat");
         let played_discovery_card_id = matches!(
@@ -889,7 +895,13 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
             .as_ref()
             .expect("Nilry resume keeps combat state")
             .clone();
-        after = super::reward::settle_run_after_combat_transition(&mut next, &before, after, true)?;
+        let finish_revived_end_turn = !after.resume_end_turn_after_nilrys_codex;
+        after = super::reward::settle_run_after_combat_transition(
+            &mut next,
+            &before,
+            after,
+            finish_revived_end_turn,
+        )?;
         won = after.phase == CombatPhase::Won;
         next.combat = Some(after);
     }
@@ -903,7 +915,11 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
         }
         enter_combat_reward_for_current_room(&mut next)?;
     }
-    Ok(next)
+    if closing_nilry {
+        Ok(next)
+    } else {
+        resume_nilry_end_turn_if_idle_owned(next)
+    }
 }
 
 pub fn apply_combat_card_reward_skip(run: &RunState) -> SimResult<RunState> {
@@ -927,15 +943,19 @@ pub(crate) fn apply_validated_combat_card_reward_skip_owned(
             if combat.phase == CombatPhase::Won {
                 enter_combat_reward_for_current_room(&mut next)?;
             }
-            Ok(next)
+            resume_nilry_end_turn_if_idle_owned(next)
         }
         Some(CombatDecisionState::NilrysCodexCardReward { .. }) => {
             // Skipping the offer resumes the paused end-turn queue with no
             // insert: powers, discard, monsters, then the next hand.
             let before = combat.clone();
             let finished = crate::combat::turn::end_player_turn(combat)?;
+            let finish_revived_end_turn = !finished.resume_end_turn_after_nilrys_codex;
             let finished = super::reward::settle_run_after_combat_transition(
-                &mut next, &before, finished, true,
+                &mut next,
+                &before,
+                finished,
+                finish_revived_end_turn,
             )?;
             let won = finished.phase == CombatPhase::Won;
             next.combat = Some(finished);
@@ -953,6 +973,33 @@ pub(crate) fn apply_validated_combat_card_reward_skip_owned(
             ))
         }
     }
+}
+
+fn resume_nilry_end_turn_if_idle_owned(mut next: RunState) -> SimResult<RunState> {
+    let Some(combat) = next.combat.as_ref() else {
+        return Ok(next);
+    };
+    if !combat.resume_end_turn_after_nilrys_codex
+        || combat.decision.is_some()
+        || combat.phase != CombatPhase::WaitingForPlayer
+    {
+        return Ok(next);
+    }
+    let before = combat.clone();
+    let after = crate::combat::turn::end_player_turn(&before)?;
+    let finish_revived_end_turn = !after.resume_end_turn_after_nilrys_codex;
+    let after = super::reward::settle_run_after_combat_transition(
+        &mut next,
+        &before,
+        after,
+        finish_revived_end_turn,
+    )?;
+    let won = after.phase == CombatPhase::Won;
+    next.combat = Some(after);
+    if won {
+        enter_combat_reward_for_current_room(&mut next)?;
+    }
+    Ok(next)
 }
 
 fn settle_card_reward_potion_actions(
@@ -990,7 +1037,9 @@ fn combat_open_decision_pending_mut(
         CombatDecisionState::DrawSelect { state } => Some(&mut state.pending_actions),
         CombatDecisionState::DiscardSelect { state } => Some(&mut state.pending_actions),
         CombatDecisionState::ExhaustSelect { state } => Some(&mut state.pending_actions),
-        CombatDecisionState::NilrysCodexCardReward { .. } => None,
+        CombatDecisionState::NilrysCodexCardReward { .. } => {
+            Some(&mut combat.pending_nilrys_codex_potion_actions)
+        }
     }
 }
 

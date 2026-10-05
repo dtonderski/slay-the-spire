@@ -180,8 +180,17 @@ target action/effect lifecycle rather than an observed deck snapshot.
   during the offer. A later queued potion reward is another FIFO barrier: draws
   appended before it settle before it, while draws appended after it wait for
   its selection. These are source-backed ordering rules, not dedicated
-  real-game interaction trace parity. Nilry's Codex's paused end-turn path
-  remains a separate audit.
+  real-game interaction trace parity. `CodexAction` likewise remains current
+  until its offer closes: Swift/Snecko actions follow the already-queued
+  end-turn power/orb callbacks and precede `DiscardAtEndOfTurnAction` and the
+  monster turn. `NoDrawPower.atEndOfTurn` queues removal before those later
+  potion draws, even when Combust's own callbacks ran while No Draw was active.
+  Another queued potion reward pauses this continuation before discard. Keep
+  pending potion actions outside the Codex decision so the existing explicit
+  multi-stage publication hooks do not discard them; preservation by those
+  hooks is infrastructure coverage, not dedicated interaction-trace parity.
+  Hand-selection potions replacing an open offer (Elixir) and post-lethal
+  draw/cost-action cancellation require separate fixes/audits.
 - Boss identity first follows unseen-profile progression; traces requiring it
   carry explicit `boss_unlocks` input.
 - Grid preview cancellation is not whole-grid cancellation: target
