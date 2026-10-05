@@ -132,6 +132,47 @@ true)`; the existing two-argument `new_ironclad` keeps its behavior. This expose
 existing initial profile rules, not a new gameplay/parity claim or an ascension
 fidelity guarantee. The present training target is A0.
 
+### Supported-surface limits
+
+Prismatic Shard acquisition no longer rejects a successor solely for owning the
+relic. Its existing core equip and reward-pool rules are unchanged. Public cards
+are still checked individually: modeled cross-color cards can be exported, but
+unmodeled cards fail explicitly rather than receiving invented costs or effects.
+This does **not** establish full Prismatic/cross-color run support; synthetic
+combat-spec construction still rejects the broader Prismatic loadout.
+
+The Courier's colored-card restock identity uses vanilla process-global
+`MathUtils.random`, not a run-seeded stream. Strict core replay requires a typed
+call-time external RNG input for that draw. The default seed-only fair Python
+environment still cannot supply it; such a purchase fails atomically.
+
+For **simulator-only training**, opt in once at construction:
+
+```python
+# Draw/allocate these two independent seeds in the experiment driver and record
+# both in the episode setup journal. Do not reuse one environment seed for every
+# episode or derive it by consuming a gameplay RNG stream.
+state = State.new(run_seed, final_act=True, training_rng_seed=environment_seed)
+```
+
+`training_rng_seed` is an unsigned 64-bit integer; `None` (the default) leaves
+strict behavior unchanged. The private provider uses libGDX `RandomXS128` seeding
+and the same unbiased inclusive bounded selection as `MathUtils.random`.
+Courier rarity, type-filtered candidate pool, fallback, replacement pricing,
+and existing named run RNG streams are unchanged. Only the previously missing
+colored replacement-identity draw uses the provider. Colorless restocks do not.
+
+The profile supplies typed inputs at the gameplay call site without retrying a
+transition or inspecting its observed result. It cannot be mixed with captured
+external inputs. Its private seed/state/counter are preserved by clones and core
+snapshots; observations and legal-action generation never draw from or expose
+it. Forensic RNG traces label draws `training_environment`, with call-time input
+and source attribution. This preserves the supported replacement distribution,
+**not** the game's actual global RNG sequence or exact run-seed parity: cosmetic
+uses of that global RNG are intentionally absent. Existing journals must remain
+immutable; training-profile replays declare the extra initial seed separately.
+See [`research.md`](research.md#process-global-rng).
+
 ## Synthetic scenarios
 
 For explicitly synthetic experiments only, `State.new_synthetic(seed, ascension=0,

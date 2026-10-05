@@ -324,40 +324,35 @@ fn restock_courier_card_slot(
     let mut card_rng = StsRng::with_counter(next.reward_rng_seed as i64, next.card_rng_counter);
     let mut merchant_rng =
         StsRng::with_counter(next.merchant_rng_seed as i64, next.merchant_rng_counter);
-    let content_id =
-        if shop_card_is_colorless(purchased.content_id) {
-            let rarity = if merchant_rng.random_float() < SHOP_COLORLESS_RARE_CHANCE {
-                CardRarity::Rare
-            } else {
-                CardRarity::Uncommon
-            };
-            random_colorless_from_pool(&mut card_rng, rarity)
+    let content_id = if shop_card_is_colorless(purchased.content_id) {
+        let rarity = if merchant_rng.random_float() < SHOP_COLORLESS_RARE_CHANCE {
+            CardRarity::Rare
         } else {
-            let card_type = shop_card_type(purchased.content_id)
-                .ok_or(SimError::UnsupportedMechanic(purchased.content_id))?;
-            loop {
-                let rarity = roll_card_rarity_shop(&mut card_rng, next.card_rarity_factor);
-                let pool = class_card_pool_of_type_and_rarity_with_fallback(card_type, rarity);
-                let range_inclusive = u32::try_from(pool.len().saturating_sub(1))
-                    .map_err(|_| SimError::InvalidState("Courier card pool exceeds u32"))?;
-                let input = next.pending_external_rng.first().copied().ok_or(
-                    SimError::MissingExternalRng("courier_colored_card_selection"),
-                )?;
-                if input.kind != ExternalRngKind::CardGroupGetRandomCardByType
-                    || input.range_inclusive != range_inclusive
-                {
-                    return Err(SimError::ExternalRngMismatch(
-                        "courier_colored_card_selection",
-                    ));
-                }
-                next.pending_external_rng.remove(0);
-                let mut math_utils_rng = input.state;
-                let id = pool[math_utils_rng.random_int(range_inclusive) as usize];
-                if !shop_card_is_colorless(id) {
-                    break id;
-                }
-            }
+            CardRarity::Uncommon
         };
+        random_colorless_from_pool(&mut card_rng, rarity)
+    } else {
+        let card_type = shop_card_type(purchased.content_id)
+            .ok_or(SimError::UnsupportedMechanic(purchased.content_id))?;
+        loop {
+            let rarity = roll_card_rarity_shop(&mut card_rng, next.card_rarity_factor);
+            let pool = class_card_pool_of_type_and_rarity_with_fallback(card_type, rarity);
+            let range_inclusive = u32::try_from(pool.len().saturating_sub(1))
+                .map_err(|_| SimError::InvalidState("Courier card pool exceeds u32"))?;
+            // ShopScreen.purchaseCard -> getCardFromPool(..., false) ->
+            // CardGroup.getRandomCard(type, false): uniform inclusive draw
+            // over the same sorted type/rarity pool, not another cardRng draw.
+            let index = next.draw_external_rng(
+                ExternalRngKind::CardGroupGetRandomCardByType,
+                range_inclusive,
+                "courier_colored_card_selection",
+            )?;
+            let id = pool[index as usize];
+            if !shop_card_is_colorless(id) {
+                break id;
+            }
+        }
+    };
     next.card_rng_counter = card_rng.counter();
 
     let card = CardInstance::new(CardId::new(next_card_id), content_id);
@@ -1049,6 +1044,29 @@ mod tests {
             expected
         );
         assert!(next.pending_external_rng.is_empty());
+    }
+
+    #[test]
+    fn training_courier_rng_trace_retains_the_shop_call_site() {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.phase = RunPhase::Shop;
+        run.event = None;
+        run.gold = 999;
+        run.relics.push(Relic::TheCourier);
+        run.shop = Some(generate_shop_screen(&mut run).expect("shop"));
+        run.shop_merchant_open = true;
+        run.training_external_rng = Some(crate::rng::TrainingExternalRng::seeded(42));
+        let (_, events) = crate::rng::capture_rng_trace(|| {
+            apply_shop_action(&run, RunAction::BuyShopCard { slot: 0 }).expect("training restock")
+        });
+        let events: Vec<_> = events
+            .into_iter()
+            .filter(|event| event.stream == crate::rng::RngTraceStream::TrainingEnvironment)
+            .collect();
+        assert_eq!(events.len(), 1);
+        assert!(events[0].source_file.ends_with("run/shop.rs"));
+        assert_eq!(events[0].counter_before, 0);
+        assert_eq!(events[0].counter_after, 1);
     }
 
     #[test]
