@@ -1698,7 +1698,11 @@ fn execute_generic_monster_intent(
             if state.max_orbs > 0 && state.rng.monster_rng.random_bool() {
                 crate::power::reduce_player_focus(&mut state.player.powers, 1)?;
             } else {
-                crate::power::reduce_player_strength(&mut state.player.powers, 1)?;
+                crate::power::reduce_player_strength_with_temporary(
+                    &mut state.player.powers,
+                    state.player.temp_strength,
+                    1,
+                )?;
             }
         }
     }

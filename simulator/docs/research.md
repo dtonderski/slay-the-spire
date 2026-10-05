@@ -114,6 +114,15 @@ target action/effect lifecycle rather than an observed deck snapshot.
 
 ## Source-backed interaction findings
 
+- Negative player Strength applications bound the actual permanent+temporary
+  amount, just like positive applications. The permanent bookkeeping component
+  may be below -999 while nominal loss is retained on a leftover end-turn frame;
+  capping it alone invents Strength. Apply the incoming negative amount to the
+  combined power, then represent that result without changing the pending debt.
+  Artifact rejects before arithmetic, without repairing either component.
+  Initialized leftover-end diagnostics cover Siphon and Spire Shield; these are
+  source-backed robustness evidence, not natural prefix or real-game parity.
+
 - `Flex.use` applies Strength then `LoseStrengthPower`. `StrengthPower.stackPower`
   clamps the visible total to ±999, but the loss inherits uncapped
   `AbstractPower.stackPower` and retains the nominal amount. Expiry can therefore
