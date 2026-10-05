@@ -529,6 +529,10 @@ pub enum InternalAction {
     GainArtifact {
         amount: i32,
     },
+    /// AncientPotion.use addToBot ApplyPowerAction; preserves potion errors.
+    GainArtifactFromPotion {
+        amount: i32,
+    },
     UpgradeCombatCards,
     ApplyWeak {
         target: MonsterId,

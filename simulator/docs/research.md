@@ -231,7 +231,10 @@ already-queued end powers run before these incoming potion powers: new DexLoss
 therefore survives until the next end-power window, not the intervening player
 start. Retain nominal debt and Artifact rejection before rejected-debt arithmetic.
 This is source-backed synthetic coverage, not dedicated interaction trace parity;
-other stat/power potions' own action queues remain separate audits.
+AncientPotion's incoming Artifact likewise waits behind the current action and
+cannot reject a preceding queued Speed loss or end-power loss before it is
+actually applied. Reverse Ancient/Speed order is intentionally noncommutative.
+Other stat/power potions' own action queues remain separate audits.
 
 ## Collection timing lesson
 
