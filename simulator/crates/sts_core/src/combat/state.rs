@@ -1160,14 +1160,6 @@ impl CombatState {
         }
     }
 
-    pub(crate) fn queue_or_activate_decision(&mut self, decision: CombatDecisionState) {
-        if self.decision.is_some() {
-            self.queued_decisions.push_back(decision);
-        } else {
-            self.decision = Some(decision);
-        }
-    }
-
     /// Park the opening draw behind a first-turn Toolbox choice.
     pub(crate) fn defer_opening_hand_draw(&mut self) {
         if self.pending_opening_hand_draw > 0 {

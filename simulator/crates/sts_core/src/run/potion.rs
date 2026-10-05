@@ -1,5 +1,5 @@
 use crate::{
-    card::{CardInstance, CardType, TargetRequirement},
+    card::{CardInstance, TargetRequirement},
     combat::damage::deal_unmodified_damage_to_monster,
     combat::transition::{
         apply_monster_death_hooks, apply_play_top_draw_card_action, choose_discard_select,
