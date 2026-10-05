@@ -300,6 +300,9 @@ pub enum InternalAction {
         card_id: CardId,
         from: CardPile,
     },
+    /// Potion addToBot selectors read the live hand only when this action starts.
+    OpenElixirSelection,
+    OpenGamblersBrewSelection,
     DrawCards {
         count: usize,
     },

@@ -9,9 +9,8 @@ use crate::{
         confirm_draw_select, confirm_exhaust_select_with_dead_branch_count, confirm_hand_select,
         confirm_hand_select_without_retrieval, discard_select_ui_to_discard_index,
         draw_select_ui_to_draw_index, flush_pending_player_spikes_damage_if_ready,
-        hand_select_ui_to_hand_index, open_discard_select_with_max_choices, open_exhaust_select,
-        open_gambling_chip_select, player_draw_cards, player_shuffle_discard_into_draw,
-        top_draw_card_definition,
+        hand_select_ui_to_hand_index, open_discard_select_with_max_choices, player_draw_cards,
+        player_shuffle_discard_into_draw, top_draw_card_definition,
     },
     combat::{
         apply_burning_blood, CombatDecisionState, CombatPhase, CombatState, DiscardSelectPurpose,
@@ -692,7 +691,7 @@ fn settle_run_after_select_confirm(
     if won {
         enter_combat_reward_for_current_room(&mut next)?;
     }
-    Ok(next)
+    resume_nilry_end_turn_if_idle_owned(next)
 }
 
 fn exhaust_count_for_confirmed_select(
@@ -994,6 +993,37 @@ fn resume_nilry_end_turn_if_idle_owned(mut next: RunState) -> SimResult<RunState
         enter_combat_reward_for_current_room(&mut next)?;
     }
     Ok(next)
+}
+
+fn queue_potion_hand_selection(
+    combat: &mut CombatState,
+    action: crate::InternalAction,
+) -> SimResult<()> {
+    // GamblersBrew.use tests emptiness at use time before enqueuing its action.
+    // A later reward/draw must not create a selector that was never queued.
+    let mut actions = if matches!(action, crate::InternalAction::OpenGamblersBrewSelection)
+        && combat.piles.hand.is_empty()
+    {
+        std::collections::VecDeque::new()
+    } else {
+        std::collections::VecDeque::from([action])
+    };
+    // PotionPopUp invokes onUsePotion after use; Toy Ornithopter addToBots
+    // HealAction behind the selector, not into its still-open hand screen.
+    if combat.relics.contains(&Relic::ToyOrnithopter) {
+        actions.push_back(crate::InternalAction::HealPlayer {
+            amount: crate::relic::TOY_ORNITHOPTER_HEAL,
+        });
+    }
+    if actions.is_empty() {
+        return Ok(());
+    }
+    if let Some(pending) = combat_open_decision_pending_mut(combat) {
+        pending.extend(actions);
+        Ok(())
+    } else {
+        settle_card_reward_potion_actions(combat, actions)
+    }
 }
 
 fn settle_card_reward_potion_actions(
@@ -1388,8 +1418,12 @@ pub(crate) fn apply_validated_potion_action_owned(
                     next.phase = RunPhase::Idle;
                 }
                 Potion::Elixir => {
+                    defer_potion_use_relics = true;
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    open_exhaust_select(combat)?;
+                    queue_potion_hand_selection(
+                        combat,
+                        crate::InternalAction::OpenElixirSelection,
+                    )?;
                 }
                 Potion::BlessingOfTheForge => {
                     let combat = next.combat.as_mut().expect("validated combat state");
@@ -1548,8 +1582,12 @@ pub(crate) fn apply_validated_potion_action_owned(
                     next.gain_max_hp(max_hp)?;
                 }
                 Potion::GamblersBrew => {
+                    defer_potion_use_relics = true;
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    open_gambling_chip_select(combat)?;
+                    queue_potion_hand_selection(
+                        combat,
+                        crate::InternalAction::OpenGamblersBrewSelection,
+                    )?;
                 }
                 Potion::EntropicBrew => {
                     let mut rng = crate::rng::StsRng::with_counter(
@@ -2867,8 +2905,10 @@ mod tests {
         let mut run = RunState::combat_fixture();
         run.potions = vec![Potion::Skill];
         run.empty_potion_slots = vec![1, 2];
-        open_exhaust_select(run.combat.as_mut().expect("combat fixture"))
-            .expect("open the active exhaust decision");
+        crate::combat::transition::open_exhaust_select(
+            run.combat.as_mut().expect("combat fixture"),
+        )
+        .expect("open the active exhaust decision");
 
         let next = apply_potion_action(
             &run,

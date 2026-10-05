@@ -1277,6 +1277,8 @@ fn is_player_selection_action(action: &InternalAction) -> bool {
             | InternalAction::AwaitCopiedDiscardSelect { .. }
             | InternalAction::AwaitCopiedHandSelect { .. }
             | InternalAction::AwaitExhaustSelect { .. }
+            | InternalAction::OpenElixirSelection
+            | InternalAction::OpenGamblersBrewSelection
             | InternalAction::OpenDiscoveryCardReward { .. }
     )
 }
@@ -1391,6 +1393,21 @@ fn apply_internal_action_with_defer(
             let relics = state.relics.clone();
             let hp_loss = reflect_spikes_to_player(&mut state.player, &relics, amount);
             crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)?;
+            Ok(Vec::new())
+        }
+        InternalAction::OpenElixirSelection | InternalAction::OpenGamblersBrewSelection => {
+            if state.decision.is_some() {
+                return Err(SimError::InvalidState(
+                    "potion selector started before prior decision closed",
+                ));
+            }
+            if !state.piles.hand.is_empty() {
+                if matches!(action, InternalAction::OpenElixirSelection) {
+                    open_exhaust_select(state)?;
+                } else {
+                    open_gambling_chip_select(state)?;
+                }
+            }
             Ok(Vec::new())
         }
         InternalAction::HealPlayer { amount } => defense_actions::heal_player(state, amount),
