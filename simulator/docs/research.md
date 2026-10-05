@@ -92,6 +92,16 @@ target action/effect lifecycle rather than an observed deck snapshot.
 
 ## Source-backed interaction findings
 
+- `LoseDexterityPower.atEndOfTurn` queues an incoming negative
+  `DexterityPower`, then removal of `DexLoss` even when Artifact blocks the
+  loss. Resolve this in the end-turn power window, before monster debuffs,
+  rather than subtracting at next player start. Actual simulator Dexterity
+  already includes temporary gains; `temp_dexterity` is nominal loss debt, not
+  another component of the amount as with temporary Strength. Negative
+  application caps at -999; rejecting it with Artifact must not clamp or
+  otherwise repair an unchanged amount. These boundaries are source-backed
+  synthetic coverage, not dedicated interaction-trace parity; broader mixed
+  power ordering and potion queues remain separate audits.
 - Summoned Gremlins consume an identity draw and an otherwise ignored opening
   AI roll before their fixed opening move.
 - `TimeWarpPower.onAfterUseCard` calls the early-end sequence and queues
