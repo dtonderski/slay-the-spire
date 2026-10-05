@@ -92,6 +92,20 @@ target action/effect lifecycle rather than an observed deck snapshot.
 
 ## Source-backed interaction findings
 
+- A legacy hand-discard publication must retain the typed addToBot exhaust
+  callbacks, not execute Feel No Pain and restore block or derive its amount
+  from a clipped block delta. `CardGroup.moveToExhaustPile` invokes relics
+  before powers; Dead Branch creates its card at that callback, while its
+  insertion, Feel No Pain's nominal GainBlockAction, and Dark Embrace's draw
+  remain queued. Keep generated cards authoritative during the hold and
+  preserve each positive gain's later Juggernaut callback, including capped
+  gains. Nonzero old debug block aggregates lack that per-exhaust context;
+  reject rather than infer it from current amounts or observations. This is
+  initialized lifecycle/ownership coverage, not proof that the exposed legacy
+  helper is reached by vanilla or dedicated publication-trace parity. The
+  existing FNP-before-DE mapping and normal END pipeline remain separate from
+  a universal power-list insertion-order audit.
+
 - `LoseDexterityPower.atEndOfTurn` queues an incoming negative
   `DexterityPower`, then removal of `DexLoss` even when Artifact blocks the
   loss. Resolve this in the end-turn power window, before monster debuffs,

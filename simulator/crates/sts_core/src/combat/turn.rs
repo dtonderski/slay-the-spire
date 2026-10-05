@@ -89,9 +89,18 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
 }
 
 pub(crate) fn end_player_turn_owned(mut next: CombatState) -> SimResult<CombatState> {
-    if next.pending_end_turn_feel_no_pain_block > 0 {
-        next.player.block = next.player.block.saturating_add(std::mem::take(
-            &mut next.pending_end_turn_feel_no_pain_block,
+    if next.pending_end_turn_hand_resolution.is_some()
+        && !next.time_warp_end_turn_pre_discard_settled
+    {
+        return Err(SimError::InvalidState(
+            "deferred end-turn hand callbacks have no publication marker",
+        ));
+    }
+    // Old debug aggregates lost nominal amounts and per-exhaust callbacks.
+    // Do not infer that missing queue context from current or observed block.
+    if next.pending_end_turn_feel_no_pain_block != 0 {
+        return Err(SimError::InvalidState(
+            "legacy deferred block requires per-exhaust action context",
         ));
     }
     let started_with_living_monster = next.monsters.iter().any(|monster| monster.alive);
@@ -124,12 +133,16 @@ pub(crate) fn end_player_turn_owned(mut next: CombatState) -> SimResult<CombatSt
     let hand_nonempty_at_end_click = !next.piles.hand.is_empty();
     let mut deferred_stasis_cards;
     let mut deferred_monster_deaths = Vec::new();
-    let end_of_turn_hand;
+    let mut end_of_turn_hand;
 
     if pre_discard_settled {
         resolve_player_temp_dexterity(&mut next)?;
         deferred_stasis_cards = Vec::new();
-        end_of_turn_hand = crate::combat::hand::exhaust_unplayed_ethereal_cards(&mut next)?;
+        end_of_turn_hand = if let Some(resolution) = next.pending_end_turn_hand_resolution.take() {
+            resolution
+        } else {
+            crate::combat::hand::exhaust_unplayed_ethereal_cards(&mut next)?
+        };
     } else if resuming_after_nilrys {
         // CodexAction paused `callEndOfTurnActions` at relic onPlayerEndTurn,
         // before power/orb hooks and `triggerOnEndOfTurnForPlayingCard`. Resume
@@ -443,6 +456,15 @@ pub(crate) fn end_player_turn_owned(mut next: CombatState) -> SimResult<CombatSt
     let mut deferred_dark_embrace_fire_breathing = Vec::new();
     for follow_up in end_of_turn_hand.ethereal_follow_ups {
         match follow_up {
+            crate::combat::hand::EtherealEndTurnFollowUp::GainBlock { amount } => {
+                if let Some(damage) =
+                    crate::combat::transition::apply_deferred_end_turn_exhaust_block(
+                        &mut next, amount,
+                    )?
+                {
+                    end_of_turn_hand.deferred_juggernaut_damage.push(damage);
+                }
+            }
             crate::combat::hand::EtherealEndTurnFollowUp::DeadBranch(card) => {
                 if next.piles.hand.len() < MAX_HAND_SIZE {
                     next.piles.hand.push(card);

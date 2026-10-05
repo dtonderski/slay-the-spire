@@ -11,13 +11,15 @@ use crate::{
     CardInstance, SimError, SimResult,
 };
 
-#[derive(Clone)]
-pub(crate) enum EtherealEndTurnFollowUp {
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum EtherealEndTurnFollowUp {
     DeadBranch(CardInstance),
+    GainBlock { amount: i32 },
     DarkEmbraceDraw,
 }
 
-pub(crate) struct EndOfTurnHandResolution {
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EndOfTurnHandResolution {
     /// The visible hand existed at END click but was completely consumed by
     /// auto-play curses before DiscardAtEndOfTurnAction.
     pub(crate) auto_play_emptied_hand: bool,
@@ -44,7 +46,17 @@ pub(crate) fn resolve_end_of_turn_hand_with_queued_autoplay(
     queued_autoplay: Option<&std::collections::HashSet<CardId>>,
 ) -> SimResult<EndOfTurnHandResolution> {
     let mut next = state.clone();
-    let resolution = resolve_end_of_turn_hand_inner(&mut next, queued_autoplay)?;
+    let resolution = resolve_end_of_turn_hand_inner(&mut next, queued_autoplay, false)?;
+    *state = next;
+    Ok(resolution)
+}
+
+/// Publish hand settlement without executing addToBot block/draw/card actions.
+pub(crate) fn resolve_end_of_turn_hand_with_deferred_callbacks(
+    state: &mut CombatState,
+) -> SimResult<EndOfTurnHandResolution> {
+    let mut next = state.clone();
+    let resolution = resolve_end_of_turn_hand_inner(&mut next, None, true)?;
     *state = next;
     Ok(resolution)
 }
@@ -64,9 +76,10 @@ pub(crate) fn draw_dark_embrace_with_follow_ups_deferred(
 fn resolve_end_of_turn_hand_inner(
     state: &mut CombatState,
     queued_autoplay: Option<&std::collections::HashSet<CardId>>,
+    defer_block: bool,
 ) -> SimResult<EndOfTurnHandResolution> {
     let auto_play_emptied_hand = resolve_end_of_turn_autoplay_in_place(state, queued_autoplay)?;
-    let mut resolution = exhaust_unplayed_ethereal_cards(state)?;
+    let mut resolution = exhaust_unplayed_ethereal_cards_inner(state, defer_block)?;
     resolution.auto_play_emptied_hand = auto_play_emptied_hand;
     Ok(resolution)
 }
@@ -348,6 +361,13 @@ pub(crate) fn apply_end_of_turn_curses_for_calendar_victory(
 pub(crate) fn exhaust_unplayed_ethereal_cards(
     state: &mut CombatState,
 ) -> SimResult<EndOfTurnHandResolution> {
+    exhaust_unplayed_ethereal_cards_inner(state, false)
+}
+
+fn exhaust_unplayed_ethereal_cards_inner(
+    state: &mut CombatState,
+    defer_block: bool,
+) -> SimResult<EndOfTurnHandResolution> {
     let mut ethereal_ids: Vec<CardId> = state
         .piles
         .hand
@@ -374,7 +394,12 @@ pub(crate) fn exhaust_unplayed_ethereal_cards(
         if let Some(index) = state.piles.hand.iter().position(|card| card.id == card_id) {
             let card = state.piles.hand.remove(index);
             state.piles.exhaust_pile.push(card);
-            if let Some(amount) = apply_on_exhaust_effects_for_end_turn(state, card_id)? {
+            let nominal_block = state.player.powers.feel_no_pain;
+            if defer_block {
+                crate::combat::transition::apply_on_exhaust_effects_for_end_turn_deferred_block(
+                    state, card_id,
+                )?;
+            } else if let Some(amount) = apply_on_exhaust_effects_for_end_turn(state, card_id)? {
                 deferred_juggernaut_damage.push(amount);
             }
             let generated_id = CardId::new(
@@ -384,6 +409,14 @@ pub(crate) fn exhaust_unplayed_ethereal_cards(
             if let Some(card) = dead_branch_card_for_end_turn(state, generated_id)? {
                 ethereal_follow_ups.push(EtherealEndTurnFollowUp::DeadBranch(card));
                 dead_branch_count += 1;
+            }
+            // CardGroup.moveToExhaustPile invokes relics before powers.
+            // Keep the existing modeled FNP-before-DE power ordering here;
+            // universal mixed-power insertion ordering is a separate audit.
+            if defer_block && nominal_block > 0 {
+                ethereal_follow_ups.push(EtherealEndTurnFollowUp::GainBlock {
+                    amount: nominal_block,
+                });
             }
             let embrace = state.player.powers.dark_embrace.max(0) as usize;
             for _ in 0..embrace {

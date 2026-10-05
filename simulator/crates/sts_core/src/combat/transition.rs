@@ -2845,6 +2845,27 @@ pub(crate) fn apply_on_exhaust_effects_for_end_turn(
     apply_on_exhaust_effects_inner(state, card_id, false, true, true)
 }
 
+pub(crate) fn apply_on_exhaust_effects_for_end_turn_deferred_block(
+    state: &mut CombatState,
+    card_id: CardId,
+) -> SimResult<()> {
+    apply_on_exhaust_effects_inner(state, card_id, false, false, true).map(|_| ())
+}
+
+/// A pending GainBlockAction uses live block and emits nominal-positive
+/// Juggernaut damage; never recover its amount from a clipped state delta.
+pub(crate) fn apply_deferred_end_turn_exhaust_block(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Option<i32>> {
+    checked_add_combat_value(&mut state.player.block, amount)?;
+    state.player.block = state.player.block.min(999);
+    Ok(
+        (amount > 0 && state.player.powers.juggernaut > 0)
+            .then_some(state.player.powers.juggernaut),
+    )
+}
+
 fn apply_on_exhaust_effects_except_bot_queued_powers(
     state: &mut CombatState,
     card_id: CardId,
@@ -4328,8 +4349,31 @@ pub fn settle_time_warp_end_turn_if_ready_public(state: &mut CombatState) -> Sim
 pub fn settle_queued_end_turn_discard_after_rejected_command(
     state: &mut CombatState,
 ) -> SimResult<()> {
+    let mut next = state.clone();
+    settle_queued_end_turn_discard_in_place(&mut next)?;
+    *state = next;
+    Ok(())
+}
+
+fn settle_queued_end_turn_discard_in_place(state: &mut CombatState) -> SimResult<()> {
+    if state.decision.is_some()
+        && (state.opening_end_turn_pending || state.resume_end_turn_after_nilrys_codex)
+    {
+        return Err(SimError::IllegalAction(
+            "end-turn publication requires a closed selection",
+        ));
+    }
+    if (state.opening_end_turn_pending || state.resume_end_turn_after_nilrys_codex)
+        && state.pending_end_turn_hand_resolution.is_some()
+    {
+        return Err(SimError::InvalidState(
+            "deferred end-turn hand callbacks already occupied",
+        ));
+    }
     if state.opening_end_turn_pending {
-        crate::combat::hand::resolve_end_of_turn_hand(state)?;
+        let resolution =
+            crate::combat::hand::resolve_end_of_turn_hand_with_deferred_callbacks(state)?;
+        state.pending_end_turn_hand_resolution = Some(resolution);
         crate::combat::hand::discard_end_of_turn_hand(state)?;
         state.opening_end_turn_pending = false;
         state.time_warp_end_turn_pre_discard_settled = true;
@@ -4338,16 +4382,11 @@ pub fn settle_queued_end_turn_discard_after_rejected_command(
     if state.resume_end_turn_after_nilrys_codex {
         // FrailPower.atEndOfRound waits for leftover takeTurn (FIDL01807
         // discarded-hand STATE after a rejected PLAY still shows Frail 5).
-        let frail_before = state.player.powers.frail;
+        // The combat-backed end-power helper does not tick Frail.
         crate::combat::turn::apply_pending_nilry_end_powers(state)?;
-        state.player.powers.frail = frail_before;
-        let block_before = state.player.block;
-        crate::combat::hand::resolve_end_of_turn_hand(state)?;
-        let gained = state.player.block.saturating_sub(block_before);
-        state.player.block = block_before;
-        state.pending_end_turn_feel_no_pain_block = state
-            .pending_end_turn_feel_no_pain_block
-            .saturating_add(gained);
+        let resolution =
+            crate::combat::hand::resolve_end_of_turn_hand_with_deferred_callbacks(state)?;
+        state.pending_end_turn_hand_resolution = Some(resolution);
         crate::combat::hand::discard_end_of_turn_hand(state)?;
         state.resume_end_turn_after_nilrys_codex = false;
         state.nilrys_end_powers_pending = false;
@@ -7375,6 +7414,9 @@ fn upgrade_combat_cards(state: &mut CombatState) -> SimResult<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod deferred_hand_tests;
 
 #[cfg(test)]
 mod tests {
