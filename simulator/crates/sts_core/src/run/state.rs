@@ -2936,9 +2936,13 @@ impl RunState {
                     CardInstance::new(CardId::new(next_card_id + index as u64), content_id)
                 })
                 .collect();
-            if let Some(existing) = combat
-                .decision
-                .replace(CombatDecisionState::ToolboxCardReward { choices })
+            if let Some(existing) =
+                combat
+                    .decision
+                    .replace(CombatDecisionState::ToolboxCardReward {
+                        choices,
+                        pending_actions: Default::default(),
+                    })
             {
                 combat.queued_decisions.push_back(existing);
             }

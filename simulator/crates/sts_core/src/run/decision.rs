@@ -294,7 +294,7 @@ fn legal_combat_select_actions_on_run(
             );
             candidates.push(RunAction::SkipCombatCardReward);
         }
-        Some(CombatDecisionState::ToolboxCardReward { choices })
+        Some(CombatDecisionState::ToolboxCardReward { choices, .. })
         | Some(CombatDecisionState::DiscoveryCardReward { choices, .. }) => {
             candidates.extend(
                 (0..choices.len()).map(|index| RunAction::ChooseCombatCardReward { index }),
