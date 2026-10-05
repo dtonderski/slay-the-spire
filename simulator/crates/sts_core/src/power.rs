@@ -448,6 +448,9 @@ pub fn clear_player_debuffs(powers: &mut PlayerPowers) {
     powers.confusion = 0;
     powers.entangled = 0;
     powers.constricted = 0;
+    // Fasting's EnergyDownPower is DEBUFF; remove its future-turn penalty,
+    // without refunding any energy already spent or lost this turn.
+    powers.fasting = 0;
 }
 
 fn apply_player_debuff(
