@@ -116,6 +116,35 @@ impl FairEnvironment {
         Ok(root)
     }
 
+    /// Independent synthetic initial state at an unused A0 Act-1 campfire.
+    /// Only current HP changes; maximum HP, entry effects, inventory and RNG
+    /// are preserved. This is not an in-place setter or a trace-repair API.
+    pub fn synthetic_rest_root(&self, hp: i32) -> Result<Self, FairError> {
+        if self.state.phase != sts_core::adapter_internals::RunPhase::Rest
+            || self.state.current_act != 1
+            || self.state.ascension != 0
+            || self.state.rest_room_complete
+            || self.state.card_grid.is_some()
+            || self.state.terminal_outcome.is_some()
+            || self.state.hp <= 0
+            || hp <= 0
+            || hp > self.state.max_hp
+        {
+            return Err(FairError::InvalidChoice);
+        }
+        let mut root = self.clone();
+        root.state.hp = hp;
+        root.revision = self
+            .revision
+            .checked_next()
+            .ok_or(FairError::RevisionExhausted)?;
+        root.state
+            .validate()
+            .map_err(|_| FairError::InvalidChoice)?;
+        root.decision()?;
+        Ok(root)
+    }
+
     #[must_use]
     pub const fn revision(&self) -> DecisionRevision {
         self.revision
@@ -263,6 +292,44 @@ mod tests {
                 "reads and clones do not reselect burning elite"
             );
         }
+    }
+
+    #[test]
+    fn synthetic_rest_roots_change_only_initial_hp_and_revision() {
+        use sts_core::adapter_internals::{RoomKind, RunPhase};
+        let mut state = RunState::map_fixture();
+        state.phase = RunPhase::Rest;
+        state.current_room_override = Some(RoomKind::Rest);
+        state.event = None;
+        state.hp = 40;
+        state.validate().expect("rest fixture");
+        let source = FairEnvironment {
+            state,
+            revision: DecisionRevision::new(17),
+        };
+        let before = source.state.clone();
+        for hp in [1, 25, before.max_hp] {
+            let root = source.synthetic_rest_root(hp).expect("synthetic root");
+            let mut expected = before.clone();
+            expected.hp = hp;
+            assert_eq!(root.state, expected, "no RNG or entry-effect replay");
+            assert_eq!(root.revision, DecisionRevision::new(18));
+            assert_eq!(source.state, before, "source must remain unchanged");
+            assert_eq!(source.revision, DecisionRevision::new(17));
+        }
+        for hp in [0, -1, before.max_hp + 1] {
+            assert!(source.synthetic_rest_root(hp).is_err());
+        }
+        let mut completed = source.clone();
+        completed.state.rest_room_complete = true;
+        assert!(completed.synthetic_rest_root(20).is_err());
+        let mut higher_ascension = source.clone();
+        higher_ascension.state.ascension = 1;
+        assert!(higher_ascension.synthetic_rest_root(20).is_err());
+        assert!(FairEnvironment::new_ironclad(1, 0)
+            .unwrap()
+            .synthetic_rest_root(20)
+            .is_err());
     }
 
     #[test]
