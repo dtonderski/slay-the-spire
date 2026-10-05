@@ -750,6 +750,22 @@ pub(super) fn apply_strength_loss_from_flex_potion(
     Ok(Vec::new())
 }
 
+pub(super) fn gain_plated_armor_from_potion(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    state.player.powers.plated_armor =
+        state
+            .player
+            .powers
+            .plated_armor
+            .checked_add(amount)
+            .ok_or(SimError::InvalidState(
+                "combat potion stat gain overflows i32",
+            ))?;
+    Ok(Vec::new())
+}
+
 pub(super) fn gain_artifact_from_potion(
     state: &mut CombatState,
     amount: i32,
