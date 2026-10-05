@@ -1160,6 +1160,9 @@ pub struct RunState {
     #[serde(default = "default_energy_per_turn")]
     pub energy_per_turn: i32,
     pub map: Option<MapRunState>,
+    /// Suspended completed-room screens while a dismissable map owns input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_room_screen: Option<Box<super::MapRoomScreen>>,
     /// Persistent target map RNG state after topology and room assignment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub map_rng: Option<StsRng>,
@@ -1969,6 +1972,7 @@ impl RunState {
     /// this rejects contradictory ownership without normalizing valid
     /// event/reward/grid subflows.
     pub fn validate(&self) -> SimResult<()> {
+        super::map_overlay::validate_suspended_room(self)?;
         #[cfg(test)]
         FULL_VALIDATION_COUNT.with(|count| count.set(count.get() + 1));
 
@@ -3024,6 +3028,7 @@ impl RunState {
             match_and_keep: None,
             shop: None,
             shop_merchant_open: false,
+            map_room_screen: None,
             card_grid: None,
             potions: Vec::new(),
             empty_potion_slots: Vec::new(),
@@ -3139,6 +3144,7 @@ impl RunState {
             match_and_keep: None,
             shop: None,
             shop_merchant_open: false,
+            map_room_screen: None,
             card_grid: None,
             potions: Vec::new(),
             empty_potion_slots: Vec::new(),
@@ -4447,10 +4453,9 @@ impl RunState {
             RunAction::Proceed => {
                 let final_boss_victory =
                     self.current_act == 3 && self.current_room_kind() == Some(RoomKind::Boss);
-                // Ordinary map combat/elite rewards use continuation=None. CommunicationMod
-                // leaves via PROCEED, which abandons any still-unclaimed reward items
-                // (for example an unpicked potion) and returns to the map. Act 1/2 boss
-                // combat rewards likewise leave via PROCEED into the boss chest room.
+                // Ordinary combat/elite PROCEED opens a dismissable map over
+                // the existing reward screen, including its unclaimed items.
+                // Act 1/2 boss rewards instead enter the boss chest room.
                 let map_or_boss_combat_reward = reward.continuation == RewardContinuation::None
                     && matches!(
                         self.current_room_kind(),
@@ -4463,11 +4468,13 @@ impl RunState {
                     );
                 // Colosseum's event-owned reward returns to the map while a
                 // non-card item (typically its potion) may remain unclaimed.
-                // Keep this scoped to Event rooms: Map continuation is also used
-                // by treasure rewards, where pending items must not be abandoned
-                // through the same Event lifecycle exception.
+                // Treasure reward Proceed uses that same overlay transition;
+                // unclaimed chest offers remain available after Return.
                 let event_map_reward = reward.continuation == RewardContinuation::Map
-                    && self.current_room_kind() == Some(RoomKind::Event)
+                    && matches!(
+                        self.current_room_kind(),
+                        Some(RoomKind::Event | RoomKind::Treasure)
+                    )
                     && !reward.card_reward_is_active();
                 // Dig/Dream Catcher CombatRewardScreen frames expose PROCEED
                 // after the rest action has already completed. The overlay
@@ -4476,7 +4483,7 @@ impl RunState {
                     && self.rest_room_complete
                     && !reward.card_reward_is_active();
                 // Shop-owned CombatRewardScreen frames (Cauldron / Orrery) also
-                // expose PROCEED and abandon leftover overlay items.
+                // expose PROCEED with the reward list retained under the map.
                 let shop_overlay_reward = reward.continuation == RewardContinuation::Shop
                     && !reward.card_reward_is_active();
                 // Tiny House's leftover CombatRewardScreen sits on an opened

@@ -66,6 +66,7 @@ pub const ACTION_KINDS: &[&str] = &[
     "enter_shop",
     "leave_shop",
     "open_shop_remove",
+    "return_to_room",
 ];
 
 fn kind_code(choice: PublicChoice) -> i64 {
@@ -116,6 +117,7 @@ fn kind_code(choice: PublicChoice) -> i64 {
         PublicChoice::EnterShop => 43,
         PublicChoice::LeaveShop => 44,
         PublicChoice::OpenShopRemove => 45,
+        PublicChoice::ReturnToRoom => 46,
     };
     debug_assert_eq!(ACTION_KINDS[code as usize], choice.kind());
     code
@@ -891,7 +893,11 @@ mod tests {
 
     #[test]
     fn parallel_steps_match_serial_steps() {
-        let (environments, _) = walked(40);
+        let (mut environments, _) = walked(40);
+        // The legal map Return changes the deterministic fixture walk; some
+        // walks can now finish. Terminal states have no action to batch-step.
+        environments.retain(|env| !env.decision().unwrap().choices.is_empty());
+        assert!(!environments.is_empty());
         // Enough states that the batch is split across workers.
         let mut serial: Vec<_> = (0..MIN_STATES_PER_WORKER * 4)
             .map(|index| environments[index % environments.len()].clone())
@@ -1083,6 +1089,7 @@ mod tests {
             PublicChoice::EnterShop,
             PublicChoice::LeaveShop,
             PublicChoice::OpenShopRemove,
+            PublicChoice::ReturnToRoom,
         ];
         assert_eq!(samples.len(), ACTION_KINDS.len());
         for (expected, choice) in samples.into_iter().enumerate() {

@@ -551,10 +551,8 @@ pub fn leave_shop_merchant(run: &mut RunState) {
 }
 
 pub fn leave_shop_room(run: &mut RunState) {
-    run.shop = None;
-    run.shop_merchant_open = false;
     run.card_grid = None;
-    run.phase = RunPhase::Idle;
+    super::map_overlay::open_completed_room_map(run);
 }
 
 pub fn legal_shop_actions(run: &RunState) -> SimResult<Vec<RunAction>> {

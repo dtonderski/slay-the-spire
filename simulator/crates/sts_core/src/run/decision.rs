@@ -40,6 +40,7 @@ pub enum RunDecisionAction {
     GridConfirm,
     GridCancel,
     Map(MapAction),
+    MapReturn,
     Rest(RestAction),
     Run(RunAction),
 }
@@ -64,6 +65,7 @@ pub fn validate_run_decision_action(run: &RunState, action: RunDecisionAction) -
         RunDecisionAction::GridConfirm => validate_grid_confirm(run),
         RunDecisionAction::GridCancel => validate_grid_cancel(run),
         RunDecisionAction::Map(action) => validate_map_action_on_run(run, action),
+        RunDecisionAction::MapReturn => super::map_overlay::validate_map_return(run),
         RunDecisionAction::Rest(action) => validate_rest_action(run, action),
         RunDecisionAction::Run(action) => validate_run_action(run, action),
     }
@@ -159,6 +161,10 @@ pub fn legal_run_decision_actions(run: &RunState) -> SimResult<Vec<RunDecisionAc
         RunPhase::Complete => {}
     }
 
+    if super::map_overlay::validate_map_return(run).is_ok() {
+        actions.push(RunDecisionAction::MapReturn);
+    }
+
     Ok(actions)
 }
 
@@ -197,6 +203,9 @@ pub fn apply_run_decision_action(run: &RunState, action: RunDecisionAction) -> S
             RunDecisionAction::GridConfirm => apply_validated_grid_confirmation(working),
             RunDecisionAction::GridCancel => Ok(apply_validated_grid_cancel(working)),
             RunDecisionAction::Map(action) => apply_validated_map_action_on_run(working, action),
+            RunDecisionAction::MapReturn => {
+                Ok(super::map_overlay::apply_validated_map_return(working))
+            }
             RunDecisionAction::Rest(action) => apply_validated_rest_action(working, action),
             RunDecisionAction::Run(action) => apply_validated_run_action_owned(working, action),
         }?;
