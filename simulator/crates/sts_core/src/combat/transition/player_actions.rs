@@ -28,10 +28,27 @@ pub(super) fn lose_hp(
     source: HpLossSource,
 ) -> SimResult<Vec<InternalAction>> {
     let hp_loss = crate::combat::hp_loss::lose_player_hp(state, amount);
+    let draws_across_revival = hp_loss > 0 && state.player.hp <= 0;
     if matches!(source, HpLossSource::Card(_)) {
-        crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss)?;
+        if draws_across_revival {
+            crate::combat::hp_loss::apply_player_card_hp_loss_hooks_deferred_draws(state, hp_loss)?;
+        } else {
+            crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss)?;
+        }
+    } else if draws_across_revival {
+        crate::combat::hp_loss::apply_player_hp_loss_hooks_with_draw_policy(
+            state,
+            hp_loss,
+            crate::relic::HpLossDrawPolicy::DeferDraws,
+        )?;
     } else {
         crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)?;
+    }
+    // LoseHPAction calls AbstractPlayer.damage: revival happens within this
+    // damage frame, before HP-loss relic DrawCardActions or later card effects.
+    if draws_across_revival {
+        crate::combat::turn::revive_player_if_available(state)?;
+        return crate::relic::settle_deferred_hp_loss_draw_relics(state);
     }
     Ok(Vec::new())
 }
