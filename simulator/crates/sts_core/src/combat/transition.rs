@@ -2270,7 +2270,11 @@ fn deal_attack_damage_to_all_living(
         if !still_alive {
             defeated_targets.push(target);
         }
-        apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+        follow_ups.extend(apply_or_queue_spikes_to_player(
+            state,
+            monster_content_id,
+            spikes,
+        )?);
     }
 
     for target in defeated_targets {
