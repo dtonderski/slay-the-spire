@@ -2742,7 +2742,10 @@ fn deal_player_damage_with_type(
         draw_policy,
     )?;
     if damage_type == PlayerDamageType::Normal {
-        crate::combat::transition::apply_static_discharge_on_attacked(state, hp_damage)?;
+        // StaticDischarge's onAttacked sees post-block/post-Buffer damage,
+        // before Torii/onLoseHpLast relics. Its queued channel still settles
+        // after this DamageAction's HP commit and HP-loss hooks.
+        crate::combat::transition::apply_static_discharge_on_attacked(state, buffered)?;
     }
     revive_player_if_available(state)?;
     if damage_type == PlayerDamageType::Normal
