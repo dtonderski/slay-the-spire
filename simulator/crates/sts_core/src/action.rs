@@ -144,6 +144,10 @@ pub enum InternalAction {
     DealThornsDamageToPlayer {
         amount: i32,
     },
+    /// ThornsPower.onAttacked addToTop; distinct from older queued Beat work.
+    DealReflectedThornsDamageToPlayer {
+        amount: i32,
+    },
     HealPlayer {
         amount: i32,
     },
