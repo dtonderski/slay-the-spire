@@ -139,7 +139,11 @@ fn resolve_calculated_attack_damage(
     if !still_alive {
         follow_ups.extend(queue_monster_death_hooks(state, target)?);
     }
-    apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+    follow_ups.extend(apply_or_queue_spikes_to_player(
+        state,
+        monster_content_id,
+        spikes,
+    )?);
     Ok(follow_ups)
 }
 
@@ -272,7 +276,11 @@ pub(super) fn deal_damage_random_enemy(
         if !still_alive {
             follow_ups.extend(queue_monster_death_hooks(state, target)?);
         }
-        apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+        follow_ups.extend(apply_or_queue_spikes_to_player(
+            state,
+            monster_content_id,
+            spikes,
+        )?);
         return Ok(follow_ups);
     }
     Ok(Vec::new())
@@ -462,7 +470,11 @@ pub(super) fn deal_hand_of_greed_damage(
         }
         follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
     }
-    apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+    follow_ups.extend(apply_or_queue_spikes_to_player(
+        state,
+        monster_content_id,
+        spikes,
+    )?);
     Ok(follow_ups)
 }
 
@@ -529,7 +541,11 @@ pub(super) fn deal_damage_and_heal_unblocked(
     if !still_alive {
         follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
     }
-    apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+    follow_ups.extend(apply_or_queue_spikes_to_player(
+        state,
+        monster_content_id,
+        spikes,
+    )?);
     Ok(follow_ups)
 }
 
@@ -601,7 +617,11 @@ pub(super) fn deal_damage_and_gain_block_unblocked(
     if !still_alive {
         follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
     }
-    apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+    follow_ups.extend(apply_or_queue_spikes_to_player(
+        state,
+        monster_content_id,
+        spikes,
+    )?);
     Ok(follow_ups)
 }
 
@@ -697,7 +717,11 @@ pub(super) fn deal_feed_damage(
         }
         follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
     }
-    apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+    follow_ups.extend(apply_or_queue_spikes_to_player(
+        state,
+        monster_content_id,
+        spikes,
+    )?);
     Ok(follow_ups)
 }
 
@@ -770,7 +794,11 @@ pub(super) fn deal_ritual_dagger_damage(
         }
         follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
     }
-    apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+    follow_ups.extend(apply_or_queue_spikes_to_player(
+        state,
+        monster_content_id,
+        spikes,
+    )?);
     Ok(follow_ups)
 }
 
