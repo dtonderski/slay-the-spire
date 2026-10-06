@@ -2542,6 +2542,7 @@ fn apply_monster_pending_effects(
                 damage,
                 HpLossDrawPolicy::Immediate,
                 PlayerDamageType::Thorns,
+                DamageDrawContext::MonsterAction,
             )?
         } else if burn_to_discard > 0 || burn_to_discard_and_draw > 0 {
             deal_damage_to_player_with_draw_policy(state, damage, HpLossDrawPolicy::DeferDraws)?
@@ -2553,6 +2554,7 @@ fn apply_monster_pending_effects(
         }
         total_hp_damage = checked_turn_add(total_hp_damage, hp_damage)?;
     }
+    inter_hit_draw_follow_ups.extend(std::mem::take(&mut state.pending_hp_loss_draw_follow_ups));
     if state.player.hp <= 0 {
         // Drop the remaining queued effects — the death screen freezes the bot
         // queue after the lethal DamageAction.
@@ -2700,7 +2702,14 @@ pub(crate) fn deal_thorns_damage_to_player(state: &mut CombatState, amount: i32)
         amount,
         HpLossDrawPolicy::Immediate,
         PlayerDamageType::Thorns,
+        DamageDrawContext::LegacyConfirm,
     )
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DamageDrawContext {
+    MonsterAction,
+    LegacyConfirm,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -2714,7 +2723,13 @@ fn deal_damage_to_player_with_draw_policy(
     amount: i32,
     draw_policy: HpLossDrawPolicy,
 ) -> SimResult<i32> {
-    deal_player_damage_with_type(state, amount, draw_policy, PlayerDamageType::Normal)
+    deal_player_damage_with_type(
+        state,
+        amount,
+        draw_policy,
+        PlayerDamageType::Normal,
+        DamageDrawContext::MonsterAction,
+    )
 }
 
 fn deal_player_damage_with_type(
@@ -2722,6 +2737,7 @@ fn deal_player_damage_with_type(
     amount: i32,
     draw_policy: HpLossDrawPolicy,
     damage_type: PlayerDamageType,
+    draw_context: DamageDrawContext,
 ) -> SimResult<i32> {
     let incoming = crate::combat::hp_loss::cap_player_damage_with_intangible(&state.player, amount);
     let blocked = state.player.block.min(incoming);
@@ -2736,14 +2752,28 @@ fn deal_player_damage_with_type(
         crate::relic::mitigate_hp_loss(&state.player.authority.relics, buffered)
     };
     state.player.hp = (state.player.hp - hp_damage).max(0);
+    // wasHPLost queues draws while HP is zero, before Fairy/Lizard Tail can
+    // revive. Preserve those requests, not a guessed post-revival hand.
+    let draws_across_revival = draw_context == DamageDrawContext::MonsterAction
+        && draw_policy == HpLossDrawPolicy::Immediate
+        && state.player.hp <= 0;
+    let hook_policy = if draws_across_revival {
+        HpLossDrawPolicy::DeferDraws
+    } else {
+        draw_policy
+    };
     crate::combat::hp_loss::apply_player_hp_loss_hooks_with_draw_policy(
         state,
         hp_damage,
-        draw_policy,
+        hook_policy,
     )?;
     // AbstractPlayer.damage settles Fairy/Lizard Tail before returning to the
     // action manager. A real death opens DeathScreen and freezes queued channels.
     revive_player_if_available(state)?;
+    if draws_across_revival {
+        let follow_ups = crate::relic::settle_deferred_hp_loss_draw_relics(state)?;
+        state.pending_hp_loss_draw_follow_ups.extend(follow_ups);
+    }
     if damage_type == PlayerDamageType::Normal && state.player.hp > 0 {
         // StaticDischarge's onAttacked sees post-block/post-Buffer damage,
         // before Torii/onLoseHpLast relics. Its queued channel still settles
