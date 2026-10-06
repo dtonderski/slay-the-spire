@@ -2405,6 +2405,9 @@ fn revive_with_lizard_tail_if_available(state: &mut CombatState) -> SimResult<()
     )?;
     state.lizard_tail_used = true;
     state.player.hp = hp;
+    // LizardTail calls heal: its health-threshold callback follows the actual
+    // heal, before queued damage reactions and HP-loss draws settle.
+    crate::relic::sync_red_skull_strength(state)?;
     Ok(())
 }
 
@@ -2423,6 +2426,8 @@ fn revive_with_fairy_if_available(state: &mut CombatState) -> SimResult<()> {
     )?;
     state.relic_counters.fairy_heal_percent = 0;
     state.relic_counters.fairy_consumed = true;
+    // Fairy's heal has the same bloodied threshold callback as normal healing.
+    crate::relic::sync_red_skull_strength(state)?;
     Ok(())
 }
 
