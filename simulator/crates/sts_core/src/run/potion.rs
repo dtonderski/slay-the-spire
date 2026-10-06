@@ -680,7 +680,7 @@ fn settle_run_after_select_confirm(
             .map(|monster| monster.powers.beat_of_death)
             .unwrap_or(0);
         for _ in 0..triggers {
-            crate::combat::turn::deal_non_attack_damage_to_player(&mut combat, amount)?;
+            crate::combat::turn::deal_thorns_damage_to_player(&mut combat, amount)?;
         }
     }
     next.store_rng_counter(RunRngStream::CardRandom, &combat.rng.card_random_rng);

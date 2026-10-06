@@ -2692,28 +2692,15 @@ pub(crate) fn deal_damage_to_player(state: &mut CombatState, amount: i32) -> Sim
     deal_damage_to_player_with_draw_policy(state, amount, HpLossDrawPolicy::Immediate)
 }
 
-pub(crate) fn deal_non_attack_damage_to_player(
-    state: &mut CombatState,
-    amount: i32,
-) -> SimResult<i32> {
-    let incoming = crate::combat::hp_loss::cap_player_damage_with_intangible(&state.player, amount);
-    let blocked = state.player.block.min(incoming);
-    state.player.block -= blocked;
-    let hp_damage = crate::relic::apply_buffer_to_hp_loss(
-        &mut state.player.powers,
-        incoming.saturating_sub(blocked),
-    );
-    state.player.hp = (state.player.hp - hp_damage).max(0);
-    crate::combat::hp_loss::apply_player_hp_loss_hooks_with_draw_policy(
+pub(crate) fn deal_thorns_damage_to_player(state: &mut CombatState, amount: i32) -> SimResult<i32> {
+    // The only caller settles legacy deferred BeatOfDeathPower DamageActions.
+    // Their DamageInfo is THORNS, not HP_LOSS or an ordinary attack.
+    deal_player_damage_with_type(
         state,
-        hp_damage,
+        amount,
         HpLossDrawPolicy::Immediate,
-    )?;
-    revive_player_if_available(state)?;
-    if hp_damage > 0 && state.player.powers.plated_armor > 0 {
-        state.player.powers.plated_armor -= 1;
-    }
-    Ok(hp_damage)
+        PlayerDamageType::Thorns,
+    )
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
