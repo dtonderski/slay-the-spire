@@ -5,6 +5,8 @@ mod decision_actions;
 mod defense_actions;
 mod pile_actions;
 mod player_actions;
+#[cfg(test)]
+mod post_lethal_queue_tests;
 use crate::{
     action::{CardPile, CombatAction, HpLossSource, InternalAction},
     card::{CardType, TargetRequirement},
@@ -40,7 +42,7 @@ use crate::{
     rng::JavaRng,
     CardInstance, CombatState, MonsterState, SimError, SimResult,
 };
-pub(crate) use player_actions::gain_strength_power;
+pub(crate) use player_actions::{gain_strength_power, gain_temp_strength};
 use std::collections::VecDeque;
 
 pub use super::card_effects::top_draw_card_definition;
@@ -283,6 +285,23 @@ fn apply_play_card(
     Ok(transition)
 }
 
+fn is_post_lethal_cancelled_action(action: &InternalAction) -> bool {
+    matches!(
+        action,
+        InternalAction::DrawCards { .. }
+            | InternalAction::DrawCardsWithoutEvolve { .. }
+            | InternalAction::DrawCardsWhilePlayedCardIsInLimbo { .. }
+            | InternalAction::DrawCardsWhilePlayedCardIsInLimboWithoutEvolve { .. }
+            | InternalAction::DrawCardsFromInkBottle { .. }
+            | InternalAction::RandomizeHandCostsForSneckoOil
+            | InternalAction::GainEnergy { .. }
+            | InternalAction::GainEnergyFromPotion { .. }
+            | InternalAction::OpenPotionCardReward { .. }
+            | InternalAction::OpenElixirSelection
+            | InternalAction::OpenGamblersBrewSelection
+    )
+}
+
 pub(crate) fn process_internal_queue(
     state: &CombatState,
     queue: VecDeque<InternalAction>,
@@ -381,6 +400,10 @@ fn process_internal_queue_owned(
             record_event(&mut event_log, internal_action);
             continue;
         }
+        let had_living_or_reviving_monster = next
+            .monsters
+            .iter()
+            .any(|monster| monster.alive || awakened_one_is_half_dead(monster));
         let had_hand_select = matches!(next.decision, Some(CombatDecisionState::HandSelect { .. }));
         let pain_before_reaper = matches!(
             internal_action,
@@ -408,7 +431,7 @@ fn process_internal_queue_owned(
             && next.monsters.iter().any(|monster| {
                 monster.alive && monster.content_id == crate::content::monsters::TIME_EATER_ID
             });
-        let follow_ups = if let InternalAction::PlayTopDrawCard {
+        let mut follow_ups = if let InternalAction::PlayTopDrawCard {
             target,
             exhaust_played_card,
             random_living_target,
@@ -467,6 +490,30 @@ fn process_internal_queue_owned(
                     event_log: event_log.unwrap_or_default(),
                 });
             }
+        }
+        // THORNS DamageAction and DamageAllEnemiesAction can complete even
+        // in an already-dead room; each completion performs another clear.
+        let completed_post_combat_clear = had_living_or_reviving_monster
+            || matches!(
+                internal_action,
+                InternalAction::DealSharpHideDamageToPlayer { .. }
+                    | InternalAction::DealThornsDamageToPlayer { .. }
+                    | InternalAction::FireBreathingDamage { .. }
+                    | InternalAction::DealDamageAll { .. }
+                    | InternalAction::DealDamageAllRepeated { .. }
+            );
+        if completed_post_combat_clear
+            && next
+                .monsters
+                .iter()
+                .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
+        {
+            // DamageAction/DamageAllEnemiesAction call clearPostCombatActions
+            // on damage completion, not on every later queue item.
+            // Remove already-queued draw, cost, energy and potion-selection
+            // actions. Heal/Block/UseCard settlement stay in their FIFO lane.
+            queue.retain(|action| !is_post_lethal_cancelled_action(action));
+            follow_ups.retain(|action| !is_post_lethal_cancelled_action(action));
         }
         if matches!(
             internal_action,
@@ -639,7 +686,10 @@ fn process_internal_queue_owned(
                     state.pending_actions.extend(queue.drain(..));
                     break;
                 }
-                Some(CombatDecisionState::DiscoveryCardReward {
+                Some(CombatDecisionState::PotionCardReward {
+                    pending_actions, ..
+                })
+                | Some(CombatDecisionState::DiscoveryCardReward {
                     pending_actions, ..
                 }) => {
                     // FIDL00233: Hex onUseCard Dazed must wait until Discovery
@@ -1318,6 +1368,7 @@ fn is_player_selection_action(action: &InternalAction) -> bool {
             | InternalAction::AwaitExhaustSelect { .. }
             | InternalAction::OpenElixirSelection
             | InternalAction::OpenGamblersBrewSelection
+            | InternalAction::OpenPotionCardReward { .. }
             | InternalAction::OpenDiscoveryCardReward { .. }
     )
 }
@@ -1715,6 +1766,9 @@ fn apply_internal_action_with_defer(
             })
         }
         InternalAction::GainEnergy { amount } => player_actions::gain_energy(state, amount),
+        InternalAction::GainEnergyFromPotion { amount } => {
+            player_actions::gain_energy_from_potion(state, amount)
+        }
         InternalAction::LoseEnergy { amount } => player_actions::lose_energy(state, amount),
         InternalAction::LoseHp { amount, source } => player_actions::lose_hp(state, amount, source),
         InternalAction::SetCannotDraw => player_actions::set_cannot_draw(state),
@@ -1842,7 +1896,7 @@ fn apply_internal_action_with_defer(
             player_actions::apply_dex_loss_from_speed_potion(state, amount)
         }
         InternalAction::GainTempStrength { amount } => {
-            player_actions::gain_temp_strength(state, amount)
+            player_actions::gain_temp_strength(state, amount).map(|()| Vec::new())
         }
         InternalAction::GainIntangible { amount } => player_actions::gain_intangible(state, amount),
         InternalAction::GainRitual { amount } => player_actions::gain_ritual(state, amount),
@@ -1953,6 +2007,9 @@ fn apply_internal_action_with_defer(
             source_card_id,
             purpose,
         } => decision_actions::await_exhaust_select(state, source_card_id, purpose),
+        InternalAction::OpenPotionCardReward { reward_kind } => {
+            decision_actions::open_potion_card_reward(state, reward_kind)
+        }
         InternalAction::OpenDiscoveryCardReward { source_card_id } => {
             decision_actions::open_discovery_card_reward(state, source_card_id)
         }
@@ -11003,8 +11060,10 @@ mod tests {
         )
         .expect("Pommel Strike+ should play");
 
-        assert_eq!(next.piles.hand.len(), 2);
-        assert_eq!(next.piles.draw_pile.len(), 2);
+        // The original's lethal DamageAction clears its queued DrawCardAction;
+        // the later copied card fizzles rather than drawing either batch.
+        assert!(next.piles.hand.is_empty());
+        assert_eq!(next.piles.draw_pile.len(), 4);
     }
 
     fn queued_stasis_identity_fixture() -> CombatState {

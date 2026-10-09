@@ -1,5 +1,5 @@
 use crate::{
-    card::{CardInstance, CardType, TargetRequirement},
+    card::{CardInstance, TargetRequirement},
     combat::damage::deal_unmodified_damage_to_monster,
     combat::transition::{
         apply_monster_death_hooks, choose_discard_select, choose_draw_select,
@@ -16,10 +16,7 @@ use crate::{
     },
     content::cards::upgrade_card_instance,
     content::monsters::wake_lagavulin_on_damage,
-    content::shop_pool::{
-        burn_all_discovery_card_choice_generations, colorless_discovery_card_choices,
-        discovery_card_choices,
-    },
+    content::shop_pool::burn_all_discovery_card_choice_generations,
     ids::{CardId, MonsterId},
     map::RoomKind,
     potion::{
@@ -571,8 +568,10 @@ pub(crate) fn apply_validated_discard_select_choice_owned(
         )?;
         flush_pending_player_spikes_damage_if_ready(&mut combat)?;
     }
-    next.combat = Some(combat);
-    Ok(next)
+    // Closing the original selection may execute a queued copy whose damage
+    // wins combat. Use the same run handoff as hand/exhaust confirms instead
+    // of publishing a Won combat with no next action.
+    settle_run_after_select_confirm(next, combat)
 }
 
 pub fn apply_discard_select_confirm(run: &RunState) -> SimResult<RunState> {
@@ -597,8 +596,7 @@ pub(crate) fn apply_validated_discard_select_confirm_owned(
         exhaust_count.saturating_sub(handled_dead_branch_count),
     )?;
     flush_pending_player_spikes_damage_if_ready(&mut combat)?;
-    next.combat = Some(combat);
-    Ok(next)
+    settle_run_after_select_confirm(next, combat)
 }
 
 pub fn apply_exhaust_select_choice(run: &RunState, index: usize) -> SimResult<RunState> {
@@ -660,7 +658,8 @@ pub(crate) fn apply_validated_exhaust_select_confirm_owned(
     settle_run_after_select_confirm(next, combat)
 }
 
-/// Attach post-select combat and open rewards when CONFIRM left combat Won.
+/// Attach post-select combat and open rewards when selection settlement won.
+/// Both explicit CONFIRM and single-choice auto-confirm use this boundary.
 fn settle_run_after_select_confirm(
     mut next: RunState,
     mut combat: CombatState,
@@ -796,7 +795,6 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
                 // CommunicationMod exposes potion-generated cards after the cards that
                 // were already in hand, unlike Toolbox and Discovery rewards.
                 combat.piles.hand.push(card);
-                crate::relic::apply_potion_use_relics_to_combat(combat)?;
                 settle_card_reward_potion_actions(combat, pending_actions)?;
                 next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             }
@@ -930,10 +928,13 @@ pub(crate) fn apply_validated_combat_card_reward_skip_owned(
         Some(CombatDecisionState::PotionCardReward {
             pending_actions, ..
         }) => {
-            crate::relic::apply_potion_use_relics_to_combat(combat)?;
             settle_card_reward_potion_actions(combat, pending_actions)?;
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             combat.activate_next_queued_decision_if_idle();
+            // Queued draws can win via on-draw effects just as choosing can.
+            if combat.phase == CombatPhase::Won {
+                enter_combat_reward_for_current_room(&mut next)?;
+            }
             resume_nilry_end_turn_if_idle_owned(next)
         }
         Some(CombatDecisionState::NilrysCodexCardReward { .. }) => {
@@ -1263,14 +1264,16 @@ pub(crate) fn apply_validated_potion_action_owned(
                     }
                 }
                 Potion::Energy => {
+                    defer_potion_use_relics = true;
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.energy = combat
-                        .player
-                        .energy
-                        .checked_add(ENERGY_POTION_ENERGY * multiplier)
-                        .ok_or(SimError::InvalidState(
-                            "Energy Potion energy gain overflows i32",
-                        ))?;
+                    let actions = std::collections::VecDeque::from([
+                        crate::InternalAction::GainEnergyFromPotion {
+                            amount: ENERGY_POTION_ENERGY * multiplier,
+                        },
+                    ]);
+                    if queue_combat_potion_actions(combat, actions)? {
+                        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+                    }
                 }
                 Potion::EssenceOfSteel => {
                     defer_potion_use_relics = true;
@@ -1562,46 +1565,20 @@ pub(crate) fn apply_validated_potion_action_owned(
                 }
                 Potion::Attack | Potion::Skill | Potion::Colorless | Potion::Power => {
                     defer_potion_use_relics = true;
-                    let mut combat = next
-                        .combat
-                        .as_ref()
-                        .expect("validated combat state")
-                        .clone();
-                    let next_card_id = combat.reserve_card_instance_ids(3)?;
-                    let rng = &mut combat.rng.card_random_rng;
-                    let (kind, content_ids) = match potion {
-                        Potion::Attack => (
-                            PotionCardRewardKind::Attack,
-                            discovery_card_choices(rng, CardType::Attack, 3),
-                        ),
-                        Potion::Skill => (
-                            PotionCardRewardKind::Skill,
-                            discovery_card_choices(rng, CardType::Skill, 3),
-                        ),
-                        Potion::Colorless => (
-                            PotionCardRewardKind::Colorless,
-                            colorless_discovery_card_choices(rng, 3),
-                        ),
-                        Potion::Power => (
-                            PotionCardRewardKind::Power,
-                            discovery_card_choices(rng, CardType::Power, 3),
-                        ),
+                    let reward_kind = match potion {
+                        Potion::Attack => PotionCardRewardKind::Attack,
+                        Potion::Skill => PotionCardRewardKind::Skill,
+                        Potion::Colorless => PotionCardRewardKind::Colorless,
+                        Potion::Power => PotionCardRewardKind::Power,
                         _ => unreachable!("matched discovery potion"),
                     };
-                    next.card_random_rng_counter = rng.counter();
-                    let reward_cards = content_ids
-                        .into_iter()
-                        .enumerate()
-                        .map(|(index, content_id)| {
-                            CardInstance::new(CardId::new(next_card_id + index as u64), content_id)
-                        })
-                        .collect();
-                    combat.queue_or_activate_decision(CombatDecisionState::PotionCardReward {
-                        choices: reward_cards,
-                        reward_kind: kind,
-                        pending_actions: Default::default(),
-                    });
-                    next.combat = Some(combat);
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    let actions = std::collections::VecDeque::from([
+                        crate::InternalAction::OpenPotionCardReward { reward_kind },
+                    ]);
+                    if queue_combat_potion_actions(combat, actions)? {
+                        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+                    }
                 }
                 _ => {
                     return Err(SimError::IllegalAction(
@@ -1661,7 +1638,8 @@ mod tests {
         combat::DiscardSelectState,
         content::cards::{
             BASH_ID, BURNING_PACT_ID, BURN_ID, CLASH_ID, CLEAVE_ID, DARK_EMBRACE_ID, DAZED_ID,
-            DEFEND_R_ID, PARASITE_ID, PURITY_ID, STRIKE_R_ID, WARCRY_ID,
+            DEFEND_R_ID, DOUBLE_TAP_ID, HEADBUTT_ID, HEADBUTT_PLUS_ID, PARASITE_ID, PURITY_ID,
+            STRIKE_R_ID, WARCRY_ID,
         },
         content::monsters::{monster_state, WRITHING_MASS_A0},
         content::shop_pool::ironclad_combat_discovery_pool,
@@ -1708,6 +1686,121 @@ mod tests {
         next.validate()
             .expect("potion victory does not keep a stale combat select");
         assert_ne!(next.phase, crate::RunPhase::Combat);
+    }
+
+    fn headbutt_selection_run(
+        content_id: crate::ContentId,
+        monster_hp: i32,
+        double_tap: bool,
+    ) -> RunState {
+        // Target Headbutt.use queues DamageAction, then
+        // DiscardPileToTopOfDeckAction; the selection must finish before the
+        // existing combat-end queue hands off to run rewards. Double Tap's
+        // queued copy executes only after the original grid closes.
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::BurningBlood]);
+        let target;
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.player.hp = 60;
+            combat.player.max_hp = 80;
+            combat.player.energy = 2;
+            combat.piles.hand = vec![CardInstance::new(CardId::new(1), content_id)];
+            if double_tap {
+                combat
+                    .piles
+                    .hand
+                    .push(CardInstance::new(CardId::new(4), DOUBLE_TAP_ID));
+            }
+            combat.piles.draw_pile.clear();
+            combat.piles.discard_pile = vec![
+                CardInstance::new(CardId::new(2), STRIKE_R_ID),
+                CardInstance::new(CardId::new(3), DEFEND_R_ID),
+            ];
+            combat.monsters.truncate(1);
+            combat.monsters[0].hp = monster_hp;
+            combat.monsters[0].alive = true;
+            target = combat.monsters[0].id;
+        }
+        if double_tap {
+            run = apply_combat_action_on_run(
+                &run,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(4),
+                    target: None,
+                },
+            )
+            .expect("Double Tap queues a copy behind the original selection");
+        }
+        let selecting = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: Some(target),
+            },
+        )
+        .expect("Headbutt opens a discard choice");
+        assert_eq!(selecting.phase, RunPhase::Combat);
+        assert!(selecting
+            .combat
+            .as_ref()
+            .and_then(CombatState::discard_select)
+            .is_some());
+        selecting
+    }
+
+    #[test]
+    fn lethal_headbutt_choice_opens_rewards_once_for_base_and_upgrade() {
+        for content_id in [HEADBUTT_ID, HEADBUTT_PLUS_ID] {
+            let selecting = headbutt_selection_run(content_id, 13, true);
+            let restored: RunState = serde_json::from_str(
+                &serde_json::to_string(&selecting).expect("serialize selection"),
+            )
+            .expect("restore selection");
+            let action = RunAction::ChooseDiscardSelect { index: 1 };
+            let next = apply_run_action(&selecting, action).expect("choose discard card");
+            assert_eq!(next.phase, RunPhase::Reward);
+            assert!(next.reward.is_some());
+            assert!(next.combat.is_none());
+            assert_eq!(next.hp, 66, "Burning Blood heals only once");
+            assert!(!legal_run_decision_actions(&next)
+                .expect("reward actions")
+                .is_empty());
+            next.validate().expect("valid reward state");
+            assert_eq!(next, apply_run_action(&restored, action).expect("repeat"));
+            assert_eq!(
+                next,
+                apply_discard_select_choice(&selecting, 1).expect("direct selection API"),
+            );
+        }
+    }
+
+    #[test]
+    fn lethal_headbutt_explicit_confirm_opens_rewards() {
+        let mut selecting = headbutt_selection_run(HEADBUTT_ID, 13, true);
+        choose_discard_select(selecting.combat.as_mut().expect("combat"), 1)
+            .expect("select without auto-confirm");
+        let next = apply_discard_select_confirm(&selecting).expect("confirm");
+        assert_eq!(next.phase, RunPhase::Reward);
+        assert!(next.combat.is_none());
+        assert_eq!(next.hp, 66);
+        next.validate().expect("valid reward state");
+    }
+
+    #[test]
+    fn nonlethal_headbutt_choice_keeps_combat_and_selected_card_on_top() {
+        let selecting = headbutt_selection_run(HEADBUTT_ID, 40, false);
+        let next = apply_run_action(&selecting, RunAction::ChooseDiscardSelect { index: 1 })
+            .expect("choose discard card");
+        assert_eq!(next.phase, RunPhase::Combat);
+        assert!(next.reward.is_none());
+        let combat = next.combat.as_ref().expect("active combat");
+        assert!(combat.discard_select().is_none());
+        assert_eq!(
+            combat.piles.draw_pile.last().expect("draw top").id,
+            CardId::new(3)
+        );
+        assert_eq!(combat.player.hp, 60);
+        next.validate().expect("valid combat");
     }
 
     #[test]
@@ -2873,7 +2966,20 @@ mod tests {
             combat.decision,
             Some(CombatDecisionState::ExhaustSelect { .. })
         ));
-        assert_eq!(combat.queued_decisions.len(), 1);
+        assert!(combat.queued_decisions.is_empty());
+        assert_eq!(
+            combat
+                .exhaust_select()
+                .expect("active exhaust decision")
+                .pending_actions,
+            std::collections::VecDeque::from([crate::InternalAction::OpenPotionCardReward {
+                reward_kind: PotionCardRewardKind::Skill
+            },]),
+        );
+        assert_eq!(
+            combat.rng.card_random_rng,
+            run.combat.as_ref().unwrap().rng.card_random_rng
+        );
         assert!(combat.potion_card_reward_choices().is_none());
     }
 

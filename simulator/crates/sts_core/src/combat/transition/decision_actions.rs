@@ -649,6 +649,45 @@ pub(super) fn await_exhaust_select(
     Ok(Vec::new())
 }
 
+pub(super) fn open_potion_card_reward(
+    state: &mut CombatState,
+    reward_kind: crate::combat::PotionCardRewardKind,
+) -> SimResult<Vec<crate::action::InternalAction>> {
+    use crate::card::{CardInstance, CardType};
+    use crate::combat::PotionCardRewardKind;
+    use crate::content::shop_pool::{colorless_discovery_card_choices, discovery_card_choices};
+
+    // The queue's clearPostCombatActions boundary cancels already-pending
+    // offers. Do not add a perpetual dead-room veto here: DiscoveryAction
+    // itself can still run if enqueued after that point-in-time clear.
+    if state.decision.is_some() {
+        return Err(SimError::InvalidState(
+            "potion reward started before prior decision closed",
+        ));
+    }
+    let next_card_id = state.reserve_card_instance_ids(3)?;
+    let rng = &mut state.rng.card_random_rng;
+    let content_ids = match reward_kind {
+        PotionCardRewardKind::Attack => discovery_card_choices(rng, CardType::Attack, 3),
+        PotionCardRewardKind::Skill => discovery_card_choices(rng, CardType::Skill, 3),
+        PotionCardRewardKind::Power => discovery_card_choices(rng, CardType::Power, 3),
+        PotionCardRewardKind::Colorless => colorless_discovery_card_choices(rng, 3),
+    };
+    let choices = content_ids
+        .into_iter()
+        .enumerate()
+        .map(|(index, content_id)| {
+            CardInstance::new(CardId::new(next_card_id + index as u64), content_id)
+        })
+        .collect();
+    state.decision = Some(CombatDecisionState::PotionCardReward {
+        choices,
+        reward_kind,
+        pending_actions: VecDeque::new(),
+    });
+    Ok(Vec::new())
+}
+
 pub(super) fn open_discovery_card_reward(
     state: &mut CombatState,
     source_card_id: CardId,

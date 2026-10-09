@@ -199,6 +199,21 @@ fn combat_decision(run: &RunState, command: &str) -> Result<RunDecisionAction, S
 }
 
 pub(super) fn direct_decision(run: &RunState, command: &str) -> Result<RunDecisionAction, String> {
+    // CommunicationMod's executePotionCommand uses physical belt slots for
+    // DISCARD as well as USE. Bind it before other choice-screen decoders;
+    // activation is not performed, and the core validates the discard slot.
+    let mut tokens = command.split_whitespace();
+    if tokens
+        .next()
+        .is_some_and(|token| token.eq_ignore_ascii_case("POTION"))
+        && tokens
+            .next()
+            .is_some_and(|token| token.eq_ignore_ascii_case("DISCARD"))
+    {
+        if let Some(slot) = tokens.next().and_then(|token| token.parse::<usize>().ok()) {
+            return Ok(RunDecisionAction::Run(RunAction::DiscardPotion { slot }));
+        }
+    }
     if run.phase == RunPhase::Combat {
         return combat_decision(run, command);
     }
@@ -232,6 +247,11 @@ pub(super) fn direct_decision(run: &RunState, command: &str) -> Result<RunDecisi
             .iter()
             .copied()
             .find(|action| matches!(action, RunDecisionAction::GridCancel))
+    } else if command_head_eq(command, "RETURN") {
+        legal
+            .iter()
+            .copied()
+            .find(|action| matches!(action, RunDecisionAction::MapReturn))
     } else if command_head_eq(command, "PROCEED") {
         legal.iter().copied().find(|action| {
             matches!(
@@ -427,4 +447,84 @@ pub(super) fn verify_seed_start_transition(
     };
 
     boundary.or_else(|| seed_start_take_first_diff_boundary(report))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn discard_binds_physical_slot_after_an_earlier_belt_hole() {
+        let mut run = RunState::map_fixture();
+        run.gain_potion(Potion::Fire).unwrap();
+        run.gain_potion(Potion::Block).unwrap();
+        let run = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Run(RunAction::DiscardPotion { slot: 0 }),
+        )
+        .unwrap();
+        let before = run.clone();
+        let decision = direct_decision(&run, "potion discard 1").unwrap();
+        assert_eq!(
+            decision,
+            RunDecisionAction::Run(RunAction::DiscardPotion { slot: 1 })
+        );
+        assert_eq!(run, before, "binding is read-only");
+        let discarded = apply_run_decision_action(&run, decision).unwrap();
+        assert!(discarded.potion_at_slot(1).is_none());
+        assert_eq!(discarded.deck, run.deck);
+        assert_eq!(discarded.gold, run.gold);
+        assert_eq!(discarded.hp, run.hp);
+        assert_eq!(discarded.map, run.map);
+        assert!(apply_run_decision_action(&discarded, decision).is_err());
+    }
+
+    #[test]
+    fn discard_does_not_resolve_an_owned_grid() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.gain_potion(Potion::Fire).unwrap();
+        sts_core::adapter_internals::open_neow_remove_grid(&mut run, 1);
+        let decision = direct_decision(&run, "POTION DISCARD 0").unwrap();
+        let discarded = apply_run_decision_action(&run, decision).unwrap();
+        assert_eq!(discarded.card_grid, run.card_grid);
+        assert_eq!(discarded.event, run.event);
+        assert_eq!(discarded.deck, run.deck);
+        assert_eq!(discarded.phase, run.phase);
+        assert!(discarded.potion_at_slot(0).is_none());
+    }
+
+    #[test]
+    fn discard_interrupts_combat_selection_without_confirming_it() {
+        let mut run = RunState::combat_fixture();
+        run.gain_potion(Potion::Fire).unwrap();
+        run.gain_potion(Potion::Elixir).unwrap();
+        let run = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Run(RunAction::UsePotion {
+                slot: 1,
+                target: None,
+            }),
+        )
+        .unwrap();
+        assert!(run.combat.as_ref().unwrap().decision.is_some());
+        let decision = direct_decision(&run, "POTION DISCARD 0").unwrap();
+        let discarded = apply_run_decision_action(&run, decision).unwrap();
+        assert_eq!(discarded.combat, run.combat);
+        assert_eq!(discarded.deck, run.deck);
+        assert!(discarded.potion_at_slot(0).is_none());
+    }
+
+    #[test]
+    fn invalid_discard_slot_does_not_advance_the_run() {
+        let run = RunState::map_fixture();
+        let before = run.clone();
+        for command in ["POTION DISCARD", "POTION DISCARD -1", "POTION DISCARD nope"] {
+            assert!(direct_decision(&run, command).is_err());
+        }
+        for command in ["POTION DISCARD 0", "POTION DISCARD 99"] {
+            let decision = direct_decision(&run, command).unwrap();
+            assert!(apply_run_decision_action(&run, decision).is_err());
+        }
+        assert_eq!(run, before);
+    }
 }
