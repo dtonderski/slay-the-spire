@@ -525,6 +525,9 @@ pub enum InternalAction {
     GainDexterityFromPotion {
         amount: i32,
     },
+    GainPlatedArmorFromPotion {
+        amount: i32,
+    },
     ApplyDexLossFromSpeedPotion {
         amount: i32,
     },

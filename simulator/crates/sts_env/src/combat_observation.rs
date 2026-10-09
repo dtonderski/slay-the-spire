@@ -1600,6 +1600,11 @@ mod tests {
             pending.push_back(
                 sts_core::adapter_internals::InternalAction::GainDexterityFromPotion { amount: 99 },
             );
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::GainPlatedArmorFromPotion {
+                    amount: 99,
+                },
+            );
             assert_hidden_equivalent("active card reward pending actions", &left, &right);
         }
     }
@@ -1658,6 +1663,16 @@ mod tests {
             .pending_nilrys_codex_potion_actions
             .push_back(
                 sts_core::adapter_internals::InternalAction::GainDexterityFromPotion { amount: 99 },
+            );
+        right
+            .combat
+            .as_mut()
+            .expect("combat")
+            .pending_nilrys_codex_potion_actions
+            .push_back(
+                sts_core::adapter_internals::InternalAction::GainPlatedArmorFromPotion {
+                    amount: 99,
+                },
             );
         assert_hidden_equivalent("Nilry pending potion actions", &left, &right);
     }

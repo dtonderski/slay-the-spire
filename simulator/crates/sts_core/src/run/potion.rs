@@ -1276,12 +1276,16 @@ pub(crate) fn apply_validated_potion_action_owned(
                     }
                 }
                 Potion::EssenceOfSteel => {
+                    defer_potion_use_relics = true;
+                    let amount =
+                        checked_potion_stat_gain(0, ESSENCE_OF_STEEL_PLATED_ARMOR, multiplier)?;
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    combat.player.powers.plated_armor = checked_potion_stat_gain(
-                        combat.player.powers.plated_armor,
-                        ESSENCE_OF_STEEL_PLATED_ARMOR,
-                        multiplier,
-                    )?;
+                    let actions = std::collections::VecDeque::from([
+                        crate::InternalAction::GainPlatedArmorFromPotion { amount },
+                    ]);
+                    if queue_combat_potion_actions(combat, actions)? {
+                        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+                    }
                 }
                 Potion::Explosive => {
                     let combat = next.combat.as_mut().expect("validated combat state");
