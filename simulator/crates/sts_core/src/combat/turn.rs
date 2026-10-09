@@ -713,6 +713,9 @@ pub fn apply_pending_nilry_end_powers(state: &mut CombatState) -> SimResult<()> 
         state,
         &mut deferred_monster_deaths,
     )?;
+    // The ordinary END path resolves old Flex loss in this power window.
+    // Codex must do the same before potions appended during its offer run.
+    resolve_player_temp_strength(state)?;
     resolve_player_temp_dexterity(state)?;
     apply_end_of_turn_orb_passives(state)?;
     // NoDrawPower.atEndOfTurn queues its removal behind the original power
