@@ -1,6 +1,7 @@
 """Training infrastructure tests; scripted boundaries are not gameplay parity evidence."""
 
 import gzip
+import io
 import json
 import os
 import signal
@@ -24,7 +25,13 @@ from run_training.collector import (
 )
 from run_training.contracts import PolicyAction
 from run_training.metrics import BehaviorStats
-from run_training.model import MacroModel, encode
+from run_training.model import (
+    FEATURE_VERSION,
+    HEALTH_FEATURE_VERSION,
+    HealthMacroModel,
+    MacroModel,
+    encode,
+)
 from run_training.trainer import (
     graceful_stop,
     load_warm_start,
@@ -371,6 +378,8 @@ class RunTrainerTests(unittest.TestCase):
             args = [
                 "--run-id",
                 "quarantine",
+                "--collection-width",
+                "1",  # Mocked serial collector; batching has separate tests.
                 "--combat-checkpoint",
                 str(combat),
                 "--validation-seeds",
@@ -438,6 +447,8 @@ class RunTrainerTests(unittest.TestCase):
                     [
                         "--run-id",
                         "metrics",
+                        "--collection-width",
+                        "1",
                         "--combat-checkpoint",
                         str(combat),
                         "--validation-seeds",
@@ -531,6 +542,160 @@ class RunTrainerTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, key):
                     load_warm_start(target, path, {**config, key: "changed"})
 
+    def test_warm_start_legacy_hashed_and_explicit_prereview_versions(self):
+        self.assertEqual(FEATURE_VERSION, 2)
+        self.assertEqual(HEALTH_FEATURE_VERSION, 3)
+        config = {
+            "protocol": "same",
+            "feature_version": 2,
+            "model_width": 8,
+            "reward_protocol": "same",
+            "objective": "act1",
+            "observation_schema": 8,
+            "final_act": True,
+            "ascension": 0,
+            "gamma": 1.0,
+            "combat_sha256": "frozen",
+            "native_sha256": "old-native",
+        }
+        settings = {**config, "encoder": "hashed", "native_sha256": "new-native"}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "parent.pt"
+
+            def save(source_config, model):
+                torch.save(
+                    {
+                        "config": source_config,
+                        "model": model.state_dict(),
+                        "iteration": 9,
+                        "optimizer_updates": 8,
+                    },
+                    path,
+                )
+
+            for parent in (
+                config,
+                {**config, "encoder": "hashed", "feature_version": 3},
+            ):
+                save(parent, self.model)
+                target = MacroModel(8)
+                metadata = load_warm_start(target, path, settings)
+                self.assertEqual(metadata["parent_encoder"], "hashed")
+                self.assertEqual(
+                    metadata["parent_feature_version"], parent["feature_version"]
+                )
+                for key, value in self.model.state_dict().items():
+                    torch.testing.assert_close(
+                        value, target.state_dict()[key], atol=0, rtol=0
+                    )
+            for parent in (
+                {**config, "feature_version": 3},  # No known encoder-v3 producer.
+                {**config, "encoder": "hashed", "feature_version": 4},
+                {**config, "encoder": "health", "feature_version": 3},
+                {**config, "encoder": None},
+            ):
+                save(parent, self.model)
+                with self.assertRaisesRegex(ValueError, "feature_version|encoder"):
+                    load_warm_start(MacroModel(8), path, settings)
+            health = HealthMacroModel(8)
+            health_config = {**config, "encoder": "health", "feature_version": 3}
+            save(health_config, health)
+            load_warm_start(HealthMacroModel(8), path, health_config)
+            save({**health_config, "feature_version": 2}, health)
+            with self.assertRaisesRegex(ValueError, "feature_version"):
+                load_warm_start(HealthMacroModel(8), path, health_config)
+
+    def test_root_hp_metric_names_must_be_unique(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / "seeds.json").write_text('["100"]')
+            for fractions in ((".15", ".15"), (".149", ".151")):
+                with (
+                    patch("sys.stderr", new_callable=io.StringIO) as stderr,
+                    patch("run_training.trainer.FrozenCombat") as frozen,
+                    self.assertRaises(SystemExit) as error,
+                ):
+                    main(
+                        [
+                            "--run-id",
+                            "collision",
+                            "--output-root",
+                            directory,
+                            "--combat-checkpoint",
+                            "unused.pt",
+                            "--validation-seeds",
+                            str(path / "seeds.json"),
+                            "--root-eval-hp",
+                            *fractions,
+                        ]
+                    )
+                self.assertEqual(error.exception.code, 2)
+                self.assertIn(
+                    "distinct rounded-percent metric names", stderr.getvalue()
+                )
+                frozen.assert_not_called()
+                self.assertFalse((path / "collision").exists())
+
+    def test_abort_logs_native_collection_failure_in_both_execution_modes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "seeds.json").write_text('["100", "101"]')
+            (root / "combat.pt").write_bytes(b"mocked loader")
+            for width in (1, 2):
+                run_id = f"abort-{width}"
+                with (
+                    patch("run_training.trainer.FrozenCombat"),
+                    patch(
+                        "run_training.trainer.State.new",
+                        side_effect=ValueError("injected native failure"),
+                    ) as native,
+                    patch("run_training.trainer.wandb.init") as init,
+                ):
+                    init.return_value.__enter__.return_value.url = None
+                    with self.assertRaisesRegex(
+                        CollectionFailure, "injected native failure"
+                    ):
+                        main(
+                            [
+                                "--run-id",
+                                run_id,
+                                "--output-root",
+                                directory,
+                                "--combat-checkpoint",
+                                str(root / "combat.pt"),
+                                "--validation-seeds",
+                                str(root / "seeds.json"),
+                                "--collection-width",
+                                str(width),
+                                "--model-width",
+                                "8",
+                                "--updates",
+                                "1",
+                                "--wandb-mode",
+                                "disabled",
+                            ]
+                        )
+                    native.assert_called_once()
+                output = root / run_id
+                rows = [
+                    json.loads(s)
+                    for s in (output / "collection-errors.jsonl")
+                    .read_text()
+                    .splitlines()
+                ]
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["seed"], "100")
+                self.assertIn("injected native failure", rows[0]["error"])
+                journal = [
+                    json.loads(s)
+                    for s in Path(rows[0]["journal"]).read_text().splitlines()
+                ]
+                self.assertEqual(journal[-1]["type"], "error")
+                self.assertTrue((output / "failure.json").exists())
+                checkpoint = torch.load(output / "latest.pt", weights_only=True)
+                self.assertEqual(checkpoint["optimizer_updates"], 0)
+                self.assertEqual(checkpoint["config"]["feature_version"], 2)
+
     def test_checkpoint_commits_before_fallible_telemetry(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -559,6 +724,8 @@ class RunTrainerTests(unittest.TestCase):
                         [
                             "--run-id",
                             "telemetry",
+                            "--collection-width",
+                            "1",
                             "--combat-checkpoint",
                             str(root / "combat.pt"),
                             "--validation-seeds",
@@ -602,6 +769,8 @@ class RunTrainerTests(unittest.TestCase):
             combat = root / "combat.pt"
             combat.write_bytes(b"test hash only; combat loader is mocked")
             common = [
+                "--collection-width",
+                "1",
                 "--combat-checkpoint",
                 str(combat),
                 "--validation-seeds",

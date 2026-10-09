@@ -47,6 +47,7 @@ pub enum PublicChoice {
     },
     ConfirmGrid,
     CancelGrid,
+    ReturnToRoom,
     ChooseMapNode {
         node_slot: u16,
     },
@@ -127,7 +128,7 @@ impl PublicChoice {
             Self::PlayHandSlot { .. } | Self::EndTurn => "combat",
             Self::ChooseEventOption { .. } => "event",
             Self::ToggleGridCard { .. } | Self::ConfirmGrid | Self::CancelGrid => "grid",
-            Self::ChooseMapNode { .. } => "map",
+            Self::ChooseMapNode { .. } | Self::ReturnToRoom => "map",
             Self::RestHeal
             | Self::RestOpenSmith
             | Self::RestOpenRemove
@@ -150,6 +151,7 @@ impl PublicChoice {
             Self::ToggleGridCard { .. } => "toggle_grid_card",
             Self::ConfirmGrid => "confirm_grid",
             Self::CancelGrid => "cancel_grid",
+            Self::ReturnToRoom => "return_to_room",
             Self::ChooseMapNode { .. } => "choose_map_node",
             Self::RestHeal => "rest_heal",
             Self::RestOpenSmith => "rest_open_smith",
@@ -278,6 +280,7 @@ fn project_action(run: &RunState, action: RunDecisionAction) -> Result<PublicCho
         },
         RunDecisionAction::GridConfirm => PublicChoice::ConfirmGrid,
         RunDecisionAction::GridCancel => PublicChoice::CancelGrid,
+        RunDecisionAction::MapReturn => PublicChoice::ReturnToRoom,
         RunDecisionAction::Map(MapAction::ChooseNode { node_id }) => {
             let slot = run
                 .map
