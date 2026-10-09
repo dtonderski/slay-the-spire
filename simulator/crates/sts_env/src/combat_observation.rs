@@ -2601,9 +2601,12 @@ mod tests {
         {
             let combat = run.combat.as_mut().expect("combat");
             combat.player.energy = 3;
+            // DualWieldAction auto-copies a singleton eligible target. Keep
+            // two attacks so this fixture actually exercises a selector pause.
             combat.piles.hand = vec![
                 CardInstance::new(CardId::new(1), STRIKE_R_ID),
                 CardInstance::new(CardId::new(2), DEFEND_R_ID),
+                CardInstance::new(CardId::new(3), ANGER_ID),
             ];
             combat.piles.draw_pile = vec![
                 CardInstance::new(CardId::new(101), WILD_STRIKE_ID),
@@ -2648,9 +2651,12 @@ mod tests {
         {
             let combat = run.combat.as_mut().expect("combat");
             combat.player.energy = 2;
+            // Retain two eligible attacks after Headbutt leaves the hand so
+            // Dual Wield still opens the pause whose hidden piles we inspect.
             combat.piles.hand = vec![
                 CardInstance::new(CardId::new(1), HEADBUTT_ID),
                 CardInstance::new(CardId::new(2), STRIKE_R_ID),
+                CardInstance::new(CardId::new(3), ANGER_ID),
             ];
             combat.piles.draw_pile = vec![
                 CardInstance::new(CardId::new(101), WILD_STRIKE_ID),

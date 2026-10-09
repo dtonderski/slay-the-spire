@@ -225,6 +225,17 @@ pub(super) fn direct_decision(run: &RunState, command: &str) -> Result<RunDecisi
             Some(RunDecisionAction::Run(
                 seed_start_bind_reward_choose_action(run, index)?,
             ))
+        } else if run.phase == RunPhase::Shop && run.card_grid.is_none() && run.shop_merchant_open {
+            // CommunicationMod's merchant list excludes LeaveShop and belt actions.
+            Some(RunDecisionAction::Run(
+                shop_action_for_choice_index(run, index).map_err(|error| error.to_string())?,
+            ))
+        } else if run.phase == RunPhase::Rest && run.card_grid.is_none() {
+            // Rest options are screen commands, not per-card Smith/Remove actions.
+            let options = seed_start_rest_screen_actions(run).map_err(|error| error.to_string())?;
+            Some(RunDecisionAction::Rest(*options.get(index).ok_or_else(
+                || format!("rest choice {index} out of range"),
+            )?))
         } else {
             // A relic pickup can open a card grid without leaving Reward phase
             // (for example Bottled Flame/Lightning/Tornado). CommunicationMod
@@ -452,6 +463,43 @@ pub(super) fn verify_seed_start_transition(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rest_choose_addresses_only_screen_options() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Rest;
+        run.relics.extend([Relic::PeacePipe, Relic::Shovel]);
+        let before = run.clone();
+        let options = seed_start_rest_screen_actions(&run).unwrap();
+        assert!(legal_run_decision_actions(&run).unwrap().len() > options.len());
+        for (index, option) in options.iter().enumerate() {
+            assert_eq!(
+                direct_decision(&run, &format!("CHOOSE {index}")).unwrap(),
+                RunDecisionAction::Rest(*option)
+            );
+        }
+        assert!(direct_decision(&run, &format!("CHOOSE {}", options.len())).is_err());
+        assert_eq!(run, before, "binding must not consume RNG or change state");
+    }
+
+    #[test]
+    fn merchant_choose_does_not_address_leave_or_belt_actions() {
+        let mut run = RunState::map_fixture();
+        run.gold = 10_000;
+        sts_core::adapter_internals::enter_shop_screen(&mut run).unwrap();
+        run.gain_potion(Potion::Fire).unwrap();
+        let before = run.clone();
+        let picks = affordable_shop_picks(&run);
+        assert!(legal_run_decision_actions(&run).unwrap().len() > picks.len());
+        for index in 0..picks.len() {
+            assert_eq!(
+                direct_decision(&run, &format!("CHOOSE {index}")).unwrap(),
+                RunDecisionAction::Run(shop_action_for_choice_index(&run, index).unwrap())
+            );
+        }
+        assert!(direct_decision(&run, &format!("CHOOSE {}", picks.len())).is_err());
+        assert_eq!(run, before, "binding must not consume RNG or change state");
+    }
 
     #[test]
     fn discard_binds_physical_slot_after_an_earlier_belt_hole() {

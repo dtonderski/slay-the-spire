@@ -28,6 +28,7 @@ pub struct AttackDamageResult {
     pub broke_block: bool,
     pub curl_up_block: Option<i32>,
     pub malleable_block: Option<i32>,
+    pub shell_broke: bool,
 }
 
 pub fn deal_unmodified_damage_to_monster(monster: &mut MonsterState, amount: i32) -> i32 {
@@ -247,7 +248,7 @@ pub(crate) fn deal_attack_damage_to_monster(
             monster.powers.flight_grounding_pending = true;
         }
     }
-    reduce_monster_plated_armor_after_hp_damage(monster, hp_damage);
+    let shell_broke = reduce_monster_plated_armor_after_hp_damage(monster, hp_damage);
     large_acid_slime_on_hp_damage(monster, hp_damage);
     transient_shifting_on_hp_damage(monster, hp_damage);
 
@@ -256,6 +257,7 @@ pub(crate) fn deal_attack_damage_to_monster(
         broke_block: block_before > 0 && blocked == block_before,
         curl_up_block,
         malleable_block,
+        shell_broke,
     }
 }
 
@@ -267,15 +269,15 @@ fn cap_monster_damage_with_intangible(monster: &MonsterState, amount: i32) -> i3
     }
 }
 
-fn reduce_monster_plated_armor_after_hp_damage(monster: &mut MonsterState, hp_damage: i32) {
+fn reduce_monster_plated_armor_after_hp_damage(monster: &mut MonsterState, hp_damage: i32) -> bool {
     if !monster.alive || hp_damage <= 0 || monster.powers.plated_armor <= 0 {
-        return;
+        return false;
     }
 
     monster.powers.plated_armor -= 1;
-    if monster.powers.plated_armor == 0 {
-        monster.intent = crate::MonsterIntent::Stun;
-    }
+    // Shell-break Stun is ChangeStateAction addToBot after the hitting
+    // DamageAction, so Headbutt's PutOnDeck grid still shows the prior intent.
+    monster.powers.plated_armor == 0
 }
 
 fn transient_shifting_on_hp_damage(monster: &mut MonsterState, hp_damage: i32) {

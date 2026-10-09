@@ -15,10 +15,11 @@ use sts_core::adapter_internals::content::monsters::{
 use sts_core::adapter_internals::potion::Potion;
 use sts_core::adapter_internals::{
     affordable_shop_picks, apply_run_decision_action, legal_run_decision_actions,
-    try_sts_seed_string_to_long, CardGridScreen, CardId, CardInstance, CombatAction,
-    CombatDecisionState, CombatPhase, CombatState, ContentId, Event, EventScreen, GridPurpose,
-    MapAction, MonsterId, MonsterIntent, MonsterState, Relic, RestAction, RewardContinuation,
-    RewardScreen, RoomKind, RunAction, RunDecisionAction, RunPhase, RunState, ShopPick,
+    shop_action_for_choice_index, try_sts_seed_string_to_long, CardGridScreen, CardId,
+    CardInstance, CombatAction, CombatDecisionState, CombatPhase, CombatState, ContentId, Event,
+    EventScreen, GridPurpose, MapAction, MonsterId, MonsterIntent, MonsterState, Relic, RestAction,
+    RewardContinuation, RewardScreen, RoomKind, RunAction, RunDecisionAction, RunPhase, RunState,
+    ShopPick,
 };
 #[cfg(test)]
 mod choice_contract_tests;

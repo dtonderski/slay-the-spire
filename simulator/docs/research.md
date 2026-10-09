@@ -320,6 +320,12 @@ target action/effect lifecycle rather than an observed deck snapshot.
   queued at the clear boundary. These are source-backed, not dedicated trace
   parity; mappings of other action classes and other potion callback timing
   remain separate audits.
+- `ExhaustAction.update` (True Grit+) and `DualWieldAction.update` decide their
+  zero/singleton shortcuts from the live eligible hand when the action resolves,
+  not when `card.use()` creates the queue. Dual Wield is still playable with no
+  eligible target. `ApotheosisAction.update` upgrades hand, draw, discard, and
+  exhaust piles. These rules are source-backed with synthetic regression
+  coverage; unchanged corpus replay is not dedicated interaction-trace parity.
 - Boss identity first follows unseen-profile progression; traces requiring it
   carry explicit `boss_unlocks` input.
 - Grid preview cancellation is not whole-grid cancellation: target

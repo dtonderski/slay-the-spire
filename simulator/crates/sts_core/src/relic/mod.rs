@@ -1396,7 +1396,6 @@ impl Relic {
             | Relic::RingOfTheSnake
             | Relic::RingOfTheSerpent
             | Relic::FaceOfCleric
-            | Relic::GremlinMask
             | Relic::NlothsMask
             | Relic::OddMushroom
             | Relic::NlothsGift => RelicEffectStatus::Unsupported,
@@ -2172,7 +2171,9 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
             Relic::RedCirclet => {}
             Relic::CultistMask => {}
             Relic::FaceOfCleric => {}
-            Relic::GremlinMask => {}
+            Relic::GremlinMask => {
+                apply_player_weak_with_relics(&mut combat.player.powers, relics, 1)?;
+            }
             Relic::NlothsMask => {}
             Relic::SsserpentHead => {}
             Relic::MarkOfBloom => {}

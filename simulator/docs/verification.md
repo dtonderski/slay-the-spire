@@ -21,6 +21,9 @@ For each trace it:
 The only post-start trace inputs consumed by simulation are explicitly typed
 action-time environmental inputs: `playtime_seconds` and external RNG records.
 Observed state is comparison output only and never repairs simulator state.
+`CHOOSE` indices address the simulator's screen-specific choices, not its entire
+legal-action list: merchant picks exclude leave/belt actions, and rest options
+exclude per-card upgrade/removal actions. Binding is read-only and consumes no RNG.
 Schema-6 captures do not contain action-time playtime, so a timer-dependent
 transition can expose that missing input as a divergence; schema 7 records it.
 
