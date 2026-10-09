@@ -741,6 +741,45 @@ mod tests {
     }
 
     #[test]
+    fn reward_only_previews_use_matching_egg_but_obtain_remains_unsupported() {
+        use crate::content::{
+            reward_card_metadata::REWARD_ONLY_CARD_METADATA, shop_pool::shop_card_content_id,
+        };
+        for metadata in REWARD_ONLY_CARD_METADATA {
+            for egg in [Relic::MoltenEgg, Relic::ToxicEgg, Relic::FrozenEgg] {
+                let mut run = RunState::map_fixture();
+                run.relics.push(egg);
+                let content_id = shop_card_content_id(metadata.key);
+                let card = CardInstance::new(CardId::new(100), content_id);
+                let before = run.clone();
+                let preview = run.card_after_reward_preview_relics(card).unwrap();
+                let expected = matches!(
+                    (metadata.card_type, egg),
+                    (CardType::Attack, Relic::MoltenEgg)
+                        | (CardType::Skill, Relic::ToxicEgg)
+                        | (CardType::Power, Relic::FrozenEgg)
+                );
+                assert_eq!(
+                    preview.upgrades,
+                    u8::from(expected),
+                    "{} {egg:?}",
+                    metadata.key
+                );
+                assert_eq!(
+                    run.card_after_reward_preview_relics(preview).unwrap(),
+                    preview
+                );
+                assert_eq!(run, before);
+                assert_eq!(
+                    run.add_deck_card(preview),
+                    Err(SimError::UnsupportedMechanic(content_id))
+                );
+                assert_eq!(run, before);
+            }
+        }
+    }
+
+    #[test]
     fn molten_egg_upgrades_special_attack_on_deferred_obtain_settlement() {
         let mut run = RunState::seeded_ironclad(1, 0);
         run.relics.push(Relic::MoltenEgg);
@@ -3563,6 +3602,15 @@ impl RunState {
         apply_obtain_eggs: bool,
     ) -> SimResult<()> {
         validate_run_card_content(&card)?;
+        // Reward-only metadata is not a gameplay implementation. Reject an
+        // unsupported obtain before it can enter a deck and miss draw/discard/
+        // damage callbacks or masquerade as a playable generic card.
+        if get_card_definition(card.content_id).is_none()
+            && crate::content::reward_card_metadata::reward_only_card_metadata(card.content_id)
+                .is_some()
+        {
+            return Err(SimError::UnsupportedMechanic(card.content_id));
+        }
         if self.deck.iter().any(|existing| existing.id == card.id) {
             return Err(SimError::InvalidState(
                 "duplicate run deck card instance ID",
@@ -3667,6 +3715,32 @@ impl RunState {
         Ok(card)
     }
 
+    /// Reward previews may name source-backed cards whose gameplay is not yet
+    /// implemented. Previewing is not obtaining: only the declared type selects
+    /// an egg, and the normal instance upgrade records the source upgrade flag.
+    pub(crate) fn card_after_reward_preview_relics(
+        &self,
+        card: CardInstance,
+    ) -> SimResult<CardInstance> {
+        if get_card_definition(card.content_id).is_some() {
+            return self.card_after_card_add_relics(card);
+        }
+        let metadata =
+            crate::content::reward_card_metadata::reward_only_card_metadata(card.content_id)
+                .ok_or(SimError::UnknownContent(card.content_id))?;
+        let matching_egg = match metadata.card_type {
+            CardType::Attack => Relic::MoltenEgg,
+            CardType::Skill => Relic::ToxicEgg,
+            CardType::Power => Relic::FrozenEgg,
+            CardType::Status => return Err(SimError::UnsupportedMechanic(card.content_id)),
+        };
+        if self.relics.contains(&matching_egg) {
+            Ok(upgrade_card_instance(card)?.unwrap_or(card))
+        } else {
+            Ok(card)
+        }
+    }
+
     /// Target egg `onEquip` upgrades matching cards already present on the open
     /// combat reward screen (including closed-but-reopenable choices and Prayer
     /// Wheel/Orrery queued card rewards).
@@ -3677,11 +3751,11 @@ impl RunState {
         let mut choices = reward.choices.clone();
         let mut queued_card_rewards = reward.queued_card_rewards.clone();
         for choice in &mut choices {
-            *choice = self.card_after_card_add_relics(*choice)?;
+            *choice = self.card_after_reward_preview_relics(*choice)?;
         }
         for queued in &mut queued_card_rewards {
             for choice in queued {
-                *choice = self.card_after_card_add_relics(*choice)?;
+                *choice = self.card_after_reward_preview_relics(*choice)?;
             }
         }
         if let Some(reward) = self.reward.as_mut() {

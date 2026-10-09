@@ -12,6 +12,7 @@ from ..content_ids import (
     PotionKey,
     PowerKey,
     RelicKey,
+    RewardOnlyCardKey,
 )
 from ._decode import _int, _literal, _mapping, _none
 from .combat import (
@@ -52,6 +53,8 @@ from .common import (
     Phase,
     PotionSlot,
     Relic,
+    RewardOnlyCard,
+    RewardOnlyCardSlot,
     RunContext,
     RunKeys,
     decode_run_context,
@@ -290,6 +293,9 @@ __all__ = [
     "RestScreen",
     "RestSmith",
     "RewardObservation",
+    "RewardOnlyCard",
+    "RewardOnlyCardKey",
+    "RewardOnlyCardSlot",
     "RewardScreen",
     "RunContext",
     "RunKeys",

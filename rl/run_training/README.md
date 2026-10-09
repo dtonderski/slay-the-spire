@@ -49,11 +49,30 @@ simulator futures enter the macro model.
 
 ## Environment limitations
 
-Known failure classes include Prismatic Shard and Courier purchase successors,
-and Headbutt selection completion leaving a won combat without a legal next
-run action. These have simulator-only reproductions; they are not real-game
-parity findings. The default **aborts** on simulator errors or incomplete training
-batches. Both serial and batched modes log localized collection failures in
+Strict seed-only inputs cannot supply vanilla Courier restock's process-global
+random draw. For simulator-only natural-start training, explicitly add
+`--training-environment-seed 20261009` (any unsigned 64-bit master input).
+A versioned SHA256 derivation allocates a private per-run environmental seed,
+independent of policy samplers, gameplay streams and collection scheduling.
+The same validation run receives the same environmental inputs on every evaluation.
+Omitting the flag retains strict behavior; no automatic opt-in or retry occurs.
+
+The master/derivation protocol are recorded in config/checkpoints and each actual
+`training_rng_seed` is recorded in the immutable setup journal. Reconstruction
+and campfire-bank preparation preserve that input; curricula inherit their source
+journal inputs and reject a new master override. Inputs are never observations
+or model features. Changing the profile/master rejects exact resume; start a new
+experiment identity after a source change, using explicit weights-only transfer
+if compatible. This supplies the supported libGDX distribution, not the actual
+game's global RNG sequence or real-game run-seed parity.
+
+Prismatic reward publication (including matching Egg upgrades) now supports
+source-backed unowned previews. **Full cross-color gameplay is still incomplete:**
+142 pool entries have preview metadata but no gameplay implementation. Taking
+one still fails atomically; no fake effects, substitute cards, or legal-candidate
+filtering are provided. The historical Headbutt victory-settlement defect was
+fixed separately. These diagnostics are simulator-only, not real-game parity
+findings. The default **aborts** on simulator errors or incomplete training batches. Both serial and batched modes log localized collection failures in
 `collection-errors.jsonl`, including failures that abort the run. For an
 explicitly authorized bounded experiment, `--continue-on-collection-failure`
 quarantines the **whole batch**, logs the failed seed/action, and samples fresh

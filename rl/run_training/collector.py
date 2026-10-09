@@ -25,6 +25,7 @@ from model import CombatValueModel
 from sts_sim import Decision, Observation, State
 
 from run_training.contracts import PolicyAction, controller, outcome
+from run_training.environment import journal_environment_seed
 from run_training.metrics import BehaviorStats
 from run_training.model import MacroInput, MacroModel, encode
 from run_training.rewards import Objective, terminal_parts
@@ -241,6 +242,7 @@ def _trajectory(
     combat_rng: torch.Generator,
     journal: Path,
     state_factory: Callable[..., State] = State.new,
+    training_rng_seed: int | None = None,
     stop_requested: Callable[[], bool] | None = None,
     initial_visible_map: Observation | None = None,
     initial_previous: PolicyAction | None = None,
@@ -253,6 +255,7 @@ def _trajectory(
     """
     if objective not in ("act1", "act1_binary", "act3", "heart") or max_actions < 1:
         raise ValueError("Invalid run collection configuration")
+    journal_environment_seed({"training_rng_seed": training_rng_seed})
     steps: list[MacroStep] = []
     accepted = 0
     visible_map = initial_visible_map
@@ -280,12 +283,18 @@ def _trajectory(
                 "max_actions": max_actions,
                 "macro_policy_seed": macro_rng.initial_seed(),
                 "combat_policy_seed": combat_rng.initial_seed(),
+                "training_rng_seed": training_rng_seed,
                 "initial_state": initial_metadata or {"protocol": "natural_start"},
             }
         )
         try:
+            profile = (
+                {"training_rng_seed": training_rng_seed}
+                if training_rng_seed is not None
+                else {}
+            )
             state = simulator_call(
-                lambda: state_factory(seed, ascension=0, final_act=final_act)
+                lambda: state_factory(seed, ascension=0, final_act=final_act, **profile)
             )
             decision = simulator_call(state.decision)
             while True:
@@ -433,6 +442,7 @@ class CollectionOptions(TypedDict):
     combat_rng: torch.Generator
     journal: Path
     state_factory: NotRequired[Callable[..., State]]
+    training_rng_seed: NotRequired[int | None]
     stop_requested: NotRequired[Callable[[], bool] | None]
     initial_visible_map: NotRequired[Observation | None]
     initial_previous: NotRequired[PolicyAction | None]

@@ -2,11 +2,11 @@
 
 use crate::combat_observation::{
     fair_combat_observation, potion_key, project_card, project_relic_state, FairCard,
-    FairCombatObservation, FairObservationError, FairRelic,
+    FairCardDynamicValues, FairCombatObservation, FairObservationError, FairRelic,
 };
 use serde::{Deserialize, Serialize};
 use sts_core::adapter_internals::{
-    content::cards::get_card_definition,
+    content::{cards::get_card_definition, reward_card_metadata::reward_only_card_metadata},
     map::RoomKind,
     run::RunTerminalOutcome,
     run::{reward::ChestSize, CardRewardFlow, GridPurpose, RunState},
@@ -492,7 +492,7 @@ fn reward_screen(run: &RunState) -> Result<FairRewardObservation, FairObservatio
             .choices
             .iter()
             .enumerate()
-            .map(|(slot, card)| project_card_slot(slot, card))
+            .map(|(slot, card)| project_reward_card_slot(slot, card))
             .collect::<Result<_, _>>()?,
         queued_card_rewards: reward
             .queued_card_rewards
@@ -671,6 +671,42 @@ fn project_card_slot(
         card: project_card(card, false)?,
     })
 }
+
+fn project_reward_card_slot(
+    slot: usize,
+    card: &CardInstance,
+) -> Result<FairCardSlot, FairObservationError> {
+    if get_card_definition(card.content_id).is_some() {
+        return project_card_slot(slot, card);
+    }
+    let metadata = reward_only_card_metadata(card.content_id)
+        .ok_or(FairObservationError::UnknownPublicContent)?;
+    // This path is only for an unowned reward preview. It must not publish a
+    // combat/deck card with guessed costs or omit instance-local mutations.
+    let mut expected = CardInstance::new(card.id, card.content_id);
+    expected.upgrades = card.upgrades;
+    if *card != expected || card.upgrades > 1 {
+        return Err(FairObservationError::InvalidAuthoritativeState);
+    }
+    Ok(FairCardSlot {
+        slot,
+        card: FairCard {
+            content_key: metadata.key.to_owned(),
+            cost: i32::from(if card.upgrades == 0 {
+                metadata.cost
+            } else {
+                metadata.upgraded_cost
+            }),
+            cost_is_modified: false,
+            cost_resets_next_turn: false,
+            upgrade_level: card.upgrades,
+            bottled: false,
+            temporary: false,
+            dynamic: FairCardDynamicValues::default(),
+        },
+    })
+}
+
 fn stable_serialized_key<T: Serialize>(value: T) -> Result<String, FairObservationError> {
     serde_json::to_value(value)
         .ok()
@@ -736,6 +772,41 @@ impl From<RunPhase> for FairRunPhase {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reward_only_projection_is_source_backed_and_never_relaxes_owned_cards() {
+        use sts_core::adapter_internals::{
+            content::{
+                reward_card_metadata::REWARD_ONLY_CARD_METADATA, shop_pool::shop_card_content_id,
+            },
+            CardId,
+        };
+        for metadata in REWARD_ONLY_CARD_METADATA {
+            for upgrades in [0, 1] {
+                let mut card =
+                    CardInstance::new(CardId::new(100), shop_card_content_id(metadata.key));
+                card.upgrades = upgrades;
+                let preview = super::project_reward_card_slot(2, &card).unwrap();
+                assert_eq!(preview.slot, 2);
+                assert_eq!(preview.card.content_key, metadata.key);
+                assert_eq!(preview.card.upgrade_level, upgrades);
+                assert_eq!(
+                    preview.card.cost,
+                    i32::from(if upgrades == 0 {
+                        metadata.cost
+                    } else {
+                        metadata.upgraded_cost
+                    })
+                );
+                assert!(super::project_card_slot(2, &card).is_err());
+                card.upgrades = 2;
+                assert!(super::project_reward_card_slot(2, &card).is_err());
+                card.upgrades = upgrades;
+                card.bottled = true;
+                assert!(super::project_reward_card_slot(2, &card).is_err());
+            }
+        }
+    }
+
     use super::*;
     use crate::fair_json_allowlist::{check_schema, FAIR_RUN_OBSERVATION_SCHEMA};
     use sts_core::adapter_internals::{Potion, Relic, ShopPotionSlot, ShopRelicSlot, ShopScreen};

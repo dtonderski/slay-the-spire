@@ -1328,7 +1328,7 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) -> SimResult<
     // preserves generic upgrade metadata (including repeated Searing Blow
     // upgrades) while keeping TakeCardReward from re-applying the egg.
     for choice in &mut choices {
-        *choice = run.card_after_card_add_relics(*choice)?;
+        *choice = run.card_after_reward_preview_relics(*choice)?;
     }
     run.reward.as_mut().expect("reward screen present").choices = choices;
     Ok(())
