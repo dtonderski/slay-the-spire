@@ -309,6 +309,10 @@ pub enum InternalAction {
     /// Potion addToBot selectors read the live hand only when this action starts.
     OpenElixirSelection,
     OpenGamblersBrewSelection,
+    /// Discovery potions generate their offer only when their queued action starts.
+    OpenPotionCardReward {
+        reward_kind: crate::combat::PotionCardRewardKind,
+    },
     DrawCards {
         count: usize,
     },
@@ -340,6 +344,10 @@ pub enum InternalAction {
         count: usize,
     },
     GainEnergy {
+        amount: i32,
+    },
+    /// GainEnergyAction queued by Energy Potion, retaining its overflow error.
+    GainEnergyFromPotion {
         amount: i32,
     },
     /// VoidCard.triggerWhenDrawn addToBot's LoseEnergyAction.

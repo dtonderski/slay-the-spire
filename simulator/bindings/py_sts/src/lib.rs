@@ -226,11 +226,24 @@ pub struct PyState {
 #[pymethods]
 impl PyState {
     #[staticmethod]
-    #[pyo3(signature = (seed, ascension=0, *, final_act=false))]
-    fn new(seed: &str, ascension: u8, final_act: bool) -> PyResult<Self> {
+    #[pyo3(signature = (seed, ascension=0, *, final_act=false, training_rng_seed=None))]
+    fn new(
+        seed: &str,
+        ascension: u8,
+        final_act: bool,
+        training_rng_seed: Option<u64>,
+    ) -> PyResult<Self> {
         let seed = parse_seed(seed).map_err(|error| PyValueError::new_err(error.to_string()))?;
-        let env = FairEnvironment::new_ironclad_with_final_act(seed, ascension, final_act)
-            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let env = match training_rng_seed {
+            Some(training_seed) => FairEnvironment::new_ironclad_with_training_rng(
+                seed,
+                ascension,
+                final_act,
+                training_seed,
+            ),
+            None => FairEnvironment::new_ironclad_with_final_act(seed, ascension, final_act),
+        }
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
         Ok(Self { env })
     }
 
@@ -256,6 +269,15 @@ impl PyState {
             env: self
                 .env
                 .synthetic_combat_root(hp)
+                .map_err(|error| PyValueError::new_err(error.to_string()))?,
+        })
+    }
+
+    fn synthetic_rest_root(&self, hp: i32) -> PyResult<Self> {
+        Ok(Self {
+            env: self
+                .env
+                .synthetic_rest_root(hp)
                 .map_err(|error| PyValueError::new_err(error.to_string()))?,
         })
     }

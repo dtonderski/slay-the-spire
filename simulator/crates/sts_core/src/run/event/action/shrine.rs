@@ -33,8 +33,7 @@ pub(super) fn apply_shrine_event_action(
             }
             1 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -53,8 +52,7 @@ pub(super) fn apply_shrine_event_action(
             ));
         }
         Event::Purifier if screen.stage > 0 && choice_index == 0 => {
-            next.phase = RunPhase::Idle;
-            next.event = None;
+            crate::run::map_overlay::open_completed_room_map(next);
         }
         Event::Transmorgrifier if screen.stage == 0 && choice_index == 0 => {
             open_event_transform_return_to_event_grid(next, Event::Transmorgrifier, 1);
@@ -68,8 +66,7 @@ pub(super) fn apply_shrine_event_action(
         }
         Event::Transmorgrifier if screen.stage > 0 && choice_index == 0 => {
             next.flush_pending_obtain_cards()?;
-            next.phase = RunPhase::Idle;
-            next.event = None;
+            crate::run::map_overlay::open_completed_room_map(next);
         }
         Event::UpgradeShrine if screen.stage == 0 && choice_index == 0 => {
             open_event_upgrade_return_to_event_grid(next, Event::UpgradeShrine);
@@ -82,8 +79,7 @@ pub(super) fn apply_shrine_event_action(
             ));
         }
         Event::UpgradeShrine if screen.stage == 1 && choice_index == 0 => {
-            next.phase = RunPhase::Idle;
-            next.event = None;
+            crate::run::map_overlay::open_completed_room_map(next);
         }
         Event::WheelOfChange => match screen.stage {
             0 if choice_index == 0 => {
@@ -173,8 +169,7 @@ pub(super) fn apply_shrine_event_action(
                 }
             },
             3 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -217,8 +212,7 @@ pub(super) fn apply_shrine_event_action(
         }
         Event::MatchAndKeep if screen.stage == 3 && choice_index == 0 => {
             next.flush_pending_obtain_cards()?;
-            next.phase = RunPhase::Idle;
-            next.event = None;
+            crate::run::map_overlay::open_completed_room_map(next);
             next.match_and_keep = None;
         }
         _ => return Ok(false),

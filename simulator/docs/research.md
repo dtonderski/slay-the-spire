@@ -52,6 +52,21 @@ replacement identity. Initial merchant stock and colorless replacement remain
 seeded. Capture any non-seeded gameplay draw as a typed call-time external input;
 never infer it from the observed result. See [`verification.md`](verification.md).
 
+The audited path is `ShopScreen.purchaseCard` ->
+`AbstractDungeon.getCardFromPool(rarity, purchased.type, false)` ->
+`CardGroup.getRandomCard(type, false)`. It sorts the type-filtered rarity pool,
+then calls `MathUtils.random(size - 1)`; `RandomXS128.nextLong(bound)` uses
+rejection sampling, not a biased raw modulo. Rarity still uses `cardRng` and
+`cardBlizzRandomizer` with ShopRoom's 9/37 thresholds; common Power falls back to
+uncommon. Colorless replacements use seeded card selection instead.
+
+An explicitly opted-in training profile may supply this typed environmental draw
+from a separately seeded private `RandomXS128` provider. It must preserve the
+candidate distribution and all named run streams, advance only at implemented
+call sites, and retain state/counter across clones and snapshots. This is not a
+model of cosmetic global draws or the real process's RNG position. Strict replay
+never enables it or falls back to it. See [`python_api.md`](python_api.md#supported-surface-limits).
+
 ## Map and encounter generation
 
 Target bytecode establishes:
@@ -80,6 +95,13 @@ change the chance by ±10, then roll rarity and retry pool identities until the
 rarity matches. Lab and Woman in Blue instead draw direct pool indices without
 a rarity roll.
 
+Courier potion replacement uses `StorePotion.purchasePotion` →
+`AbstractDungeon.returnRandomPotion()`: roll potion rarity, then retry uniform
+pool identities until rarity matches; only afterward price the replacement.
+It does not use the single-draw `PotionHelper.getRandomPotion()` variant.
+FIDL00591 step 1617 CHOOSE 11 witnesses Entropic Brew replaced by Flex Potion.
+This seeded potion path is distinct from Courier's non-seeded colored cards.
+
 Normal fights do not grant relics; elite rewards roll common/uncommon/rare with
 target thresholds. Relic pools are Java-shuffled from `relicRng.randomLong()`
 and ordinary offers pop from the front. Rejected spawn candidates are removed
@@ -92,6 +114,64 @@ target action/effect lifecycle rather than an observed deck snapshot.
 
 ## Source-backed interaction findings
 
+- Negative player Strength applications bound the actual permanent+temporary
+  amount, just like positive applications. The permanent bookkeeping component
+  may be below -999 while nominal loss is retained on a leftover end-turn frame;
+  capping it alone invents Strength. Apply the incoming negative amount to the
+  combined power, then represent that result without changing the pending debt.
+  Artifact rejects before arithmetic, without repairing either component.
+  Initialized leftover-end diagnostics cover Siphon and Spire Shield; these are
+  source-backed robustness evidence, not natural prefix or real-game parity.
+
+- `Flex.use` applies Strength then `LoseStrengthPower`. `StrengthPower.stackPower`
+  clamps the visible total to ±999, but the loss inherits uncapped
+  `AbstractPower.stackPower` and retains the nominal amount. Expiry can therefore
+  leave Strength below its pre-Flex value when the gain was clipped. Artifact can
+  block creation or later application of the loss. This boundary finding is
+  source-backed, not established by a dedicated real-game boundary trace.
+- The dungeon map overlays the current completed room. `ProceedButton.update`
+  opens `DungeonMapScreen.open(false)` and sets `previousScreen=COMBAT_REWARD`
+  when leaving reward UI. `CancelButton.update` delegates MAP cancellation to
+  `AbstractDungeon.closeCurrentScreen`; `openPreviousScreen` reopens existing
+  reward UI rather than regenerating rewards. `AbstractEvent.openMap` likewise
+  opens a dismissable map, not a new room. Retain simulator-owned room screen
+  payloads at that transition; RETURN changes screen ownership only. Actual map
+  node entry discards the suspended owner. The earlier EventRoom branch in
+  `ProceedButton.update` (offsets 282–385) is distinct: most event-owned rewards
+  close back to the dialog, while the enumerated fight/Lab/Colosseum/Sphere/
+  Mind Bloom exceptions open the map. Do not generalize the later non-event
+  COMBAT_REWARD branch to all reward origins. FIDL00002 (step 61 RETURN) witnesses
+  unclaimed gold; FIDL00233 (step 5 RETURN) witnesses unclaimed Neow potions.
+  `Beggar.update` likewise opens the map after purge while retaining its final
+  Leave dialog (FIDL00179, step 481 RETURN after grid CONFIRM).
+  `Addict.buttonEffect` decline clears the initial offers and settles at
+  screenNum 1 with only Leave. Returning from that map cannot reopen Offer Gold
+  or Rob (FIDL00783, step 677 RETURN).
+  `TombRedMask.buttonEffect` concludes an ignored initial offer at RESULT with
+  only Leave, so RETURN cannot reopen mask purchase or the 222-gold option
+  (FIDL00022, step 1403 RETURN).
+  These witnesses do not certify every other event's completed-dialog stage or
+  later divergences.
+
+- `OrangePellets.onUseCard` queues `RemoveDebuffsAction.update`, which removes
+  powers whose current type is `DEBUFF`. `StrengthPower.updateDescription`
+  classifies the actual current amount, not a permanent/temporary bookkeeping
+  component. Removing `LoseStrengthPower` does not execute its expiry: positive
+  current Strength stays unchanged, while negative current Strength is removed.
+  This classification finding is source-backed, not established by a dedicated
+  real-game boundary trace.
+- `RedSkull.onNotBloodied` applies negative `StrengthPower` through
+  `ApplyPowerAction`, so Artifact can block its removal. The relic's active flag
+  still resets; a subsequent heal does not retry the blocked loss. This is
+  source-backed, not established by a dedicated real-game interaction trace.
+- `GainStrengthPower` has ID `Shackled` and type `DEBUFF`, but
+  `SadisticPower.onApplyPower` explicitly excludes that ID before its damage
+  callback. Dark Shackles therefore triggers Sadistic Nature only for incoming
+  negative Strength, not for its recovery power, including existing/capped
+  stacks. Do not infer callbacks from the DEBUFF type alone: a rejected
+  double-callback experiment diverged in six unchanged reviewed traces. The
+  existing single-callback behavior passes those traces and source-backed
+  synthetic controls; no gameplay fix was needed for this finding.
 - `FocusPower` differs from Strength/Dexterity: its constructor retains the
   raw initial amount; `stackPower` caps an **existing** Focus amount to +/-999.
   `stackPower`/`reducePower` queue removal at zero, so the settled model's zero
@@ -207,10 +287,38 @@ target action/effect lifecycle rather than an observed deck snapshot.
   potion-use heal; a subsequent Gremlin Horn draw is not retroactively given
   Snecko Oil costs. Toy Ornithopter's heal also stays behind an open reward/grid
   for these draw potions. These are source-backed, not dedicated trace parity.
-  Post-lethal shared draw/cost-action cancellation and other potions' queued
-  on-use callback timing remain separate audits.
+  Queue later potion offers as typed actions too: `DiscoveryAction.update`
+  generates choices at action start, not at potion use. `returnTrulyRandomCardInCombat`
+  uses `cardRandomRng`, so an earlier Snecko randomizer changes a later offer.
+  A draw's `FireBreathingPower.onCardDraw` damage appends behind that later
+  offer and must wait for its retrieval. Keep reward-potion Toy Ornithopter
+  heals in the same FIFO lane rather than applying them outside the queue.
+  If the earlier Nilry end-turn power queue kills the final enemy, retain pending
+  potion HealActions and drain them before victory/Burning Blood settlement;
+  `clearPostCombatActions` removes draws, not heals.
+  The synthetic FIFO tests cover these boundaries, not dedicated trace parity.
+  `DamageAction` and `DamageAllEnemiesAction` call `clearPostCombatActions`
+  at the final lethal boundary. It removes already-queued `DrawCardAction`,
+  `RandomizeHandCostAction`, `GainEnergyAction`, and queued potion offers/hand
+  selectors, while preserving HealAction, GainBlockAction, UseCardAction and
+  DAMAGE-type actions. Dropping a queued selector must not strand its later
+  potion-use heal behind an unanswerable post-victory screen. This is a point-in-time
+  filter, not a perpetual dead-room veto: `getNextAction` still services a
+  nonempty queue without testing for living enemies. A later completed THORNS
+  DamageAction or DamageAllEnemiesAction invokes another clear when the room
+  is still dead, cancelling actions appended since the previous clear. Awakened One's first-form
+  half-death is not a final kill. Keep later-created actions distinct from those
+  queued at the clear boundary. These are source-backed, not dedicated trace
+  parity; mappings of other action classes and other potion callback timing
+  remain separate audits.
 - Boss identity first follows unseen-profile progression; traces requiring it
   carry explicit `boss_unlocks` input.
+- Grid preview cancellation is not whole-grid cancellation: target
+  `CancelButton.update` dispatches to `GridCardSelectScreen.cancelUpgrade` while
+  an upgrade/transform/purge confirmation preview is open. It clears that
+  preview but keeps the grid and its owner, even when the underlying selection
+  is mandatory. QLFR00001's Neow purge select/CANCEL/reselect/CONFIRM sequence
+  pins this distinction; cancellation itself does not commit the card effect.
 - Dead Adventurer searches consume encounter RNG immediately; safe rewards and
   failed-fight exposure occur in that transition.
 - The Library adds rolled cards to the bottom at index zero, reversing visible

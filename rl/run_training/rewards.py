@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-Objective = Literal["act1", "act3", "heart"]
+Objective = Literal["act1", "act1_binary", "act3", "heart"]
 ACT1_BOSS_FLOOR = 16
 ACT1_CLEAR_BONUS = 5.0
 REWARD_PROTOCOL = "act1_terminal_floor16_plus_clear5_v1_other_objectives_binary"
@@ -20,7 +20,7 @@ class RewardParts:
 
 
 def succeeded(objective: Objective, status: str) -> bool:
-    if objective == "act1":
+    if objective in ("act1", "act1_binary"):
         return status == "act1_clear"
     if objective == "act3":
         return status in ("act3_clear", "heart_clear")
@@ -34,6 +34,10 @@ def terminal_parts(
 ) -> RewardParts:
     if furthest_act1_floor < 0:
         raise ValueError("Negative observed floor")
+    if objective == "act1_binary":
+        if status not in ("death", "act1_clear"):
+            raise ValueError("Binary Act-1 reward requires a completed episode")
+        return RewardParts(0.0, float(status == "act1_clear"))
     if objective == "act1":
         if status not in ("death", "act1_clear"):
             raise ValueError("Act-1 reward requires a completed Act-1 episode")
