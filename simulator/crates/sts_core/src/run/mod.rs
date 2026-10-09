@@ -2,6 +2,8 @@ pub mod decision;
 pub mod event;
 pub mod grid;
 pub mod map;
+mod map_overlay;
+pub use map_overlay::MapRoomScreen;
 pub mod neow;
 pub mod potion;
 pub mod rest;
