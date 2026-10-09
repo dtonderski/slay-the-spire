@@ -5476,7 +5476,7 @@ pub static RECYCLE_ANY_COLOR: CardDefinition = CardDefinition {
     id: RECYCLE_ANY_COLOR_ID,
     key: "RECYCLE",
     name: "Recycle",
-    cost: 0,
+    cost: 1,
     card_type: CardType::Skill,
     rarity: Some(CardRarity::Uncommon),
     upgrade: None,
@@ -5830,7 +5830,10 @@ pub static PIERCING_WAIL_ANY_COLOR: CardDefinition = CardDefinition {
         block: None,
         vulnerable: None,
     },
-    keywords: CARD_KEYWORDS_NONE,
+    keywords: CardKeywords {
+        exhaust: true,
+        ..CARD_KEYWORDS_NONE
+    },
 };
 
 pub static CALTROPS_ANY_COLOR: CardDefinition = CardDefinition {

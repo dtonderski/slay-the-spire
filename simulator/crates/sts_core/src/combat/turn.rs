@@ -90,9 +90,18 @@ pub fn end_player_turn(state: &CombatState) -> SimResult<CombatState> {
 
 pub(crate) fn end_player_turn_owned(mut next: CombatState) -> SimResult<CombatState> {
     next.play_top_force_exhaust_active = false;
-    if next.pending_end_turn_feel_no_pain_block > 0 {
-        next.player.block = next.player.block.saturating_add(std::mem::take(
-            &mut next.pending_end_turn_feel_no_pain_block,
+    if next.pending_end_turn_hand_resolution.is_some()
+        && !next.time_warp_end_turn_pre_discard_settled
+    {
+        return Err(SimError::InvalidState(
+            "deferred end-turn hand callbacks have no publication marker",
+        ));
+    }
+    // Old debug aggregates lost nominal amounts and per-exhaust callbacks.
+    // Do not infer that missing queue context from current or observed block.
+    if next.pending_end_turn_feel_no_pain_block != 0 {
+        return Err(SimError::InvalidState(
+            "legacy deferred block requires per-exhaust action context",
         ));
     }
     let started_with_living_monster = next.monsters.iter().any(|monster| monster.alive);
@@ -125,19 +134,61 @@ pub(crate) fn end_player_turn_owned(mut next: CombatState) -> SimResult<CombatSt
     let hand_nonempty_at_end_click = !next.piles.hand.is_empty();
     let mut deferred_stasis_cards;
     let mut deferred_monster_deaths = Vec::new();
-    let end_of_turn_hand;
+    let mut end_of_turn_hand;
 
     if pre_discard_settled {
+        resolve_player_temp_dexterity(&mut next)?;
         deferred_stasis_cards = Vec::new();
-        end_of_turn_hand = crate::combat::hand::exhaust_unplayed_ethereal_cards(&mut next)?;
+        end_of_turn_hand = if let Some(resolution) = next.pending_end_turn_hand_resolution.take() {
+            resolution
+        } else {
+            crate::combat::hand::exhaust_unplayed_ethereal_cards(&mut next)?
+        };
     } else if resuming_after_nilrys {
         // CodexAction paused `callEndOfTurnActions` at relic onPlayerEndTurn,
         // before power/orb hooks and `triggerOnEndOfTurnForPlayingCard`. Resume
         // continues that queue with the hand still held, then the ordinary
         // DiscardAtEndOfTurnAction path below (FIDL00108 Ghostly Armor).
-        next.resume_end_turn_after_nilrys_codex = false;
         apply_pending_nilry_end_powers(&mut next)?;
         crate::relic::nilrys_codex_flush_pending_draw_inserts(&mut next)?;
+        if !next.pending_nilrys_codex_potion_actions.is_empty() {
+            let mut actions = std::mem::take(&mut next.pending_nilrys_codex_potion_actions);
+            if next.player.hp > 0
+                && next
+                    .monsters
+                    .iter()
+                    .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
+            {
+                // Earlier end-turn damage cleared the pending draw/manipulation
+                // actions, but clearPostCombatActions retains Heal/GainBlock.
+                // Drain them before settling victory, not after Burning Blood.
+                actions.retain(|action| {
+                    matches!(
+                        action,
+                        crate::InternalAction::HealPlayer { .. }
+                            | crate::InternalAction::GainBlockFromPotion { .. }
+                    )
+                });
+            } else if finish_combat_if_over(&mut next, started_with_living_monster)? {
+                next.resume_end_turn_after_nilrys_codex = false;
+                return Ok(next);
+            }
+            next = crate::combat::transition::process_internal_queue(&next, actions)?.state;
+            if matches!(next.phase, CombatPhase::Won | CombatPhase::Lost) {
+                next.resume_end_turn_after_nilrys_codex = false;
+                return Ok(next);
+            }
+            if next.decision.is_some() {
+                return Ok(next);
+            }
+        }
+        // An additional potion reward is itself ahead of the ordinary discard
+        // and monster-turn actions. Keep the resume marker until its retrieval.
+        if next.decision.is_none() && !next.queued_decisions.is_empty() {
+            next.activate_next_queued_decision_if_idle();
+            return Ok(next);
+        }
+        next.resume_end_turn_after_nilrys_codex = false;
         deferred_stasis_cards = Vec::new();
         // Constricted.atEndOfTurn addToBots THORNS after CodexAction. Without
         // Combust it is not in the pre-hand power window, so resume must still
@@ -286,6 +337,7 @@ pub(crate) fn end_player_turn_owned(mut next: CombatState) -> SimResult<CombatSt
         }
         expire_unused_duplication_potion_stack(&mut next);
         resolve_player_temp_strength(&mut next)?;
+        resolve_player_temp_dexterity(&mut next)?;
         // Juggernaut can kill a Stasis-holding Bronze Orb from the immediate
         // Metallicize/Plated Armor block callback. `apply_monster_death_hooks`
         // has already published that card into hand (or discard when hand is
@@ -420,6 +472,15 @@ pub(crate) fn end_player_turn_owned(mut next: CombatState) -> SimResult<CombatSt
     let mut deferred_dark_embrace_fire_breathing = Vec::new();
     for follow_up in end_of_turn_hand.ethereal_follow_ups {
         match follow_up {
+            crate::combat::hand::EtherealEndTurnFollowUp::GainBlock { amount } => {
+                if let Some(damage) =
+                    crate::combat::transition::apply_deferred_end_turn_exhaust_block(
+                        &mut next, amount,
+                    )?
+                {
+                    end_of_turn_hand.deferred_juggernaut_damage.push(damage);
+                }
+            }
             crate::combat::hand::EtherealEndTurnFollowUp::DeadBranch(card) => {
                 if next.piles.hand.len() < MAX_HAND_SIZE {
                     next.piles.hand.push(card);
@@ -653,7 +714,15 @@ pub fn apply_pending_nilry_end_powers(state: &mut CombatState) -> SimResult<()> 
         state,
         &mut deferred_monster_deaths,
     )?;
+    // The ordinary END path resolves old Flex loss in this power window.
+    // Codex must do the same before potions appended during its offer run.
+    resolve_player_temp_strength(state)?;
+    resolve_player_temp_dexterity(state)?;
     apply_end_of_turn_orb_passives(state)?;
+    // NoDrawPower.atEndOfTurn queues its removal behind the original power
+    // callbacks, but before potions appended while CodexAction is current.
+    // Keep the earlier pre-Combust removal above for its own queued draws.
+    state.player.cannot_draw = false;
     state.nilrys_end_powers_pending = false;
     Ok(())
 }
@@ -825,17 +894,6 @@ fn start_player_turn_in_place(
     {
         monster.powers.slow = 0;
     }
-    if state.player.temp_dexterity > 0 {
-        state.player.powers.dexterity = state
-            .player
-            .powers
-            .dexterity
-            .checked_sub(state.player.temp_dexterity)
-            .ok_or(SimError::InvalidState(
-                "combat integer subtraction overflows i32",
-            ))?;
-        state.player.temp_dexterity = 0;
-    }
     state.player.energy = checked_turn_add(state.player.energy, state.player.powers.berserk)?;
     if state.player.powers.fasting != 0 {
         state.player.energy =
@@ -1000,16 +1058,47 @@ fn checked_turn_increment(value: &mut u32) -> SimResult<()> {
     Ok(())
 }
 
+fn resolve_player_temp_dexterity(state: &mut CombatState) -> SimResult<()> {
+    let amount = std::mem::take(&mut state.player.temp_dexterity);
+    if amount <= 0 {
+        return Ok(());
+    }
+    // LoseDexterityPower.atEndOfTurn queues incoming negative DexterityPower,
+    // then removes DexLoss regardless of whether Artifact blocked that loss.
+    // Resolve before monster debuffs, not by subtracting at next player start.
+    if state.player.powers.artifact > 0 {
+        state.player.powers.artifact -= 1;
+    } else {
+        state.player.powers.dexterity = state
+            .player
+            .powers
+            .dexterity
+            .checked_sub(amount)
+            .ok_or(SimError::InvalidState(
+                "combat integer subtraction overflows i32",
+            ))?
+            .clamp(-999, 999);
+    }
+    Ok(())
+}
+
 fn resolve_player_temp_strength(state: &mut CombatState) -> SimResult<()> {
     let amount = std::mem::take(&mut state.player.temp_strength);
-    if amount <= 0 || state.player.powers.artifact <= 0 {
+    if amount <= 0 {
+        return Ok(());
+    }
+    if state.player.powers.artifact <= 0 {
+        // LoseStrengthPower applies negative Strength through StrengthPower,
+        // so removing the temporary component also respects its lower bound.
+        state.player.powers.strength = state.player.powers.strength.clamp(-999, 999);
         return Ok(());
     }
 
     // Flex's LoseStrengthPower applies negative Strength at end of turn. Artifact
     // can therefore block it even when Artifact was gained after Flex resolved.
     state.player.powers.artifact -= 1;
-    state.player.powers.strength = checked_turn_add(state.player.powers.strength, amount)?;
+    state.player.powers.strength =
+        checked_turn_add(state.player.powers.strength, amount)?.clamp(-999, 999);
     Ok(())
 }
 
@@ -1042,7 +1131,8 @@ fn finish_monster_turn_after_player_revival_inner(state: &mut CombatState) -> Si
             }
             if monster.temp_strength_down > 0 {
                 monster.powers.strength =
-                    checked_turn_add(monster.powers.strength, monster.temp_strength_down)?;
+                    checked_turn_add(monster.powers.strength, monster.temp_strength_down)?
+                        .clamp(-999, 999);
                 monster.temp_strength_down = 0;
             }
         }
@@ -1386,6 +1476,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
                 ActorTurnDisposition::StopPlayerDead
             ) {
                 state.time_warp_duplicate_monster_queue = false;
+                state.time_warp_pre_gain_strength.clear();
                 let _ = crate::combat::damage::resolve_darkling_life_link(&mut state.monsters);
                 return Ok(());
             }
@@ -1393,6 +1484,7 @@ fn run_monster_turn(state: &mut CombatState) -> SimResult<()> {
         }
     }
     state.time_warp_duplicate_monster_queue = false;
+    state.time_warp_pre_gain_strength.clear();
 
     finish_monster_turn_cleanup(state, &skip_ritual_tick)
 }
@@ -1468,16 +1560,23 @@ fn execute_generic_monster_intent(
             crate::MonsterIntent::Attack { .. } | crate::MonsterIntent::AttackMultiple { .. }
         )
         && !state.time_warp_end_turn;
-    // TimeWarpPower queues its +2 Strength action, while the monster queue's
-    // DamageInfo objects were created from the pre-action intent. Preserve that
-    // source FIFO for the duplicated queue; the monster's +2 remains in state
-    // for subsequent rolls and observations.
-    let strength_before_time_warp_snapshot = state.monsters[index].powers.strength;
-    if time_warp_queued_damage_snapshot {
-        state.monsters[index].powers.strength =
-            strength_before_time_warp_snapshot.saturating_sub(2);
-    }
-    let damage_result = prepare_monster_intent_with_card_rng_and_revival(
+    // The source queue's DamageInfo captured powers before the gain. Do not
+    // invert a clipped gain or temporarily replace accepted monster fields.
+    let queued_strength = if time_warp_queued_damage_snapshot {
+        Some(
+            state
+                .time_warp_pre_gain_strength
+                .iter()
+                .find(|(id, _)| *id == actor_id)
+                .map(|(_, strength)| *strength)
+                .ok_or(SimError::InvalidState(
+                    "queued Time Warp damage has no Strength snapshot",
+                ))?,
+        )
+    } else {
+        None
+    };
+    let prepared_intent = prepare_monster_intent_with_card_rng_and_revival(
         &mut state.monsters[index],
         &mut state.player,
         &mut state.piles,
@@ -1487,11 +1586,8 @@ fn execute_generic_monster_intent(
         relics,
         player_can_revive,
         &mut state.rng.card_random_rng,
-    );
-    if time_warp_queued_damage_snapshot {
-        state.monsters[index].powers.strength = strength_before_time_warp_snapshot;
-    }
-    let prepared_intent = damage_result?;
+        queued_strength,
+    )?;
     let damage = prepared_intent.damage;
     if state.monsters[index].content_id == WRITHING_MASS_ID
         && matches!(intent, crate::MonsterIntent::ApplyPlayerFrailAndWeak { .. })
@@ -1579,7 +1675,6 @@ fn execute_generic_monster_intent(
             && total_player_thorns > 0
             && actor_was_alive
             && !state.monsters[index].alive;
-        let plated_armor_before_thorns_damage = state.player.powers.plated_armor;
         apply_monster_pending_effects(
             state,
             intent,
@@ -1597,9 +1692,6 @@ fn execute_generic_monster_intent(
             deferred_upgrade_burns,
             Some(index),
         )?;
-        if matches!(intent, crate::MonsterIntent::Stun) {
-            state.player.powers.plated_armor = plated_armor_before_thorns_damage;
-        }
         if state.monsters[index].content_id == SPIRE_SHIELD_ID
             && matches!(
                 intent,
@@ -1613,7 +1705,11 @@ fn execute_generic_monster_intent(
             if state.max_orbs > 0 && state.rng.monster_rng.random_bool() {
                 crate::power::reduce_player_focus(&mut state.player.powers, 1)?;
             } else {
-                crate::power::reduce_player_strength(&mut state.player.powers, 1)?;
+                crate::power::reduce_player_strength_with_temporary(
+                    &mut state.player.powers,
+                    state.player.temp_strength,
+                    1,
+                )?;
             }
         }
     }
@@ -1639,9 +1735,13 @@ fn execute_generic_monster_intent(
     {
         for (other_index, monster) in state.monsters.iter_mut().enumerate() {
             if other_index != index && monster.alive {
-                monster.block = monster.block.checked_add(30).ok_or(SimError::InvalidState(
-                    "Spire Shield Fortify block overflows i32",
-                ))?;
+                monster.block = monster
+                    .block
+                    .checked_add(30)
+                    .ok_or(SimError::InvalidState(
+                        "Spire Shield Fortify block overflows i32",
+                    ))?
+                    .min(999);
             }
         }
     }
@@ -1804,7 +1904,8 @@ fn execute_state_oriented_special_intent(
                 state.monsters[index].hp = target_hp;
             }
             if ascension >= 19 {
-                state.monsters[index].block = checked_turn_add(state.monsters[index].block, 32)?;
+                state.monsters[index].block =
+                    checked_turn_add(state.monsters[index].block, 32)?.min(999);
             }
             checked_turn_increment(&mut state.monsters[index].moves_executed)?;
             prepare_next_intent_for_actor(state, actor_id)?;
@@ -1890,7 +1991,8 @@ fn execute_state_oriented_special_intent(
                 state.monsters[index].powers.strength = checked_turn_add(
                     state.monsters[index].powers.strength,
                     crate::relic::PHILOSOPHERS_STONE_MONSTER_STRENGTH,
-                )?;
+                )?
+                .clamp(-999, 999);
             }
             checked_turn_increment(&mut state.monsters[index].moves_executed)?;
             prepare_next_intent_for_actor(state, actor_id)?;
@@ -1928,7 +2030,7 @@ fn execute_state_oriented_special_intent(
             state.monsters[index].temp_strength_down = 0;
             state.monsters[index].powers.strength = state.monsters[index].powers.strength.max(0);
             state.monsters[index].powers.strength =
-                checked_turn_add(state.monsters[index].powers.strength, amount)?;
+                checked_turn_add(state.monsters[index].powers.strength, amount)?.clamp(-999, 999);
             checked_turn_increment(&mut state.monsters[index].moves_executed)?;
             prepare_next_intent_for_actor(state, actor_id)?;
             Ok(true)
@@ -1942,7 +2044,7 @@ fn execute_state_oriented_special_intent(
                 .iter_mut()
                 .find(|monster| monster.id == actor_id)
             {
-                monster.block = checked_turn_add(monster.block, block)?;
+                monster.block = checked_turn_add(monster.block, block)?.min(999);
                 checked_turn_increment(&mut monster.moves_executed)?;
             }
             prepare_next_intent_for_actor(state, actor_id)?;
@@ -1951,7 +2053,8 @@ fn execute_state_oriented_special_intent(
         crate::MonsterIntent::StrengthAndBlock { strength, block }
             if state.monsters[index].content_id == CHAMP_ID =>
         {
-            state.monsters[index].block = checked_turn_add(state.monsters[index].block, block)?;
+            state.monsters[index].block =
+                checked_turn_add(state.monsters[index].block, block)?.min(999);
             state.monsters[index].powers.metallicize =
                 checked_turn_add(state.monsters[index].powers.metallicize, strength)?;
             checked_turn_increment(&mut state.monsters[index].moves_executed)?;
@@ -2150,7 +2253,7 @@ fn execute_spawning_or_targeted_special_intent(
                 .iter_mut()
                 .find(|monster| monster.alive && monster.content_id == BRONZE_AUTOMATON_ID)
             {
-                automaton.block = checked_turn_add(automaton.block, block)?;
+                automaton.block = checked_turn_add(automaton.block, block)?.min(999);
             }
             if let Some(monster) = state
                 .monsters
@@ -2215,7 +2318,8 @@ fn apply_spawn_relic_effects(
         monster.powers.strength = checked_turn_add(
             monster.powers.strength,
             crate::relic::PHILOSOPHERS_STONE_MONSTER_STRENGTH,
-        )?;
+        )?
+        .clamp(-999, 999);
     }
     Ok(())
 }
@@ -2255,7 +2359,8 @@ fn finish_monster_turn_cleanup(
             }
             if monster.temp_strength_down > 0 {
                 monster.powers.strength =
-                    checked_turn_add(monster.powers.strength, monster.temp_strength_down)?;
+                    checked_turn_add(monster.powers.strength, monster.temp_strength_down)?
+                        .clamp(-999, 999);
                 monster.temp_strength_down = 0;
             }
         }
@@ -2327,6 +2432,9 @@ fn revive_with_lizard_tail_if_available(state: &mut CombatState) -> SimResult<()
     )?;
     state.lizard_tail_used = true;
     state.player.hp = hp;
+    // LizardTail calls heal: its health-threshold callback follows the actual
+    // heal, before queued damage reactions and HP-loss draws settle.
+    crate::relic::sync_red_skull_strength(state)?;
     Ok(())
 }
 
@@ -2345,6 +2453,8 @@ fn revive_with_fairy_if_available(state: &mut CombatState) -> SimResult<()> {
     )?;
     state.relic_counters.fairy_heal_percent = 0;
     state.relic_counters.fairy_consumed = true;
+    // Fairy's heal has the same bloodied threshold callback as normal healing.
+    crate::relic::sync_red_skull_strength(state)?;
     Ok(())
 }
 
@@ -2401,6 +2511,11 @@ fn apply_monster_pending_effects(
     // addToBot behind the remaining hits. This distinction is observable when
     // a later hit is lethal: cards drawn by earlier hits remain in hand while
     // the queued on-draw callbacks are abandoned by the death screen.
+    // ExplosivePower queues a THORNS DamageInfo. Select its pipeline before
+    // callbacks; never apply normal damage and restore selected power fields.
+    let thorns_damage = matches!(intent, crate::MonsterIntent::Stun)
+        && attacker_index
+            .is_some_and(|i| state.monsters[i].content_id == crate::content::monsters::EXPLODER_ID);
     let mut total_hp_damage = 0;
     let mut painful_stabs_triggers = 0;
     let mut inter_hit_draw_follow_ups = Vec::new();
@@ -2453,7 +2568,15 @@ fn apply_monster_pending_effects(
         // Orb Walker's Burn action is already queued behind its DamageAction.
         // Runic Cube's DrawCardAction runs first, but Evolve/Fire Breathing
         // actions created by that draw append behind the pending Burn insert.
-        let hp_damage = if burn_to_discard > 0 || burn_to_discard_and_draw > 0 {
+        let hp_damage = if thorns_damage {
+            deal_player_damage_with_type(
+                state,
+                damage,
+                HpLossDrawPolicy::Immediate,
+                PlayerDamageType::Thorns,
+                DamageDrawContext::MonsterAction,
+            )?
+        } else if burn_to_discard > 0 || burn_to_discard_and_draw > 0 {
             deal_damage_to_player_with_draw_policy(state, damage, HpLossDrawPolicy::DeferDraws)?
         } else {
             deal_damage_to_player(state, damage)?
@@ -2463,6 +2586,7 @@ fn apply_monster_pending_effects(
         }
         total_hp_damage = checked_turn_add(total_hp_damage, hp_damage)?;
     }
+    inter_hit_draw_follow_ups.extend(std::mem::take(&mut state.pending_hp_loss_draw_follow_ups));
     if state.player.hp <= 0 {
         // Drop the remaining queued effects — the death screen freezes the bot
         // queue after the lethal DamageAction.
@@ -2606,28 +2730,28 @@ pub(crate) fn deal_damage_to_player(state: &mut CombatState, amount: i32) -> Sim
     deal_damage_to_player_with_draw_policy(state, amount, HpLossDrawPolicy::Immediate)
 }
 
-pub(crate) fn deal_non_attack_damage_to_player(
-    state: &mut CombatState,
-    amount: i32,
-) -> SimResult<i32> {
-    let incoming = crate::combat::hp_loss::cap_player_damage_with_intangible(&state.player, amount);
-    let blocked = state.player.block.min(incoming);
-    state.player.block -= blocked;
-    let hp_damage = crate::relic::apply_buffer_to_hp_loss(
-        &mut state.player.powers,
-        incoming.saturating_sub(blocked),
-    );
-    state.player.hp = (state.player.hp - hp_damage).max(0);
-    crate::combat::hp_loss::apply_player_hp_loss_hooks_with_draw_policy(
+pub(crate) fn deal_thorns_damage_to_player(state: &mut CombatState, amount: i32) -> SimResult<i32> {
+    // The only caller settles legacy deferred BeatOfDeathPower DamageActions.
+    // Their DamageInfo is THORNS, not HP_LOSS or an ordinary attack.
+    deal_player_damage_with_type(
         state,
-        hp_damage,
+        amount,
         HpLossDrawPolicy::Immediate,
-    )?;
-    revive_player_if_available(state)?;
-    if hp_damage > 0 && state.player.powers.plated_armor > 0 {
-        state.player.powers.plated_armor -= 1;
-    }
-    Ok(hp_damage)
+        PlayerDamageType::Thorns,
+        DamageDrawContext::LegacyConfirm,
+    )
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DamageDrawContext {
+    MonsterAction,
+    LegacyConfirm,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PlayerDamageType {
+    Normal,
+    Thorns,
 }
 
 fn deal_damage_to_player_with_draw_policy(
@@ -2635,23 +2759,67 @@ fn deal_damage_to_player_with_draw_policy(
     amount: i32,
     draw_policy: HpLossDrawPolicy,
 ) -> SimResult<i32> {
+    deal_player_damage_with_type(
+        state,
+        amount,
+        draw_policy,
+        PlayerDamageType::Normal,
+        DamageDrawContext::MonsterAction,
+    )
+}
+
+fn deal_player_damage_with_type(
+    state: &mut CombatState,
+    amount: i32,
+    draw_policy: HpLossDrawPolicy,
+    damage_type: PlayerDamageType,
+    draw_context: DamageDrawContext,
+) -> SimResult<i32> {
     let incoming = crate::combat::hp_loss::cap_player_damage_with_intangible(&state.player, amount);
     let blocked = state.player.block.min(incoming);
     state.player.block -= blocked;
-    let mitigated = crate::relic::mitigate_unblocked_attack_damage(
-        &state.player.authority.relics,
-        incoming - blocked,
-    );
-    let hp_damage = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
+    // Buffer.onAttackedToChangeDamage precedes Torii.onAttacked and
+    // TungstenRod.onLoseHpLast, even when the rod would erase a raw one.
+    let buffered =
+        crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, incoming - blocked);
+    let hp_damage = if damage_type == PlayerDamageType::Normal {
+        crate::relic::mitigate_unblocked_attack_damage(&state.player.authority.relics, buffered)
+    } else {
+        crate::relic::mitigate_hp_loss(&state.player.authority.relics, buffered)
+    };
     state.player.hp = (state.player.hp - hp_damage).max(0);
+    // wasHPLost queues draws while HP is zero, before Fairy/Lizard Tail can
+    // revive. Preserve those requests, not a guessed post-revival hand.
+    let draws_across_revival = draw_context == DamageDrawContext::MonsterAction
+        && draw_policy == HpLossDrawPolicy::Immediate
+        && state.player.hp <= 0;
+    let hook_policy = if draws_across_revival {
+        HpLossDrawPolicy::DeferDraws
+    } else {
+        draw_policy
+    };
     crate::combat::hp_loss::apply_player_hp_loss_hooks_with_draw_policy(
         state,
         hp_damage,
-        draw_policy,
+        hook_policy,
     )?;
-    crate::combat::transition::apply_static_discharge_on_attacked(state, hp_damage)?;
+    // AbstractPlayer.damage settles Fairy/Lizard Tail before returning to the
+    // action manager. A real death opens DeathScreen and freezes queued channels.
     revive_player_if_available(state)?;
-    if hp_damage > 0 && state.player.powers.plated_armor > 0 {
+    if draws_across_revival {
+        let follow_ups = crate::relic::settle_deferred_hp_loss_draw_relics(state)?;
+        state.pending_hp_loss_draw_follow_ups.extend(follow_ups);
+    }
+    if damage_type == PlayerDamageType::Normal && state.player.hp > 0 {
+        // StaticDischarge's onAttacked sees post-block/post-Buffer damage,
+        // before Torii/onLoseHpLast relics. Its queued channel still settles
+        // after this DamageAction's HP commit and HP-loss hooks.
+        crate::combat::transition::apply_static_discharge_on_attacked(state, buffered)?;
+    }
+    if damage_type == PlayerDamageType::Normal
+        && hp_damage > 0
+        && state.player.powers.plated_armor > 0
+    {
         state.player.powers.plated_armor -= 1;
     }
     Ok(hp_damage)
@@ -3440,7 +3608,8 @@ fn apply_shield_gremlin_random_block(
         Some(candidates[rng.random_int(candidates.len() as i32 - 1) as usize])
     };
     if let Some(target_index) = target_index {
-        monsters[target_index].block = checked_turn_add(monsters[target_index].block, block)?;
+        monsters[target_index].block =
+            checked_turn_add(monsters[target_index].block, block)?.min(999);
     }
     Ok(())
 }
@@ -3456,7 +3625,7 @@ fn apply_deca_square(
             if !monster.alive {
                 return Ok((monster.block, monster.powers.plated_armor));
             }
-            let next_block = checked_turn_add(monster.block, block)?;
+            let next_block = checked_turn_add(monster.block, block)?.min(999);
             let next_plated_armor = if ascension >= 19 {
                 checked_turn_add(monster.powers.plated_armor, 3)?
             } else {
@@ -5590,7 +5759,7 @@ mod tests {
     }
 
     #[test]
-    fn start_player_turn_rejects_temporary_dexterity_underflow_without_mutating_state() {
+    fn end_player_turn_rejects_temporary_dexterity_underflow_without_mutating_state() {
         let mut state = CombatState::initial_fixture();
         state.player.powers.dexterity = i32::MIN;
         state.player.temp_dexterity = 1;
@@ -5598,12 +5767,24 @@ mod tests {
         let before = state.clone();
 
         assert_eq!(
-            start_player_turn(&mut state),
+            end_player_turn(&state),
             Err(SimError::InvalidState(
                 "combat integer subtraction overflows i32"
             ))
         );
         assert_eq!(state, before);
+    }
+
+    #[test]
+    fn start_player_turn_does_not_execute_end_turn_dex_loss() {
+        let mut state = CombatState::initial_fixture();
+        state.player.powers.dexterity = -5;
+        state.player.temp_dexterity = 5;
+        state.player.powers.artifact = 1;
+        start_player_turn(&mut state).expect("start has no DexLoss callback");
+        assert_eq!(state.player.powers.dexterity, -5);
+        assert_eq!(state.player.temp_dexterity, 5);
+        assert_eq!(state.player.powers.artifact, 1);
     }
 
     #[test]

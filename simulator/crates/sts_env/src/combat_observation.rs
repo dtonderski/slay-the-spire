@@ -931,6 +931,7 @@ fn project_selection(
         CombatDecisionState::PotionCardReward {
             choices,
             reward_kind,
+            ..
         } => FairSelection {
             kind: match reward_kind {
                 PotionCardRewardKind::Attack => FairSelectionKind::PotionAttackReward,
@@ -941,7 +942,7 @@ fn project_selection(
             options: ordered_options(choices, corruption_active)?,
             selected_slots: Vec::new(),
         },
-        CombatDecisionState::ToolboxCardReward { choices } => FairSelection {
+        CombatDecisionState::ToolboxCardReward { choices, .. } => FairSelection {
             kind: FairSelectionKind::ToolboxReward,
             options: ordered_options(choices, corruption_active)?,
             selected_slots: Vec::new(),
@@ -1517,9 +1518,201 @@ mod tests {
             .queued_decisions
             .push_back(CombatDecisionState::ToolboxCardReward {
                 choices: vec![CardInstance::new(CardId::new(7_778), STRIKE_R_ID)],
+                pending_actions: Default::default(),
             });
 
         assert_hidden_equivalent("private counters, queues, and limbo", &left, &right);
+    }
+
+    #[test]
+    fn active_card_reward_pending_actions_are_hidden() {
+        for toolbox in [false, true] {
+            let mut left = RunState::combat_fixture();
+            let choices = vec![CardInstance::new(CardId::new(9_001), STRIKE_R_ID)];
+            left.combat.as_mut().expect("combat").decision = Some(if toolbox {
+                CombatDecisionState::ToolboxCardReward {
+                    choices,
+                    pending_actions: Default::default(),
+                }
+            } else {
+                CombatDecisionState::PotionCardReward {
+                    choices,
+                    reward_kind: PotionCardRewardKind::Attack,
+                    pending_actions: Default::default(),
+                }
+            });
+            let mut right = left.clone();
+            let decision = right
+                .combat
+                .as_mut()
+                .expect("combat")
+                .decision
+                .as_mut()
+                .expect("reward");
+            let pending = match decision {
+                CombatDecisionState::PotionCardReward {
+                    pending_actions, ..
+                }
+                | CombatDecisionState::ToolboxCardReward {
+                    pending_actions, ..
+                } => pending_actions,
+                _ => unreachable!(),
+            };
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::OpenPotionCardReward {
+                    reward_kind: PotionCardRewardKind::Skill,
+                },
+            );
+            pending.push_back(sts_core::adapter_internals::InternalAction::OpenElixirSelection);
+            pending
+                .push_back(sts_core::adapter_internals::InternalAction::OpenGamblersBrewSelection);
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::GainBlockFromPotion { amount: 999 },
+            );
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::GainEnergyFromPotion { amount: 99 },
+            );
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::GainDexterityFromSpeedPotion {
+                    amount: 999,
+                },
+            );
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::ApplyDexLossFromSpeedPotion {
+                    amount: 999,
+                },
+            );
+            pending.push_back(sts_core::adapter_internals::InternalAction::DrawCards { count: 99 });
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::RandomizeHandCostsForSneckoOil,
+            );
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::GainArtifactFromPotion { amount: 99 },
+            );
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::GainStrengthFromPotion { amount: 99 },
+            );
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::ApplyStrengthLossFromFlexPotion {
+                    amount: 99,
+                },
+            );
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::GainDexterityFromPotion { amount: 99 },
+            );
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::GainPlatedArmorFromPotion {
+                    amount: 99,
+                },
+            );
+            assert_hidden_equivalent("active card reward pending actions", &left, &right);
+        }
+    }
+
+    #[test]
+    fn nilry_pending_potion_actions_are_hidden() {
+        let mut left = RunState::combat_fixture_with_relics(vec![Relic::NilrysCodex]);
+        left.combat.as_mut().expect("combat").decision =
+            Some(CombatDecisionState::NilrysCodexCardReward {
+                choices: vec![CardInstance::new(CardId::new(9_001), STRIKE_R_ID)],
+            });
+        let mut right = left.clone();
+        let pending = &mut right
+            .combat
+            .as_mut()
+            .expect("combat")
+            .pending_nilrys_codex_potion_actions;
+        pending.push_back(
+            sts_core::adapter_internals::InternalAction::GainDexterityFromSpeedPotion {
+                amount: 999,
+            },
+        );
+        pending.push_back(
+            sts_core::adapter_internals::InternalAction::ApplyDexLossFromSpeedPotion {
+                amount: 999,
+            },
+        );
+        pending.push_back(sts_core::adapter_internals::InternalAction::DrawCards { count: 99 });
+        pending
+            .push_back(sts_core::adapter_internals::InternalAction::RandomizeHandCostsForSneckoOil);
+        pending.push_back(
+            sts_core::adapter_internals::InternalAction::OpenPotionCardReward {
+                reward_kind: PotionCardRewardKind::Skill,
+            },
+        );
+        pending.push_back(
+            sts_core::adapter_internals::InternalAction::GainArtifactFromPotion { amount: 99 },
+        );
+        pending.push_back(
+            sts_core::adapter_internals::InternalAction::GainStrengthFromPotion { amount: 99 },
+        );
+        pending.push_back(
+            sts_core::adapter_internals::InternalAction::ApplyStrengthLossFromFlexPotion {
+                amount: 99,
+            },
+        );
+        right
+            .combat
+            .as_mut()
+            .expect("combat")
+            .preserve_temp_strength_on_next_start = true;
+        right
+            .combat
+            .as_mut()
+            .expect("combat")
+            .pending_nilrys_codex_potion_actions
+            .push_back(
+                sts_core::adapter_internals::InternalAction::GainDexterityFromPotion { amount: 99 },
+            );
+        right
+            .combat
+            .as_mut()
+            .expect("combat")
+            .pending_nilrys_codex_potion_actions
+            .push_back(
+                sts_core::adapter_internals::InternalAction::GainPlatedArmorFromPotion {
+                    amount: 99,
+                },
+            );
+        assert_hidden_equivalent("Nilry pending potion actions", &left, &right);
+    }
+
+    #[test]
+    fn time_warp_damage_strength_context_is_hidden() {
+        let left = RunState::combat_fixture();
+        let mut right = left.clone();
+        right
+            .combat
+            .as_mut()
+            .expect("combat")
+            .time_warp_pre_gain_strength =
+            vec![(MonsterId::new(777), 998), (MonsterId::new(123), -99)];
+        assert_hidden_equivalent("Time Warp DamageInfo context", &left, &right);
+    }
+
+    #[test]
+    fn deferred_hand_callback_context_is_not_policy_data() {
+        let left = RunState::combat_fixture();
+        let mut right = left.clone();
+        let combat = right.combat.as_mut().expect("combat");
+        combat.time_warp_end_turn_pre_discard_settled = true;
+        combat.pending_end_turn_hand_resolution = Some(
+            serde_json::from_value(serde_json::json!({
+                "auto_play_emptied_hand": false,
+                "ethereal_follow_ups": [
+                    {"GainBlock": {"amount": 6}},
+                    {"DeadBranch": CardInstance::new(CardId::new(777), STRIKE_R_ID)},
+                    "DarkEmbraceDraw"
+                ],
+                "deferred_juggernaut_damage": [5, 5]
+            }))
+            .expect("privileged queue fixture"),
+        );
+        assert_hidden_equivalent(
+            "deferred hand callbacks and held generated identity",
+            &left,
+            &right,
+        );
     }
 
     #[test]
@@ -1782,6 +1975,7 @@ mod tests {
                 selected_hand_indices: Vec::new(),
                 dual_wield_restore_on_confirm: Vec::new(),
                 dual_wield_force_exhaust: false,
+                copy_owned: false,
             },
             pending_actions: Default::default(),
         });
@@ -2407,9 +2601,12 @@ mod tests {
         {
             let combat = run.combat.as_mut().expect("combat");
             combat.player.energy = 3;
+            // DualWieldAction auto-copies a singleton eligible target. Keep
+            // two attacks so this fixture actually exercises a selector pause.
             combat.piles.hand = vec![
                 CardInstance::new(CardId::new(1), STRIKE_R_ID),
                 CardInstance::new(CardId::new(2), DEFEND_R_ID),
+                CardInstance::new(CardId::new(3), ANGER_ID),
             ];
             combat.piles.draw_pile = vec![
                 CardInstance::new(CardId::new(101), WILD_STRIKE_ID),
@@ -2431,14 +2628,14 @@ mod tests {
             run.combat.as_ref().expect("combat").decision,
             Some(CombatDecisionState::HandSelect { .. })
         ));
-        let restored = observation(&run)
-            .draw_pile
-            .cards
-            .iter()
-            .map(|card| card.content_key.clone())
-            .collect::<Vec<_>>();
-        assert!(restored.iter().any(|key| key == "Anger"));
-        assert!(restored.iter().any(|key| key == "WILD_STRIKE"));
+        // All three PlayTop actions extract before the card lane runs.
+        // Unplayed siblings stay privately held in limbo, not restored into
+        // the draw pile or exposed as draw-pile identities/order.
+        let combat = run.combat.as_ref().expect("combat");
+        for id in [CardId::new(101), CardId::new(102)] {
+            assert!(combat.piles.limbo.iter().any(|card| card.id == id));
+        }
+        assert!(observation(&run).draw_pile.cards.is_empty());
         assert!(
             known_keys(&run).is_empty(),
             "unplayed Distilled Chaos tops must not become known_positions: {:?}",
@@ -2454,9 +2651,12 @@ mod tests {
         {
             let combat = run.combat.as_mut().expect("combat");
             combat.player.energy = 2;
+            // Retain two eligible attacks after Headbutt leaves the hand so
+            // Dual Wield still opens the pause whose hidden piles we inspect.
             combat.piles.hand = vec![
                 CardInstance::new(CardId::new(1), HEADBUTT_ID),
                 CardInstance::new(CardId::new(2), STRIKE_R_ID),
+                CardInstance::new(CardId::new(3), ANGER_ID),
             ];
             combat.piles.draw_pile = vec![
                 CardInstance::new(CardId::new(101), WILD_STRIKE_ID),

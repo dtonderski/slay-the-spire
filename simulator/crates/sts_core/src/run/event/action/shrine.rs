@@ -33,7 +33,7 @@ pub(super) fn apply_shrine_event_action(
             }
             1 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -52,7 +52,7 @@ pub(super) fn apply_shrine_event_action(
             ));
         }
         Event::Purifier if screen.stage > 0 && choice_index == 0 => {
-            leave_event_to_map(next);
+            crate::run::map_overlay::open_completed_room_map(next);
         }
         Event::Transmorgrifier if screen.stage == 0 && choice_index == 0 => {
             open_event_transform_return_to_event_grid(next, Event::Transmorgrifier, 1);
@@ -66,7 +66,7 @@ pub(super) fn apply_shrine_event_action(
         }
         Event::Transmorgrifier if screen.stage > 0 && choice_index == 0 => {
             next.flush_pending_obtain_cards()?;
-            leave_event_to_map(next);
+            crate::run::map_overlay::open_completed_room_map(next);
         }
         Event::UpgradeShrine if screen.stage == 0 && choice_index == 0 => {
             open_event_upgrade_return_to_event_grid(next, Event::UpgradeShrine);
@@ -79,7 +79,7 @@ pub(super) fn apply_shrine_event_action(
             ));
         }
         Event::UpgradeShrine if screen.stage == 1 && choice_index == 0 => {
-            leave_event_to_map(next);
+            crate::run::map_overlay::open_completed_room_map(next);
         }
         Event::WheelOfChange => match screen.stage {
             0 if choice_index == 0 => {
@@ -169,7 +169,7 @@ pub(super) fn apply_shrine_event_action(
                 }
             },
             3 if choice_index == 0 => {
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -191,13 +191,28 @@ pub(super) fn apply_shrine_event_action(
                 2,
             ));
         }
+        Event::MatchAndKeep
+            if screen.stage == 2
+                && next
+                    .match_and_keep
+                    .as_ref()
+                    .is_some_and(|state| state.game_done) =>
+        {
+            // Post-fifth-attempt cleanup wait has elapsed; any CHOOSE opens Leave.
+            next.flush_pending_obtain_cards()?;
+            next.event = Some(make_event_screen(
+                Event::MatchAndKeep,
+                labeled_choices(&["Leave"]),
+                3,
+            ));
+        }
         Event::MatchAndKeep if screen.stage == 2 => {
             let card_index = match_and_keep_card_index_for_choice(next, screen, choice_index)?;
             apply_match_and_keep_card_choice(next, card_index)?;
         }
         Event::MatchAndKeep if screen.stage == 3 && choice_index == 0 => {
             next.flush_pending_obtain_cards()?;
-            leave_event_to_map(next);
+            crate::run::map_overlay::open_completed_room_map(next);
             next.match_and_keep = None;
         }
         _ => return Ok(false),

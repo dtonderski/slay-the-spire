@@ -1,0 +1,586 @@
+//! Seeded robustness research, not training or real-game parity evidence.
+//! cargo run -p sts_core --example combat_fuzz --release -- START COUNT OUTPUT_DIR [--potions] [--durable | --endurance]
+//! --durable starts at full seeded max HP; --endurance includes potions and
+//! starts at full 5x max HP while preserving potion-profile driver draws.
+use serde_json::{json, Value};
+use std::{
+    fs,
+    io::Write,
+    panic::{catch_unwind, AssertUnwindSafe},
+    path::PathBuf,
+};
+use sts_core::adapter_internals::{
+    apply_run_decision_action,
+    content::{
+        cards::{public_card_definitions, upgrade_card_instance},
+        encounters::*,
+    },
+    legal_run_decision_actions,
+    run::{map::enter_synthetic_combat, state::relic_pickup_energy},
+    CardId, CardInstance, CardType, CombatPhase, Relic, RoomKind, RunPhase, RunState,
+};
+
+use sts_core::potion::IRONCLAD_POTION_POOL;
+
+// Local driver RNG. Never shares a stream with gameplay.
+struct Driver(u64);
+impl Driver {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9e3779b97f4a7c15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+        z ^ (z >> 31)
+    }
+    fn index(&mut self, n: usize) -> usize {
+        (self.next() % n as u64) as usize
+    }
+}
+
+fn event(file: &mut fs::File, record: Value) -> Result<(), String> {
+    serde_json::to_writer(&mut *file, &record).map_err(|e| e.to_string())?;
+    file.write_all(b"\n").map_err(|e| e.to_string())?;
+    file.flush().map_err(|e| e.to_string())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct ProbeOptions {
+    with_potions: bool,
+    durable: bool,
+    endurance: bool,
+}
+
+impl ProbeOptions {
+    fn from_flags(flags: &[String]) -> Result<Self, String> {
+        let potions = flags.iter().any(|flag| flag == "--potions");
+        let durable = flags.iter().any(|flag| flag == "--durable");
+        let endurance = flags.iter().any(|flag| flag == "--endurance");
+        if flags.len() != usize::from(potions) + usize::from(durable) + usize::from(endurance) {
+            return Err(
+                "optional flags must be distinct --potions, --durable, or --endurance".into(),
+            );
+        }
+        if durable && endurance {
+            return Err("--durable and --endurance are mutually exclusive".into());
+        }
+        Ok(Self {
+            with_potions: potions || endurance,
+            durable,
+            endurance,
+        })
+    }
+
+    fn profile(&self) -> &'static str {
+        if self.endurance {
+            "cards-relics-potions-endurance"
+        } else {
+            match (self.with_potions, self.durable) {
+                (false, false) => "cards-relics",
+                (true, false) => "cards-relics-potions",
+                (false, true) => "cards-relics-durable",
+                (true, true) => "cards-relics-potions-durable",
+            }
+        }
+    }
+}
+
+fn generate(
+    seed: u64,
+    with_potions: bool,
+    durable: bool,
+    endurance: bool,
+    journal: &mut Value,
+    live: &mut fs::File,
+) -> Result<RunState, String> {
+    let mut rng = Driver(seed);
+    let ascension = [0, 2, 10, 17, 18, 19, 20][rng.index(7)];
+    let mut run =
+        RunState::try_seeded_ironclad(rng.next(), ascension).map_err(|e| e.to_string())?;
+    run.phase = RunPhase::Idle;
+    run.event = None;
+    run.map = None;
+    run.emerald_key_node = None;
+    run.current_act = 1 + rng.index(4) as i32;
+    let mut encounters = Vec::new();
+    type EncounterPool = &'static [(&'static str, f32)];
+    let (weak, strong, elites): (EncounterPool, EncounterPool, EncounterPool) =
+        match run.current_act {
+            1 => (
+                &EXORDIUM_WEAK_ENCOUNTERS,
+                &EXORDIUM_STRONG_ENCOUNTERS,
+                &EXORDIUM_ELITE_ENCOUNTERS,
+            ),
+            2 => (
+                &CITY_WEAK_ENCOUNTERS,
+                &CITY_STRONG_ENCOUNTERS,
+                &CITY_ELITE_ENCOUNTERS,
+            ),
+            _ => (
+                &BEYOND_WEAK_ENCOUNTERS,
+                &BEYOND_STRONG_ENCOUNTERS,
+                &BEYOND_ELITE_ENCOUNTERS,
+            ),
+        };
+    if run.current_act < 4 {
+        encounters.extend(
+            weak.iter()
+                .chain(strong)
+                .map(|(key, _)| (RoomKind::Combat, *key)),
+        );
+        encounters.extend(elites.iter().map(|(key, _)| (RoomKind::Elite, *key)));
+    }
+    let bosses: &[&str] = match run.current_act {
+        1 => &["Hexaghost", "Slime Boss", "The Guardian"],
+        2 => &["Automaton", "Collector", "Champ"],
+        3 => &["Awakened One", "Time Eater", "Donu and Deca"],
+        _ => &["Corrupt Heart"],
+    };
+    encounters.extend(bosses.iter().map(|key| (RoomKind::Boss, *key)));
+    if run.current_act == 4 {
+        encounters.push((RoomKind::Elite, "Shield and Spear"));
+    }
+    let (kind, encounter) = encounters[rng.index(encounters.len())];
+    run.current_floor = match (run.current_act, kind) {
+        (1, RoomKind::Boss) => 16,
+        (2, RoomKind::Boss) => 33,
+        (3, RoomKind::Boss) => 50,
+        (4, RoomKind::Boss) => 55,
+        (4, _) => 54,
+        (1, _) => 7,
+        (2, _) => 24,
+        _ => 41,
+    };
+    run.max_hp = 80 + rng.index(81) as i32;
+    run.hp = if durable {
+        run.max_hp
+    } else {
+        1 + rng.index(run.max_hp as usize) as i32
+    };
+    let relic_pool = [
+        Relic::SneckoEye,
+        Relic::RunicPyramid,
+        Relic::DeadBranch,
+        Relic::IceCream,
+        Relic::Toolbox,
+        Relic::GamblingChip,
+        Relic::Necronomicon,
+        Relic::PenNib,
+        Relic::IncenseBurner,
+        Relic::Vajra,
+        Relic::Anchor,
+        Relic::CoffeeDripper,
+        Relic::InkBottle,
+        Relic::OrnamentalFan,
+        Relic::OddlySmoothStone,
+    ];
+    for _ in 0..rng.index(9) {
+        let relic = relic_pool[rng.index(relic_pool.len())];
+        if !run.relics.contains(&relic) {
+            run.relics.push(relic);
+        }
+    }
+    run.energy_per_turn = 3 + run
+        .relics
+        .iter()
+        .copied()
+        .filter_map(relic_pickup_energy)
+        .sum::<i32>();
+    let cards: Vec<_> = public_card_definitions()
+        .filter(|d| !d.key.ends_with('+') && d.card_type != CardType::Status)
+        .collect();
+    let count = rng.index(25);
+    for _ in 0..count {
+        let definition = cards[rng.index(cards.len())];
+        let mut card = CardInstance::new(CardId::new(run.deck.len() as u64 + 1), definition.id);
+        if rng.index(2) == 0 {
+            card = upgrade_card_instance(card)
+                .map_err(|e| e.to_string())?
+                .unwrap_or(card);
+        }
+        run.deck.push(card);
+    }
+    if with_potions {
+        let count = rng.index(run.open_potion_slots() + 1);
+        for _ in 0..count {
+            run.gain_potion(IRONCLAD_POTION_POOL[rng.index(IRONCLAD_POTION_POOL.len())])
+                .map_err(|error| format!("initial potion inventory: {error}"))?;
+        }
+    }
+    if endurance {
+        // Explicit synthetic starting inputs, before combat entry. Preserve
+        // every driver draw and all other seeded loadout choices.
+        run.max_hp *= 5;
+        run.hp = run.max_hp;
+    }
+    journal["setup"] = serde_json::to_value(&run).map_err(|e| e.to_string())?;
+    journal["encounter"] = json!(encounter);
+    journal["room_kind"] = json!(kind);
+    journal["coverage"] = json!({"generation_profile": journal["generation_profile"], "act": run.current_act, "ascension": run.ascension,
+        "encounter": encounter, "deck_size": run.deck.len(),
+        "relics": run.relics.iter().map(|relic| relic.trace_name()).collect::<Vec<_>>(),
+        "potions": run.potions, "initial_hp": run.hp, "initial_max_hp": run.max_hp});
+    event(
+        live,
+        json!({"stage": "combat_entry", "setup": journal["setup"], "encounter": encounter, "room_kind": kind}),
+    )?;
+    run.validate()
+        .map_err(|e| format!("generated loadout: {e}"))?;
+    enter_synthetic_combat(&mut run, kind, encounter).map_err(|e| format!("combat entry: {e}"))?;
+    Ok(run)
+}
+
+fn check(run: &RunState) -> Result<(), String> {
+    run.validate().map_err(|e| format!("run invariant: {e}"))?;
+    if let Some(combat) = &run.combat {
+        combat
+            .validate()
+            .map_err(|e| format!("combat invariant: {e}"))?;
+    }
+    Ok(())
+}
+
+fn execute(
+    initial: &RunState,
+    rng: &mut Driver,
+    journal: &mut Value,
+    live: &mut fs::File,
+) -> Result<&'static str, String> {
+    let mut run = initial.clone();
+    for step in 0..2000 {
+        event(live, json!({"stage": "invariant_check", "step": step}))?;
+        check(&run)?;
+        if run.phase != RunPhase::Combat
+            || run
+                .combat
+                .as_ref()
+                .is_some_and(|c| matches!(c.phase, CombatPhase::Won | CombatPhase::Lost))
+        {
+            return Ok("terminal");
+        }
+        let before = serde_json::to_value(&run).map_err(|e| e.to_string())?;
+        event(live, json!({"stage": "legal_query", "step": step}))?;
+        let legal = legal_run_decision_actions(&run).map_err(|e| format!("legal query: {e}"))?;
+        if serde_json::to_value(&run).map_err(|e| e.to_string())? != before {
+            return Err("legal query mutated state".into());
+        }
+        if legal.is_empty() {
+            return Err("nonterminal combat has no legal actions".into());
+        }
+        let action = legal[rng.index(legal.len())];
+        journal["attempted_action"] = serde_json::to_value(action).map_err(|e| e.to_string())?;
+        journal["step"] = json!(step);
+        event(
+            live,
+            json!({"stage": "attempt", "step": step, "action": action}),
+        )?;
+        let next = apply_run_decision_action(&run, action)
+            .map_err(|e| format!("enumerated action rejected: {e}; {action:?}"))?;
+        event(
+            live,
+            json!({"stage": "accepted", "step": step, "action": action}),
+        )?;
+        journal["accepted_actions"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!(action));
+        event(live, json!({"stage": "restore_repeat", "step": step}))?;
+        let restored: RunState =
+            serde_json::from_value(before).map_err(|e| format!("restore: {e}"))?;
+        let repeated = apply_run_decision_action(&restored, action)
+            .map_err(|e| format!("restored transition: {e}"))?;
+        if serde_json::to_value(&next).map_err(|e| e.to_string())?
+            != serde_json::to_value(&repeated).map_err(|e| e.to_string())?
+        {
+            return Err("restored transition differs".into());
+        }
+        run = next;
+    }
+    Ok("action_limit_candidate")
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<_> = std::env::args().collect();
+    if args.get(1).is_some_and(|arg| arg == "replay") {
+        let path = args.get(2).ok_or("missing artifact path")?;
+        let artifact: Value = serde_json::from_slice(&fs::read(path)?)?;
+        let expected = artifact["outcome"]
+            .as_str()
+            .ok_or("missing failure outcome")?;
+        let mut run: RunState = serde_json::from_value(artifact["initial_state"].clone())?;
+        check(&run)?;
+        for (index, value) in artifact["accepted_actions"]
+            .as_array()
+            .ok_or("missing actions")?
+            .iter()
+            .enumerate()
+        {
+            let action: sts_core::adapter_internals::RunDecisionAction =
+                serde_json::from_value(value.clone())?;
+            let next = apply_run_decision_action(&run, action)?;
+            if let Err(error) = check(&next) {
+                if expected != error {
+                    return Err(format!("different invariant failure: {error}").into());
+                }
+                fs::write(
+                    format!("{path}.before.json"),
+                    serde_json::to_vec_pretty(&run)?,
+                )?;
+                fs::write(
+                    format!("{path}.after.json"),
+                    serde_json::to_vec_pretty(&next)?,
+                )?;
+                println!("reproduced at accepted action {index}: {action:?}: {error}");
+                return Ok(());
+            }
+            run = next;
+        }
+        fs::write(
+            format!("{path}.before.json"),
+            serde_json::to_vec_pretty(&run)?,
+        )?;
+        let legal = legal_run_decision_actions(&run)?;
+        if run.phase == RunPhase::Combat
+            && run
+                .combat
+                .as_ref()
+                .is_some_and(|combat| !matches!(combat.phase, CombatPhase::Won | CombatPhase::Lost))
+            && legal.is_empty()
+            && expected == "nonterminal combat has no legal actions"
+        {
+            println!("reproduced empty legal list; phase={:?}", run.phase);
+            return Ok(());
+        }
+        if !expected.starts_with("enumerated action rejected:") {
+            return Err("recorded failure did not reproduce".into());
+        }
+        let action = serde_json::from_value(artifact["attempted_action"].clone())?;
+        println!(
+            "attempted={action:?} enumerated={}",
+            legal.contains(&action)
+        );
+        if !legal.contains(&action) {
+            return Err("recorded action is no longer enumerated; not the same failure".into());
+        }
+        match apply_run_decision_action(&run, action) {
+            Err(error)
+                if expected == format!("enumerated action rejected: {error}; {action:?}") =>
+            {
+                println!("reproduced rejected action: {error}")
+            }
+            Err(error) => return Err(format!("different rejection: {error}").into()),
+            Ok(_) => return Err("failure did not reproduce".into()),
+        }
+        return Ok(());
+    }
+    let start: u64 = args.get(1).ok_or("missing START")?.parse()?;
+    let count: u64 = args.get(2).ok_or("missing COUNT")?.parse()?;
+    let out = PathBuf::from(args.get(3).ok_or("missing OUTPUT_DIR")?);
+    let options = ProbeOptions::from_flags(&args[4..])?;
+    let profile = options.profile();
+    if let Some(parent) = out.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::create_dir(&out)?; // Refuse to overwrite an existing campaign.
+                           // Isolated campaigns pin provenance before launching any cases, so an
+                           // unrelated checkout/commit cannot mislabel their frozen executable.
+    let revision = match std::env::var("COMBAT_FUZZ_REVISION") {
+        Ok(revision) => revision,
+        Err(_) => {
+            let output = std::process::Command::new("git")
+                .args(["rev-parse", "HEAD"])
+                .output()?;
+            if !output.status.success() {
+                return Err("cannot resolve simulator revision".into());
+            }
+            String::from_utf8(output.stdout)?.trim().to_string()
+        }
+    };
+    let dirty = match std::env::var("COMBAT_FUZZ_PATCH") {
+        Ok(path) => fs::read(path)?,
+        Err(_) => {
+            let output = std::process::Command::new("git")
+                .args(["diff", "HEAD"])
+                .output()?;
+            if !output.status.success() {
+                return Err("cannot capture implementation diff".into());
+            }
+            output.stdout
+        }
+    };
+    fs::write(out.join("implementation.patch"), &dirty)?;
+    fs::write(out.join("driver.rs"), include_str!("combat_fuzz.rs"))?;
+    let mut failures = 0;
+    let mut terminal = 0;
+    let mut capped = 0;
+    for seed in start..start.checked_add(count).ok_or("seed range overflows")? {
+        let mut journal = json!({"schema": 1, "generation_profile": profile, "revision": revision, "driver_seed": seed, "external_inputs": [], "accepted_actions": [], "action_limit": 2000});
+        let live_path = out.join(format!("live-seed-{seed}.jsonl"));
+        let mut live = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&live_path)?;
+        event(
+            &mut live,
+            json!({"stage": "generation", "metadata": journal}),
+        )?;
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let initial = generate(
+                seed,
+                options.with_potions,
+                options.durable,
+                options.endurance,
+                &mut journal,
+                &mut live,
+            )?;
+            journal["initial_state"] = serde_json::to_value(&initial).map_err(|e| e.to_string())?;
+            event(
+                &mut live,
+                json!({"stage": "initial", "initial_state": journal["initial_state"]}),
+            )?;
+            execute(
+                &initial,
+                &mut Driver(seed ^ 0xd1b54a32d192ed03),
+                &mut journal,
+                &mut live,
+            )
+        }));
+        journal["coverage"]["accepted_actions"] =
+            json!(journal["accepted_actions"].as_array().map_or(0, Vec::len));
+        journal["coverage"]["potion_actions"] = json!(journal["accepted_actions"]
+            .as_array()
+            .map_or(0, |actions| actions
+                .iter()
+                .filter(|action| action["Run"].get("UsePotion").is_some())
+                .count()));
+        println!("coverage={}", journal["coverage"]);
+        let outcome = match result {
+            Ok(Ok("terminal")) => {
+                terminal += 1;
+                drop(live);
+                fs::remove_file(live_path)?;
+                if (seed - start + 1).is_multiple_of(1000) {
+                    println!("progress seed={seed} terminal={terminal} failures={failures} capped={capped}");
+                }
+                continue;
+            }
+            Ok(Ok(other)) => {
+                capped += 1;
+                other.to_string()
+            }
+            Ok(Err(error)) => {
+                failures += 1;
+                error
+            }
+            Err(panic) => {
+                failures += 1;
+                format!(
+                    "panic: {}",
+                    panic
+                        .downcast_ref::<String>()
+                        .map(String::as_str)
+                        .or_else(|| panic.downcast_ref::<&str>().copied())
+                        .unwrap_or("non-string payload")
+                )
+            }
+        };
+        journal["outcome"] = json!(outcome);
+        let name = out.join(format!("seed-{seed}.json"));
+        fs::write(&name, serde_json::to_vec_pretty(&journal)?)?;
+        println!("seed={seed} outcome={outcome} artifact={}", name.display());
+        if (seed - start).is_multiple_of(100) {
+            println!(
+                "progress seed={seed} terminal={terminal} failures={failures} capped={capped}"
+            );
+        }
+    }
+    println!(
+        "done start={start} count={count} terminal={terminal} failures={failures} capped={capped}"
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn setup(seed: u64, endurance: bool) -> RunState {
+        let path = std::env::temp_dir().join(format!(
+            "sts-fuzz-profile-{}-{seed}-{endurance}.jsonl",
+            std::process::id()
+        ));
+        let mut live = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        let mut journal = json!({"generation_profile": if endurance {
+            "cards-relics-potions-endurance"
+        } else {
+            "cards-relics-potions"
+        }});
+        let initial = generate(seed, true, false, endurance, &mut journal, &mut live).unwrap();
+        check(&initial).unwrap();
+        drop(live);
+        fs::remove_file(path).unwrap();
+        let setup: RunState = serde_json::from_value(journal["setup"].clone()).unwrap();
+        assert_eq!(journal["coverage"]["initial_hp"], json!(setup.hp));
+        assert_eq!(journal["coverage"]["initial_max_hp"], json!(setup.max_hp));
+        setup
+    }
+
+    #[test]
+    fn flag_handling_preserves_existing_profiles_and_adds_endurance() {
+        for (flags, profile) in [
+            (vec![], "cards-relics"),
+            (vec!["--potions"], "cards-relics-potions"),
+            (vec!["--durable"], "cards-relics-durable"),
+            (
+                vec!["--potions", "--durable"],
+                "cards-relics-potions-durable",
+            ),
+            (
+                vec!["--durable", "--potions"],
+                "cards-relics-potions-durable",
+            ),
+            (vec!["--endurance"], "cards-relics-potions-endurance"),
+            (
+                vec!["--potions", "--endurance"],
+                "cards-relics-potions-endurance",
+            ),
+            (
+                vec!["--endurance", "--potions"],
+                "cards-relics-potions-endurance",
+            ),
+        ] {
+            let flags: Vec<String> = flags.into_iter().map(String::from).collect();
+            let options = ProbeOptions::from_flags(&flags).unwrap();
+            assert_eq!(options.profile(), profile);
+            assert_eq!(options.with_potions, profile.contains("potions"));
+        }
+        for flags in [
+            vec!["--unknown"],
+            vec!["--potions", "--potions"],
+            vec!["--durable", "--durable"],
+            vec!["--endurance", "--endurance"],
+            vec!["--durable", "--endurance"],
+            vec!["--endurance", "--durable"],
+            vec!["--potions", "--durable", "--endurance"],
+        ] {
+            let flags: Vec<String> = flags.into_iter().map(String::from).collect();
+            assert!(ProbeOptions::from_flags(&flags).is_err());
+        }
+    }
+
+    #[test]
+    fn endurance_changes_only_declared_starting_health_inputs() {
+        for seed in 0..16 {
+            let mut regular = setup(seed, false);
+            let durable = setup(seed, true);
+            regular.max_hp *= 5;
+            regular.hp = regular.max_hp;
+            assert_eq!(regular, durable, "driver recipe changed at seed {seed}");
+            assert!((400..=800).contains(&durable.max_hp));
+            durable.validate().unwrap();
+        }
+    }
+}

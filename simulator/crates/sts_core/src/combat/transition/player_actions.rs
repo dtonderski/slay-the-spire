@@ -16,6 +16,20 @@ pub(super) fn gain_energy(state: &mut CombatState, amount: i32) -> SimResult<Vec
     Ok(Vec::new())
 }
 
+pub(super) fn gain_energy_from_potion(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    state.player.energy = state
+        .player
+        .energy
+        .checked_add(amount)
+        .ok_or(SimError::InvalidState(
+            "Energy Potion energy gain overflows i32",
+        ))?;
+    Ok(Vec::new())
+}
+
 /// EnergyPanel.useEnergy floors at zero after subtracting `amount`.
 pub(super) fn lose_energy(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
     state.player.energy = (state.player.energy - amount).max(0);
@@ -28,10 +42,27 @@ pub(super) fn lose_hp(
     source: HpLossSource,
 ) -> SimResult<Vec<InternalAction>> {
     let hp_loss = crate::combat::hp_loss::lose_player_hp(state, amount);
+    let draws_across_revival = hp_loss > 0 && state.player.hp <= 0;
     if matches!(source, HpLossSource::Card(_)) {
-        crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss)?;
+        if draws_across_revival {
+            crate::combat::hp_loss::apply_player_card_hp_loss_hooks_deferred_draws(state, hp_loss)?;
+        } else {
+            crate::combat::hp_loss::apply_player_card_hp_loss_hooks(state, hp_loss)?;
+        }
+    } else if draws_across_revival {
+        crate::combat::hp_loss::apply_player_hp_loss_hooks_with_draw_policy(
+            state,
+            hp_loss,
+            crate::relic::HpLossDrawPolicy::DeferDraws,
+        )?;
     } else {
         crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)?;
+    }
+    // LoseHPAction calls AbstractPlayer.damage: revival happens within this
+    // damage frame, before HP-loss relic DrawCardActions or later card effects.
+    if draws_across_revival {
+        crate::combat::turn::revive_player_if_available(state)?;
+        return crate::relic::settle_deferred_hp_loss_draw_relics(state);
     }
     Ok(Vec::new())
 }
@@ -159,6 +190,12 @@ pub(super) fn gain_berserk(state: &mut CombatState, amount: i32) -> SimResult<Ve
 }
 
 pub(super) fn gain_fasting(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
+    // Fasting applies EnergyDownPower (DEBUFF) after its positive stat gains.
+    // Reject only this incoming loss, retaining any previous EnergyDown stack.
+    if amount > 0 && state.player.powers.artifact > 0 {
+        state.player.powers.artifact -= 1;
+        return Ok(Vec::new());
+    }
     checked_add_combat_value(&mut state.player.powers.fasting, amount)?;
     Ok(Vec::new())
 }
@@ -579,8 +616,22 @@ pub(super) fn gain_strength(
     state: &mut CombatState,
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
-    checked_add_combat_value(&mut state.player.powers.strength, amount)?;
-    Ok(Vec::new())
+    gain_strength_power(state, amount).map(|()| Vec::new())
+}
+
+pub(crate) fn gain_strength_power(state: &mut CombatState, amount: i32) -> SimResult<()> {
+    // StrengthPower.stackPower clamps the visible power to [-999, 999].
+    // This representation separates its temporary component, so apply the
+    // bound to their sum while retaining the later temporary-loss amount.
+    let current = checked_combat_sum(state.player.powers.strength, state.player.temp_strength)?;
+    let bounded = checked_combat_sum(current, amount)?.clamp(-999, 999);
+    state.player.powers.strength =
+        bounded
+            .checked_sub(state.player.temp_strength)
+            .ok_or(SimError::InvalidState(
+                "strength component subtraction overflows i32",
+            ))?;
+    Ok(())
 }
 
 pub(super) fn gain_mantra(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
@@ -597,32 +648,78 @@ pub(super) fn gain_mantra(state: &mut CombatState, amount: i32) -> SimResult<Vec
     Ok(Vec::new())
 }
 
+pub(super) fn gain_dexterity_from_speed_potion(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    state.player.powers.dexterity = state
+        .player
+        .powers
+        .dexterity
+        .checked_add(amount)
+        .ok_or(SimError::InvalidState(
+            "combat potion stat gain overflows i32",
+        ))?
+        .clamp(-999, 999);
+    Ok(Vec::new())
+}
+
+pub(super) fn apply_dex_loss_from_speed_potion(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    // Only this incoming DEBUFF is rejected; old nominal debt stays intact.
+    // Rejection precedes any arithmetic on the rejected new debt.
+    if state.player.powers.artifact > 0 {
+        state.player.powers.artifact -= 1;
+    } else {
+        state.player.temp_dexterity =
+            state
+                .player
+                .temp_dexterity
+                .checked_add(amount)
+                .ok_or(SimError::InvalidState(
+                    "combat potion stat gain overflows i32",
+                ))?;
+    }
+    Ok(Vec::new())
+}
+
 pub(super) fn gain_dexterity(
     state: &mut CombatState,
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
-    if amount > 0 && state.player.powers.fasting > 0 {
-        return Ok(Vec::new());
-    }
-    checked_add_combat_value(&mut state.player.powers.dexterity, amount)?;
+    // Actual Dexterity already includes temporary gains; temp_dexterity is
+    // separate nominal loss debt, not another component of this amount.
+    state.player.powers.dexterity =
+        checked_combat_sum(state.player.powers.dexterity, amount)?.clamp(-999, 999);
     Ok(Vec::new())
 }
 
-pub(super) fn gain_temp_strength(
-    state: &mut CombatState,
-    amount: i32,
-) -> SimResult<Vec<InternalAction>> {
-    // Flex applies Strength and a debuff that removes it at end of turn.
-    // Artifact blocks that debuff when it is created, consuming one Artifact
-    // and leaving the gained Strength permanent.
-    if state.player.powers.artifact > 0 {
-        let strength = checked_combat_sum(state.player.powers.strength, amount)?;
-        state.player.powers.artifact -= 1;
-        state.player.powers.strength = strength;
+pub(crate) fn gain_temp_strength(state: &mut CombatState, amount: i32) -> SimResult<()> {
+    // Flex.use applies bounded Strength, then the nominal LoseStrengthPower.
+    // The latter inherits uncapped AbstractPower stacking. Retain its full
+    // amount even when StrengthPower.stackPower clips the visible gain.
+    // Artifact blocks creation of only the new loss, not an existing one.
+    let current = checked_combat_sum(state.player.powers.strength, state.player.temp_strength)?;
+    let bounded = checked_combat_sum(current, amount)?.clamp(-999, 999);
+    let blocks_loss = state.player.powers.artifact > 0;
+    let pending_loss = if blocks_loss {
+        state.player.temp_strength
     } else {
-        checked_add_combat_value(&mut state.player.temp_strength, amount)?;
+        checked_combat_sum(state.player.temp_strength, amount)?
+    };
+    let strength = bounded
+        .checked_sub(pending_loss)
+        .ok_or(SimError::InvalidState(
+            "strength component subtraction overflows i32",
+        ))?;
+    state.player.powers.strength = strength;
+    state.player.temp_strength = pending_loss;
+    if blocks_loss {
+        state.player.powers.artifact -= 1;
     }
-    Ok(Vec::new())
+    Ok(())
 }
 
 pub(super) fn gain_intangible(
@@ -638,6 +735,94 @@ pub(super) fn gain_ritual(state: &mut CombatState, amount: i32) -> SimResult<Vec
     Ok(Vec::new())
 }
 
+pub(super) fn gain_strength_from_potion(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    let error = || SimError::InvalidState("combat potion stat gain overflows i32");
+    let current = state
+        .player
+        .powers
+        .strength
+        .checked_add(state.player.temp_strength)
+        .ok_or_else(error)?;
+    let bounded = current
+        .checked_add(amount)
+        .ok_or_else(error)?
+        .clamp(-999, 999);
+    state.player.powers.strength = bounded
+        .checked_sub(state.player.temp_strength)
+        .ok_or_else(error)?;
+    Ok(Vec::new())
+}
+
+pub(super) fn apply_strength_loss_from_flex_potion(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    // LoseStrengthPower application does not change actual Strength. Artifact
+    // rejects only this new debt before debt/component arithmetic.
+    if state.player.powers.artifact > 0 {
+        state.player.powers.artifact -= 1;
+        return Ok(Vec::new());
+    }
+    let error = || SimError::InvalidState("combat potion stat gain overflows i32");
+    let debt = state
+        .player
+        .temp_strength
+        .checked_add(amount)
+        .ok_or_else(error)?;
+    let permanent = state
+        .player
+        .powers
+        .strength
+        .checked_sub(amount)
+        .ok_or_else(error)?;
+    // These are the representation of a newly accepted nominal loss power;
+    // the preceding positive application already determined actual Strength.
+    state.player.temp_strength = debt;
+    state.player.powers.strength = permanent;
+    if state.resume_end_turn_after_nilrys_codex && !state.nilrys_end_powers_pending {
+        // This loss was created after the old END power window. It expires
+        // at the next END, not at the intervening player-start cleanup.
+        state.preserve_temp_strength_on_next_start = true;
+    }
+    Ok(Vec::new())
+}
+
+pub(super) fn gain_plated_armor_from_potion(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    if amount == 0 {
+        return Ok(Vec::new());
+    }
+    let current = state.player.powers.plated_armor;
+    let next = current.checked_add(amount).ok_or(SimError::InvalidState(
+        "combat potion stat gain overflows i32",
+    ))?;
+    // PlatedArmorPower's constructor keeps raw input; an existing power's
+    // stackPower caps only the upper bound. Zero represents absence here.
+    state.player.powers.plated_armor = if current == 0 { next } else { next.min(999) };
+    Ok(Vec::new())
+}
+
+pub(super) fn gain_artifact_from_potion(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    state.player.powers.artifact =
+        state
+            .player
+            .powers
+            .artifact
+            .checked_add(amount)
+            .ok_or(SimError::InvalidState(
+                "combat potion stat gain overflows i32",
+            ))?;
+    Ok(Vec::new())
+}
+
 pub(super) fn gain_artifact(
     state: &mut CombatState,
     amount: i32,
@@ -649,4 +834,44 @@ pub(super) fn gain_artifact(
 pub(super) fn upgrade_all_combat_cards(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
     upgrade_combat_cards(state)?;
     Ok(Vec::new())
+}
+
+#[cfg(test)]
+mod plated_armor_boundary_tests {
+    use super::{gain_plated_armor_from_potion, CombatState};
+    #[test]
+    fn raw_constructor_then_existing_upper_cap() {
+        let mut s = CombatState::initial_fixture();
+        gain_plated_armor_from_potion(&mut s, 2000).unwrap();
+        assert_eq!(s.player.powers.plated_armor, 2000);
+        gain_plated_armor_from_potion(&mut s, 1).unwrap();
+        assert_eq!(s.player.powers.plated_armor, 999);
+    }
+    #[test]
+    fn stacking_has_no_lower_floor_or_input_preclip() {
+        let mut s = CombatState::initial_fixture();
+        s.player.powers.plated_armor = 10;
+        gain_plated_armor_from_potion(&mut s, -1010).unwrap();
+        assert_eq!(s.player.powers.plated_armor, -1000);
+    }
+    #[test]
+    fn no_op_does_not_repair_malformed_old_amount() {
+        let mut s = CombatState::initial_fixture();
+        s.player.powers.plated_armor = 2000;
+        gain_plated_armor_from_potion(&mut s, 0).unwrap();
+        assert_eq!(s.player.powers.plated_armor, 2000);
+    }
+    #[test]
+    fn checked_overflow_preserves_state() {
+        let mut s = CombatState::initial_fixture();
+        s.player.powers.plated_armor = i32::MAX;
+        let before = serde_json::to_value(&s).unwrap();
+        assert!(matches!(
+            gain_plated_armor_from_potion(&mut s, 4),
+            Err(crate::SimError::InvalidState(
+                "combat potion stat gain overflows i32"
+            ))
+        ));
+        assert_eq!(serde_json::to_value(&s).unwrap(), before);
+    }
 }

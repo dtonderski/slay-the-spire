@@ -150,7 +150,11 @@ fn resolve_calculated_attack_damage(
     if !still_alive {
         follow_ups.extend(queue_monster_death_hooks(state, target)?);
     }
-    apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+    follow_ups.extend(apply_or_queue_spikes_to_player(
+        state,
+        monster_content_id,
+        spikes,
+    )?);
     Ok(follow_ups)
 }
 
@@ -288,7 +292,11 @@ pub(super) fn deal_damage_random_enemy(
         if !still_alive {
             follow_ups.extend(queue_monster_death_hooks(state, target)?);
         }
-        apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+        follow_ups.extend(apply_or_queue_spikes_to_player(
+            state,
+            monster_content_id,
+            spikes,
+        )?);
         return Ok(follow_ups);
     }
     Ok(Vec::new())
@@ -483,7 +491,11 @@ pub(super) fn deal_hand_of_greed_damage(
         }
         follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
     }
-    apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+    follow_ups.extend(apply_or_queue_spikes_to_player(
+        state,
+        monster_content_id,
+        spikes,
+    )?);
     Ok(follow_ups)
 }
 
@@ -555,7 +567,11 @@ pub(super) fn deal_damage_and_heal_unblocked(
     if !still_alive {
         follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
     }
-    apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+    follow_ups.extend(apply_or_queue_spikes_to_player(
+        state,
+        monster_content_id,
+        spikes,
+    )?);
     Ok(follow_ups)
 }
 
@@ -632,7 +648,11 @@ pub(super) fn deal_damage_and_gain_block_unblocked(
     if !still_alive {
         follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
     }
-    apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+    follow_ups.extend(apply_or_queue_spikes_to_player(
+        state,
+        monster_content_id,
+        spikes,
+    )?);
     Ok(follow_ups)
 }
 
@@ -736,7 +756,11 @@ pub(super) fn deal_feed_damage(
         }
         follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
     }
-    apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+    follow_ups.extend(apply_or_queue_spikes_to_player(
+        state,
+        monster_content_id,
+        spikes,
+    )?);
     Ok(follow_ups)
 }
 
@@ -815,7 +839,11 @@ pub(super) fn deal_ritual_dagger_damage(
         }
         follow_ups.extend(queue_monster_death_hooks(state, info.target)?);
     }
-    apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+    follow_ups.extend(apply_or_queue_spikes_to_player(
+        state,
+        monster_content_id,
+        spikes,
+    )?);
     Ok(follow_ups)
 }
 
@@ -878,7 +906,9 @@ pub(super) fn deal_damage_all_and_heal_unblocked(
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
     let amount = apply_pen_nib_to_card_damage_amount(state, source, amount);
-    let (hp_damage, follow_ups) = deal_attack_damage_to_all_living(state, source, amount)?;
-    crate::relic::heal_combat_player_with_relics(state, hp_damage)?;
+    let (hp_damage, mut follow_ups) = deal_attack_damage_to_all_living(state, source, amount)?;
+    // VampireDamageAllEnemiesAction addToBots HealAction after the damage
+    // loop; queued addToTop THORNS must dispatch before this heal.
+    follow_ups.push(InternalAction::HealPlayer { amount: hp_damage });
     Ok(follow_ups)
 }

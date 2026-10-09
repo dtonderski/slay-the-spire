@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, get_args
 
 from ..content_ids import CardKey, CounterKey, PotionKey, RelicKey
 from ._decode import (
@@ -12,13 +12,29 @@ from ._decode import (
     _exact,
     _field_names,
     _int,
+    _literal,
     _mapping,
     _optional_int,
     _optional_present_enum,
     _seq,
 )
 
-FAIR_RUN_OBSERVATION_SCHEMA_VERSION = 4
+FAIR_RUN_OBSERVATION_SCHEMA_VERSION = 8
+
+RunOutcome = Literal["ongoing", "death", "act3_clear", "heart_clear", "unknown_complete"]
+
+BossEncounter = Literal[
+    "Hexaghost",
+    "Slime Boss",
+    "The Guardian",
+    "Automaton",
+    "Collector",
+    "Champ",
+    "Awakened One",
+    "Time Eater",
+    "Donu and Deca",
+    "Corrupt Heart",
+]
 
 Phase = Literal["combat", "reward", "treasure", "rest", "event", "shop", "idle", "complete"]
 ObservationKind = Literal[
@@ -73,9 +89,20 @@ class PotionSlot:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class RunKeys:
+    ruby: bool
+    emerald: bool
+    sapphire: bool
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class RunContext:
     ascension: int
+    outcome: RunOutcome
     act: int
+    act_boss: BossEncounter | None
+    final_act_available: bool
+    keys: RunKeys
     floor: int
     gold: int
     player_hp: int
@@ -89,7 +116,15 @@ def decode_run_context(value: object, path: str) -> RunContext:
     data = _exact(value, path, RunContext)
     return RunContext(
         ascension=_int(data["ascension"], f"{path}.ascension"),
+        outcome=_literal(data["outcome"], f"{path}.outcome", get_args(RunOutcome)),
         act=_int(data["act"], f"{path}.act"),
+        act_boss=(
+            None
+            if data["act_boss"] is None
+            else _literal(data["act_boss"], f"{path}.act_boss", get_args(BossEncounter))
+        ),
+        final_act_available=_bool(data["final_act_available"], f"{path}.final_act_available"),
+        keys=decode_run_keys(data["keys"], f"{path}.keys"),
         floor=_int(data["floor"], f"{path}.floor"),
         gold=_int(data["gold"], f"{path}.gold"),
         player_hp=_int(data["player_hp"], f"{path}.player_hp"),
@@ -97,6 +132,15 @@ def decode_run_context(value: object, path: str) -> RunContext:
         deck=_seq(data["deck"], f"{path}.deck", decode_card),
         relics=_seq(data["relics"], f"{path}.relics", decode_relic),
         potion_slots=_seq(data["potion_slots"], f"{path}.potion_slots", decode_potion_slot),
+    )
+
+
+def decode_run_keys(value: object, path: str) -> RunKeys:
+    data = _exact(value, path, RunKeys)
+    return RunKeys(
+        ruby=_bool(data["ruby"], f"{path}.ruby"),
+        emerald=_bool(data["emerald"], f"{path}.emerald"),
+        sapphire=_bool(data["sapphire"], f"{path}.sapphire"),
     )
 
 

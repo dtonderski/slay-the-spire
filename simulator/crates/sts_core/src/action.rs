@@ -3,7 +3,7 @@ use crate::{
         damage::DamageInfo, DiscardSelectPurpose, DrawSelectPurpose, ExhaustSelectPurpose,
         HandSelectPurpose,
     },
-    ids::{CardId, MonsterId},
+    ids::{CardId, ContentId, MonsterId},
     CardInstance,
 };
 use serde::{Deserialize, Serialize};
@@ -36,8 +36,12 @@ pub enum InternalAction {
     /// Time Eater's on-use-card counter deferred until a card-selection screen
     /// closes; the target publishes that lag frame before the card is settled.
     ApplyDeferredTimeWarpCardPlay,
+    /// Apply the queued gain after the card's already-queued use effects.
+    ApplyTimeWarpStrengthGain,
     PlayCardCopy {
         card_id: CardId,
+        /// Retain the source identity after a played Power leaves all piles.
+        content_id: ContentId,
     },
     SkipCopiedCardEffectsIfTargetDead {
         target: MonsterId,
@@ -52,6 +56,8 @@ pub enum InternalAction {
     SpendCardEnergy {
         card_id: CardId,
     },
+    /// RandomizeHandCostAction queued after Snecko Oil's DrawCardAction.
+    RandomizeHandCostsForSneckoOil,
     SetHandCardCostForTurn {
         card_id: CardId,
         cost: u8,
@@ -62,7 +68,9 @@ pub enum InternalAction {
     },
     /// `AbstractCard.modifyCostForCombat`: reduce the combat-long cost while
     /// preserving any distinct current-turn override.
-    ReduceHandCardCostForCombat {
+    // Preserve the existing snapshot/trace wire name; the action searches all piles.
+    #[serde(rename = "ReduceHandCardCostForCombat")]
+    ReduceCardCostForCombat {
         card_id: CardId,
         amount: u8,
     },
@@ -136,6 +144,10 @@ pub enum InternalAction {
     DealThornsDamageToPlayer {
         amount: i32,
     },
+    /// ThornsPower.onAttacked addToTop; distinct from older queued Beat work.
+    DealReflectedThornsDamageToPlayer {
+        amount: i32,
+    },
     HealPlayer {
         amount: i32,
     },
@@ -147,6 +159,10 @@ pub enum InternalAction {
         amount: i32,
     },
     GainBlockDirect {
+        amount: i32,
+    },
+    /// BlockPotion's GainBlockAction: unmodified block with potion error semantics.
+    GainBlockFromPotion {
         amount: i32,
     },
     /// Feel No Pain's on-exhaust block is queued after the exhaust action and
@@ -231,6 +247,11 @@ pub enum InternalAction {
     AddCardInstanceToHandOrDiscard {
         card: CardInstance,
     },
+    /// Transfer a physical Stasis card at the queued return boundary. Until
+    /// then the monster retains ownership, including its reserved instance ID.
+    ReturnMonsterStasisCard {
+        monster_id: MonsterId,
+    },
     AddGeneratedCardToDrawPileRandomSpot {
         content_id: crate::ContentId,
     },
@@ -259,6 +280,9 @@ pub enum InternalAction {
     },
     /// Move one hand card to discard and run the target's manual-discard
     /// counter and card callbacks.
+    /// UnloadAction.update snapshots non-attacks from the live hand, then
+    /// queues their individual discards on top in reverse hand order.
+    DiscardNonAttackHandCards,
     ManualDiscardCard {
         card_id: CardId,
     },
@@ -296,6 +320,13 @@ pub enum InternalAction {
         card_id: CardId,
         from: CardPile,
     },
+    /// Potion addToBot selectors read the live hand only when this action starts.
+    OpenElixirSelection,
+    OpenGamblersBrewSelection,
+    /// Discovery potions generate their offer only when their queued action starts.
+    OpenPotionCardReward {
+        reward_kind: crate::combat::PotionCardRewardKind,
+    },
     DrawCards {
         count: usize,
     },
@@ -327,6 +358,10 @@ pub enum InternalAction {
         count: usize,
     },
     GainEnergy {
+        amount: i32,
+    },
+    /// GainEnergyAction queued by Energy Potion, retaining its overflow error.
+    GainEnergyFromPotion {
         amount: i32,
     },
     /// VoidCard.triggerWhenDrawn addToBot's LoseEnergyAction.
@@ -482,6 +517,8 @@ pub enum InternalAction {
     GainStrength {
         amount: i32,
     },
+    /// LimitBreakAction reads the live Strength power at execution time.
+    DoublePlayerStrength,
     GainMantra {
         amount: i32,
     },
@@ -495,6 +532,19 @@ pub enum InternalAction {
     GainDexterity {
         amount: i32,
     },
+    /// SpeedPotion.use's ordered addToBot ApplyPowerAction pair.
+    GainDexterityFromSpeedPotion {
+        amount: i32,
+    },
+    GainDexterityFromPotion {
+        amount: i32,
+    },
+    GainPlatedArmorFromPotion {
+        amount: i32,
+    },
+    ApplyDexLossFromSpeedPotion {
+        amount: i32,
+    },
     GainTempStrength {
         amount: i32,
     },
@@ -505,6 +555,16 @@ pub enum InternalAction {
         amount: i32,
     },
     GainArtifact {
+        amount: i32,
+    },
+    /// AncientPotion.use addToBot ApplyPowerAction; preserves potion errors.
+    GainArtifactFromPotion {
+        amount: i32,
+    },
+    GainStrengthFromPotion {
+        amount: i32,
+    },
+    ApplyStrengthLossFromFlexPotion {
         amount: i32,
     },
     UpgradeCombatCards,
@@ -574,6 +634,10 @@ pub enum InternalAction {
     AwaitCopiedDiscardSelect {
         purpose: DiscardSelectPurpose,
     },
+    /// Copy-owned PutOnDeck / Forethought select. Does not settle the original source.
+    AwaitCopiedHandSelect {
+        purpose: HandSelectPurpose,
+    },
     AwaitExhaustSelect {
         source_card_id: CardId,
         purpose: ExhaustSelectPurpose,
@@ -581,8 +645,6 @@ pub enum InternalAction {
     OpenDiscoveryCardReward {
         source_card_id: CardId,
     },
-    /// ElixirPotion addToBot ExhaustAction while another select is open.
-    OpenGenericExhaustSelect,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

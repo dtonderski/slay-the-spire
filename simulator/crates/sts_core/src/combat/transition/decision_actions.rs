@@ -1,4 +1,6 @@
-use super::{finish_warcry_source, remove_card_from_pile};
+use super::{
+    finish_warcry_source, move_forethought_selected_card_to_draw_bottom, remove_card_from_pile,
+};
 use crate::{
     action::CardPile,
     combat::{
@@ -230,6 +232,7 @@ pub(super) fn await_hand_select(
             selected_hand_indices: Vec::new(),
             dual_wield_restore_on_confirm,
             dual_wield_force_exhaust,
+            copy_owned: false,
         },
         pending_actions: VecDeque::new(),
     });
@@ -461,6 +464,70 @@ pub(super) fn await_discard_select(
     Ok(Vec::new())
 }
 
+pub(super) fn await_copied_hand_select(
+    state: &mut CombatState,
+    purpose: HandSelectPurpose,
+) -> SimResult<Vec<crate::action::InternalAction>> {
+    if matches!(
+        purpose,
+        HandSelectPurpose::WarcryPutOnDraw | HandSelectPurpose::ThinkingAheadPutOnDraw
+    ) {
+        // PutOnDeckAction amount is 1. The original is in cardInUse/exhaust by
+        // the time a DuplicationPower copy runs; every remaining hand card is
+        // eligible. size<=amount auto-places via getRandomCard(cardRandomRng).
+        const PUT_ON_DECK_AMOUNT: usize = 1;
+        if state.piles.hand.len() <= PUT_ON_DECK_AMOUNT {
+            if !state.piles.hand.is_empty() {
+                let mut remaining = state.piles.hand.len();
+                while remaining > 0 {
+                    let pick = state
+                        .rng
+                        .card_random_rng
+                        .random_int((state.piles.hand.len() - 1) as i32)
+                        as usize;
+                    let put_back = state.piles.hand[pick].id;
+                    let card = remove_card_from_pile(state, put_back, CardPile::Hand)?;
+                    state.piles.push_draw_top(card);
+                    remaining -= 1;
+                }
+            }
+            return Ok(Vec::new());
+        }
+    }
+    // ForethoughtAction.update: empty hand is a no-op; unupgraded singleton
+    // auto-places getTopCard without a screen. Upgraded (chooseAny) still
+    // opens even with one card. The copy is purgeOnUse, so this must not
+    // settle the original source.
+    if matches!(
+        purpose,
+        HandSelectPurpose::ForethoughtPutOnDraw | HandSelectPurpose::ForethoughtPutAnyOnDraw
+    ) {
+        if state.piles.hand.is_empty() {
+            return Ok(Vec::new());
+        }
+        if purpose == HandSelectPurpose::ForethoughtPutOnDraw && state.piles.hand.len() == 1 {
+            let card_id = state.piles.hand[0].id;
+            move_forethought_selected_card_to_draw_bottom(state, card_id)?;
+            return Ok(Vec::new());
+        }
+    }
+    state.decision = Some(CombatDecisionState::HandSelect {
+        state: crate::combat::HandSelectState {
+            purpose,
+            // No live source occupies hand. A dummy ID keeps the existing
+            // exclusion check from matching a real card.
+            source_card_id: CardId::new(0),
+            selected_hand_index: None,
+            selected_hand_indices: Vec::new(),
+            dual_wield_restore_on_confirm: Vec::new(),
+            dual_wield_force_exhaust: false,
+            copy_owned: true,
+        },
+        pending_actions: VecDeque::new(),
+    });
+    Ok(Vec::new())
+}
+
 pub(super) fn await_copied_discard_select(
     state: &mut CombatState,
     purpose: DiscardSelectPurpose,
@@ -564,8 +631,89 @@ pub(super) fn await_exhaust_select(
         super::settle_exhume_source_after_selection(state, exhaust_select, source_card_id)?;
         return Ok(Vec::new());
     }
+    if purpose == ExhaustSelectPurpose::ExhumeReturnToHand {
+        // ExhumeAction's singleton branch uses the physical pile size before
+        // filtering Exhumes. Larger piles open a grid even if only one card
+        // remains eligible after Exhumes are temporarily removed.
+        let eligible = state.piles.exhaust_pile.iter().find(|card| {
+            card.content_id != crate::content::cards::EXHUME_ID
+                && card.content_id != crate::content::cards::EXHUME_PLUS_ID
+        });
+        if eligible.is_none() || state.piles.exhaust_pile.len() == 1 {
+            if let Some(card) = eligible {
+                super::pile_actions::return_exhaust_card_to_hand(state, card.id)?;
+            }
+            super::settle_exhume_source_after_selection(state, exhaust_select, source_card_id)?;
+            return Ok(Vec::new());
+        }
+    }
+    if matches!(
+        purpose,
+        ExhaustSelectPurpose::RecycleExhaustOne | ExhaustSelectPurpose::TrueGritExhaustOne
+    ) {
+        // RecycleAction.update and ExhaustAction.update never open a screen for
+        // zero/one live hand cards. Check after removing the source into limbo.
+        if state.piles.hand.is_empty() {
+            super::close_discovery_source_card_with_force_exhaust(
+                state,
+                exhaust_select.source_card,
+                exhaust_select.source_card_force_exhaust,
+            )?;
+            return Ok(Vec::new());
+        }
+        if state.piles.hand.len() == 1 {
+            let mut exhaust_select = exhaust_select;
+            exhaust_select.selected_hand_indices.push(0);
+            state.decision = Some(CombatDecisionState::ExhaustSelect {
+                state: exhaust_select,
+            });
+            // Use the normal confirm wrapper: held-source identity reservation,
+            // exhaust callbacks, pending actions, and combat-end settlement.
+            super::confirm_exhaust_select_with_dead_branch_count(state, true)?;
+            return Ok(Vec::new());
+        }
+    }
     state.decision = Some(CombatDecisionState::ExhaustSelect {
         state: exhaust_select,
+    });
+    Ok(Vec::new())
+}
+
+pub(super) fn open_potion_card_reward(
+    state: &mut CombatState,
+    reward_kind: crate::combat::PotionCardRewardKind,
+) -> SimResult<Vec<crate::action::InternalAction>> {
+    use crate::card::{CardInstance, CardType};
+    use crate::combat::PotionCardRewardKind;
+    use crate::content::shop_pool::{colorless_discovery_card_choices, discovery_card_choices};
+
+    // The queue's clearPostCombatActions boundary cancels already-pending
+    // offers. Do not add a perpetual dead-room veto here: DiscoveryAction
+    // itself can still run if enqueued after that point-in-time clear.
+    if state.decision.is_some() {
+        return Err(SimError::InvalidState(
+            "potion reward started before prior decision closed",
+        ));
+    }
+    let next_card_id = state.reserve_card_instance_ids(3)?;
+    let rng = &mut state.rng.card_random_rng;
+    let content_ids = match reward_kind {
+        PotionCardRewardKind::Attack => discovery_card_choices(rng, CardType::Attack, 3),
+        PotionCardRewardKind::Skill => discovery_card_choices(rng, CardType::Skill, 3),
+        PotionCardRewardKind::Power => discovery_card_choices(rng, CardType::Power, 3),
+        PotionCardRewardKind::Colorless => colorless_discovery_card_choices(rng, 3),
+    };
+    let choices = content_ids
+        .into_iter()
+        .enumerate()
+        .map(|(index, content_id)| {
+            CardInstance::new(CardId::new(next_card_id + index as u64), content_id)
+        })
+        .collect();
+    state.decision = Some(CombatDecisionState::PotionCardReward {
+        choices,
+        reward_kind,
+        pending_actions: VecDeque::new(),
     });
     Ok(Vec::new())
 }

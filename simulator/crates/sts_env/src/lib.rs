@@ -8,6 +8,8 @@ mod fair_catalog;
 #[cfg(test)]
 mod fair_json_allowlist;
 mod run_observation;
+mod synthetic;
+pub use synthetic::{SyntheticCard, SyntheticCombatSpec, SyntheticCounters};
 
 pub use action::{DecisionRevision, FairError, PublicChoice, PublicChoiceRequest};
 pub use combat_observation::{
@@ -21,10 +23,11 @@ pub use environment::{FairDecision, FairEnvironment, FAIR_ENV_SCHEMA_VERSION};
 pub use fair_catalog::{fair_content_catalog, FairContentCatalog};
 pub use run_observation::{
     FairCardSlot, FairEventChoice, FairEventObservation, FairGridObservation, FairMapNode,
-    FairMapObservation, FairMatchAndKeepCard, FairQueuedCardReward, FairRestObservation,
-    FairRestOption, FairRewardObservation, FairRunContext, FairRunObservation, FairRunPhase,
-    FairRunPotionSlot, FairRunScreen, FairShopCard, FairShopObservation, FairShopPotion,
-    FairShopRelic, FairTreasureObservation, FAIR_RUN_OBSERVATION_SCHEMA_VERSION,
+    FairMapObservation, FairMatchAndKeepCard, FairQueuedCardReward, FairRelicOffer,
+    FairRestObservation, FairRestOption, FairRewardObservation, FairRunContext, FairRunKeys,
+    FairRunObservation, FairRunOutcome, FairRunPhase, FairRunPotionSlot, FairRunScreen,
+    FairShopCard, FairShopObservation, FairShopPotion, FairShopRelic, FairTreasureObservation,
+    FAIR_RUN_OBSERVATION_SCHEMA_VERSION,
 };
 
 pub(crate) use run_observation::fair_run_observation;

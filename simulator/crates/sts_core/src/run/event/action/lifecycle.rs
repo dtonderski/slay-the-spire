@@ -26,7 +26,7 @@ pub(super) fn apply_lifecycle_event_action(
             }
             2 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                next.map_overlay = Some(crate::MapOverlay { dismissable: true });
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -48,6 +48,7 @@ pub(super) fn apply_lifecycle_event_action(
             }
             3 if choice_index == 0 => {
                 next.phase = RunPhase::Complete;
+                next.terminal_outcome = Some(crate::run::RunTerminalOutcome::Act3Clear);
                 next.event = Some(make_event_screen(Event::SpireHeart, Vec::new(), 4));
             }
             _ => {

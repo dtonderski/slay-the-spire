@@ -45,7 +45,7 @@ pub(super) fn apply_act_three_event_action(
                 }
             }
             2 if choice_index == 0 => {
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -73,7 +73,7 @@ pub(super) fn apply_act_three_event_action(
                 next.event = Some(make_event_screen(Event::MoaiHead, moai_choices(next, 1), 1));
             }
             1 if choice_index == 0 => {
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -109,7 +109,7 @@ pub(super) fn apply_act_three_event_action(
                 enter_event_combat(next, &[&ORB_WALKER_A0, &ORB_WALKER_A0])?;
             }
             2 if choice_index == 0 => {
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -189,7 +189,7 @@ pub(super) fn apply_act_three_event_action(
             });
         }
         Event::SensoryStone if screen.stage == 2 && choice_index == 0 => {
-            leave_event_to_map(next);
+            crate::run::map_overlay::open_completed_room_map(next);
         }
         Event::WindingHalls => match screen.stage {
             0 if choice_index == 0 => {
@@ -239,7 +239,7 @@ pub(super) fn apply_act_three_event_action(
             }
             2 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -260,16 +260,18 @@ pub(super) fn apply_act_three_event_action(
                 1,
             ));
         }
-        Event::TombOfLordRedMask if screen.stage == 0 && choice_index == 1 => {
+        Event::TombOfLordRedMask
+            if (screen.stage == 0 && choice_index == 1)
+                || (screen.stage == 1 && choice_index == 0) =>
+        {
+            // TombRedMask.buttonEffect concludes even an ignored initial
+            // offer at RESULT, with only Leave when the map is dismissed.
             next.event = Some(make_event_screen(
                 Event::TombOfLordRedMask,
                 tomb_of_lord_red_mask_choices(next, 1),
                 1,
             ));
-            leave_event_to_map(next);
-        }
-        Event::TombOfLordRedMask if screen.stage == 1 && choice_index == 0 => {
-            leave_event_to_map(next);
+            crate::run::map_overlay::open_completed_room_map(next);
         }
         Event::MindBloom if screen.stage == 0 && choice_index == 0 => {
             let boss = roll_mind_bloom_boss(next);
@@ -318,7 +320,7 @@ pub(super) fn apply_act_three_event_action(
         }
         Event::MindBloom if screen.stage == 1 && choice_index == 0 => {
             next.flush_pending_obtain_cards()?;
-            leave_event_to_map(next);
+            crate::run::map_overlay::open_completed_room_map(next);
         }
         _ => return Ok(false),
     }

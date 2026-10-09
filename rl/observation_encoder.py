@@ -1,13 +1,19 @@
+import math
+from typing import Literal
+
+import numpy as np
 import torch
+from jaxtyping import Bool, Float
+from torch import Tensor, nn
+
+from encoders.actions import FlatActionFeatures
 from encoders.cards import CardEncoder
 from encoders.enemies import EnemyEncoder
+from encoders.numeric import NumericBatch, tensor, upload, upload_features
 from encoders.player import PlayerEncoder
 from encoders.potions import PotionEncoder
 from encoders.relics import RelicEncoder
 from encoders.selection import SelectionEncoder
-from jaxtyping import Float
-from sts_sim import CombatObservation
-from torch import Tensor, nn
 
 OBSERVATION_GROUPS = (
     "player",
@@ -24,10 +30,21 @@ OBSERVATION_GROUPS = (
 
 
 class ObservationEncoder(nn.Module):
-    """Encode one raw observation, returning its query and reusable action features."""
+    """Encode an observation batch, returning queries and per-observation action features."""
 
-    def __init__(self, d_model: int = 64, action_dim: int = 64, n_heads: int = 4, n_layers: int = 2) -> None:
+    def __init__(
+        self,
+        d_model: int = 64,
+        action_dim: int = 64,
+        n_heads: int = 4,
+        n_layers: int = 2,
+        *,
+        precision: Literal["fp32", "bf16"] = "fp32",
+    ) -> None:
         super().__init__()
+        if precision not in ("fp32", "bf16"):
+            raise ValueError("Expected fp32 or bf16 precision")
+        self.precision = precision
         self.cards = CardEncoder(d_model)
         self.enemies = EnemyEncoder(d_model)
         self.player = PlayerEncoder(d_model)
@@ -42,42 +59,148 @@ class ObservationEncoder(nn.Module):
             dim_feedforward=4 * d_model,
             dropout=0.0,
             norm_first=True,
+            batch_first=True,
         )
         self.transformer = nn.TransformerEncoder(layer, num_layers=n_layers, enable_nested_tensor=False)
         self.query = nn.Linear(d_model, action_dim)
+        # Row grouping for the transformer call; parameters and checkpoints are unaffected.
+        self.width_group_min_rows = 256
+        self.width_group_growth = 1.25
 
-    def forward(
-        self,
-        observation: CombatObservation,
-    ) -> tuple[Float[Tensor, " action_dim"], dict[str, Float[Tensor, "?n_rows ?feature_dim"]]]:
-        """Slices own their tables; selection/Stasis share cards. No batching or positional encoding."""
-        # TODO: Encode screen.phase and keyed screen.public_counters (combat progress/history).
-        # TODO: Encode ordered screen.orb_slots, including empty slots and Dark evoke values.
-        # TODO: Encode context.ascension/act/floor and the permanent context.deck, not just combat piles.
-        # TODO: Encode each Pile.known_positions; never infer hidden order from Pile.cards.
-        # Schema/revision metadata are deliberately not gameplay features.
-        screen, context = observation.screen, observation.context
-        groups: dict[str, Float[Tensor, "?n_tokens d_model"]] = {}
-        _, groups["player"] = self.player(observation)
-        hand, groups["hand"] = self.cards(tuple(entry.card for entry in screen.hand))
-        _, groups["draw"] = self.cards(screen.draw_pile.cards)
-        _, groups["discard"] = self.cards(screen.discard_pile.cards)
-        _, groups["exhaust"] = self.cards(screen.exhaust_pile.cards)
-        enemies, groups["enemies"] = self.enemies(screen.monsters, self.cards)
-        _, groups["relics"] = self.relics(context.relics)
-        potions, groups["potions"] = self.potions(context.potion_slots)
-        selection, groups["selection_context"], groups["selection_options"] = self.selection(
-            screen.selection, self.cards
-        )
+    def prepare_numeric(
+        self, batch: NumericBatch
+    ) -> tuple[
+        Float[Tensor, "batch n_tokens d_model"],
+        Bool[Tensor, "batch n_tokens"],
+        FlatActionFeatures,
+        np.ndarray,
+    ]:
+        """Keep groups flat through projection; build the final padded layout in arrays.
+
+        Also returns each row's real token count (summary included), computed on the host.
+        """
+        raw = {
+            "player": self.player.prepare(batch),
+            "relics": self.relics.prepare(batch),
+            "potions": self.potions.prepare(batch),
+            "cards": self.cards.prepare(batch),
+            "enemies": self.enemies.prepare(batch),
+        }
+        raw["selection"] = self.selection.prepare(batch, raw["cards"].lengths["selection_cards"])
+        # All feature encoders share the FP32 parameter dtype; BF16 applies only inside the transformer.
+        inputs = upload_features(raw, self.summary_embedding.weight)
+        groups = {}
+        feature_rows = {}
+        feature_lengths = {}
+        for name, encoder in (("player", self.player), ("relics", self.relics), ("potions", self.potions)):
+            features, tokens, lengths = encoder.encode(inputs[name], raw[name].lengths)
+            groups[name] = (tokens, lengths)
+            if name == "potions":
+                feature_rows[name] = features
+                feature_lengths[name] = lengths
+        cards = self.cards.encode(inputs["cards"], raw["cards"].lengths)
+        for name in ("hand", "draw", "discard", "exhaust"):
+            features, tokens, lengths = cards[name]
+            groups[name] = (tokens, lengths)
+            if name == "hand":
+                feature_rows[name] = features
+                feature_lengths[name] = lengths
+        features, tokens, lengths = self.enemies.encode(inputs["enemies"], raw["enemies"].lengths, cards["stasis"][0])
+        groups["enemies"] = (tokens, lengths)
+        feature_rows["enemies"] = features
+        feature_lengths["enemies"] = lengths
+        features, context, tokens, lengths = self.selection.encode(inputs["selection"], cards["selection_cards"])
+        groups["selection_context"] = (context, [1] * batch.size)
+        groups["selection_options"] = (tokens, lengths)
+        feature_rows["selection"] = features
+        feature_lengths["selection"] = lengths
+        counts = np.array([groups[name][1] for name in OBSERVATION_GROUPS]).T
+        width, positions, destinations = token_layout(counts)
         reference = self.summary_embedding.weight
-        tokens: list[Float[Tensor, "?n_tokens d_model"]] = [
-            self.summary_embedding(reference.new_zeros(1, dtype=torch.long))
+        # One lookup adds each row's group embedding; the summary row has none.
+        kinds = np.repeat(np.arange(len(OBSERVATION_GROUPS)), counts.sum(axis=0))
+        grouped = torch.cat([groups[name][0] for name in OBSERVATION_GROUPS])
+        grouped = grouped + self.group_embedding(tensor(reference, kinds, integer=True))
+        packed = torch.cat((reference.expand(batch.size, -1), grouped))
+        indices = tensor(reference, destinations, integer=True)
+        # Each real row has one destination; padding has no source row or backward accumulation.
+        tokens = reference.new_zeros((batch.size * width, reference.shape[1])).index_copy(0, indices, packed)
+        padding = upload(np.arange(width)[None, :] >= positions[:, None], torch.bool, reference.device)
+        features = FlatActionFeatures(feature_rows, feature_lengths)
+        return tokens.reshape(batch.size, width, -1), padding, features, positions
+
+    def forward(self, observations: NumericBatch) -> tuple[Float[Tensor, "batch action_dim"], FlatActionFeatures]:
+        """Return one summary query per observation; padding never participates as a key/value."""
+        tokens, padding_mask, features, token_counts = self.prepare_numeric(observations)
+        return self.query(self._summaries(tokens, padding_mask, token_counts)), features
+
+    def _transformer_forward(
+        self, tokens: Float[Tensor, "batch n_tokens d_model"], padding: Bool[Tensor, "batch n_tokens"]
+    ) -> Float[Tensor, "batch n_tokens d_model"]:
+        """Autocast only the transformer; encoders, heads and parameter storage remain FP32."""
+        if self.precision == "fp32":
+            return self.transformer(tokens, src_key_padding_mask=padding)
+        if tokens.device.type != "cuda" or tokens.dtype != torch.float32:
+            raise ValueError("Mixed BF16 requires CUDA and FP32 model parameters")
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            return self.transformer(tokens, src_key_padding_mask=padding).float()
+
+    def _summaries(
+        self,
+        tokens: Float[Tensor, "batch n_tokens d_model"],
+        padding: Bool[Tensor, "batch n_tokens"],
+        counts: np.ndarray,
+    ) -> Float[Tensor, "batch d_model"]:
+        """Encode rows in groups of similar width and return each row's summary token.
+
+        Padding keys are masked, so trimming a group to its widest row does not change the
+        result mathematically. It is not bit-identical to one padded call: kernels see
+        different shapes. Groups are formed on the host from ``counts``; no device sync.
+        """
+        groups = width_groups(counts, tokens.shape[1], self.width_group_min_rows, self.width_group_growth)
+        if len(groups) == 1:
+            return self._transformer_forward(tokens, padding)[:, 0]
+        order = np.argsort(counts, kind="stable")
+        inverse = np.empty_like(order)
+        inverse[order] = np.arange(len(order))
+        index = upload(order, torch.long, tokens.device)
+        tokens, padding = tokens.index_select(0, index), padding.index_select(0, index)
+        parts = [
+            self._transformer_forward(tokens[start:end, :width], padding[start:end, :width])[:, 0]
+            for start, end, width in groups
         ]
-        # TODO: Represent meaningful public hand/enemy/relic/potion slot order; attention currently
-        # treats each group as a set. Keep action-slot lookup separate and unordered piles unordered.
-        for index, name in enumerate(OBSERVATION_GROUPS):
-            group = self.group_embedding(reference.new_tensor(index, dtype=torch.long))
-            tokens.append(groups[name] + group)
-        encoded = self.transformer(torch.cat(tokens, dim=0))
-        action_features = {"hand": hand, "enemies": enemies, "potions": potions, "selection": selection}
-        return self.query(encoded[0]), action_features
+        return torch.cat(parts).index_select(0, upload(inverse, torch.long, tokens.device))
+
+
+def token_layout(counts: np.ndarray) -> tuple[int, np.ndarray, np.ndarray]:
+    """Map group-major public token rows into observation-major padded slots."""
+    positions = counts.sum(axis=1) + 1
+    width = int(positions.max())
+    flat_counts = counts.T.reshape(-1)
+    source_starts = np.cumsum(flat_counts) - flat_counts
+    target_starts = np.arange(len(counts))[:, None] * width + np.cumsum(counts, axis=1) - counts + 1
+    # Within each group/owner segment, destination minus source is constant.
+    grouped = np.repeat(target_starts.T.reshape(-1) - source_starts, flat_counts)
+    grouped += np.arange(len(grouped))
+    destinations = np.concatenate((np.arange(len(counts)) * width, grouped))
+    return width, positions, destinations
+
+
+def width_groups(counts: np.ndarray, width: int, min_rows: int, growth: float) -> list[tuple[int, int, int]]:
+    """Contiguous ``(start, end, width)`` slices of rows sorted by token count.
+
+    A group extends until its widest row exceeds ``growth`` times its narrowest, but always
+    holds at least ``min_rows`` rows, so small batches stay one call. Widths are rounded up
+    to a multiple of 8 (capped at the padded width); the extra columns are masked padding.
+    """
+    ordered = np.sort(counts)
+    groups = []
+    start = 0
+    while start < len(ordered):
+        end = int(np.searchsorted(ordered, math.ceil(ordered[start] * growth), side="right"))
+        end = max(end, min(start + min_rows, len(ordered)))
+        if len(ordered) - end < min_rows:
+            end = len(ordered)
+        groups.append((start, end, min(width, -(-int(ordered[end - 1]) // 8) * 8)))
+        start = end
+    return groups

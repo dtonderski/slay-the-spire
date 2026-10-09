@@ -1,0 +1,1072 @@
+{
+  "scope": "simulator-only interface research, not real-game parity or learned policy evaluation",
+  "base_revision": "d0a24577",
+  "campaigns": [
+    {
+      "cases": 64,
+      "outcomes": {
+        "truncated": 29,
+        "death": 35
+      },
+      "accepted": 585523,
+      "seconds": 74.86328926577698,
+      "screen_counts": {
+        "event": 378,
+        "map": 473,
+        "combat": 5113,
+        "reward": 1169,
+        "shop": 578277,
+        "grid": 68,
+        "rest": 84,
+        "treasure": 25
+      },
+      "controller_counts": {
+        "forced": 1662,
+        "macro": 579901,
+        "combat": 3960
+      },
+      "max_candidates": 29,
+      "name": "natural-a0",
+      "artifact_directory": "tmp/run-training-research/natural-a0",
+      "configuration": {
+        "mode": "natural",
+        "style": "exercise",
+        "ascension": 0,
+        "hp": 10000,
+        "count": 64,
+        "start": 0,
+        "driver_seed": 981723,
+        "max_decisions": 20000,
+        "case_seconds": 60,
+        "out": "tmp/run-training-research/natural-a0"
+      },
+      "native_sha256": "9afe068146b523de204a5d259a35c8f3b71b43651ba8694bfe548d25e8dabde6",
+      "median_floor": 6.0,
+      "max_floor": 16,
+      "median_macro_decisions": 53.5,
+      "max_macro_decisions": 19993,
+      "step_seconds": 61.29201747861225,
+      "results_sha256": "c64aac317a87fdb5e0ec391db7d733dc9e3e9e9dd63aabb5d58dc4818b96c889",
+      "interpretation": "Discard as throughput/strength evidence: exercise driver reopened shops indefinitely."
+    },
+    {
+      "cases": 64,
+      "outcomes": {
+        "truncated": 25,
+        "death": 39
+      },
+      "accepted": 503684,
+      "seconds": 62.839965042541735,
+      "screen_counts": {
+        "event": 313,
+        "map": 327,
+        "combat": 3364,
+        "reward": 781,
+        "shop": 498876,
+        "grid": 50,
+        "rest": 26,
+        "treasure": 11
+      },
+      "controller_counts": {
+        "forced": 1125,
+        "macro": 499973,
+        "combat": 2586
+      },
+      "max_candidates": 21,
+      "name": "natural-a20",
+      "artifact_directory": "tmp/run-training-research/natural-a20",
+      "configuration": {
+        "mode": "natural",
+        "style": "exercise",
+        "ascension": 20,
+        "hp": 10000,
+        "count": 64,
+        "start": 0,
+        "driver_seed": 981723,
+        "max_decisions": 20000,
+        "case_seconds": 60,
+        "out": "tmp/run-training-research/natural-a20"
+      },
+      "native_sha256": "9afe068146b523de204a5d259a35c8f3b71b43651ba8694bfe548d25e8dabde6",
+      "median_floor": 5.0,
+      "max_floor": 13,
+      "median_macro_decisions": 27.0,
+      "max_macro_decisions": 19993,
+      "step_seconds": 51.81101611664053,
+      "results_sha256": "371ac44f159b00762d8043da298fefe4839d7d33995ca903274f29cd718de26c",
+      "interpretation": "Discard as throughput/strength evidence: exercise driver reopened shops indefinitely."
+    },
+    {
+      "cases": 32,
+      "outcomes": {
+        "truncated": 31,
+        "death": 1
+      },
+      "accepted": 374322,
+      "seconds": 59.44822865840979,
+      "screen_counts": {
+        "event": 230,
+        "map": 374,
+        "combat": 8966,
+        "reward": 1014,
+        "shop": 363618,
+        "grid": 34,
+        "rest": 76,
+        "treasure": 42
+      },
+      "controller_counts": {
+        "forced": 2398,
+        "macro": 364941,
+        "combat": 6983
+      },
+      "max_candidates": 41,
+      "name": "synthetic-a20",
+      "artifact_directory": "tmp/run-training-research/synthetic-a20",
+      "configuration": {
+        "mode": "synthetic-act4",
+        "style": "exercise",
+        "ascension": 20,
+        "hp": 10000,
+        "count": 32,
+        "start": 0,
+        "driver_seed": 981723,
+        "max_decisions": 12000,
+        "case_seconds": 20.0,
+        "out": "tmp/run-training-research/synthetic-a20"
+      },
+      "native_sha256": "9afe068146b523de204a5d259a35c8f3b71b43651ba8694bfe548d25e8dabde6",
+      "median_floor": 6.5,
+      "max_floor": 47,
+      "median_macro_decisions": 11935.5,
+      "max_macro_decisions": 11993,
+      "step_seconds": 50.84446008724626,
+      "results_sha256": "26643ee8bc5f3b25a9e403128698a97e7451acb21f9bd79ffe10b619dea57fd1",
+      "interpretation": "Discard as throughput/strength evidence: exercise driver reopened shops indefinitely."
+    },
+    {
+      "cases": 128,
+      "outcomes": {
+        "death": 128
+      },
+      "accepted": 21181,
+      "seconds": 5.0446934652281925,
+      "screen_counts": {
+        "event": 846,
+        "map": 1374,
+        "combat": 15258,
+        "reward": 3165,
+        "shop": 83,
+        "rest": 340,
+        "treasure": 91,
+        "grid": 152
+      },
+      "controller_counts": {
+        "forced": 4827,
+        "macro": 4552,
+        "combat": 11802
+      },
+      "max_candidates": 35,
+      "name": "natural-a0-v2",
+      "artifact_directory": "tmp/run-training-research/natural-a0-v2",
+      "configuration": {
+        "mode": "natural",
+        "style": "exercise",
+        "ascension": 0,
+        "hp": 10000,
+        "count": 128,
+        "start": 0,
+        "driver_seed": 981723,
+        "max_decisions": 20000,
+        "case_seconds": 10.0,
+        "out": "tmp/run-training-research/natural-a0-v2"
+      },
+      "native_sha256": "9afe068146b523de204a5d259a35c8f3b71b43651ba8694bfe548d25e8dabde6",
+      "median_floor": 11.0,
+      "max_floor": 33,
+      "median_macro_decisions": 36.0,
+      "max_macro_decisions": 110,
+      "step_seconds": 4.503183741820976,
+      "results_sha256": "55d87faf99b1ec1eaf1a709e040bd8373c59f22a97eb934ec5530c999ebd7988",
+      "interpretation": "Diagnostic only: journals add I/O; synthetic high HP changes gameplay distribution."
+    },
+    {
+      "cases": 128,
+      "outcomes": {
+        "death": 128
+      },
+      "accepted": 12749,
+      "seconds": 2.973657791269943,
+      "screen_counts": {
+        "event": 739,
+        "map": 893,
+        "combat": 8964,
+        "reward": 1920,
+        "shop": 66,
+        "rest": 142,
+        "treasure": 38,
+        "grid": 114,
+        "complete": 1
+      },
+      "controller_counts": {
+        "forced": 2987,
+        "macro": 2888,
+        "combat": 6874
+      },
+      "max_candidates": 31,
+      "name": "natural-a20-v2",
+      "artifact_directory": "tmp/run-training-research/natural-a20-v2",
+      "configuration": {
+        "mode": "natural",
+        "style": "exercise",
+        "ascension": 20,
+        "hp": 10000,
+        "count": 128,
+        "start": 0,
+        "driver_seed": 981723,
+        "max_decisions": 20000,
+        "case_seconds": 10.0,
+        "out": "tmp/run-training-research/natural-a20-v2"
+      },
+      "native_sha256": "9afe068146b523de204a5d259a35c8f3b71b43651ba8694bfe548d25e8dabde6",
+      "median_floor": 6.0,
+      "max_floor": 16,
+      "median_macro_decisions": 20.5,
+      "max_macro_decisions": 57,
+      "step_seconds": 2.6297661827411503,
+      "results_sha256": "81facf0db773693d3bb9b7c617e36ff8e1799d0fa966494dd4e3c7848d057986",
+      "interpretation": "Diagnostic only: journals add I/O; synthetic high HP changes gameplay distribution."
+    },
+    {
+      "cases": 128,
+      "outcomes": {
+        "death": 128
+      },
+      "accepted": 8944,
+      "seconds": 1.776020525721833,
+      "screen_counts": {
+        "event": 628,
+        "map": 602,
+        "combat": 6603,
+        "reward": 665,
+        "shop": 140,
+        "rest": 66,
+        "treasure": 13,
+        "grid": 355
+      },
+      "controller_counts": {
+        "forced": 1799,
+        "macro": 1686,
+        "combat": 5459
+      },
+      "max_candidates": 22,
+      "name": "random-a0",
+      "artifact_directory": "tmp/run-training-research/random-a0",
+      "configuration": {
+        "mode": "natural",
+        "style": "random",
+        "ascension": 0,
+        "hp": 10000,
+        "count": 128,
+        "start": 0,
+        "driver_seed": 981723,
+        "max_decisions": 20000,
+        "case_seconds": 10.0,
+        "out": "tmp/run-training-research/random-a0"
+      },
+      "native_sha256": "9afe068146b523de204a5d259a35c8f3b71b43651ba8694bfe548d25e8dabde6",
+      "median_floor": 5.0,
+      "max_floor": 16,
+      "median_macro_decisions": 12.0,
+      "max_macro_decisions": 45,
+      "step_seconds": 1.567385146394372,
+      "results_sha256": "4625e03a8e2d24e56ba49a3e4bfb48a1e3cc784fc67e5b2b0022729a38c7e087",
+      "interpretation": "Diagnostic only: journals add I/O; synthetic high HP changes gameplay distribution."
+    },
+    {
+      "cases": 64,
+      "outcomes": {
+        "heart_clear": 24,
+        "death": 17,
+        "act3_clear": 23
+      },
+      "accepted": 93118,
+      "seconds": 42.1579625090817,
+      "screen_counts": {
+        "event": 1324,
+        "map": 2939,
+        "combat": 79279,
+        "reward": 7801,
+        "shop": 190,
+        "treasure": 435,
+        "rest": 921,
+        "grid": 171,
+        "complete": 122
+      },
+      "controller_counts": {
+        "forced": 20151,
+        "macro": 10480,
+        "combat": 62487
+      },
+      "max_candidates": 95,
+      "name": "synthetic-a20-v2",
+      "artifact_directory": "tmp/run-training-research/synthetic-a20-v2",
+      "configuration": {
+        "mode": "synthetic-act4",
+        "style": "exercise",
+        "ascension": 20,
+        "hp": 10000,
+        "count": 64,
+        "start": 0,
+        "driver_seed": 981723,
+        "max_decisions": 5000,
+        "case_seconds": 10.0,
+        "out": "tmp/run-training-research/synthetic-a20-v2"
+      },
+      "native_sha256": "9afe068146b523de204a5d259a35c8f3b71b43651ba8694bfe548d25e8dabde6",
+      "median_floor": 51.0,
+      "max_floor": 56,
+      "median_macro_decisions": 177.0,
+      "max_macro_decisions": 215,
+      "step_seconds": 39.429471918498166,
+      "results_sha256": "cde10315cf2cf95683fddf1a09faabec6150e0af9c0d4d02a1570c155cba5b40",
+      "interpretation": "Diagnostic only: journals add I/O; synthetic high HP changes gameplay distribution."
+    },
+    {
+      "cases": 128,
+      "outcomes": {
+        "act3_clear": 61,
+        "death": 61,
+        "error": 5,
+        "truncated": 1
+      },
+      "accepted": 188881,
+      "seconds": 51.30335152242333,
+      "screen_counts": {
+        "event": 2152,
+        "map": 4624,
+        "combat": 170938,
+        "reward": 6770,
+        "shop": 839,
+        "treasure": 610,
+        "rest": 1426,
+        "grid": 1527,
+        "complete": 123
+      },
+      "controller_counts": {
+        "forced": 48909,
+        "macro": 12820,
+        "combat": 127157
+      },
+      "max_candidates": 38,
+      "name": "synthetic-mixed-a0",
+      "artifact_directory": "tmp/run-training-research/synthetic-mixed-a0",
+      "configuration": {
+        "mode": "synthetic-act4",
+        "style": "mixed",
+        "ascension": 0,
+        "hp": 10000,
+        "count": 128,
+        "start": 0,
+        "driver_seed": 981723,
+        "max_decisions": 5000,
+        "case_seconds": 10.0,
+        "out": "tmp/run-training-research/synthetic-mixed-a0"
+      },
+      "native_sha256": "9afe068146b523de204a5d259a35c8f3b71b43651ba8694bfe548d25e8dabde6",
+      "median_floor": 47.5,
+      "max_floor": 54,
+      "median_macro_decisions": 111.5,
+      "max_macro_decisions": 193,
+      "step_seconds": 46.556954251253046,
+      "results_sha256": "7a7ab0125746e3c440e10e822699d2dfeca6fae70b96183b513bb061c7ce5dfb",
+      "interpretation": "Diagnostic only: journals add I/O; synthetic high HP changes gameplay distribution."
+    },
+    {
+      "cases": 128,
+      "outcomes": {
+        "act3_clear": 31,
+        "death": 94,
+        "error": 3
+      },
+      "accepted": 175351,
+      "seconds": 52.89205312647391,
+      "screen_counts": {
+        "event": 1942,
+        "map": 4233,
+        "combat": 159135,
+        "reward": 6024,
+        "shop": 893,
+        "treasure": 543,
+        "rest": 1296,
+        "complete": 63,
+        "grid": 1350
+      },
+      "controller_counts": {
+        "forced": 47629,
+        "macro": 11594,
+        "combat": 116131
+      },
+      "max_candidates": 53,
+      "name": "synthetic-mixed-a20",
+      "artifact_directory": "tmp/run-training-research/synthetic-mixed-a20",
+      "configuration": {
+        "mode": "synthetic-act4",
+        "style": "mixed",
+        "ascension": 20,
+        "hp": 10000,
+        "count": 128,
+        "start": 0,
+        "driver_seed": 981723,
+        "max_decisions": 5000,
+        "case_seconds": 10.0,
+        "out": "tmp/run-training-research/synthetic-mixed-a20"
+      },
+      "native_sha256": "9afe068146b523de204a5d259a35c8f3b71b43651ba8694bfe548d25e8dabde6",
+      "median_floor": 31.0,
+      "max_floor": 51,
+      "median_macro_decisions": 88.5,
+      "max_macro_decisions": 191,
+      "step_seconds": 48.55138141405769,
+      "results_sha256": "9fccbf18935938e32d8b98ebcbe079e32cad125f3fd5fa0201b9d2a1c6a8e9c2",
+      "interpretation": "Diagnostic only: journals add I/O; synthetic high HP changes gameplay distribution."
+    }
+  ],
+  "reproduced_errors": [
+    {
+      "campaign": "synthetic-mixed-a0",
+      "seed": "RUN19",
+      "floor": 39,
+      "error": "ValueError: decision unavailable",
+      "offer": {
+        "slot": 2,
+        "content_key": "Prismatic Shard",
+        "price": 148,
+        "sold": false
+      },
+      "owned_relics": [
+        "Velvet Choker",
+        "The Boot",
+        "Maw Bank"
+      ],
+      "atomic_replay_verified": true
+    },
+    {
+      "campaign": "synthetic-mixed-a0",
+      "seed": "RUN21",
+      "floor": 44,
+      "error": "ValueError: decision unavailable",
+      "offer": {
+        "slot": 2,
+        "content_key": "Prismatic Shard",
+        "price": 144,
+        "sold": false
+      },
+      "owned_relics": [
+        "Burning Blood",
+        "Lantern"
+      ],
+      "atomic_replay_verified": true
+    },
+    {
+      "campaign": "synthetic-mixed-a0",
+      "seed": "RUN50",
+      "floor": 22,
+      "error": "ValueError: decision unavailable",
+      "offer": {
+        "slot": 2,
+        "content_key": "Prismatic Shard",
+        "price": 151,
+        "sold": false
+      },
+      "owned_relics": [
+        "Burning Blood",
+        "Busted Crown",
+        "Mutagenic Strength",
+        "Strike Dummy"
+      ],
+      "atomic_replay_verified": true
+    },
+    {
+      "campaign": "synthetic-mixed-a0",
+      "seed": "RUN59",
+      "floor": 12,
+      "error": "ValueError: choice is invalid",
+      "offer": {
+        "slot": 4,
+        "content_key": "RUPTURE",
+        "price": 30,
+        "sold": false
+      },
+      "owned_relics": [
+        "Tiny House",
+        "The Courier"
+      ],
+      "atomic_replay_verified": true
+    },
+    {
+      "campaign": "synthetic-mixed-a0",
+      "seed": "RUN6F",
+      "floor": 45,
+      "error": "ValueError: choice is invalid",
+      "offer": {
+        "slot": 1,
+        "content_key": "Thunderclap",
+        "price": 42,
+        "sold": false
+      },
+      "owned_relics": [
+        "Burning Blood",
+        "Magic Flower",
+        "Nunchaku",
+        "Red Mask",
+        "The Courier",
+        "Cursed Key",
+        "Juzu Bracelet"
+      ],
+      "atomic_replay_verified": true
+    },
+    {
+      "campaign": "synthetic-mixed-a20",
+      "seed": "RUN1E",
+      "floor": 39,
+      "error": "ValueError: choice is invalid",
+      "offer": {
+        "slot": 2,
+        "content_key": "True Grit",
+        "price": 21,
+        "sold": false
+      },
+      "owned_relics": [
+        "Burning Blood",
+        "Happy Flower",
+        "The Courier",
+        "Nunchaku",
+        "Snecko Eye"
+      ],
+      "atomic_replay_verified": true
+    },
+    {
+      "campaign": "synthetic-mixed-a20",
+      "seed": "RUN76",
+      "floor": 20,
+      "error": "ValueError: choice is invalid",
+      "offer": {
+        "slot": 4,
+        "content_key": "Inflame",
+        "price": 61,
+        "sold": false
+      },
+      "owned_relics": [
+        "Burning Blood",
+        "Ice Cream",
+        "The Courier",
+        "Tiny House",
+        "Darkstone Periapt"
+      ],
+      "atomic_replay_verified": true
+    },
+    {
+      "campaign": "synthetic-mixed-a20",
+      "seed": "RUN77",
+      "floor": 29,
+      "error": "ValueError: choice is invalid",
+      "offer": {
+        "slot": 1,
+        "content_key": "FIEND_FIRE",
+        "price": 108,
+        "sold": false
+      },
+      "owned_relics": [
+        "Burning Blood",
+        "Bronze Scales",
+        "Thread and Needle",
+        "The Courier",
+        "Tiny House",
+        "Red Mask"
+      ],
+      "atomic_replay_verified": true
+    }
+  ],
+  "upstream": {
+    "url": "https://github.com/Jialeiv/sts-rl-agent",
+    "revision": "039c199933b7d3a2e5d8fde51ae77a9175e1031f",
+    "reviewed_files": {
+      "training-lessons.md": "bd0f5f460655b834d26a7e7ff1b49395bc7c63d9ed40e98844f3b11af72b61c6",
+      "armG_train_parallel.py": "eb8892fbefd2b1db4d1800cc9de81fb363136776bde232925a108e0911dc449e",
+      "evaluation.md": "f17eb86b036f23b82df347af768349220f5581f953a48490e1e8aae2178dae83",
+      "armG_train.py": "d0593c4da8fb62a7fb45dcb38eacacbeb422108175cb63353b1fd864ce5b7ec2"
+    }
+  },
+  "checks": {
+    "cargo_fmt": "passed",
+    "cargo_clippy_workspace_all_targets": "passed",
+    "cargo_test_workspace": "passed",
+    "sts_env_tests": 64,
+    "python_binding_tests": 26,
+    "corpus_replay": {
+      "status": "passed",
+      "path": "/home/davton/dev/slay-the-spire/simulator/verification/corpus/permanent_traces",
+      "traces": 433,
+      "pass": 433,
+      "divergent": 0,
+      "incomplete": 0,
+      "invalid": 0,
+      "actions": 642896,
+      "all_ascension": 0,
+      "all_starting_hp": 10000,
+      "all_boundary_schema": 6,
+      "initial_relative_path_attempt": "failed: permanent_traces is not a file or directory"
+    },
+    "deterministic_prefix_replays": {
+      "successful_interface_cases": 4,
+      "atomic_error_cases": 8,
+      "frozen_cases": 8
+    },
+    "rl_full_suite": {
+      "status": "passed",
+      "tests": 161,
+      "skipped": 1,
+      "note": "One existing optional browser test skipped. First suite attempt failed on newly added malformed synthetic potion capacity, corrected before the passing runs."
+    },
+    "real_game_control": "not run; no game connection or trace capture attempted",
+    "rl_documented_type_check": "passed",
+    "prototype_tests": 29,
+    "rl_documented_plus_prototype_type_check": "passed after adding native-file optional-value guard",
+    "prototype_lint_and_format": "passed"
+  },
+  "frozen_combat_campaigns": [
+    {
+      "cases": 32,
+      "outcomes": {
+        "truncated": 16,
+        "death": 16
+      },
+      "accepted": 84205,
+      "seconds": 100.5683391164057,
+      "mean_floor": 15.15625,
+      "controller_counts": {
+        "forced": 1413,
+        "macro": 1640,
+        "combat": 81152
+      },
+      "name": "frozen-natural-a0",
+      "artifact_directory": "tmp/run-training-research/frozen-natural-a0",
+      "ascension": 0,
+      "mode": "natural",
+      "macro_style": "exercise",
+      "combat_sampling": "greedy CPU FP32; Smoke Bomb uses filtered as in current train.py",
+      "checkpoint_sha256": "c12949adc98e5223ae3fc5f6a31adba0a900ade2f479f4872f806525d1c0c054",
+      "checkpoint_iteration": 259870,
+      "native_sha256": "9afe068146b523de204a5d259a35c8f3b71b43651ba8694bfe548d25e8dabde6",
+      "source_checkpoint_native_sha256": "3a3e7533e769a0a5d7a285fd6ccac3260002a9c8f6ab423cf8b0c0a9d1acda5e",
+      "source_precision": "bf16",
+      "probe_precision": "CPU FP32",
+      "act2_reached": 6,
+      "act3_reached": 0,
+      "max_floor": 33,
+      "death_encounters": {
+        "Spike Slime/Slime Boss/Acid Slime (S)": 2,
+        "Guardian": 3,
+        "Hexaghost": 3,
+        "Shelled Parasite/Fungi Beast": 1,
+        "Looter": 1,
+        "Centurion/Mystic": 1,
+        "Torch Head/Torch Head/The Collector": 1,
+        "Book of Stabbing": 1,
+        "Fungi Beast/Fungi Beast/Fungi Beast": 1,
+        "Blue Slaver": 1,
+        "Sentry/Spheric Guardian": 1
+      },
+      "results_sha256": "ed913355c4040fb0b76f640a6b2db99c7876964d6713a7259c5a5c893c17bb68",
+      "source_sha256": "69a38f134a90109b6cf6f66b743ecd839a6433b6b007f39d10b2d55a48de561d",
+      "interpretation": "Development integration, not training or endpoint strength evidence; greedy is a different sampling protocol, and Smoke Bomb uses remain restricted."
+    },
+    {
+      "cases": 32,
+      "outcomes": {
+        "death": 28,
+        "truncated": 4
+      },
+      "accepted": 23965,
+      "seconds": 27.207967982976697,
+      "mean_floor": 10.375,
+      "controller_counts": {
+        "forced": 979,
+        "macro": 1061,
+        "combat": 21925
+      },
+      "name": "frozen-natural-a20",
+      "artifact_directory": "tmp/run-training-research/frozen-natural-a20",
+      "ascension": 20,
+      "mode": "natural",
+      "macro_style": "exercise",
+      "combat_sampling": "greedy CPU FP32; Smoke Bomb uses filtered as in current train.py",
+      "checkpoint_sha256": "c12949adc98e5223ae3fc5f6a31adba0a900ade2f479f4872f806525d1c0c054",
+      "checkpoint_iteration": 259870,
+      "native_sha256": "9afe068146b523de204a5d259a35c8f3b71b43651ba8694bfe548d25e8dabde6",
+      "source_checkpoint_native_sha256": "3a3e7533e769a0a5d7a285fd6ccac3260002a9c8f6ab423cf8b0c0a9d1acda5e",
+      "source_precision": "bf16",
+      "probe_precision": "CPU FP32",
+      "act2_reached": 0,
+      "act3_reached": 0,
+      "max_floor": 16,
+      "death_encounters": {
+        "Lagavulin": 4,
+        "Gremlin Thief/Gremlin Wizard/Gremlin Tsundere/Gremlin Fat": 1,
+        "Gremlin Nob": 6,
+        "Gremlin Thief/Gremlin Warrior/Gremlin Warrior/Gremlin Thief": 1,
+        "Sentry/Sentry/Sentry": 5,
+        "Acid Slime (S)/Looter": 1,
+        "Spike Slime/Acid Slime (S)/Acid Slime (S)/Spike Slime/Spike Slime": 1,
+        "Blue Slaver": 1,
+        "Guardian": 2,
+        "Spike Slime/Acid Slime (S)/Slime Boss/Acid Slime (S)/Acid Slime (S)": 1,
+        "Green Louse/Red Louse/Green Louse": 1,
+        "Slime Boss": 1,
+        "Hexaghost": 1,
+        "Jaw Worm/Spike Slime": 2
+      },
+      "results_sha256": "c06f38a78d05757620fcf69ed46ad53596978cc6f9a9784b17a82fe8e52d10eb",
+      "source_sha256": "69a38f134a90109b6cf6f66b743ecd839a6433b6b007f39d10b2d55a48de561d",
+      "interpretation": "Development integration, not training or endpoint strength evidence; greedy is a different sampling protocol, and Smoke Bomb uses remain restricted."
+    },
+    {
+      "cases": 32,
+      "outcomes": {
+        "truncated": 16,
+        "death": 16
+      },
+      "accepted": 83709,
+      "seconds": 98.63499822129961,
+      "mean_floor": 14.0625,
+      "controller_counts": {
+        "forced": 1307,
+        "macro": 1513,
+        "combat": 80889
+      },
+      "name": "frozen-profile-a0",
+      "artifact_directory": "tmp/run-training-research/frozen-profile-a0",
+      "ascension": 0,
+      "mode": "profile-act4",
+      "macro_style": "exercise",
+      "combat_sampling": "greedy CPU FP32; Smoke Bomb uses filtered as in current train.py",
+      "checkpoint_sha256": "c12949adc98e5223ae3fc5f6a31adba0a900ade2f479f4872f806525d1c0c054",
+      "checkpoint_iteration": 259870,
+      "native_sha256": "9afe068146b523de204a5d259a35c8f3b71b43651ba8694bfe548d25e8dabde6",
+      "source_checkpoint_native_sha256": "3a3e7533e769a0a5d7a285fd6ccac3260002a9c8f6ab423cf8b0c0a9d1acda5e",
+      "source_precision": "bf16",
+      "probe_precision": "CPU FP32",
+      "act2_reached": 5,
+      "act3_reached": 0,
+      "max_floor": 33,
+      "death_encounters": {
+        "Spike Slime/Slime Boss/Acid Slime (S)": 2,
+        "Guardian": 3,
+        "Acid Slime (S)/Looter": 1,
+        "Gremlin Thief/Gremlin Fat/Gremlin Warrior/Gremlin Thief": 1,
+        "Lagavulin": 2,
+        "Torch Head/Torch Head/The Collector": 1,
+        "Sentry/Spheric Guardian": 2,
+        "Hexaghost": 2,
+        "Fungi Beast/Fungi Beast/Fungi Beast": 1,
+        "Blue Slaver": 1
+      },
+      "results_sha256": "24a2d0391aa719e87b7c3f4130cff35573d8a34742017893a5b54cb553ec8084",
+      "source_sha256": "69a38f134a90109b6cf6f66b743ecd839a6433b6b007f39d10b2d55a48de561d",
+      "interpretation": "Development integration, not training or endpoint strength evidence; greedy is a different sampling protocol, and Smoke Bomb uses remain restricted."
+    },
+    {
+      "cases": 32,
+      "outcomes": {
+        "death": 27,
+        "truncated": 5
+      },
+      "accepted": 30151,
+      "seconds": 32.486205148044974,
+      "mean_floor": 13.40625,
+      "controller_counts": {
+        "forced": 1354,
+        "macro": 1296,
+        "combat": 27501
+      },
+      "name": "frozen-random-a0",
+      "artifact_directory": "tmp/run-training-research/frozen-random-a0",
+      "ascension": 0,
+      "mode": "natural",
+      "macro_style": "random",
+      "combat_sampling": "greedy CPU FP32; Smoke Bomb uses filtered as in current train.py",
+      "checkpoint_sha256": "c12949adc98e5223ae3fc5f6a31adba0a900ade2f479f4872f806525d1c0c054",
+      "checkpoint_iteration": 259870,
+      "native_sha256": "9afe068146b523de204a5d259a35c8f3b71b43651ba8694bfe548d25e8dabde6",
+      "source_checkpoint_native_sha256": "3a3e7533e769a0a5d7a285fd6ccac3260002a9c8f6ab423cf8b0c0a9d1acda5e",
+      "source_precision": "bf16",
+      "probe_precision": "CPU FP32",
+      "act2_reached": 1,
+      "act3_reached": 0,
+      "max_floor": 20,
+      "death_encounters": {
+        "Guardian": 6,
+        "Slime Boss": 2,
+        "Lagavulin": 6,
+        "Hexaghost": 6,
+        "Sentry/Sentry/Sentry": 2,
+        "Fungi Beast/Acid Slime (S)": 1,
+        "Spike Slime/Blue Slaver": 2,
+        "Spike Slime/Slime Boss/Acid Slime (S)": 1,
+        "Gremlin Nob": 1
+      },
+      "results_sha256": "916fb0ccf2c837373673c5f6e3131649a3d3f234d7e091d5ba12961b1b049717",
+      "source_sha256": "69a38f134a90109b6cf6f66b743ecd839a6433b6b007f39d10b2d55a48de561d",
+      "interpretation": "Development integration, not training or endpoint strength evidence; greedy is a different sampling protocol, and Smoke Bomb uses remain restricted."
+    },
+    {
+      "cases": 64,
+      "outcomes": {
+        "death": 64
+      },
+      "accepted": 16031,
+      "seconds": 13.607932258048095,
+      "mean_floor": 16.09375,
+      "controller_counts": {
+        "forced": 3135,
+        "macro": 3479,
+        "combat": 9417
+      },
+      "name": "frozen-sampled-a0",
+      "artifact_directory": "tmp/run-training-research/frozen-sampled-a0",
+      "ascension": 0,
+      "mode": "natural",
+      "macro_style": "exercise",
+      "combat_sampling": "sampled CPU FP32; Smoke Bomb uses filtered as in current train.py",
+      "checkpoint_sha256": "c12949adc98e5223ae3fc5f6a31adba0a900ade2f479f4872f806525d1c0c054",
+      "checkpoint_iteration": 259870,
+      "native_sha256": "9afe068146b523de204a5d259a35c8f3b71b43651ba8694bfe548d25e8dabde6",
+      "source_checkpoint_native_sha256": "3a3e7533e769a0a5d7a285fd6ccac3260002a9c8f6ab423cf8b0c0a9d1acda5e",
+      "source_precision": "bf16",
+      "probe_precision": "CPU FP32",
+      "act2_reached": 12,
+      "act3_reached": 0,
+      "max_floor": 33,
+      "death_encounters": {
+        "Guardian": 13,
+        "Spike Slime/Slime Boss/Acid Slime (S)": 5,
+        "Gremlin Tsundere/Gremlin Tsundere/Gremlin Thief/Gremlin Thief/Gremlin Leader": 1,
+        "Lagavulin": 6,
+        "Hexaghost": 13,
+        "Slime Boss": 2,
+        "Sentry/Sentry/Sentry": 3,
+        "Cultist/Cultist/Cultist": 1,
+        "Spike Slime/Spike Slime/Spike Slime/Acid Slime (S)/Slime Boss/Acid Slime (S)/Acid Slime (S)": 1,
+        "Fungi Beast/Fungi Beast/Fungi Beast": 1,
+        "Red Slaver": 2,
+        "Spike Slime/Blue Slaver": 1,
+        "Gremlin Warrior/Gremlin Thief/Gremlin Thief/Gremlin Fat": 1,
+        "Shelled Parasite/Fungi Beast": 3,
+        "Spike Slime/Acid Slime (S)/Spike Slime/Spike Slime/Acid Slime (S)": 1,
+        "Centurion/Mystic": 1,
+        "Bronze Orb/Bronze Automaton/Bronze Orb": 2,
+        "Spike Slime/Acid Slime (S)/Slime Boss/Acid Slime (S)/Acid Slime (S)": 1,
+        "Cultist/Chosen": 2,
+        "Acid Slime (S)/Acid Slime (S)/Acid Slime (S)": 1,
+        "Jaw Worm/Acid Slime (S)": 1,
+        "Byrd/Chosen": 1,
+        "Book of Stabbing": 1
+      },
+      "results_sha256": "643d5be71fcb440cb49c8b9e94ce73693fc3f5504303c1124dc022ac6f51cf0b",
+      "source_sha256": "106f92f526e8f3aec2c16a6615c30585df264f2f159e8b26549119b8c11cc605",
+      "interpretation": "Development integration, not training or endpoint strength evidence; greedy is a different sampling protocol, and Smoke Bomb uses remain restricted."
+    },
+    {
+      "cases": 64,
+      "outcomes": {
+        "death": 64
+      },
+      "accepted": 8140,
+      "seconds": 6.580762878526002,
+      "mean_floor": 8.9375,
+      "controller_counts": {
+        "forced": 1758,
+        "macro": 1845,
+        "combat": 4537
+      },
+      "name": "frozen-sampled-a20",
+      "artifact_directory": "tmp/run-training-research/frozen-sampled-a20",
+      "ascension": 20,
+      "mode": "natural",
+      "macro_style": "exercise",
+      "combat_sampling": "sampled CPU FP32; Smoke Bomb uses filtered as in current train.py",
+      "checkpoint_sha256": "c12949adc98e5223ae3fc5f6a31adba0a900ade2f479f4872f806525d1c0c054",
+      "checkpoint_iteration": 259870,
+      "native_sha256": "9afe068146b523de204a5d259a35c8f3b71b43651ba8694bfe548d25e8dabde6",
+      "source_checkpoint_native_sha256": "3a3e7533e769a0a5d7a285fd6ccac3260002a9c8f6ab423cf8b0c0a9d1acda5e",
+      "source_precision": "bf16",
+      "probe_precision": "CPU FP32",
+      "act2_reached": 0,
+      "act3_reached": 0,
+      "max_floor": 16,
+      "death_encounters": {
+        "Lagavulin": 7,
+        "Sentry/Sentry/Sentry": 17,
+        "Looter": 1,
+        "Acid Slime (S)/Looter": 2,
+        "Spike Slime": 1,
+        "Acid Slime (S)/Acid Slime (S)/Acid Slime (S)": 3,
+        "Spike Slime/Acid Slime (S)/Acid Slime (S)/Spike Slime/Spike Slime": 2,
+        "Spike Slime/Spike Slime/Spike Slime/Slime Boss/Acid Slime (S)": 1,
+        "Gremlin Nob": 5,
+        "Gremlin Warrior/Gremlin Fat/Gremlin Wizard/Gremlin Thief": 2,
+        "Blue Slaver": 3,
+        "Red Slaver": 1,
+        "Guardian": 1,
+        "Jaw Worm/Acid Slime (S)": 1,
+        "Spike Slime/Acid Slime (S)/Spike Slime/Acid Slime (S)/Spike Slime": 1,
+        "Slime Boss": 1,
+        "Gremlin Fat/Gremlin Warrior/Gremlin Thief/Gremlin Fat": 1,
+        "Spike Slime/Spike Slime/Spike Slime/Acid Slime (S)/Acid Slime (S)": 1,
+        "Hexaghost": 4,
+        "Acid Slime (S)/Acid Slime (S)/Spike Slime/Spike Slime/Spike Slime": 2,
+        "Acid Slime (S)/Spike Slime/Spike Slime/Acid Slime (S)/Spike Slime": 1,
+        "Cultist": 2,
+        "Gremlin Fat/Gremlin Tsundere/Gremlin Wizard/Gremlin Fat": 1,
+        "Spike Slime/Looter": 1,
+        "Jaw Worm": 1,
+        "Spike Slime/Spike Slime/Acid Slime (S)/Spike Slime/Acid Slime (S)": 1
+      },
+      "results_sha256": "92552d281cfc98b450b532c29f627fc5fb3b475bf40ce2ec43c97b2fbe38d9c6",
+      "source_sha256": "106f92f526e8f3aec2c16a6615c30585df264f2f159e8b26549119b8c11cc605",
+      "interpretation": "Development integration, not training or endpoint strength evidence; greedy is a different sampling protocol, and Smoke Bomb uses remain restricted."
+    },
+    {
+      "cases": 64,
+      "outcomes": {
+        "death": 64
+      },
+      "accepted": 14559,
+      "seconds": 12.243042633286677,
+      "mean_floor": 14.859375,
+      "controller_counts": {
+        "forced": 2872,
+        "macro": 3221,
+        "combat": 8466
+      },
+      "name": "frozen-sampled-profile-a0",
+      "artifact_directory": "tmp/run-training-research/frozen-sampled-profile-a0",
+      "ascension": 0,
+      "mode": "profile-act4",
+      "macro_style": "exercise",
+      "combat_sampling": "sampled CPU FP32; Smoke Bomb uses filtered as in current train.py",
+      "checkpoint_sha256": "c12949adc98e5223ae3fc5f6a31adba0a900ade2f479f4872f806525d1c0c054",
+      "checkpoint_iteration": 259870,
+      "native_sha256": "9afe068146b523de204a5d259a35c8f3b71b43651ba8694bfe548d25e8dabde6",
+      "source_checkpoint_native_sha256": "3a3e7533e769a0a5d7a285fd6ccac3260002a9c8f6ab423cf8b0c0a9d1acda5e",
+      "source_precision": "bf16",
+      "probe_precision": "CPU FP32",
+      "act2_reached": 7,
+      "act3_reached": 0,
+      "max_floor": 33,
+      "death_encounters": {
+        "Guardian": 11,
+        "Spike Slime/Slime Boss/Acid Slime (S)": 3,
+        "Spike Slime/Acid Slime (S)/Slime Boss/Acid Slime (S)/Acid Slime (S)": 1,
+        "Spike Slime/Looter": 1,
+        "Sentry/Sentry/Sentry": 3,
+        "Gremlin Nob": 2,
+        "Acid Slime (S)/Looter": 2,
+        "Lagavulin": 6,
+        "Looter": 1,
+        "Hexaghost": 12,
+        "Slime Boss": 3,
+        "Green Louse/Red Louse/Green Louse": 2,
+        "Red Slaver": 4,
+        "Gremlin Warrior/Gremlin Thief/Gremlin Thief/Gremlin Fat": 1,
+        "Shelled Parasite/Fungi Beast": 1,
+        "Red Louse/Looter": 1,
+        "Bronze Orb/Bronze Automaton/Bronze Orb": 2,
+        "Jaw Worm/Spike Slime": 1,
+        "Gremlin Fat/Gremlin Thief/Gremlin Wizard/Gremlin Fat": 1,
+        "Cultist/Chosen": 1,
+        "Acid Slime (S)": 1,
+        "Fungi Beast/Fungi Beast/Fungi Beast": 1,
+        "Snake Plant": 1,
+        "Byrd/Chosen": 1,
+        "Sentry/Spheric Guardian": 1
+      },
+      "results_sha256": "c23a20e3f8566a08facf62fb0fcdf0496cc1dd0781ae5457a0824f05ef379b77",
+      "source_sha256": "106f92f526e8f3aec2c16a6615c30585df264f2f159e8b26549119b8c11cc605",
+      "interpretation": "Development integration, not training or endpoint strength evidence; greedy is a different sampling protocol, and Smoke Bomb uses remain restricted."
+    },
+    {
+      "cases": 64,
+      "outcomes": {
+        "death": 64
+      },
+      "accepted": 12439,
+      "seconds": 10.006609689444304,
+      "mean_floor": 12.734375,
+      "controller_counts": {
+        "forced": 2761,
+        "macro": 2310,
+        "combat": 7368
+      },
+      "name": "frozen-sampled-random-a0",
+      "artifact_directory": "tmp/run-training-research/frozen-sampled-random-a0",
+      "ascension": 0,
+      "mode": "natural",
+      "macro_style": "random",
+      "combat_sampling": "sampled CPU FP32; Smoke Bomb uses filtered as in current train.py",
+      "checkpoint_sha256": "c12949adc98e5223ae3fc5f6a31adba0a900ade2f479f4872f806525d1c0c054",
+      "checkpoint_iteration": 259870,
+      "native_sha256": "9afe068146b523de204a5d259a35c8f3b71b43651ba8694bfe548d25e8dabde6",
+      "source_checkpoint_native_sha256": "3a3e7533e769a0a5d7a285fd6ccac3260002a9c8f6ab423cf8b0c0a9d1acda5e",
+      "source_precision": "bf16",
+      "probe_precision": "CPU FP32",
+      "act2_reached": 1,
+      "act3_reached": 0,
+      "max_floor": 25,
+      "death_encounters": {
+        "Gremlin Nob": 3,
+        "Slime Boss": 6,
+        "Gremlin Thief/Gremlin Warrior/Gremlin Warrior/Gremlin Thief": 1,
+        "Guardian": 10,
+        "Acid Slime (S)/Blue Slaver": 1,
+        "Lagavulin": 11,
+        "Spike Slime/Spike Slime/Acid Slime (S)/Spike Slime/Acid Slime (S)": 1,
+        "Acid Slime (S)/Spike Slime/Acid Slime (S)/Spike Slime/Spike Slime": 1,
+        "Acid Slime (S)/Looter": 1,
+        "Sentry/Sentry/Sentry": 12,
+        "Fungi Beast/Spike Slime": 1,
+        "Spike Slime/Slime Boss/Acid Slime (S)": 2,
+        "Hexaghost": 8,
+        "Looter": 1,
+        "Spike Slime/Cultist": 1,
+        "Jaw Worm/Spike Slime": 1,
+        "Acid Slime (S)/Acid Slime (S)/Acid Slime (S)": 1,
+        "Cultist/Cultist/Cultist": 1,
+        "Fungi Beast/Fungi Beast/Fungi Beast": 1
+      },
+      "results_sha256": "ac3402a106b511db3a70b02a6f0a09f01c44339a96ea0907c76c8619955c235d",
+      "source_sha256": "106f92f526e8f3aec2c16a6615c30585df264f2f159e8b26549119b8c11cc605",
+      "interpretation": "Development integration, not training or endpoint strength evidence; greedy is a different sampling protocol, and Smoke Bomb uses remain restricted."
+    }
+  ],
+  "totals": {
+    "interface_cases": 864,
+    "corrected_interface_cases": 704,
+    "corrected_interface_actions": 500224,
+    "frozen_combat_cases": 384,
+    "frozen_combat_actions": 273199
+  },
+  "workstation": {
+    "logical_cpus": 24,
+    "gpu": "NVIDIA GeForce RTX 5080",
+    "gpu_memory_mib": 16303,
+    "resource_policy": "Existing GPU job left untouched; new frozen inference CPU only, no optimizer run."
+  },
+  "source_files_sha256": {
+    "rl/run_training/__init__.py": "ea030be67216fc088950797379205cfb0d0fee49376af240c99fc47ff6b657a3",
+    "rl/run_training/contracts.py": "92ecff4533b6a4233e7b5e0e85e7100bc9e406110e2f5e51373319b82f555bb1",
+    "rl/run_training/probe.py": "099c482b024f4ee348e62048b10c61dfbb3afa7b4ce483bf0caa659d5373d6cc",
+    "rl/run_training/replay.py": "ca42066a55c52ce8db6f82a631692e622d580adc644b3d86aacf1efb30dc607e",
+    "rl/run_training/targets.py": "1be8a039cbeacc5e6f7e94abdd12901db7ecdb9df19e7cf59e25c7245ef15c6d"
+  }
+}

@@ -1,13 +1,13 @@
 use super::{
     apply_copied_card_play_triggers, apply_enrage_on_card_type, apply_hand_card_play_triggers,
     apply_mummified_hand_on_power_play, apply_on_card_play_powers, apply_rage_on_card_type,
-    card_content_definition, find_hand_card, find_hand_card_mut,
+    copied_card_content_definition, find_hand_card, find_hand_card_mut,
 };
 use crate::{
     action::InternalAction,
     combat::{cost::effective_card_cost_with_corruption, CombatState},
     content::cards::get_card_definition,
-    ids::CardId,
+    ids::{CardId, ContentId},
     SimError, SimResult,
 };
 
@@ -68,8 +68,9 @@ pub(super) fn play_card(
 pub(super) fn play_card_copy(
     state: &mut CombatState,
     card_id: CardId,
+    content_id: ContentId,
 ) -> SimResult<Vec<InternalAction>> {
-    let definition = card_content_definition(state, card_id)?;
+    let definition = copied_card_content_definition(state, card_id, content_id)?;
     apply_enrage_on_card_type(state, definition.card_type)?;
     let mut follow_ups = apply_rage_on_card_type(state, definition.card_type, definition.id)?;
     follow_ups.extend(crate::relic::apply_on_card_play_relics(
@@ -153,12 +154,25 @@ pub(super) fn set_hand_card_cost_for_combat(
     Ok(Vec::new())
 }
 
-pub(super) fn reduce_hand_card_cost_for_combat(
+pub(super) fn reduce_card_cost_for_combat(
     state: &mut CombatState,
     card_id: CardId,
     amount: u8,
 ) -> SimResult<Vec<InternalAction>> {
-    let card = find_hand_card_mut(state, card_id)?;
-    crate::combat::cost::reduce_card_cost_for_combat(card, amount)?;
+    // ReduceCostAction(UUID) uses GetAllInBattleInstances, not a hand-only
+    // lookup. A purgeOnUse Streamline copy shares the original's UUID after
+    // the original UseCardAction has moved it into discard (or exhaust).
+    for card in state
+        .piles
+        .hand
+        .iter_mut()
+        .chain(state.piles.draw_pile.iter_mut())
+        .chain(state.piles.discard_pile.iter_mut())
+        .chain(state.piles.exhaust_pile.iter_mut())
+        .chain(state.piles.limbo.iter_mut())
+        .filter(|card| card.id == card_id)
+    {
+        crate::combat::cost::reduce_card_cost_for_combat(card, amount)?;
+    }
     Ok(Vec::new())
 }

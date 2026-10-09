@@ -1,0 +1,36 @@
+{
+  "synthetic": true,
+  "choice_index_schema": 1,
+  "cases": {
+    "reward_full": {
+      "available_commands": ["choose", "proceed"],
+      "game_state": {"screen_type": "COMBAT_REWARD", "choice_list": ["potion", "card"], "selectable_choice_indices": [1]},
+      "commands": ["CHOOSE 1", "PROCEED"]
+    },
+    "reward_open": {
+      "available_commands": ["choose", "proceed"],
+      "game_state": {"screen_type": "COMBAT_REWARD", "choice_list": ["potion", "card"], "selectable_choice_indices": [0, 1]},
+      "commands": ["CHOOSE 0", "CHOOSE 1", "PROCEED"]
+    },
+    "reward_only_full": {
+      "available_commands": ["proceed"],
+      "game_state": {"screen_type": "COMBAT_REWARD", "choice_list": ["potion"], "selectable_choice_indices": []},
+      "commands": ["PROCEED"]
+    },
+    "shop_sozu": {
+      "available_commands": ["choose", "leave"],
+      "game_state": {"screen_type": "SHOP_SCREEN", "choice_list": ["purge", "fire potion"], "selectable_choice_indices": [0]},
+      "commands": ["CHOOSE 0", "LEAVE"]
+    },
+    "shop_full": {
+      "available_commands": ["choose", "leave"],
+      "game_state": {"screen_type": "SHOP_SCREEN", "choice_list": ["purge", "fire potion"], "selectable_choice_indices": [0]},
+      "commands": ["CHOOSE 0", "LEAVE"]
+    },
+    "shop_open": {
+      "available_commands": ["choose", "leave"],
+      "game_state": {"screen_type": "SHOP_SCREEN", "choice_list": ["purge", "fire potion"], "selectable_choice_indices": [0, 1]},
+      "commands": ["CHOOSE 0", "CHOOSE 1", "LEAVE"]
+    }
+  }
+}

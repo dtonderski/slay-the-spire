@@ -1396,6 +1396,7 @@ impl Relic {
             | Relic::RingOfTheSnake
             | Relic::RingOfTheSerpent
             | Relic::FaceOfCleric
+            | Relic::NlothsMask
             | Relic::OddMushroom
             | Relic::NlothsGift => RelicEffectStatus::Unsupported,
             _ => RelicEffectStatus::Partial,
@@ -2000,7 +2001,11 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
                 heal_combat_player_with_relics(combat, BLOOD_VIAL_HEAL)?;
             }
             Relic::Vajra => {
-                checked_add_relic_value(&mut combat.player.powers.strength, VAJRA_STRENGTH)?;
+                checked_add_relic_strength(
+                    &mut combat.player.powers.strength,
+                    combat.player.temp_strength,
+                    VAJRA_STRENGTH,
+                )?;
             }
             Relic::OddlySmoothStone => {
                 checked_add_relic_value(
@@ -2320,9 +2325,10 @@ pub fn apply_player_hp_loss_relics_with_draw_policy(
         && next.relic_counters.centennial_puzzle_triggers == 0
     {
         next.relic_counters.centennial_puzzle_triggers = 1;
-        // CentennialPuzzle.onLoseHp addToBot's DrawCardAction; lethal damage
-        // ends the fight before the bot runs.
-        if next.player.hp > 0 {
+        // CentennialPuzzle.wasHPLost addToTop's DrawCardAction. Queue it
+        // across the damage frame even at zero HP: revival may still happen.
+        // The owning settlement drops it on actual death.
+        if next.player.hp > 0 || draw_policy == HpLossDrawPolicy::DeferDraws {
             match draw_policy {
                 HpLossDrawPolicy::Immediate => {
                     crate::combat::transition::player_draw_cards(
@@ -2460,29 +2466,54 @@ fn sync_red_skull_strength_present(state: &mut CombatState, has_red_skull: bool)
     let should_be_active = state.player.hp <= state.player.max_hp / 2;
     match (should_be_active, state.relic_counters.red_skull_active) {
         (true, false) => {
-            state.player.powers.strength = state
-                .player
-                .powers
-                .strength
-                .checked_add(RED_SKULL_STRENGTH)
-                .ok_or(SimError::InvalidState(
-                    "Red Skull Strength activation overflows i32",
-                ))?;
+            apply_red_skull_strength(
+                state,
+                RED_SKULL_STRENGTH,
+                "Red Skull Strength activation overflows i32",
+            )?;
             state.relic_counters.red_skull_active = true;
         }
         (false, true) => {
-            state.player.powers.strength = state
-                .player
-                .powers
-                .strength
-                .checked_sub(RED_SKULL_STRENGTH)
-                .ok_or(SimError::InvalidState(
+            // RedSkull.onNotBloodied applies negative StrengthPower through
+            // ApplyPowerAction: Artifact blocks that debuff. The relic still
+            // deactivates, so later healing must not retry the removal.
+            if state.player.powers.artifact > 0 {
+                state.player.powers.artifact -= 1;
+            } else {
+                apply_red_skull_strength(
+                    state,
+                    -RED_SKULL_STRENGTH,
                     "Red Skull Strength removal underflows i32",
-                ))?;
+                )?;
+            }
             state.relic_counters.red_skull_active = false;
         }
         _ => {}
     }
+    Ok(())
+}
+
+fn apply_red_skull_strength(
+    state: &mut CombatState,
+    amount: i32,
+    overflow_error: &'static str,
+) -> SimResult<()> {
+    // RedSkull applies +/-3 StrengthPower. StrengthPower.stackPower bounds
+    // the current combined amount; retain the full pending temporary loss.
+    let current = state
+        .player
+        .powers
+        .strength
+        .checked_add(state.player.temp_strength)
+        .ok_or(SimError::InvalidState(overflow_error))?;
+    let bounded = current
+        .checked_add(amount)
+        .ok_or(SimError::InvalidState(overflow_error))?
+        .clamp(-999, 999);
+    let permanent = bounded
+        .checked_sub(state.player.temp_strength)
+        .ok_or(SimError::InvalidState(overflow_error))?;
+    state.player.powers.strength = permanent;
     Ok(())
 }
 
@@ -2588,9 +2619,17 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<V
     }
 
     if state.player.authority.relics.contains(&Relic::Brimstone) {
-        checked_add_relic_value(&mut state.player.powers.strength, BRIMSTONE_PLAYER_STRENGTH)?;
+        checked_add_relic_strength(
+            &mut state.player.powers.strength,
+            state.player.temp_strength,
+            BRIMSTONE_PLAYER_STRENGTH,
+        )?;
         for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
-            checked_add_relic_value(&mut monster.powers.strength, BRIMSTONE_MONSTER_STRENGTH)?;
+            checked_add_relic_strength(
+                &mut monster.powers.strength,
+                0,
+                BRIMSTONE_MONSTER_STRENGTH,
+            )?;
         }
     }
 
@@ -3229,6 +3268,25 @@ fn checked_add_relic_value(value: &mut i32, amount: i32) -> SimResult<()> {
     *value = value.checked_add(amount).ok_or(SimError::InvalidState(
         "combat integer addition overflows i32",
     ))?;
+    Ok(())
+}
+
+pub(crate) fn checked_add_relic_strength(
+    value: &mut i32,
+    temporary: i32,
+    amount: i32,
+) -> SimResult<()> {
+    // Relics apply StrengthPower: bound the combined current amount,
+    // retaining the full pending temporary loss rather than capping its debt.
+    let mut current = *value;
+    checked_add_relic_value(&mut current, temporary)?;
+    checked_add_relic_value(&mut current, amount)?;
+    *value = current
+        .clamp(-999, 999)
+        .checked_sub(temporary)
+        .ok_or(SimError::InvalidState(
+            "combat integer addition overflows i32",
+        ))?;
     Ok(())
 }
 

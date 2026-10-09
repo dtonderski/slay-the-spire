@@ -41,11 +41,6 @@ pub fn can_recall(run: &RunState) -> bool {
 }
 
 pub fn legal_rest_actions(run: &RunState) -> SimResult<Vec<RestAction>> {
-    run.validate()?;
-    legal_rest_actions_after_validation(run)
-}
-
-pub(crate) fn legal_rest_actions_after_validation(run: &RunState) -> SimResult<Vec<RestAction>> {
     if run.phase != RunPhase::Rest {
         return Ok(Vec::new());
     }
@@ -100,8 +95,6 @@ pub(crate) fn legal_rest_actions_after_validation(run: &RunState) -> SimResult<V
 }
 
 pub fn validate_rest_action(run: &RunState, action: RestAction) -> SimResult<()> {
-    run.validate()?;
-
     if run.phase != RunPhase::Rest {
         return Err(SimError::IllegalAction("rest actions require rest phase"));
     }
@@ -259,7 +252,7 @@ pub(crate) fn apply_validated_rest_action(
             next.rest_room_complete = true;
         }
         RestAction::Proceed => {
-            next.map_overlay = Some(crate::MapOverlay { dismissable: true });
+            super::map_overlay::open_completed_room_map(&mut next);
         }
     }
 
@@ -482,12 +475,9 @@ mod tests {
         assert_eq!(claimed.phase, RunPhase::Reward);
         let settled = apply_run_action(&claimed, RunAction::Proceed)
             .expect("completed Shovel reward proceeds to the map");
-        assert_eq!(settled.phase, RunPhase::Reward);
-        assert!(settled
-            .map_overlay
-            .is_some_and(|overlay| overlay.dismissable));
-        assert!(settled.rest_room_complete);
-        assert!(settled.reward.is_some());
+        assert_eq!(settled.phase, RunPhase::Idle);
+        assert!(!settled.rest_room_complete);
+        assert!(settled.reward.is_none());
     }
 
     #[test]

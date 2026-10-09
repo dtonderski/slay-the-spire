@@ -1,6 +1,6 @@
 use super::{
     apply_player_card_block_gain, apply_player_vulnerable_debuff, checked_add_combat_value,
-    juggernaut_follow_up_for_positive_block_gain, living_monster_mut_opt,
+    checked_combat_sum, juggernaut_follow_up_for_positive_block_gain, living_monster_mut_opt,
     sadistic_nature_follow_up_after_monster_debuff,
 };
 use crate::{
@@ -31,6 +31,7 @@ pub(super) fn gain_precomputed_player_card_block(
         return Ok(Vec::new());
     }
     checked_add_combat_value(&mut state.player.block, amount)?;
+    state.player.block = state.player.block.min(999);
     Ok(juggernaut_follow_up_for_positive_block_gain(state, amount))
 }
 
@@ -41,6 +42,24 @@ pub(super) fn gain_player_block_direct(
     // Relic/power callbacks using the direct path (Rage, Abacus, Fan) bypass
     // No Block; ordinary card block uses gain_player_block above.
     checked_add_combat_value(&mut state.player.block, amount)?;
+    state.player.block = state.player.block.min(999);
+    Ok(juggernaut_follow_up_for_positive_block_gain(state, amount))
+}
+
+pub(super) fn gain_player_block_from_potion(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    // GainBlockAction calls addBlock directly, bypassing card Dex/Frail/NoBlock
+    // calculation. onGainedBlock sees the nominal amount even at the 999 cap.
+    let block = state
+        .player
+        .block
+        .checked_add(amount)
+        .ok_or(SimError::InvalidState(
+            "combat potion stat gain overflows i32",
+        ))?;
+    state.player.block = block.min(999);
     Ok(juggernaut_follow_up_for_positive_block_gain(state, amount))
 }
 
@@ -49,6 +68,7 @@ pub(super) fn gain_player_block_from_exhaust(
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
     checked_add_combat_value(&mut state.player.block, amount)?;
+    state.player.block = state.player.block.min(999);
     Ok(juggernaut_follow_up_for_positive_block_gain(state, amount))
 }
 
@@ -89,10 +109,15 @@ pub(super) fn gain_temporary_thorns(
 pub(super) fn double_player_block(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
     // Entrench doubles block; the added half is a block gain for Juggernaut.
     let before = state.player.block;
-    state.player.block = before.checked_mul(2).ok_or(SimError::InvalidState(
-        "combat integer multiplication overflows i32",
-    ))?;
-    let gained = state.player.block - before;
+    state.player.block = before
+        .checked_mul(2)
+        .ok_or(SimError::InvalidState(
+            "combat integer multiplication overflows i32",
+        ))?
+        .min(999);
+    // DoubleYourBlockAction calls addBlock(before): the callback sees the
+    // nominal incoming half, even when the resulting block reaches the cap.
+    let gained = before;
     Ok(juggernaut_follow_up_for_positive_block_gain(state, gained))
 }
 
@@ -169,9 +194,14 @@ pub(super) fn reduce_strength_this_turn(
     if let Some(monster) = living_monster_mut_opt(state, target) {
         applied = reduce_monster_strength(&mut monster.powers, amount)?;
         if applied {
-            checked_add_combat_value(&mut monster.temp_strength_down, amount)?;
+            // GainStrengthPower (Shackled) bounds its own stack, unlike the
+            // player's uncapped LoseStrengthPower nominal-expiry bookkeeping.
+            monster.temp_strength_down =
+                checked_combat_sum(monster.temp_strength_down, amount)?.min(999);
         }
     }
+    // SadisticPower.onApplyPower explicitly excludes the DEBUFF ID Shackled;
+    // only the incoming negative Strength schedules Sadistic Nature damage.
     Ok(
         sadistic_nature_follow_up_after_monster_debuff(state, target, applied)
             .into_iter()

@@ -1,7 +1,9 @@
-import torch
+import numpy as np
 from jaxtyping import Float
-from sts_sim import CombatObservation, PowerKey
+from sts_sim import PowerKey
 from torch import Tensor, nn
+
+from .numeric import FeatureArrays, NumericBatch
 
 # Current-catalog indices only. Checkpoint compatibility is not implemented yet.
 POWER_TO_INDEX = {key: index for index, key in enumerate(PowerKey)}
@@ -14,35 +16,24 @@ ENERGY_SCALE = 10.0
 GOLD_SCALE = 1000.0
 
 
-def tensorize_player(
-    observation: CombatObservation,
-    *,
-    device: torch.device | str | None = None,
-) -> Float[Tensor, " player_features"]:
-    """Return scaled [hp, max_hp, block, energy, max_energy, gold], then raw powers."""
-    player = observation.screen.player
-    stats = [
-        player.hp / HP_SCALE,
-        player.max_hp / HP_SCALE,
-        player.block / BLOCK_SCALE,
-        player.energy / ENERGY_SCALE,
-        player.max_energy / ENERGY_SCALE,
-        observation.context.gold / GOLD_SCALE,
-    ]
-    powers = [0] * len(POWER_TO_INDEX)
-    for power in player.powers:
-        powers[POWER_TO_INDEX[power.key]] = power.amount
-    return torch.tensor(stats + powers, dtype=torch.float32, device=device)
-
-
 class PlayerEncoder(nn.Module):
     def __init__(self, d_model: int = 64) -> None:
         super().__init__()
         self.projection = nn.Linear(PLAYER_FEATURE_DIM, d_model)
 
-    def forward(
-        self, observation: CombatObservation
-    ) -> tuple[Float[Tensor, " player_features"], Float[Tensor, "1 d_model"]]:
-        """Return player features and one projected token."""
-        features = tensorize_player(observation, device=self.projection.weight.device).to(self.projection.weight)
-        return features, self.projection(features).unsqueeze(0)
+    @staticmethod
+    def prepare(batch: NumericBatch) -> FeatureArrays:
+        """Scale public stats and powers without running learned modules."""
+        stats = batch.table("player", 6) / np.array(
+            [HP_SCALE, HP_SCALE, BLOCK_SCALE, ENERGY_SCALE, ENERGY_SCALE, GOLD_SCALE]
+        )
+        powers = batch.powers("player_powers", batch.size, POWER_TO_INDEX)
+        # Preserve the typed reference's float32 rounding for double models too.
+        values = np.concatenate((stats, powers), axis=1).astype(np.float32)
+        return FeatureArrays({}, {"state": values}, {"player": [1] * batch.size})
+
+    def encode(
+        self, inputs: dict[str, Tensor], lengths: dict[str, list[int]]
+    ) -> tuple[Float[Tensor, "batch player_features"], Float[Tensor, "batch d_model"], list[int]]:
+        features = inputs["state"]
+        return features, self.projection(features), lengths["player"]

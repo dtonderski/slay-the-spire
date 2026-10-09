@@ -1,14 +1,18 @@
 # Research Tree
 
+Research proposals, not an implementation status report or committed work queue.
+The [RL README](../../rl/README.md) describes the current trainer. Paper details
+live in the [tree-search review](combat_tree_search.md).
+
 ## Root Question
 
 How should a fair Slay the Spire combat agent plan when it only sees public
 combat information, while the simulator contains hidden draw order, RNG streams,
 monster private state, and future random choices?
 
-## Immediate Trunk: Exact Simulator + Belief Search
+## Candidate Trunk: Exact Simulator + Belief Search
 
-Goal: build a practical combat planner now.
+Proposed experiment: a practical fair combat planner.
 
 Read before implementing:
 
@@ -24,10 +28,12 @@ Implementation direction:
 - Rebuild or partially reuse the tree at observation boundaries.
 - Start with heuristic rollouts or a simple value function.
 
-Decision:
+Research recommendation:
 
-- This is enough to start implementation.
-- Do not wait for latent-model papers before building the first planner.
+- If pursuing fair search, start with this bounded experiment rather than
+  waiting for latent-model papers. It is separate from the current trainer.
+- Belief updates operate on independently sampled hypotheses, never by repairing
+  authoritative simulator replay from an observed game state.
 
 ## Branch A: Better POMDP / Particle Planning
 
@@ -100,9 +106,10 @@ Use this branch continuously. It governs all other branches.
 
 Core project docs:
 
-- `docs/fair_combat_api_design.md`
-- `docs/combat_rl_architecture.md`
-- `docs/project_history.md`
+- [Fair API contract](../../simulator/docs/fair_api.md)
+- [Boundary audit](../../simulator/docs/fair_observation_hidden_state_audit.md)
+- [Current training architecture](../../rl/README.md)
+- [Major decisions and rejected approaches](../project_history.md)
 
 Project questions:
 
@@ -130,9 +137,10 @@ Project questions:
   metadata?
 - Which combats require belief tracking versus simple visible heuristics?
 
-## Suggested Next Step
+## Smallest Fair-Search Experiment
 
-Implement a tiny combat POMCP skeleton before reading deeper:
+If this research branch is selected, a tiny combat POMCP skeleton would test the
+idea before deeper reading:
 
 1. Fixed combat fixture.
 2. Particle type wrapping exact simulator state.

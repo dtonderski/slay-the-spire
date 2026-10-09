@@ -60,7 +60,11 @@ def _card() -> dict[str, object]:
 def _context() -> dict[str, object]:
     return {
         "ascension": 0,
+        "outcome": "ongoing",
         "act": 1,
+        "act_boss": "Hexaghost",
+        "final_act_available": False,
+        "keys": {"ruby": False, "emerald": False, "sapphire": False},
         "floor": 1,
         "gold": 99,
         "player_hp": 80,
@@ -180,6 +184,140 @@ class TypedObservationRuntimeTest(unittest.TestCase):
             self.assertTrue(observation.screen.nodes)
             self.assertGreaterEqual(observation.screen.current_node, 0)
 
+    def test_public_keys_and_boss_are_strict_typed_context(self) -> None:
+        observation = State.new("HUMAN1").observation()
+        self.assertIsInstance(observation.context.keys, sts_sim.RunKeys)
+        self.assertIn(observation.context.act_boss, get_args(sts_sim.BossEncounter))
+        self.assertFalse(observation.context.final_act_available)
+        self.assertEqual(
+            observation.context.keys, sts_sim.RunKeys(ruby=False, emerald=False, sapphire=False)
+        )
+        self.assertFalse(hasattr(observation.context, "act2_boss"))
+        self.assertFalse(hasattr(observation.context, "act3_boss"))
+        for field, bad_value in (
+            ("keys", {"ruby": 1, "emerald": False, "sapphire": False}),
+            ("keys", {"ruby": False, "emerald": False, "sapphire": False, "seed": 1}),
+            ("keys", {"ruby": False, "emerald": False}),
+            ("act_boss", "future_hidden_encounter"),
+            ("final_act_available", 1),
+        ):
+            mapping = _observation("idle", None)
+            context = _context()
+            context[field] = bad_value
+            mapping["context"] = context
+            with (
+                self.subTest(field=field, bad_value=bad_value),
+                self.assertRaises((ValueError, TypeError)),
+            ):
+                decode_observation(mapping)
+        mapping = _observation("idle", None)
+        context = _context()
+        context["act_boss"] = None
+        mapping["context"] = context
+        self.assertIsNone(decode_observation(mapping).context.act_boss)
+
+    def test_run_outcome_has_closed_values_not_hp_or_screen_heuristics(self) -> None:
+        self.assertEqual(State.new("HUMAN1").observation().context.outcome, "ongoing")
+        self.assertEqual(
+            get_args(sts_sim.RunOutcome),
+            ("ongoing", "death", "act3_clear", "heart_clear", "unknown_complete"),
+        )
+        for outcome in get_args(sts_sim.RunOutcome):
+            mapping = _observation("complete", None, phase="complete")
+            context = _context()
+            context["outcome"] = outcome
+            mapping["context"] = context
+            self.assertEqual(decode_observation(mapping).context.outcome, outcome)
+        for outcome in ("timeout", "simulator_error", "won", 1, None):
+            mapping = _observation("complete", None, phase="complete")
+            context = _context()
+            context["outcome"] = outcome
+            mapping["context"] = context
+            with self.subTest(outcome=outcome), self.assertRaises((ValueError, TypeError)):
+                decode_observation(mapping)
+        mapping = _observation("idle", None)
+        context = _context()
+        del context["outcome"]
+        mapping["context"] = context
+        with self.assertRaisesRegex(ValueError, "outcome"):
+            decode_observation(mapping)
+
+    def test_shop_card_metadata_and_indexed_reward_types_are_strict(self) -> None:
+        mapping = _observation(
+            "shop",
+            {
+                "merchant_open": True,
+                "remove_cost": 75,
+                "cards": (
+                    {
+                        "slot": 0,
+                        "content_key": "Strike_R",
+                        "card": {
+                            **_card(),
+                            "upgrade_level": 1,
+                            "cost": 0,
+                            "cost_is_modified": True,
+                        },
+                        "price": 50,
+                        "sold": False,
+                    },
+                ),
+                "relics": (),
+                "potions": (),
+            },
+        )
+        observation = decode_observation(mapping)
+        self.assertIsInstance(observation, ShopObservation)
+        if observation.kind == "shop":
+            offer = observation.screen.cards[0]
+            self.assertIsInstance(offer, sts_sim.ShopCardOffer)
+            self.assertIsInstance(offer, sts_sim.ShopOffer)
+            self.assertEqual(offer.card.upgrade_level, 1)
+            self.assertEqual(offer.card.cost, 0)
+            self.assertEqual(offer.card.content_key, offer.content_key)
+        inconsistent = _observation(
+            "shop",
+            {
+                "merchant_open": True,
+                "remove_cost": 75,
+                "cards": (
+                    {"slot": 0, "content_key": "Bash", "card": _card(), "price": 50, "sold": False},
+                ),
+                "relics": (),
+                "potions": (),
+            },
+        )
+        with self.assertRaisesRegex(ValueError, "inconsistent shop card identity"):
+            decode_observation(inconsistent)
+        reward = decode_observation(
+            _observation(
+                "reward",
+                {
+                    "cards": (),
+                    "queued_card_rewards": (),
+                    "gold_offer": 0,
+                    "stolen_gold_offer": 0,
+                    "potion_offer": None,
+                    "potion_offers": (),
+                    "relic_offer": "Anchor",
+                    "relic_offers": (
+                        {"slot": 0, "content_key": "Anchor"},
+                        {"slot": 1, "content_key": "Vajra"},
+                    ),
+                    "sapphire_key_relic_slot": 1,
+                    "emerald_key_offer": True,
+                    "boss_relic_choices": (),
+                    "card_reward_flow": "none",
+                },
+            )
+        )
+        if reward.kind != "reward":
+            self.fail("expected reward")
+        self.assertIsInstance(reward.screen.relic_offers[1], sts_sim.RelicOffer)
+        self.assertIs(reward.screen.relic_offers[1].content_key, RelicKey.VAJRA)
+        self.assertEqual(reward.screen.sapphire_key_relic_slot, 1)
+        self.assertTrue(reward.screen.emerald_key_offer)
+
     def test_live_combat_nested_types(self) -> None:
         state = State.new("HUMAN1")
         observation = state.observation()
@@ -237,7 +375,15 @@ class TypedObservationRuntimeTest(unittest.TestCase):
                     "floor": 1,
                     "current_node": 0,
                     "reachable_nodes": (1,),
-                    "nodes": ({"slot": 0, "act": 1, "room_kind": "combat", "children": (1,)},),
+                    "nodes": (
+                        {
+                            "slot": 0,
+                            "act": 1,
+                            "room_kind": "combat",
+                            "burning_elite": False,
+                            "children": (1,),
+                        },
+                    ),
                 },
             )
         )
@@ -268,6 +414,9 @@ class TypedObservationRuntimeTest(unittest.TestCase):
                     "potion_offer": None,
                     "potion_offers": (),
                     "relic_offer": None,
+                    "relic_offers": (),
+                    "sapphire_key_relic_slot": None,
+                    "emerald_key_offer": False,
                     "boss_relic_choices": (),
                     "card_reward_flow": "active",
                 },
@@ -309,7 +458,15 @@ class TypedObservationRuntimeTest(unittest.TestCase):
                 {
                     "merchant_open": True,
                     "remove_cost": 75,
-                    "cards": ({"slot": 0, "content_key": "Bash", "price": 50, "sold": False},),
+                    "cards": (
+                        {
+                            "slot": 0,
+                            "content_key": "Bash",
+                            "card": {**_card(), "content_key": "Bash", "cost": 2},
+                            "price": 50,
+                            "sold": False,
+                        },
+                    ),
                     "relics": (),
                     "potions": (),
                 },

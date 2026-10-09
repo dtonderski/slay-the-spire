@@ -1,209 +1,216 @@
-# Reinforcement Learning
+# Training
 
-This area contains RL-facing design documentation and surviving experimental
-notebooks. Its dependency on the simulator is deliberately one-way:
+One training entry point: **`train.py --task combat|run`**. Combat remains the
+default, using public numeric observation batches and the existing training loop.
+Run-level A0 training has a separate collector, macro model and trainer under
+[`run_training/`](run_training/README.md); it is not forced into the combat loop.
+The combat policy/encoder is unchanged and frozen during run training.
+
+## Read the code in this order
+
+1. `model.py`: encode the observation and each legal action, then dot-product score them.
+2. `train.py::play_combats`: clone roots, sample actions, step the simulator, collect decisions.
+   Legal actions are integer rows. A sampled choice is an index into that state's current
+   public legal list, paired with the exported revision. Smoke Bomb uses are omitted from
+   the policy list and remain legal in the simulator.
+   Card, monster, relic, potion, power, and counter columns are content vocabulary v1 ids, not batch-local symbol positions.
+3. `trajectories.py::Trajectories.losses`: policy loss and entropy regularization.
+4. `train.py::train_batch`: collect → loss → backward → optimizer step.
+5. `train.py::combat_main`: fresh batches, evaluation, logging, checkpoints.
+
+The above describes combat training. `train.py::main` dispatches the task;
+`run_training/trainer.py` owns the separate run-learning loop.
+
+## Model
 
 ```text
-rl -> simulator
+public observation tables → feature encoders → tokens → transformer summary
+                                                        ↓
+                                                policy query [B, 64]
+legal action features → action vectors [B, A, 64]         ↓
+                            └────────────────── dot products → logits [B, A]
 ```
 
-Code under `simulator/` must never import or depend on `rl/`. RL work should use
-only the simulator's public fair observations and decision-local actions; it
-must not consume privileged serialized state as a policy observation.
+Padding actions get `-inf` logits. `action_dim` is an embedding width, not an action
+count. `CombatValueModel` adds policy and scalar value heads to the shared state representation. `observation_encoder.py` builds tokens;
+`encoders/` contains only the numeric feature path. Old policy-only checkpoints are not directly interchangeable with policy/value checkpoints.
 
-## Layout
+Policies receive public observations only—not constructor seeds, hidden draw
+order, simulator debug state, or search results. Some public information is not
+yet encoded; see the [boundary audit](../simulator/docs/fair_observation_hidden_state_audit.md).
+The [fair API contract](../simulator/docs/fair_api.md) belongs to the simulator;
+[research proposals](../docs/literature_review/README.md) are separate from this
+implemented training path. See the [knowledge index](../docs/README.md) for other
+canonical documentation.
 
-- `model.py`: single-decision policy composition.
-- `observation_encoder.py`: input-slice assembly, transformer, and summary-token query.
-- `encoders/`: one file per input type, containing its tensorizer and encoder:
-  - `cards.py`, `enemies.py`, `player.py`, `potions.py`, `relics.py`: raw features and token projections.
-  - `selection.py`: selection context and card/selected-bit tokens.
-  - `actions.py`: feature gathering, action-specific MLPs, and learned no-object vectors.
+## Run-level A0 training
 
-- `examples/fair_simulator.py`: runnable fair API walkthrough; start with
-  [`examples/README.md`](examples/README.md).
+See [`run_training/README.md`](run_training/README.md) for `--task run`, pilot
+commands, checkpoint continuation and explicit environment limitations. The first
+trainer uses natural-HP A0 runs, frozen sampled combat, a small public-only macro
+candidate scorer and a fresh value head, with undiscounted completed-episode
+Monte Carlo targets. It fails closed on simulator errors and training cutoffs by
+default. Explicit bounded experiments may use `--max-hours 8 --compress-journals
+--continue-on-collection-failure` to quarantine entire incomplete batches, with
+coverage accounting and a repeated-failure stop guard. This remains experimental:
+known simulator gaps can bias training toward supported paths. Start with a
+`--collect-only` pilot and see the run-training README before an overnight launch.
 
-- `docs/fair_combat_api_design.md`: fair observation and choice boundary.
-- `docs/fair_observation_hidden_state_audit.md`: hidden-state exposure audit.
-- `notebooks/combat_rl_playground.ipynb`: surviving RL experiment notebook.
+The original investigation and measured findings are preserved in
+[`docs/run_level_training.md`](docs/run_level_training.md). Its design includes
+later numeric macro batching and stronger models not implemented by this baseline.
 
-The notebook is retained as in-progress research material. Its current imports
-refer to RL Python modules and optional notebook dependencies that are not in
-the present `sts_sim` package, so it is not runnable from the base simulator
-environment. Do not restore those deleted components implicitly.
+## Run
 
-Build and validate the simulator first using
-[`../simulator/README.md`](../simulator/README.md). The fair Rust boundary lives
-in `simulator/crates/sts_env`, and Python policy code installs
-`simulator/python` as its upstream package. RL dependencies must never flow back
-into the simulator workspace.
+Simulator-only combat explorer: [`combat_explorer/README.md`](combat_explorer/README.md).
 
-## Relic and potion identity embeddings
-
-Run Python from `rl/` with `uv run`. Each identity-bearing encoder creates its
-own embedding table and projection. Create each encoder once, not per call:
-
-```python
-from encoders.relics import RelicEncoder
-from encoders.potions import PotionEncoder
-
-relic_encoder = RelicEncoder()
-potion_encoder = PotionEncoder()
-
-# Given an observation; each returns raw features and transformer tokens:
-relic_features, relic_tokens = relic_encoder(observation.context.relics)
-potion_features, potion_tokens = potion_encoder(observation.context.potion_slots)
-```
-
-The tensorizer functions remain beside the classes as implementation helpers.
-
-Outputs preserve input order. Empty potion slots have their own index (`0`),
-and empty inputs return zero rows. Each relic vector concatenates three raw,
-alphabetically key-sorted counter slots after its identity embedding; unused slots are
-zero. Mappings use the current catalog; checkpoint compatibility is not implemented.
-
-`tensorize_player(observation)` returns a float32 vector ordered as
-`[hp, max_hp, block, energy, max_energy, gold, power amounts...]`.
-HP/max HP/block are divided by 100, energy/max energy by 10, and gold by 1000,
-without clipping. Power amounts remain raw and use `POWER_TO_INDEX`, with zero
-for absent powers. Pass `device=...` when needed to match your model's device.
-
-`tensorize_cards(cards, embedding)` appends 11 raw state values to each card
-embedding (27 features with the default 16-dimensional table). Column order is
-listed in its docstring. One `CardEncoder` owns the embedding and projection
-shared across all piles and selection cards. For the hand, pass `tuple(entry.card for entry in observation.screen.hand)`;
-for a pile, pass its `.cards`. Draw `known_positions` remain separate information.
-An optional underlying combat cost has a presence bit; the other dynamic bonuses
-default to zero. Bottled status is omitted for this combat v0.
-
-`tensorize_enemies(monsters, enemy_embedding, card_embedding)` takes that same
-shared card embedding for Stasis-held cards. Absent held cards have zero features
-and a separate presence flag. The full column order is in its docstring;
-slime size distinguishes none/small/medium/large, and stolen gold is divided by
-1000. Dead/escaped entries stay in input slot order.
-
-`tensorize_actions` returns a tuple of `(action_kind, raw_features)` pairs in
-legal-candidate order. Feature vectors have different widths by kind: play/use
-concatenate the referenced object, enemy target (zeros if absent), and target
-presence; discard uses potion features; selection toggle/choose uses option
-features. End-turn, confirm, confirm-without-retrieval, and skip have empty
-vectors, distinguished by their kind. Unsupported kinds raise.
-
-There are no action layers in the tensorizer. It only gathers/concatenates
-existing features, preserving gradients to shared embeddings. `ActionEncoder`
-in `encoders/actions.py` maps those inputs to `[n_actions, action_dim]` (default 64).
-It accepts raw candidates and the observation encoder's reusable feature rows:
-`action_vectors = self.action_encoder(actions, features)`. Each feature-bearing kind
-has its own `Linear → ReLU → Linear` MLP; no-object kinds have separate one-entry
-embeddings. Feature widths are fixed by the tensorizers.
-The encoder preserves candidate order and returns `[0, action_dim]` for no actions.
-
-```python
-from encoders.actions import tensorize_actions
-from encoders.selection import tensorize_selection
-
-selection_context, selection_features = tensorize_selection(
-    observation.screen.selection, self.card_embedding
-)
-action_inputs = tensorize_actions(
-    decision.actions, hand_features, potion_features, enemy_features,
-    selection_features=selection_features,
-)
-```
-
-Selection context is a one-hot kind vector (including no selection). Option rows
-are shared card features plus an already-selected bit, in visible option order,
-not hand/pile order. No selection returns an empty option matrix. The selection
-slice feeds both context and option tokens to the observation transformer.
-
-## Observation encoder
-
-`ObservationEncoder` projects each group to `d_model` (default 64), adds learned
-group/location embeddings, and applies a two-layer, four-head transformer.
-Its learned summary token is projected to `[action_dim]` (default 64).
-There is no positional encoding or dropout in this initial version.
-
-It accepts just a raw `CombatObservation`. Slices
-in `encoders/` handle player, cards, enemies, relics, potions, and selection.
-Each slice tensorizes its raw objects and projects features into tokens. One
-card projection is reused for every pile and selection cards; selection adds a
-selected-bit projection. Location embeddings distinguish hand/draw/discard/etc.
-
-The card, enemy, potion, and relic encoders each own one identity table. Stasis
-and selection receive the shared `CardEncoder` when called, without registering
-a duplicate instance. The observation encoder returns its query
-and raw hand/enemy/potion/selection rows. Actions reuse those rows **before**
-observation projection, so no card/potion/enemy tensorization is repeated for
-action scoring. No extra shared MLP is added.
-
-```python
-from model import CombatModel
-
-model = CombatModel()  # Create once; default d_model=64 and action_dim=64.
-# Given a current combat decision from State.decision():
-logits = model(decision.observation, decision.actions)  # [n_actions]
-probabilities = logits.softmax(dim=0)
-```
-
-The model computes observation features once, encodes the supplied candidates,
-and returns `action_vectors @ query` in candidate order. Pass actions from the
-same decision; noncombat kinds remain unsupported.
-
-This version handles one observation at a time, with no batching or padding
-masks. Empty groups may have zero tokens. Keep dead enemies and empty potion
-slots; the summary token is always present.
-
-This consumes the existing tensorized features, not every public observation
-field. Known draw positions and other not-yet-tensorized context are not added
-implicitly. This is not yet a complete encoding of every gameplay-relevant field.
-
-## Training v1 and local W&B
-
-`train.py` runs REINFORCE on the first combat of one fixed seed. CPU is the
-default; `--device cuda` moves the model and tensor construction to the GPU.
-The simulator and observation decoding remain on CPU. The current unbatched
-loop benchmarked slower on the RTX 5080 than on CPU. Each episode
-resets to that initial combat; reward is terminal HP divided by starting max HP,
-with defeat worth zero. This is plain REINFORCE without a baseline; win rate is
-logged independently of reward.
-Decision-limit truncations are logged separately and excluded from updates.
-Metrics compare random, initial, and final stochastic policies on that same
-combat; this is a wiring/overfitting experiment, not a generalization result.
-
-The local W&B container is `sts-wandb-local`, bound only to `127.0.0.1:8080`.
-Its data lives in the Docker volume `sts-wandb-data` mounted at `/vol`, and it
-restarts automatically unless explicitly stopped. To manage it:
+From `rl/`, with the local fitted distributions and frozen validation file available:
 
 ```bash
-docker stop sts-wandb-local
-docker start sts-wandb-local
-docker logs --tail 50 sts-wandb-local
+uv run python train.py --run-id my-run \
+  --distributions ../data/slaythedata/loadout-a0-v3/fit.json \
+  --validation-manifest ../data/slaythedata/validation-a0-v2.json \
+  --device cuda --batch-size 256 --updates 10000 --eval-every 100 \
+  --value-coef 0.1 \
+  --continue-on-simulator-error
 ```
 
-Tailscale Serve proxies **https://sorry.tail76d105.ts.net/** (tailnet only) to
-`http://127.0.0.1:8080`. The container advertises
-`HOST=https://sorry.tail76d105.ts.net`. Check the proxy with `tailscale serve status`;
-disable it with `tailscale serve --https=443 off`.
+Every update samples fresh independent A0 roots. Reward is terminal HP divided by
+starting max HP; defeat gives zero. Truncations are excluded from training losses,
+not treated as defeats. The objective averages summed decision losses over completed
+episodes, with entropy coefficient `--entropy-coef` (default 0.01).
 
-Open that HTTPS URL from a Tailscale-connected device, complete the local account
-setup, and enter your W&B Server license at `/system-admin` if prompted.
-Then authenticate on the training server using an API key
-from **this local instance**, not W&B Cloud (do not put keys in source control):
+A spawned worker process samples the next batch while the current update runs.
+It starts from the training RNG's state and hands back the advanced state, so roots
+and checkpointed RNG states are exactly those of serial sampling; a prefetched batch
+that is never used is never consumed. Native states are rebuilt from each
+`spec_json` in the training process. `train/sampling_seconds` is the wait for the
+worker plus that rebuild.
+
+The policy advantage is final return minus the current state's value prediction.
+The policy loss detaches this advantage; squared value error trains the value head.
+`--value-coef` weights that error (default 0.1). Both objectives sum decisions within
+fights and average over completed fights. There is no scalar/EMA reward baseline.
+`--model-width 64 --model-layers 2` selects the default architecture. Width sets both
+transformer and action embeddings and must be divisible by four attention heads.
+Architecture changes require fresh compatible weights; strict resumes check these settings.
+
+`--precision bf16 --device cuda` enables mixed BF16 inside the transformer only, including
+rollout, recomputation and evaluation. Parameters, gradients, Adam state, input encoders,
+heads and losses remain FP32; no gradient scaler is used. The default is `--precision fp32`.
+Precision is recorded in checkpoints and checked on strict resume (legacy checkpoints mean
+FP32). Use a weights-only warm-start to change precision or native/validation versions.
+Mixed precision changes numerical results; faster throughput does not establish equal learning.
+
+Inside one forward, the transformer runs on rows sorted by token count and split into
+groups of similar width (at least 256 rows each), so short observations are not padded
+to the widest one. Padding keys are masked, so this is the same computation, but it is
+not bit-identical to one padded call. Forwards of fewer than 512 rows, including
+evaluation at `--eval-batch-size 64`, are a single call exactly as before.
+
+`--grad-chunk-decisions 0` (the default) retains the rollout graph until one
+backward. A positive value rolls out under `inference_mode`, stores the public numeric
+inputs and chosen actions, then recomputes that same objective. An outer disabled
+autocast scope ends before recomputation; encoders and heads remain FP32. Inference
+mode can disable weight-cast caching, so combining these changes does not establish
+an additional cache speedup. The count is a
+flush threshold, not a hard maximum: a round is never split, so one large round
+can exceed it. Rounds in a flush are grouped by similar token width and action
+count and stacked into fewer forwards. Every group is divided by the completed-fight
+count, gradients accumulate, and there is still one optimizer step. Padding, host
+repacking, and backward scheduling still matter; stacking is not automatically faster.
+Random/beam evaluation references are not learning baselines.
+
+## Fixed evaluation and references
+
+`validation_set.py` creates immutable synthetic specifications with HP installed
+**before** combat-start effects. Training evaluates only the 1,024 main cases
+(10–100% pre-entry HP). The existing file also contains 352 deliberately low-HP
+stress cases; these are preserved but no longer evaluated by `train.py`.
+All frozen seeds remain excluded from training, including the unused stress cases.
+Max HP/loadouts are drawn from historical fitted marginals, not reconstructed runs.
+Healing at combat start may raise HP above the pre-entry band.
+
+Files pin the native binary hash and initial public-observation hashes. Mismatches
+fail instead of repairing state. They also pin policy sampling seeds/repeats and
+decision limits. Creation refuses to overwrite existing files. Data is Git-ignored;
+back it up separately. Historical datasets/logs/checkpoints are not deleted by cleanup.
+`python validation_set.py --revalidate OLD.json --reason "..." --output NEW.json`
+re-pins the same cases to the current build. Use it **only for native changes that do not
+affect gameplay** (performance, allocator, transport), and only when the PR supplies that
+evidence: identical numeric payload hashes over rollouts and a passing trace corpus. The
+tool itself checks only each case's initial public observation and act, and refuses on any
+mismatch; a change that alters gameplay after the first decision would still pass it. A
+re-pinned file has a new SHA-256, so references must be recomputed, and a run continues
+with `--warm-start` rather than `--resume-from`.
+
+Main-set outcomes are logged under `val_main/`. `--eval-batch-size 1` is the
+historical single-row protocol. A larger batch keeps the same per-fight seed
+(`90000 + index * repeats + repeat`) but the batched forward is not bit-identical
+to a single-row forward, so those policy scores are `batched_forward_per_episode_rng_v1`
+and are not a continuation of older `val_main` curves. Sampling uses only that
+fight's legal logits, so another fight's padding does not change its draw.
+Batched policy evaluation draws from an explicit per-fight generator instead of
+swapping the process-global RNG. The generator draws from ``Categorical`` probabilities, not a raw softmax, so the
+draw sequence matches the previous global sampler for the same seed on CPU and CUDA.
+The protocol name is unchanged.
+A failed batched step marks the whole chunk unavailable and is not replaced
+by a serial rollout. Model-free random evaluation
+stays identical at every batch size. Decision statistics are collected
+only for training, in `Trajectories`, rather than duplicated in each episode.
+Random and **privileged** beam references for the main set are saved in
+`baselines.json` and logged throughout training. Beam defaults to width 64
+and 10,000 transitions per root; it is budget-limited, not an optimal upper bound.
+`--reference-run wandb/PRIOR_RUN` reuses references only when input hashes and
+relevant evaluation budgets match.
+
+Checkpoints (`wandb/RUN_ID/latest.pt`) contain policy/value model, optimizer, and
+RNG states. `--resume-from PATH` restores model, optimizer, and RNG into a new run
+directory, checking native/data hashes and training settings. Iterations restart at
+zero within that new phase; the source iteration/hash is recorded. Changing batch
+size is permitted and recorded, but is not an identical continuation experiment.
+`--warm-start PATH` loads only model weights and starts a fresh optimizer/RNG;
+this is the explicit option for transferring learned weights across a native change.
+Only load trusted local checkpoints. Use `--wandb-mode disabled` for local smoke
+tests; no training starts merely by importing modules.
+
+The active validation artifact is `validation-a0-v2.json`, revalidated after PR #46.
+All 1,376 specifications, initial public-observation hashes, and evaluation settings
+are identical to v1; only the native pin and revalidation provenance changed.
+Do not reuse pre-PR46 random/beam caches: their native and dataset hashes differ.
+They must be recomputed on the new simulator.
+
+The default training batch is **512 fights per optimizer update** (`--batch-size 512`).
+Precision and recomputation remain explicit choices; the batch-size default does not enable BF16.
+
+`--eval-interval-seconds 300` evaluates after at least five minutes since the previous
+validation/checkpoint finished, at the next update boundary. It overrides `--eval-every`
+so batch-size comparisons need not spend different fractions of time evaluating.
+Initial and final evaluations still run; without this option the update-count cadence is unchanged.
+
+`--max-hours 8` bounds the training/validation loop by wall time; a current batch
+and final validation can extend slightly beyond the limit. Initial validation is
+outside that budget. Periodic checkpoints are retained as `checkpoint-NNNNNNNN.pt`
+in addition to the atomically replaced `latest.pt`.
+
+## Errors and diagnostics
+
+Training simulator failures propagate to a single diagnostic handler. With
+`--continue-on-simulator-error`, it saves specs/attempted prefixes and discards the
+whole batch without an optimizer step. Partially advanced clones are never retried.
+Validation errors are recorded as unavailable attempts with coverage counts, not
+losses. Unexpected infrastructure/model errors still abort.
+
+`beam_search.py` is used only for the privileged evaluation reference.
+
+## Checks
 
 ```bash
-cd rl
-uv run wandb login --host http://localhost:8080 --relogin
-uv run python train.py --updates 100
+uv run --no-sync python -m unittest discover -s tests -q
+uv run --no-sync ty check model.py observation_encoder.py encoders train.py \
+  trajectories.py validation_set.py
 ```
 
-The trainer explicitly defaults `--wandb-base-url` to `http://localhost:8080`.
-Its `online` mode means sending metrics to that server, not necessarily the cloud.
-Use `--wandb-mode offline` to save logs locally without any server connection.
-W&B client logs are under `rl/wandb/` and ignored by Git. Initial server setup
-and authenticated run ingestion must be completed before online training.
-
-Installed server image (pinned digest):
-`wandb/local@sha256:2fe35cad6d731eb6be1f63c45ee9f34962414e9b67ab39837cd59e26bb550db9`.
-Container recreation must retain `-e HOST=https://sorry.tail76d105.ts.net`, the
-localhost-only port binding, and the existing data volume; do not
-remove `sts-wandb-data` unless you intend to delete all server data.
+Tests cover the supported numeric path, loss/gradient behavior, error handling,
+frozen inputs and reference logging. Unit/synthetic tests do not establish real-game
+parity; simulator changes require the repository's reviewed trace-corpus checks.

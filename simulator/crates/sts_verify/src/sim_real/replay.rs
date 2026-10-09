@@ -65,29 +65,10 @@ fn compare_direct_run(
         );
         return Ok(());
     }
-    if run.phase == RunPhase::Complete && post.message.get("game_state").is_none() {
-        compare_subset(
-            report,
-            action,
-            json!({ "run_over": true }),
-            json!({ "run_over": true }),
-        );
-        return Ok(());
-    }
-    let (mut observed, mut simulated) = if run.calling_bell_ftue {
-        (
-            seed_start_treasure_observed_subset(&post.message),
-            seed_start_treasure_simulated_subset(run),
-        )
-    } else if run.card_grid.is_some() {
+    let (mut observed, mut simulated) = if run.card_grid.is_some() {
         (
             seed_start_grid_observed_subset(&post.message),
             seed_start_grid_simulated_subset(run),
-        )
-    } else if run.map_overlay.is_some() {
-        (
-            seed_start_map_return_observed_subset(&post.message),
-            seed_start_simulated_map_return(run)?,
         )
     } else {
         match run.phase {
@@ -195,9 +176,6 @@ fn combat_decision(run: &RunState, command: &str) -> Result<RunDecisionAction, S
     // Potion use remains legal while a hand/discard/exhaust selection is
     // open. Decode it before the active-selection command binding so an
     // interrupting POTION USE is not misread as an invalid selection action.
-    if let Some(slot) = parse_potion_discard(command) {
-        return Ok(RunDecisionAction::Run(RunAction::DiscardPotion { slot }));
-    }
     if let Some(potion_use) = parse_potion_use(command) {
         return Ok(RunDecisionAction::Run(RunAction::UsePotion {
             slot: potion_use.slot,
@@ -221,33 +199,40 @@ fn combat_decision(run: &RunState, command: &str) -> Result<RunDecisionAction, S
 }
 
 pub(super) fn direct_decision(run: &RunState, command: &str) -> Result<RunDecisionAction, String> {
+    // CommunicationMod's executePotionCommand uses physical belt slots for
+    // DISCARD as well as USE. Bind it before other choice-screen decoders;
+    // activation is not performed, and the core validates the discard slot.
+    let mut tokens = command.split_whitespace();
+    if tokens
+        .next()
+        .is_some_and(|token| token.eq_ignore_ascii_case("POTION"))
+        && tokens
+            .next()
+            .is_some_and(|token| token.eq_ignore_ascii_case("DISCARD"))
+    {
+        if let Some(slot) = tokens.next().and_then(|token| token.parse::<usize>().ok()) {
+            return Ok(RunDecisionAction::Run(RunAction::DiscardPotion { slot }));
+        }
+    }
     if run.phase == RunPhase::Combat {
         return combat_decision(run, command);
     }
     let legal = legal_run_decision_actions(run).map_err(|error| error.to_string())?;
     let selected = if let Some(index) = choose_index(command) {
-        if run.map_overlay.is_some() {
-            // Map overlay CHOOSE addresses destination nodes, not the room
-            // screen underneath.
-            legal.get(index).copied()
-        } else if run.phase == RunPhase::Reward && run.card_grid.is_none() {
+        if run.phase == RunPhase::Reward && run.card_grid.is_none() {
             // Reward CHOOSE indices follow CommunicationMod choice_list order,
             // not the denser legal-action vector (which also includes Proceed/Skip).
             Some(RunDecisionAction::Run(
                 seed_start_bind_reward_choose_action(run, index)?,
             ))
         } else if run.phase == RunPhase::Shop && run.card_grid.is_none() && run.shop_merchant_open {
-            // Shop CHOOSE follows CommunicationMod choice_list (cards, relics,
-            // potions), not legal actions which also append LeaveShop and belt
-            // potion use/discard.
+            // CommunicationMod's merchant list excludes LeaveShop and belt actions.
             Some(RunDecisionAction::Run(
-                shop_action_for_choice_index(run, index).map_err(|e| e.to_string())?,
+                shop_action_for_choice_index(run, index).map_err(|error| error.to_string())?,
             ))
         } else if run.phase == RunPhase::Rest && run.card_grid.is_none() {
-            // Rest CHOOSE follows CommunicationMod rest_options (Heal/Smith/Dig/
-            // Recall), not the denser legal vector that also lists per-card
-            // Smith/RemoveCard actions.
-            let options = seed_start_rest_screen_actions(run).map_err(|e| e.to_string())?;
+            // Rest options are screen commands, not per-card Smith/Remove actions.
+            let options = seed_start_rest_screen_actions(run).map_err(|error| error.to_string())?;
             Some(RunDecisionAction::Rest(*options.get(index).ok_or_else(
                 || format!("rest choice {index} out of range"),
             )?))
@@ -273,6 +258,11 @@ pub(super) fn direct_decision(run: &RunState, command: &str) -> Result<RunDecisi
             .iter()
             .copied()
             .find(|action| matches!(action, RunDecisionAction::GridCancel))
+    } else if command_head_eq(command, "RETURN") {
+        legal
+            .iter()
+            .copied()
+            .find(|action| matches!(action, RunDecisionAction::MapReturn))
     } else if command_head_eq(command, "PROCEED") {
         legal.iter().copied().find(|action| {
             matches!(
@@ -286,18 +276,6 @@ pub(super) fn direct_decision(run: &RunState, command: &str) -> Result<RunDecisi
             .iter()
             .copied()
             .find(|action| matches!(action, RunDecisionAction::Run(RunAction::LeaveShop)))
-    } else if command_head_eq(command, "CLICK") {
-        legal
-            .iter()
-            .copied()
-            .find(|action| matches!(action, RunDecisionAction::Run(RunAction::DismissFtue)))
-    } else if command_head_eq(command, "RETURN") {
-        legal
-            .iter()
-            .copied()
-            .find(|action| matches!(action, RunDecisionAction::Run(RunAction::ReturnFromMap)))
-    } else if let Some(slot) = parse_potion_discard(command) {
-        Some(RunDecisionAction::Run(RunAction::DiscardPotion { slot }))
     } else if command_head_eq(command, "SKIP") {
         // CommunicationMod SKIP on an open CardRewardScreen closes back to the
         // outer combat-reward list (card item remains). Prefer CloseCardReward
@@ -421,31 +399,14 @@ pub(super) fn verify_seed_start_transition(
         } else if command_head_eq(&action.command, "STATE")
             || command_head_eq(&action.command, "WAIT")
         {
-            // STATE is observation-only. WAIT advances GremlinMatchGame waitTimer
-            // (and is otherwise a no-op), matching collector sleep while the
-            // real game updates mismatch / end-of-game timers.
+            // Observation commands do not advance the simulator. The recorded
+            // frame is expected output only.
             if !external_rng.is_empty() {
                 Some(boundary(
                     action,
                     "unconsumed_external_rng",
                     "observation command cannot consume external RNG",
                 ))
-            } else if command_head_eq(&action.command, "WAIT") {
-                let ms = action
-                    .command
-                    .split_whitespace()
-                    .nth(1)
-                    .and_then(|value| value.parse::<u32>().ok())
-                    .unwrap_or(0);
-                let mut next = current.clone();
-                if let Err(error) = tick_match_and_keep_wait(&mut next, ms) {
-                    Some(boundary(action, "invalid_wait", error.to_string()))
-                } else if let Err(reason) = compare_direct_run(report, action, post, &next) {
-                    Some(boundary(action, "invalid_direct_projection", reason))
-                } else {
-                    state.seed_sim = Some(next);
-                    None
-                }
             } else if let Err(reason) = compare_direct_run(report, action, post, current) {
                 Some(boundary(action, "invalid_direct_projection", reason))
             } else {
@@ -497,4 +458,121 @@ pub(super) fn verify_seed_start_transition(
     };
 
     boundary.or_else(|| seed_start_take_first_diff_boundary(report))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rest_choose_addresses_only_screen_options() {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Rest;
+        run.relics.extend([Relic::PeacePipe, Relic::Shovel]);
+        let before = run.clone();
+        let options = seed_start_rest_screen_actions(&run).unwrap();
+        assert!(legal_run_decision_actions(&run).unwrap().len() > options.len());
+        for (index, option) in options.iter().enumerate() {
+            assert_eq!(
+                direct_decision(&run, &format!("CHOOSE {index}")).unwrap(),
+                RunDecisionAction::Rest(*option)
+            );
+        }
+        assert!(direct_decision(&run, &format!("CHOOSE {}", options.len())).is_err());
+        assert_eq!(run, before, "binding must not consume RNG or change state");
+    }
+
+    #[test]
+    fn merchant_choose_does_not_address_leave_or_belt_actions() {
+        let mut run = RunState::map_fixture();
+        run.gold = 10_000;
+        sts_core::adapter_internals::enter_shop_screen(&mut run).unwrap();
+        run.gain_potion(Potion::Fire).unwrap();
+        let before = run.clone();
+        let picks = affordable_shop_picks(&run);
+        assert!(legal_run_decision_actions(&run).unwrap().len() > picks.len());
+        for index in 0..picks.len() {
+            assert_eq!(
+                direct_decision(&run, &format!("CHOOSE {index}")).unwrap(),
+                RunDecisionAction::Run(shop_action_for_choice_index(&run, index).unwrap())
+            );
+        }
+        assert!(direct_decision(&run, &format!("CHOOSE {}", picks.len())).is_err());
+        assert_eq!(run, before, "binding must not consume RNG or change state");
+    }
+
+    #[test]
+    fn discard_binds_physical_slot_after_an_earlier_belt_hole() {
+        let mut run = RunState::map_fixture();
+        run.gain_potion(Potion::Fire).unwrap();
+        run.gain_potion(Potion::Block).unwrap();
+        let run = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Run(RunAction::DiscardPotion { slot: 0 }),
+        )
+        .unwrap();
+        let before = run.clone();
+        let decision = direct_decision(&run, "potion discard 1").unwrap();
+        assert_eq!(
+            decision,
+            RunDecisionAction::Run(RunAction::DiscardPotion { slot: 1 })
+        );
+        assert_eq!(run, before, "binding is read-only");
+        let discarded = apply_run_decision_action(&run, decision).unwrap();
+        assert!(discarded.potion_at_slot(1).is_none());
+        assert_eq!(discarded.deck, run.deck);
+        assert_eq!(discarded.gold, run.gold);
+        assert_eq!(discarded.hp, run.hp);
+        assert_eq!(discarded.map, run.map);
+        assert!(apply_run_decision_action(&discarded, decision).is_err());
+    }
+
+    #[test]
+    fn discard_does_not_resolve_an_owned_grid() {
+        let mut run = RunState::seeded_ironclad(1, 0);
+        run.gain_potion(Potion::Fire).unwrap();
+        sts_core::adapter_internals::open_neow_remove_grid(&mut run, 1);
+        let decision = direct_decision(&run, "POTION DISCARD 0").unwrap();
+        let discarded = apply_run_decision_action(&run, decision).unwrap();
+        assert_eq!(discarded.card_grid, run.card_grid);
+        assert_eq!(discarded.event, run.event);
+        assert_eq!(discarded.deck, run.deck);
+        assert_eq!(discarded.phase, run.phase);
+        assert!(discarded.potion_at_slot(0).is_none());
+    }
+
+    #[test]
+    fn discard_interrupts_combat_selection_without_confirming_it() {
+        let mut run = RunState::combat_fixture();
+        run.gain_potion(Potion::Fire).unwrap();
+        run.gain_potion(Potion::Elixir).unwrap();
+        let run = apply_run_decision_action(
+            &run,
+            RunDecisionAction::Run(RunAction::UsePotion {
+                slot: 1,
+                target: None,
+            }),
+        )
+        .unwrap();
+        assert!(run.combat.as_ref().unwrap().decision.is_some());
+        let decision = direct_decision(&run, "POTION DISCARD 0").unwrap();
+        let discarded = apply_run_decision_action(&run, decision).unwrap();
+        assert_eq!(discarded.combat, run.combat);
+        assert_eq!(discarded.deck, run.deck);
+        assert!(discarded.potion_at_slot(0).is_none());
+    }
+
+    #[test]
+    fn invalid_discard_slot_does_not_advance_the_run() {
+        let run = RunState::map_fixture();
+        let before = run.clone();
+        for command in ["POTION DISCARD", "POTION DISCARD -1", "POTION DISCARD nope"] {
+            assert!(direct_decision(&run, command).is_err());
+        }
+        for command in ["POTION DISCARD 0", "POTION DISCARD 99"] {
+            let decision = direct_decision(&run, command).unwrap();
+            assert!(apply_run_decision_action(&run, decision).is_err());
+        }
+        assert_eq!(run, before);
+    }
 }

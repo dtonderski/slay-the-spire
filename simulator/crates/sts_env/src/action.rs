@@ -47,6 +47,7 @@ pub enum PublicChoice {
     },
     ConfirmGrid,
     CancelGrid,
+    ReturnToRoom,
     ChooseMapNode {
         node_slot: u16,
     },
@@ -118,8 +119,6 @@ pub enum PublicChoice {
     EnterShop,
     LeaveShop,
     OpenShopRemove,
-    ReturnFromMap,
-    DismissFtue,
 }
 
 impl PublicChoice {
@@ -129,7 +128,7 @@ impl PublicChoice {
             Self::PlayHandSlot { .. } | Self::EndTurn => "combat",
             Self::ChooseEventOption { .. } => "event",
             Self::ToggleGridCard { .. } | Self::ConfirmGrid | Self::CancelGrid => "grid",
-            Self::ChooseMapNode { .. } | Self::ReturnFromMap | Self::DismissFtue => "map",
+            Self::ChooseMapNode { .. } | Self::ReturnToRoom => "map",
             Self::RestHeal
             | Self::RestOpenSmith
             | Self::RestOpenRemove
@@ -152,6 +151,7 @@ impl PublicChoice {
             Self::ToggleGridCard { .. } => "toggle_grid_card",
             Self::ConfirmGrid => "confirm_grid",
             Self::CancelGrid => "cancel_grid",
+            Self::ReturnToRoom => "return_to_room",
             Self::ChooseMapNode { .. } => "choose_map_node",
             Self::RestHeal => "rest_heal",
             Self::RestOpenSmith => "rest_open_smith",
@@ -192,8 +192,6 @@ impl PublicChoice {
             Self::EnterShop => "enter_shop",
             Self::LeaveShop => "leave_shop",
             Self::OpenShopRemove => "open_shop_remove",
-            Self::ReturnFromMap => "return_from_map",
-            Self::DismissFtue => "dismiss_ftue",
         }
     }
 }
@@ -282,6 +280,7 @@ fn project_action(run: &RunState, action: RunDecisionAction) -> Result<PublicCho
         },
         RunDecisionAction::GridConfirm => PublicChoice::ConfirmGrid,
         RunDecisionAction::GridCancel => PublicChoice::CancelGrid,
+        RunDecisionAction::MapReturn => PublicChoice::ReturnToRoom,
         RunDecisionAction::Map(MapAction::ChooseNode { node_id }) => {
             let slot = run
                 .map
@@ -396,8 +395,6 @@ fn project_run_action(run: &RunState, action: RunAction) -> Result<PublicChoice,
         RunAction::EnterShop => PublicChoice::EnterShop,
         RunAction::LeaveShop => PublicChoice::LeaveShop,
         RunAction::OpenShopRemove => PublicChoice::OpenShopRemove,
-        RunAction::ReturnFromMap => PublicChoice::ReturnFromMap,
-        RunAction::DismissFtue => PublicChoice::DismissFtue,
     })
 }
 
@@ -420,7 +417,7 @@ fn public_slot(index: usize) -> Result<u16, FairError> {
 mod tests {
     use super::*;
     use sts_core::adapter_internals::{
-        combat::CombatPhase, CardId, MonsterId, Potion, Relic, RoomKind, RunPhase,
+        combat::CombatPhase, CardId, MonsterId, Potion, Relic, RoomKind, RunPhase, SimError,
     };
 
     #[test]
@@ -555,11 +552,16 @@ mod tests {
     }
 
     #[test]
-    fn malformed_state_collapses_to_decision_unavailable() {
+    fn malformed_state_is_rejected_by_the_explicit_validator() {
         let mut run = RunState::combat_fixture();
         let combat = run.combat.as_mut().expect("combat");
         combat.piles.draw_pile[0].id = combat.piles.hand[0].id;
-        assert_eq!(projected_choices(&run), Err(FairError::DecisionUnavailable));
+        assert_eq!(
+            run.validate(),
+            Err(SimError::InvalidState(
+                "card instance appears in more than one pile"
+            ))
+        );
     }
 
     #[test]

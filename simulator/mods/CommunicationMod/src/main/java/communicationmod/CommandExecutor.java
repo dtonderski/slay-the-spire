@@ -156,7 +156,7 @@ public class CommandExecutor {
 
     public static boolean isChooseCommandAvailable() {
         if(isInDungeon()) {
-            return !isPlayCommandAvailable() && !ChoiceScreenUtils.getCurrentChoiceList().isEmpty();
+            return !isPlayCommandAvailable() && !ChoiceScreenUtils.getSelectableChoiceIndices().isEmpty();
         } else {
             return false;
         }
@@ -254,6 +254,12 @@ public class CommandExecutor {
             throw new InvalidCommandException("The choice command is not implemented on this screen.");
         }
         int choice_index = getValidChoiceIndex(tokens, validChoices);
+        if (!ChoiceScreenUtils.getSelectableChoiceIndices().contains(choice_index)) {
+            throw new InvalidCommandException("Choice " + choice_index + " is not currently selectable.");
+        }
+        if (AbstractDungeon.screen == AbstractDungeon.CurrentScreen.CARD_REWARD) {
+            CampfireDiagnostics.cardRewardCommandEntry();
+        }
         ChoiceScreenUtils.executeChoice(choice_index);
     }
 

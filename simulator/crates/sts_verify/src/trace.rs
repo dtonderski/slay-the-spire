@@ -76,9 +76,16 @@ pub fn parse_trace_jsonl_line(line: &str) -> Result<Option<TraceLine>, serde_jso
         Some("external_rng") => TraceLine::ExternalRng(serde_json::from_value(value)?),
         Some("state") => TraceLine::State(parse_state(value)?),
         Some("error") => TraceLine::Error(serde_json::from_value(value)?),
-        // Collector bookkeeping around command submission. These are not gameplay
-        // inputs and must not be rewritten out of captured traces.
-        Some("command_accept") | Some("command_observed_timeout") => return Ok(None),
+        // Acceptance is transport bookkeeping, never a gameplay input or a
+        // completion fence. The paired state still has to prove settlement.
+        Some("command_accept") => return Ok(None),
+        // An accepted command whose observation failed is not a valid completed
+        // capture. Do not let a later cached/unsolicited state hide this marker.
+        Some("command_observed_timeout") => {
+            return Err(serde_json::Error::custom(
+                "trace contains a command observation timeout; explicit review required",
+            ));
+        }
         Some(kind) => {
             return Err(serde_json::Error::custom(format!(
                 "unsupported trace record {kind:?}"
@@ -877,7 +884,7 @@ fn validate_nonblank_string_array(
 fn validate_event_screen_schema(
     step: u32,
     game: &serde_json::Map<String, Value>,
-    _command_ready: Option<bool>,
+    command_ready: Option<bool>,
 ) -> Result<(), serde_json::Error> {
     let screen = game
         .get("screen_state")
@@ -909,9 +916,7 @@ fn validate_event_screen_schema(
                 )));
             }
         }
-        // Match and Keep waitTimer snapshots omit the list entirely (null / missing)
-        // while face-up cards are unclickable.
-        None | Some(Value::Null) => {}
+        None if command_ready == Some(false) => {}
         _ => {
             return Err(serde_json::Error::custom(format!(
                 "trace state at step {step} EVENT screen requires an array game_state.choice_list"
@@ -1098,26 +1103,56 @@ fn required_unsigned_game_field(
 }
 
 #[cfg(test)]
-mod tests {
+mod collection_record_tests {
     use super::parse_trace_jsonl_line;
+    use serde_json::json;
 
     #[test]
-    fn skips_collector_bookkeeping_records() {
+    fn acceptance_bookkeeping_is_not_an_action_or_completion() {
         assert!(
             parse_trace_jsonl_line(r#"{"type":"command_accept","step":1}"#)
-                .unwrap()
-                .is_none()
-        );
-        assert!(
-            parse_trace_jsonl_line(r#"{"type":"command_observed_timeout","step":1}"#)
                 .unwrap()
                 .is_none()
         );
     }
 
     #[test]
-    fn still_rejects_unknown_records() {
-        let error = parse_trace_jsonl_line(r#"{"type":"not_a_record"}"#).unwrap_err();
-        assert!(error.to_string().contains("unsupported trace record"));
+    fn command_observation_timeout_is_never_silently_ignored() {
+        let error = parse_trace_jsonl_line(
+            r#"{"type":"command_observed_timeout","step":1,"command":"END"}"#,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("command observation timeout"));
+    }
+
+    #[test]
+    fn unknown_transport_records_are_still_rejected() {
+        assert!(parse_trace_jsonl_line(r#"{"type":"not_a_record"}"#).is_err());
+    }
+
+    #[test]
+    fn ready_events_require_choices_instead_of_a_match_specific_relaxation() {
+        for event in ["Match and Keep", "Neow"] {
+            let mut state = json!({
+                "type": "state", "step": 1,
+                "message": {"ready_for_command": true, "game_state": {
+                    "screen_type": "EVENT", "ascension_level": 0, "floor": 1,
+                    "gold": 0, "current_hp": 80, "max_hp": 80,
+                    "deck": [], "relics": [], "potions": [],
+                    "screen_state": {"event_id": event, "options": []}
+                }}
+            });
+            assert!(parse_trace_jsonl_line(&state.to_string()).is_err());
+            state["message"]["game_state"]["choice_list"] = json!(null);
+            assert!(parse_trace_jsonl_line(&state.to_string()).is_err());
+            state["message"]["game_state"]["choice_list"] = json!([]);
+            assert!(parse_trace_jsonl_line(&state.to_string()).is_ok());
+            state["message"]["game_state"]
+                .as_object_mut()
+                .unwrap()
+                .remove("choice_list");
+            state["message"]["ready_for_command"] = json!(false);
+            assert!(parse_trace_jsonl_line(&state.to_string()).is_ok());
+        }
     }
 }

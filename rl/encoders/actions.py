@@ -1,65 +1,34 @@
+from dataclasses import dataclass
+
+import numpy as np
 import torch
 from jaxtyping import Float
-from sts_sim import Action
+from sts_sim import ACTION_KINDS
 from torch import Tensor, nn
 
 from .cards import CARD_FEATURE_DIM
 from .enemies import ENEMY_FEATURE_DIM
+from .numeric import CANDIDATE_KIND, CANDIDATE_OWNER, CANDIDATE_TARGET, CANDIDATE_WIDTH, upload
 from .potions import POTION_EMBEDDING_DIM
 
-
-def _slot(features: Float[Tensor, "n_slots feature_dim"], slot: int | None) -> Float[Tensor, " feature_dim"]:
-    """Look up one row, rejecting missing/negative/out-of-range slot references."""
-    if slot is None or not 0 <= slot < features.shape[0]:
-        raise ValueError(f"Invalid action slot {slot} for {features.shape[0]} feature rows")
-    return features[slot]
+KIND_CODE = {name: index for index, name in enumerate(ACTION_KINDS)}
 
 
-def tensorize_actions(
-    actions: tuple[Action, ...],
-    hand_features: Float[Tensor, "n_hand card_features"],
-    potion_features: Float[Tensor, "n_potion_slots potion_features"],
-    enemy_features: Float[Tensor, "n_enemies enemy_features"],
-    *,
-    selection_features: Float[Tensor, "n_options selection_features"] | None = None,
-) -> tuple[tuple[str, Float[Tensor, " ?action_features"]], ...]:
-    """Gather (kind, raw features) pairs in candidate order; widths vary by kind.
+def _require_slots(kind: str, slots: np.ndarray, limits: np.ndarray) -> None:
+    if np.any((slots < 0) | (slots >= limits)):
+        bad = int(slots[np.flatnonzero((slots < 0) | (slots >= limits))[0]])
+        raise ValueError(f"Invalid action slot {bad} for {int(limits.max()) if len(limits) else 0} feature rows")
 
-    Use same-decision rows in visible slot order, with matching device/dtype.
-    Selection rows come from tensorize_selection. Play/use append target features
-    and a presence bit; no-object actions have empty vectors. No learned layers.
-    """
-    result: list[tuple[str, Float[Tensor, " ?action_features"]]] = []
-    for action in actions:
-        if action.kind in ("play_hand_slot", "use_potion_slot"):
-            if action.target_slot is None:
-                target = enemy_features.new_zeros(enemy_features.shape[1])
-            else:
-                target = _slot(enemy_features, action.target_slot)
-            target_present = target.new_tensor([float(action.target_slot is not None)])
-            if action.kind == "play_hand_slot":
-                card = _slot(hand_features, action.hand_slot)
-                features = torch.cat((card, target, target_present))
-            else:
-                potion = _slot(potion_features, action.potion_slot)
-                features = torch.cat((potion, target, target_present))
-        elif action.kind == "discard_potion_slot":
-            features = _slot(potion_features, action.potion_slot)
-        elif action.kind in ("toggle_visible_card", "choose_visible_option"):
-            if selection_features is None:
-                raise ValueError("Selection action requires selection_features")
-            features = _slot(selection_features, action.option_slot)
-        elif action.kind in (
-            "end_turn",
-            "confirm_selection",
-            "confirm_selection_without_retrieval",
-            "skip_selection",
-        ):
-            features = hand_features.new_empty(0)
-        else:
-            raise NotImplementedError(f"Unsupported action kind: {action.kind}")
-        result.append((action.kind, features))
-    return tuple(result)
+
+@dataclass
+class FlatActionFeatures:
+    """Numeric feature groups stay flat; per-observation views are only for inspection."""
+
+    rows: dict[str, Float[Tensor, "?n_rows ?feature_dim"]]
+    lengths: dict[str, list[int]]
+
+    def __len__(self) -> int:
+        return len(self.lengths["hand"])
 
 
 class ActionEncoder(nn.Module):
@@ -90,25 +59,90 @@ class ActionEncoder(nn.Module):
 
     def forward(
         self,
-        actions: tuple[Action, ...],
-        features: dict[str, Float[Tensor, "?n_rows ?feature_dim"]],
-    ) -> Float[Tensor, "n_actions action_dim"]:
-        """Gather referenced rows from the same decision, preserving candidate order."""
-        action_inputs = tensorize_actions(
-            actions,
-            features["hand"],
-            features["potions"],
-            features["enemies"],
-            selection_features=features["selection"],
-        )
+        candidates: np.ndarray,
+        features: FlatActionFeatures,
+    ) -> Float[Tensor, "batch n_actions action_dim"]:
+        """Encode by kind. ``candidates`` are grouped by forward-local observation index."""
+        vectors = self._flat(candidates, features)
+        counts = np.bincount(candidates[:, CANDIDATE_OWNER].astype(np.int64), minlength=len(features))
+        if int(counts.sum()) != len(candidates) or np.any(counts == 0):
+            raise ValueError("Padded scoring needs nonempty decisions")
+        width = int(counts.max())
+        owners = np.repeat(np.arange(len(features)), counts)
+        starts = np.cumsum(counts) - counts
+        positions = owners * width + np.arange(len(vectors)) - np.repeat(starts, counts)
+        indices = upload(positions, torch.long, vectors.device)
+        padded_vectors = vectors.new_zeros((len(features) * width, self.action_dim)).index_copy(0, indices, vectors)
+        return padded_vectors.reshape(len(features), width, self.action_dim)
+
+    def _flat(self, candidates: np.ndarray, features: FlatActionFeatures) -> Float[Tensor, "actions action_dim"]:
+        """Gather raw local slots from integer candidate rows, not Python action objects."""
+        if candidates.ndim != 2 or candidates.shape[1] != CANDIDATE_WIDTH:
+            raise ValueError("Action candidates must be integer rows")
+        if len(candidates) == 0 or len(features) == 0:
+            raise ValueError("Action and feature batches must have the same length")
+        owners = candidates[:, CANDIDATE_OWNER].astype(np.int64)
+        if int(owners.min()) < 0 or int(owners.max()) >= len(features) or np.any(np.diff(owners) < 0):
+            raise ValueError("Action candidates must be grouped by observation")
+        kinds = candidates[:, CANDIDATE_KIND].astype(np.int64)
+        known = {KIND_CODE[name] for name in (*self.encoders, *self.constants)}
+        if np.any(~np.isin(kinds, list(known))):
+            missing = int(kinds[~np.isin(kinds, list(known))][0])
+            name = ACTION_KINDS[missing] if 0 <= missing < len(ACTION_KINDS) else str(missing)
+            raise NotImplementedError(f"Unsupported action kind: {name}")
+        sizes = {name: np.asarray(lengths, dtype=np.int64) for name, lengths in features.lengths.items()}
+        bases = {name: np.cumsum(values) - values for name, values in sizes.items()}
+        no_target = int(sizes["enemies"].sum())
         reference = next(self.parameters())
-        vectors: list[Float[Tensor, " action_dim"]] = []
-        for kind, row in action_inputs:
-            if kind in self.encoders:
-                vector = self.encoders[kind](row)
+        object_column = {
+            "play_hand_slot": (2, "hand"),
+            "use_potion_slot": (3, "potions"),
+            "discard_potion_slot": (3, "potions"),
+            "toggle_visible_card": (4, "selection"),
+            "choose_visible_option": (4, "selection"),
+        }
+        plans: list[tuple[str, str | None]] = []
+        arrays = []
+        for kind, (column, group) in object_column.items():
+            selected = np.flatnonzero(kinds == KIND_CODE[kind])
+            if len(selected) == 0:
+                continue
+            slots = candidates[selected, column].astype(np.int64)
+            _require_slots(kind, slots, sizes[group][owners[selected]])
+            plans.append((kind, group))
+            arrays.extend((selected, bases[group][owners[selected]] + slots))
+            if kind in ("play_hand_slot", "use_potion_slot"):
+                target_slots = candidates[selected, CANDIDATE_TARGET].astype(np.int64)
+                present = target_slots >= 0
+                if np.any(present):
+                    _require_slots(kind, target_slots[present], sizes["enemies"][owners[selected][present]])
+                target_index = np.full(len(selected), no_target, dtype=np.int64)
+                if np.any(present):
+                    target_index[present] = bases["enemies"][owners[selected][present]] + target_slots[present]
+                arrays.extend((target_index, present.astype(np.int64)))
+        for kind in self.constants:
+            selected = np.flatnonzero(kinds == KIND_CODE[kind])
+            if len(selected):
+                plans.append((kind, None))
+                arrays.append(selected)
+        # One pinned staging allocation/copy for all per-kind gathers and scatters.
+        indices = iter(upload(np.concatenate(arrays), torch.long, reference.device).split([len(a) for a in arrays]))
+        vectors = reference.new_zeros((len(candidates), self.action_dim))
+        packed = dict(features.rows)
+        for kind, group in plans:
+            selected = next(indices)
+            if group is None:
+                encoded = self.constants[kind](torch.zeros(len(selected), dtype=torch.long, device=reference.device))
             else:
-                vector = self.constants[kind](reference.new_zeros((), dtype=torch.long))
-            vectors.append(vector)
-        if not vectors:
-            return reference.new_empty((0, self.action_dim))
-        return torch.stack(vectors)
+                inputs = packed[group].index_select(0, next(indices))
+                if kind in ("play_hand_slot", "use_potion_slot"):
+                    if "targets" not in packed:
+                        enemies = packed["enemies"]
+                        packed["targets"] = torch.cat((enemies, enemies.new_zeros((1, ENEMY_FEATURE_DIM))))
+                    targets = packed["targets"].index_select(0, next(indices))
+                    flag = next(indices).to(dtype=inputs.dtype).unsqueeze(1)
+                    inputs = torch.cat((inputs, targets, flag), dim=1)
+                encoded = self.encoders[kind](inputs)
+            vectors = vectors.index_copy(0, selected, encoded)
+        assert next(indices, None) is None, "Unconsumed packed action index segment"
+        return vectors

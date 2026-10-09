@@ -360,8 +360,8 @@ pub fn reflect_spikes_to_player(player: &mut PlayerState, relics: &[Relic], spik
     let incoming = crate::combat::hp_loss::cap_player_damage_with_intangible(player, spikes);
     let blocked = player.block.min(incoming);
     player.block -= blocked;
-    let mitigated = crate::relic::mitigate_hp_loss(relics, incoming - blocked);
-    let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut player.powers, mitigated);
+    let buffered = crate::relic::apply_buffer_to_hp_loss(&mut player.powers, incoming - blocked);
+    let hp_loss = crate::relic::mitigate_hp_loss(relics, buffered);
     player.hp -= hp_loss;
     hp_loss
 }

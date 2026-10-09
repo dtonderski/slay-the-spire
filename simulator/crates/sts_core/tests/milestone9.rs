@@ -112,8 +112,7 @@ fn rest_heal_restores_thirty_percent_max_hp_floored() {
 
     assert_eq!(rest_heal_amount(80), 24);
     assert_eq!(after.hp, 54);
-    assert_eq!(after.phase, RunPhase::Rest);
-    assert!(after.map_overlay.is_some_and(|overlay| overlay.dismissable));
+    assert_eq!(after.phase, RunPhase::Idle);
 }
 
 #[test]
@@ -181,8 +180,7 @@ fn heal_then_map_traversal_continues() {
     run = apply_rest_action(&run, RestAction::Heal).expect("heal");
     run = proceed_rest(&run);
 
-    assert_eq!(run.phase, RunPhase::Rest);
-    assert!(run.map_overlay.is_some_and(|overlay| overlay.dismissable));
+    assert_eq!(run.phase, RunPhase::Idle);
     assert_eq!(run.hp, 64);
     assert_eq!(
         valid_map_actions(&run),
@@ -220,8 +218,7 @@ fn smith_upgrades_strike_r_to_strike_r_plus() {
 
     assert_eq!(after.count_content_in_deck(STRIKE_R_PLUS_ID), 1);
     assert_eq!(after.count_content_in_deck(STRIKE_R_ID), 4);
-    assert_eq!(after.phase, RunPhase::Rest);
-    assert!(after.map_overlay.is_some_and(|overlay| overlay.dismissable));
+    assert_eq!(after.phase, RunPhase::Idle);
 }
 
 #[test]
@@ -239,8 +236,7 @@ fn smith_then_map_traversal_continues() {
     run = apply_rest_action(&run, RestAction::Smith { card_id: strike_id }).expect("smith");
     run = proceed_rest(&run);
 
-    assert_eq!(run.phase, RunPhase::Rest);
-    assert!(run.map_overlay.is_some_and(|overlay| overlay.dismissable));
+    assert_eq!(run.phase, RunPhase::Idle);
     assert_eq!(run.deck[0].content_id, STRIKE_R_PLUS_ID);
     assert_eq!(
         valid_map_actions(&run),
@@ -501,9 +497,8 @@ fn golden_shrine_choice_grants_gold_and_returns_to_map() {
     let run = apply_event_action(&after_pray, EventAction::Choose { choice_index: 0 })
         .expect("leave shrine");
 
-    assert_eq!(run.phase, RunPhase::Event);
-    assert!(run.event.is_some());
-    assert!(run.map_overlay.is_some_and(|overlay| overlay.dismissable));
+    assert_eq!(run.phase, RunPhase::Idle);
+    assert!(run.event.is_none());
     assert_eq!(run.gold, gold_before + GOLDEN_SHRINE_GOLD);
     assert_eq!(
         valid_map_actions(&run),
@@ -603,8 +598,7 @@ fn remove_card_at_rest_drops_strike_from_deck() {
     assert_eq!(after.deck.len(), deck_len_before - 1);
     assert!(!after.deck.iter().any(|card| card.id == strike_id));
     assert_eq!(after.count_content_in_deck(STRIKE_R_ID), 4);
-    assert_eq!(after.phase, RunPhase::Rest);
-    assert!(after.map_overlay.is_some_and(|overlay| overlay.dismissable));
+    assert_eq!(after.phase, RunPhase::Idle);
 }
 
 #[test]

@@ -1215,8 +1215,6 @@ pub(crate) fn enter_calling_bell_reward_screen(run: &mut RunState) {
 
     run.phase = RunPhase::Reward;
     run.leave_combat_if_active();
-    run.calling_bell_reward_screen = true;
-    run.calling_bell_ftue_shown = false;
     run.reward = Some(RewardScreen {
         continuation,
         choices: Vec::new(),
@@ -1730,7 +1728,6 @@ fn enter_boss_combat_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
 }
 
 fn validate_combat_reward_entry(run: &RunState) -> SimResult<()> {
-    run.validate()?;
     if run.phase != RunPhase::Combat {
         return Err(SimError::InvalidState(
             "combat reward entry requires combat phase",
@@ -1884,7 +1881,7 @@ fn enter_chest_relic_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
         .as_ref()
         .expect("treasure room must be initialized before opening chest");
     let tier = treasure_room.relic_tier;
-    let mut gold_offer = if treasure_room.have_gold {
+    let gold_offer = if treasure_room.have_gold {
         let mut treasure_rng = run.rng_for_stream(RunRngStream::Treasure);
         let amount = target_chest_gold(treasure_room.chest_size, &mut treasure_rng);
         run.store_rng_counter(RunRngStream::Treasure, &treasure_rng);
@@ -1916,7 +1913,7 @@ fn enter_chest_relic_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
     // reorder when the chest relic is bottled: CM still lists Matryoshka first
     // then the chest bottle (729674a: Bronze Scales then Bottled Tornado).
     // Claiming the bottle later still opens its grid via gain_relic.
-    let (mut relic_offer, mut pending_relic_offer) = if bonus_relic_offer.is_some() {
+    let (relic_offer, pending_relic_offer) = if bonus_relic_offer.is_some() {
         (bonus_relic_offer, chest_relic_offer)
     } else {
         (chest_relic_offer, None)
@@ -1930,18 +1927,6 @@ fn enter_chest_relic_reward_screen_inner(run: &mut RunState) -> SimResult<()> {
 
     run.phase = RunPhase::Reward;
     run.leave_combat_if_active();
-    let hungry_face = run.relics.contains(&Relic::NlothsMask) && !run.nloths_mask_used;
-    if hungry_face {
-        // onChestOpen: the chest still rolls rewards, then Hungry Face empties
-        // the non-boss chest (FIDL00017 rewards=[]).
-        run.nloths_mask_used = true;
-        gold_offer = 0;
-        relic_offer = None;
-        pending_relic_offer = None;
-        if let Some(treasure_room) = run.treasure_room.as_mut() {
-            treasure_room.sapphire_key_relic_offer = None;
-        }
-    }
     run.reward = Some(RewardScreen {
         continuation: RewardContinuation::Map,
         choices: Vec::new(),
@@ -2082,6 +2067,10 @@ pub(crate) fn settle_run_after_combat_transition(
     mut after: crate::combat::CombatState,
     finish_revived_end_turn: bool,
 ) -> SimResult<crate::combat::CombatState> {
+    // Publish the actual core consumption before any run-owned fallback can
+    // inspect this one-use resource. Never infer it from final HP or revive it
+    // again merely because a later hit in the same transition killed the player.
+    run.lizard_tail_used |= after.lizard_tail_used;
     if after.relic_counters.fairy_consumed {
         if let Some((slot, _)) = run
             .occupied_potion_slots()
@@ -2344,6 +2333,7 @@ fn apply_combat_loss_proceed(mut next: RunState) -> SimResult<RunState> {
         ));
     }
     next.phase = RunPhase::Complete;
+    next.terminal_outcome = Some(super::RunTerminalOutcome::Death);
     next.leave_combat_if_active();
     next.reward = None;
     next.event = None;
@@ -2384,8 +2374,7 @@ pub(crate) fn enter_final_boss_victory(run: &mut RunState) -> SimResult<()> {
 }
 
 pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState> {
-    run.validate()?;
-    crate::run::decision::validate_run_action_after_run_validation(run, action)?;
+    crate::run::decision::validate_run_action(run, action)?;
     apply_validated_run_action_owned(run.clone(), action)
 }
 
@@ -2393,9 +2382,22 @@ pub(crate) fn apply_validated_run_action_owned(
     next: RunState,
     action: RunAction,
 ) -> SimResult<RunState> {
-    let next = match action {
+    let selection_action = matches!(
+        action,
+        RunAction::ChooseCombatCardReward { .. }
+            | RunAction::SkipCombatCardReward
+            | RunAction::ChooseHandSelect { .. }
+            | RunAction::ConfirmHandSelect
+            | RunAction::ConfirmHandSelectWithoutRetrieval
+            | RunAction::ChooseDrawSelect { .. }
+            | RunAction::ConfirmDrawSelect
+            | RunAction::ChooseDiscardSelect { .. }
+            | RunAction::ConfirmDiscardSelect
+            | RunAction::ChooseExhaustSelect { .. }
+            | RunAction::ConfirmExhaustSelect
+    );
+    let mut next = match action {
         RunAction::OpenChest => apply_validated_treasure_action_owned(next, action),
-        RunAction::Proceed if next.phase == RunPhase::Complete => Ok(next),
         RunAction::Proceed if next.phase == RunPhase::Reward => {
             apply_validated_reward_action_owned(next, action)
         }
@@ -2413,22 +2415,6 @@ pub(crate) fn apply_validated_run_action_owned(
         | RunAction::EnterShop
         | RunAction::LeaveShop
         | RunAction::OpenShopRemove => super::shop::apply_validated_shop_action_owned(next, action),
-        RunAction::ReturnFromMap => {
-            let mut next = next;
-            next.map_overlay = None;
-            Ok(next)
-        }
-        RunAction::DismissFtue => {
-            let mut next = next;
-            let hidden = next
-                .calling_bell_hidden_reward
-                .take()
-                .ok_or(crate::SimError::IllegalAction("no FTUE overlay is open"))?;
-            next.calling_bell_ftue = false;
-            next.reward = Some(hidden);
-            next.phase = RunPhase::Reward;
-            Ok(next)
-        }
         RunAction::UsePotion { .. } | RunAction::DiscardPotion { .. } => {
             super::potion::apply_validated_potion_action_owned(next, action)
         }
@@ -2467,19 +2453,18 @@ pub(crate) fn apply_validated_run_action_owned(
         }
         _ => apply_validated_reward_action_owned(next, action),
     }?;
-    next.validate()?;
+    if selection_action {
+        // A selection can drain deferred potion actions which consume the
+        // combat-owned card-random stream. Export that executed stream's
+        // counter to the run owner before subsequent potion/event draws.
+        if let Some(combat) = next.combat.as_ref() {
+            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+        }
+    }
     Ok(next)
 }
 
 pub fn validate_treasure_action(run: &RunState, action: RunAction) -> SimResult<()> {
-    run.validate()?;
-    validate_treasure_action_after_validation(run, action)
-}
-
-pub(crate) fn validate_treasure_action_after_validation(
-    run: &RunState,
-    action: RunAction,
-) -> SimResult<()> {
     if run.phase != RunPhase::Treasure {
         return Err(SimError::IllegalAction(
             "treasure actions require treasure phase",
@@ -2542,7 +2527,7 @@ fn apply_validated_treasure_action_owned(
                 next.flush_pending_obtain_cards()?;
                 enter_next_act_map(&mut next)?;
             } else {
-                next.map_overlay = Some(crate::MapOverlay { dismissable: true });
+                super::map_overlay::open_completed_room_map(&mut next);
             }
             Ok(next)
         }
@@ -2557,6 +2542,7 @@ fn apply_final_boss_victory_proceed(mut next: RunState) -> SimResult<RunState> {
         // grants gold if the relic is not used up (FIDL02369).
         next.apply_floor_entry_relics()?;
         next.phase = RunPhase::Complete;
+        next.terminal_outcome = Some(super::RunTerminalOutcome::HeartClear);
         next.leave_combat_if_active();
         next.reward = None;
         next.event = None;
@@ -2564,7 +2550,6 @@ fn apply_final_boss_victory_proceed(mut next: RunState) -> SimResult<RunState> {
     } else {
         enter_spire_heart_event(&mut next)?;
     }
-    next.validate()?;
     Ok(next)
 }
 
@@ -2618,23 +2603,16 @@ fn apply_validated_reward_action_owned(
             }
         }
         RunAction::CloseCardReward => {
-            let continuation = next
+            let return_to_rest = next
                 .reward
                 .as_ref()
-                .map(|reward| reward.continuation)
-                .unwrap_or(RewardContinuation::None);
-            if continuation == RewardContinuation::Neow {
-                // Neow colorless/card rewards are a CardRewardScreen on top of
-                // the Leave event. SKIP/close returns to that event, not an
-                // empty CombatRewardScreen.
-                close_reward_overlay(&mut next, RewardCloseReason::Automatic)?;
-            } else if continuation == RewardContinuation::Rest {
-                let reward = next.reward.as_mut().expect("validated reward screen");
+                .is_some_and(|reward| reward.continuation == RewardContinuation::Rest);
+            let reward = next.reward.as_mut().expect("validated reward screen");
+            if return_to_rest {
                 reward.choices.clear();
                 reward.consume_active_card_reward()?;
                 return_to_reward_continuation_if_empty(&mut next);
             } else {
-                let reward = next.reward.as_mut().expect("validated reward screen");
                 reward.close_card_reward()?;
             }
         }
@@ -2684,8 +2662,8 @@ fn apply_validated_reward_action_owned(
             next.gain_gold(stolen_gold_offer)?;
         }
         RunAction::TakePotionReward { index } => {
-            if next.can_gain_potions() && next.open_potion_slots() == 0 {
-                // A full belt cannot claim the item; the reward stays.
+            let sozu_blocks_obtain = next.relics.contains(&Relic::Sozu);
+            if !sozu_blocks_obtain && next.open_potion_slots() == 0 {
                 return Ok(next);
             }
             let potion = {
@@ -2696,7 +2674,7 @@ fn apply_validated_reward_action_owned(
                     reward.potion_offer.take().expect("validated potion offer")
                 }
             };
-            if next.can_gain_potions() {
+            if !sozu_blocks_obtain {
                 next.gain_potion(potion)?;
             }
         }
@@ -2830,26 +2808,6 @@ fn apply_validated_reward_action_owned(
                 enter_spire_heart_event(&mut next)?;
                 return Ok(next);
             }
-            if next.calling_bell_reward_screen
-                && !next.calling_bell_ftue_shown
-                && next.reward.as_ref().is_some_and(|reward| {
-                    !reward.card_reward_is_active() && calling_bell_relic_count(reward) == 3
-                })
-            {
-                next.calling_bell_hidden_reward = next.reward.take();
-                next.calling_bell_ftue = true;
-                next.calling_bell_ftue_shown = true;
-                // FTUE is not a reward overlay; keep a non-Reward phase so
-                // run validation does not require an open RewardScreen.
-                if next.phase == RunPhase::Reward {
-                    next.phase = if next.event.is_some() {
-                        RunPhase::Event
-                    } else {
-                        RunPhase::Treasure
-                    };
-                }
-                return Ok(next);
-            }
             // A relic hook (for example Calling Bell) may append rewards to an
             // already-open boss chest's CombatRewardScreen. The target keeps
             // that now-empty overlay visible until PROCEED, then closes the
@@ -2862,9 +2820,6 @@ fn apply_validated_reward_action_owned(
                 });
             if leftover_boss_treasure_reward {
                 next.reward = None;
-                next.calling_bell_hidden_reward = None;
-                next.calling_bell_ftue = false;
-                next.calling_bell_reward_screen = false;
                 next.flush_pending_obtain_cards()?;
                 enter_next_act_map(&mut next)?;
                 return Ok(next);
@@ -2882,33 +2837,21 @@ fn apply_validated_reward_action_owned(
             if is_boss_combat_reward {
                 enter_boss_reward_chest(&mut next)?;
             } else {
-                let continuation = next
+                let rest_reward_leaves_room = next.reward.as_ref().is_some_and(|reward| {
+                    reward.continuation == RewardContinuation::Rest && next.rest_room_complete
+                });
+                let shop_overlay_leaves_room = next
                     .reward
                     .as_ref()
-                    .map(|reward| reward.continuation)
-                    .unwrap_or(RewardContinuation::None);
-                let rest_reward_leaves_room =
-                    continuation == RewardContinuation::Rest && next.rest_room_complete;
-                let shop_overlay_leaves_room = continuation == RewardContinuation::Shop;
-                if matches!(
-                    continuation,
-                    RewardContinuation::None
-                        | RewardContinuation::Neow
-                        | RewardContinuation::Map
-                        | RewardContinuation::Rest
-                        | RewardContinuation::Shop
-                ) {
-                    // ProceedButton opens the map without destroying the current
-                    // room screen. RETURN dismisses that overlay.
-                    next.map_overlay = Some(crate::MapOverlay { dismissable: true });
+                    .is_some_and(|reward| reward.continuation == RewardContinuation::Shop);
+                if rest_reward_leaves_room || shop_overlay_leaves_room {
+                    // Non-event reward Proceed retains COMBAT_REWARD as the
+                    // previous screen. Do not close its continuation first.
+                    next.flush_pending_obtain_cards()?;
+                    super::map_overlay::open_completed_room_map(&mut next);
                 } else {
+                    // EventRoom has a separate target close-to-dialog branch.
                     close_reward_overlay(&mut next, RewardCloseReason::Proceed)?;
-                    if rest_reward_leaves_room {
-                        next.rest_room_complete = false;
-                        next.phase = RunPhase::Idle;
-                    } else if shop_overlay_leaves_room {
-                        super::shop::leave_shop_room(&mut next);
-                    }
                 }
             }
         }
@@ -2948,9 +2891,6 @@ fn apply_validated_reward_action_owned(
             unreachable!("validated reward action")
         }
         RunAction::ChooseExhaustSelect { .. } | RunAction::ConfirmExhaustSelect => {
-            unreachable!("validated reward action")
-        }
-        RunAction::ReturnFromMap | RunAction::DismissFtue => {
             unreachable!("validated reward action")
         }
     }
@@ -3033,7 +2973,7 @@ fn close_reward_overlay(run: &mut RunState, reason: RewardCloseReason) -> SimRes
         .as_ref()
         .map(|reward| reward.continuation)
         .unwrap_or(RewardContinuation::None);
-    run.phase = match continuation {
+    let next_phase = match continuation {
         RewardContinuation::None => RunPhase::Idle,
         RewardContinuation::Rest => RunPhase::Rest,
         RewardContinuation::Event => RunPhase::Event,
@@ -3043,8 +2983,15 @@ fn close_reward_overlay(run: &mut RunState, reason: RewardCloseReason) -> SimRes
         RewardContinuation::Neow if reason == RewardCloseReason::Automatic => RunPhase::Event,
         RewardContinuation::Neow => RunPhase::Idle,
     };
-    run.reward = None;
-    run.emerald_key_reward_available = false;
+    if next_phase == RunPhase::Idle {
+        // Suspend the still-active reward owner before changing input ownership.
+        // There is no destructive close followed by state restoration.
+        super::map_overlay::open_completed_room_map(run);
+    } else {
+        run.phase = next_phase;
+        run.reward = None;
+        run.emerald_key_reward_available = false;
+    }
     if continuation == RewardContinuation::Map {
         run.treasure_room = None;
     }
@@ -3055,12 +3002,6 @@ fn close_reward_overlay(run: &mut RunState, reason: RewardCloseReason) -> SimRes
     // the combat/event reward overlay closes, matching ShowCardAndObtainEffect
     // completing before the next room frame.
     run.flush_pending_obtain_cards()
-}
-
-fn calling_bell_relic_count(reward: &RewardScreen) -> usize {
-    usize::from(reward.relic_offer.is_some())
-        + usize::from(reward.pending_relic_offer.is_some())
-        + reward.queued_relic_offers.len()
 }
 
 pub(crate) fn reward_is_empty(reward: &RewardScreen) -> bool {
@@ -3098,6 +3039,62 @@ pub(crate) fn advance_pending_relic_offer(run: &mut RunState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CardRewardFlow;
+
+    fn potion_claim_fixture() -> RunState {
+        let mut run = RunState::seeded_ironclad(7, 0);
+        run.phase = RunPhase::Reward;
+        run.event = None;
+        run.reward = Some(RewardScreen {
+            continuation: RewardContinuation::None,
+            choices: Vec::new(),
+            queued_card_rewards: Vec::new(),
+            gold_offer: 0,
+            stolen_gold_offer: 0,
+            potion_offer: Some(Potion::Fear),
+            potion_offers: Vec::new(),
+            relic_offer: None,
+            pending_relic_offer: None,
+            queued_relic_offers: Vec::new(),
+            boss_relic_choices: Vec::new(),
+            card_reward_flow: CardRewardFlow::None,
+        });
+        run
+    }
+
+    #[test]
+    fn sozu_consumes_offered_potion_without_obtain_or_rng() {
+        let mut run = potion_claim_fixture();
+        run.relics.push(Relic::Sozu);
+        let claimed = apply_run_action(&run, RunAction::TakePotionReward { index: 0 }).unwrap();
+        let mut expected = run.clone();
+        expected.reward.as_mut().unwrap().potion_offer = None;
+        assert_eq!(claimed, expected);
+        assert!(apply_run_action(&claimed, RunAction::TakePotionReward { index: 0 }).is_err());
+    }
+
+    #[test]
+    fn sozu_consumes_only_addressed_offer_and_preserves_belt() {
+        let mut run = potion_claim_fixture();
+        run.relics.push(Relic::Sozu);
+        run.potions = vec![Potion::Strength, Potion::Fear, Potion::Dexterity];
+        let reward = run.reward.as_mut().unwrap();
+        reward.potion_offer = None;
+        reward.potion_offers = vec![Potion::Strength, Potion::Fear, Potion::Dexterity];
+        let claimed = apply_run_action(&run, RunAction::TakePotionReward { index: 1 }).unwrap();
+        let mut expected = run.clone();
+        expected.reward.as_mut().unwrap().potion_offers.remove(1);
+        assert_eq!(claimed, expected);
+        assert!(apply_run_action(&run, RunAction::TakePotionReward { index: 3 }).is_err());
+    }
+
+    #[test]
+    fn full_belt_without_sozu_leaves_reward_unclaimed() {
+        let mut run = potion_claim_fixture();
+        run.potions = vec![Potion::Strength, Potion::Fear, Potion::Dexterity];
+        let claimed = apply_run_action(&run, RunAction::TakePotionReward { index: 0 }).unwrap();
+        assert_eq!(claimed, run);
+    }
 
     use crate::{
         content::cards::{
@@ -3390,31 +3387,6 @@ mod tests {
     }
 
     #[test]
-    fn calling_bell_first_proceed_opens_ftue_then_click_restores_rewards() {
-        let mut run = RunState::seeded_ironclad(7, 0);
-        run.current_room_override = Some(RoomKind::Boss);
-        run.event = None;
-        run.boss_chest_opened = true;
-        run.relics.push(Relic::CallingBell);
-        enter_calling_bell_reward_screen(&mut run);
-
-        let hidden = apply_run_action(&run, RunAction::Proceed)
-            .expect("first Proceed is intercepted by the Calling Bell FTUE");
-        assert!(hidden.calling_bell_ftue);
-        assert!(hidden.reward.is_none());
-        assert!(hidden.calling_bell_hidden_reward.is_some());
-
-        let restored = apply_run_action(&hidden, RunAction::DismissFtue)
-            .expect("CLICK restores the three relic rewards");
-        assert!(!restored.calling_bell_ftue);
-        assert!(restored.reward.is_some());
-        assert_eq!(restored.phase, RunPhase::Reward);
-        assert!(!reward_is_empty(
-            restored.reward.as_ref().expect("restored reward")
-        ));
-    }
-
-    #[test]
     fn indexed_calling_bell_relic_selection_preserves_unselected_offer_order() {
         let mut run = RunState::seeded_ironclad(7, 0);
         run.current_room_override = Some(RoomKind::Boss);
@@ -3520,6 +3492,10 @@ mod tests {
             .expect("Heart victory proceeds to TrueVictory");
         assert_eq!(complete.phase, RunPhase::Complete);
         assert_eq!(complete.current_floor, 56);
+        assert_eq!(
+            complete.terminal_outcome,
+            Some(crate::run::RunTerminalOutcome::HeartClear)
+        );
         assert!(complete.combat.is_none());
         assert!(complete.reward.is_none());
     }
@@ -4319,9 +4295,8 @@ mod tests {
         let next =
             apply_run_action(&run, RunAction::Proceed).expect("unopened chest can be skipped");
 
-        assert_eq!(next.phase, RunPhase::Treasure);
-        assert!(next.map_overlay.is_some_and(|overlay| overlay.dismissable));
-        assert!(next.treasure_room.is_some());
+        assert_eq!(next.phase, RunPhase::Idle);
+        assert!(next.treasure_room.is_none());
         assert_eq!(next.current_act, run.current_act);
         assert_eq!(next.current_floor, run.current_floor);
     }
@@ -4759,11 +4734,8 @@ mod tests {
             .is_some_and(|reward| reward.potion_offer.is_some()));
         let map_with_pending_potion = apply_run_action(&pending_potion, RunAction::Proceed)
             .expect("Colosseum reward can proceed with an unclaimed potion");
-        assert_eq!(map_with_pending_potion.phase, RunPhase::Reward);
-        assert!(map_with_pending_potion
-            .map_overlay
-            .is_some_and(|overlay| overlay.dismissable));
-        assert!(map_with_pending_potion.reward.is_some());
+        assert_eq!(map_with_pending_potion.phase, RunPhase::Idle);
+        assert!(map_with_pending_potion.reward.is_none());
 
         let opened = apply_run_action(&potion, RunAction::OpenCardReward)
             .expect("Colosseum card reward can be opened after potion");
@@ -4780,9 +4752,8 @@ mod tests {
 
         let map = apply_run_action(&empty, RunAction::Proceed)
             .expect("empty Colosseum reward proceeds to the map");
-        assert_eq!(map.phase, RunPhase::Reward);
-        assert!(map.map_overlay.is_some_and(|overlay| overlay.dismissable));
-        assert!(map.reward.is_some());
+        assert_eq!(map.phase, RunPhase::Idle);
+        assert!(map.reward.is_none());
     }
 
     #[test]

@@ -16,8 +16,8 @@ pub(crate) fn cap_player_damage_with_intangible(player: &PlayerState, amount: i3
 
 pub(crate) fn lose_player_hp(state: &mut CombatState, amount: i32) -> i32 {
     let incoming = cap_player_damage_with_intangible(&state.player, amount);
-    let mitigated = crate::relic::mitigate_hp_loss(&state.player.authority.relics, incoming);
-    let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
+    let buffered = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, incoming);
+    let hp_loss = crate::relic::mitigate_hp_loss(&state.player.authority.relics, buffered);
     state.player.hp = (state.player.hp - hp_loss).max(0);
     hp_loss
 }
@@ -26,9 +26,9 @@ pub(crate) fn lose_player_blockable_hp(state: &mut CombatState, amount: i32) -> 
     let incoming = cap_player_damage_with_intangible(&state.player, amount);
     let blocked = state.player.block.min(incoming);
     state.player.block -= blocked;
-    let mitigated =
-        crate::relic::mitigate_hp_loss(&state.player.authority.relics, incoming - blocked);
-    let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
+    let buffered =
+        crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, incoming - blocked);
+    let hp_loss = crate::relic::mitigate_hp_loss(&state.player.authority.relics, buffered);
     state.player.hp = (state.player.hp - hp_loss).max(0);
     hp_loss
 }
@@ -101,6 +101,25 @@ pub(crate) fn apply_player_card_hp_loss_hooks_queued_follow_ups(
 }
 
 #[allow(dead_code)]
+/// Reflected damage retains nominal HP-loss draws through the zero-HP frame.
+/// Draw-generated actions return to the owning card/action queue after revival.
+pub(crate) fn apply_reflected_hp_loss_hooks_with_revival(
+    state: &mut CombatState,
+    hp_loss: i32,
+) -> SimResult<Vec<crate::action::InternalAction>> {
+    if hp_loss > 0 && state.player.hp <= 0 {
+        apply_player_hp_loss_hooks_with_draw_policy(
+            state,
+            hp_loss,
+            crate::relic::HpLossDrawPolicy::DeferDraws,
+        )?;
+        crate::combat::turn::revive_player_if_available(state)?;
+        return crate::relic::settle_deferred_hp_loss_draw_relics(state);
+    }
+    apply_player_hp_loss_hooks(state, hp_loss)?;
+    Ok(Vec::new())
+}
+
 pub(crate) fn apply_player_card_hp_loss_hooks_deferred_draws(
     state: &mut CombatState,
     hp_loss: i32,

@@ -15,6 +15,7 @@ from sts_sim import (
     PotionKey,
     PowerKey,
     RelicKey,
+    ShopCardOffer,
     ShopOffer,
     ShopScreen,
 )
@@ -52,7 +53,11 @@ def _card() -> dict[str, object]:
 def _context() -> dict[str, object]:
     return {
         "ascension": 0,
+        "outcome": "ongoing",
         "act": 1,
+        "act_boss": "Hexaghost",
+        "final_act_available": False,
+        "keys": {"ruby": False, "emerald": False, "sapphire": False},
         "floor": 1,
         "gold": 99,
         "player_hp": 80,
@@ -82,6 +87,9 @@ class ContentIdentityRuntimeTest(unittest.TestCase):
                     "potion_offer": "fire",
                     "potion_offers": ("block",),
                     "relic_offer": "Anchor",
+                    "relic_offers": ({"slot": 0, "content_key": "Anchor"},),
+                    "sapphire_key_relic_slot": None,
+                    "emerald_key_offer": False,
                     "boss_relic_choices": ("Astrolabe",),
                     "card_reward_flow": "none",
                 },
@@ -129,6 +137,9 @@ class ContentIdentityRuntimeTest(unittest.TestCase):
             "potion_offer": "Fire Potion",
             "potion_offers": (),
             "relic_offer": None,
+            "relic_offers": (),
+            "sapphire_key_relic_slot": None,
+            "emerald_key_offer": False,
             "boss_relic_choices": (),
             "card_reward_flow": "none",
         }
@@ -155,7 +166,7 @@ class ContentIdentityRuntimeTest(unittest.TestCase):
         self.assertEqual(reward_hints["potion_offer"], PotionKey | None)
         self.assertEqual(reward_hints["relic_offer"], RelicKey | None)
         shop_hints = get_type_hints(ShopScreen)
-        self.assertEqual(shop_hints["cards"], tuple[ShopOffer[CardKey], ...])
+        self.assertEqual(shop_hints["cards"], tuple[ShopCardOffer, ...])
         self.assertEqual(shop_hints["relics"], tuple[ShopOffer[RelicKey], ...])
         self.assertEqual(shop_hints["potions"], tuple[ShopOffer[PotionKey], ...])
 

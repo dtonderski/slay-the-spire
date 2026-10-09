@@ -1,3 +1,13 @@
+mod numeric;
+mod vocabulary;
+
+/// The extension's Rust allocations use mimalloc. `numeric_steps` allocates heavily on
+/// several threads at once (state clones and successor exports), where glibc malloc
+/// scaled poorly. Allocation never affects gameplay: no simulator result depends on
+/// addresses. Python's and other libraries' allocations are unaffected.
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use pyo3::exceptions::{PyAttributeError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
@@ -216,12 +226,60 @@ pub struct PyState {
 #[pymethods]
 impl PyState {
     #[staticmethod]
-    #[pyo3(signature = (seed, ascension=0))]
-    fn new(seed: &str, ascension: u8) -> PyResult<Self> {
+    #[pyo3(signature = (seed, ascension=0, *, final_act=false, training_rng_seed=None))]
+    fn new(
+        seed: &str,
+        ascension: u8,
+        final_act: bool,
+        training_rng_seed: Option<u64>,
+    ) -> PyResult<Self> {
         let seed = parse_seed(seed).map_err(|error| PyValueError::new_err(error.to_string()))?;
-        let env = FairEnvironment::new_ironclad(seed, ascension)
+        let env = match training_rng_seed {
+            Some(training_seed) => FairEnvironment::new_ironclad_with_training_rng(
+                seed,
+                ascension,
+                final_act,
+                training_seed,
+            ),
+            None => FairEnvironment::new_ironclad_with_final_act(seed, ascension, final_act),
+        }
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        Ok(Self { env })
+    }
+
+    #[staticmethod]
+    #[pyo3(signature = (seed, ascension=0, hp=10000, final_act=false))]
+    fn new_synthetic(seed: &str, ascension: u8, hp: i32, final_act: bool) -> PyResult<Self> {
+        let seed = parse_seed(seed).map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let env = FairEnvironment::new_synthetic_ironclad(seed, ascension, hp, final_act)
             .map_err(|error| PyValueError::new_err(error.to_string()))?;
         Ok(Self { env })
+    }
+
+    #[staticmethod]
+    fn from_synthetic_spec(spec_json: &str) -> PyResult<Self> {
+        let spec = serde_json::from_str(spec_json)
+            .map_err(|e| PyValueError::new_err(format!("invalid synthetic specification: {e}")))?;
+        let env = FairEnvironment::from_synthetic_spec(spec).map_err(PyValueError::new_err)?;
+        Ok(Self { env })
+    }
+
+    fn synthetic_combat_root(&self, hp: i32) -> PyResult<Self> {
+        Ok(Self {
+            env: self
+                .env
+                .synthetic_combat_root(hp)
+                .map_err(|error| PyValueError::new_err(error.to_string()))?,
+        })
+    }
+
+    fn synthetic_rest_root(&self, hp: i32) -> PyResult<Self> {
+        Ok(Self {
+            env: self
+                .env
+                .synthetic_rest_root(hp)
+                .map_err(|error| PyValueError::new_err(error.to_string()))?,
+        })
     }
 
     fn clone(&self) -> Self {
@@ -238,6 +296,11 @@ impl PyState {
             .observation()
             .map_err(public_runtime_error)
             .and_then(py_observation)
+    }
+
+    /// Public context HP, without building a typed observation.
+    fn player_hp(&self) -> i32 {
+        self.env.public_player_hp()
     }
 
     fn legal_actions(&self) -> PyResult<Vec<PyAction>> {
@@ -273,6 +336,13 @@ impl PyState {
 
 #[pymodule]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(numeric::action_kind_vocabulary, module)?)?;
+    module.add_function(wrap_pyfunction!(
+        vocabulary::content_vocabulary_version,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(numeric::numeric_decisions, module)?)?;
+    module.add_function(wrap_pyfunction!(numeric::numeric_steps, module)?)?;
     module.add_class::<PyState>()?;
     module.add_class::<PyAction>()?;
     module.add_class::<PyDecision>()?;

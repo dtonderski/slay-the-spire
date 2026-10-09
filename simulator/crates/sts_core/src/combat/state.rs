@@ -30,6 +30,21 @@ use std::collections::{BTreeSet, VecDeque};
 
 pub const BASE_PLAYER_ENERGY: i32 = 3;
 
+#[cfg(test)]
+thread_local! {
+    static FULL_VALIDATION_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_full_validation_count() {
+    FULL_VALIDATION_COUNT.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn full_validation_count() -> usize {
+    FULL_VALIDATION_COUNT.with(std::cell::Cell::get)
+}
+
 /// Complete RNG state required by every authoritative combat.
 ///
 /// This is flattened into `CombatState` so snapshot field names remain stable
@@ -199,7 +214,8 @@ pub struct CombatState {
     /// Colosseum fight-two leftover EndTurn already ran callEndOfTurnActions
     /// before the ready PLAY. Flex applied on that frame must survive the
     /// following start_player_turn (FIDL01576). Other leftover ends still
-    /// expire temp strength at the next start.
+    /// expire temp strength at the next start. New Flex-potion loss applied
+    /// after Codex's old END power window also survives that intervening start.
     #[serde(default, skip_serializing_if = "is_false")]
     pub preserve_temp_strength_on_next_start: bool,
     /// Opening DrawCardAction parked behind a first-turn Toolbox choice.
@@ -259,6 +275,11 @@ pub struct CombatState {
     /// of the draw pile during the second offer frame).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_nilrys_codex_draw_inserts: Vec<crate::ContentId>,
+    /// Potion addToBot actions queued behind CodexAction and the earlier
+    /// end-turn power/orb callbacks. Kept outside the decision so parking a
+    /// multi-stage Codex choice does not drop the action queue.
+    #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
+    pub pending_nilrys_codex_potion_actions: VecDeque<InternalAction>,
     /// Dead Branch cards held across the Nilry pause until post-discard hand rebuild.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_end_turn_dead_branch_cards: Vec<CardInstance>,
@@ -286,11 +307,19 @@ pub struct CombatState {
     /// intent before its RollMoveAction ran.
     #[serde(default, skip_serializing_if = "is_false")]
     pub time_warp_duplicate_monster_queue: bool,
+    /// Internal DamageInfo context captured before Time Warp applies Strength.
+    /// A clipped gain cannot be inverted by subtracting its nominal amount.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub time_warp_pre_gain_strength: Vec<(MonsterId, i32)>,
     /// Feel No Pain / other end-turn exhaust block granted while leftover
     /// EndTurn is still flushing. The first leftover STATE can publish the
     /// discarded hand before that GainBlockAction (FIDL01727 step 821).
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub pending_end_turn_feel_no_pain_block: i32,
+    /// Privileged hand-publication queue, not fair observation data. Generated
+    /// cards stay authoritative here until their typed insertion executes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_end_turn_hand_resolution: Option<super::hand::EndOfTurnHandResolution>,
     /// The first forced Time Warp END can publish after monster turn setup and
     /// before its captured attack action; the next END resumes that action.
     #[serde(default, skip_serializing_if = "is_false")]
@@ -344,6 +373,10 @@ pub struct HandSelectState {
     /// source-specific filtered-hand settlement.
     #[serde(default, skip_serializing_if = "is_false")]
     pub dual_wield_force_exhaust: bool,
+    /// Duplication / Double Tap / Necronomicon copy of a put-on-deck card.
+    /// Confirmation must not settle or exhaust the original source.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub copy_owned: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -605,19 +638,23 @@ impl PlayerState {
     }
 
     /// `RemoveDebuffsAction`: drop debuff powers without running Flex /
-    /// LoseDexterity `atEndOfTurn`. Already-applied Strength and Dexterity stay.
+    /// LoseDexterity `atEndOfTurn`. Retain positive current stat amounts.
     pub(crate) fn remove_debuffs(&mut self) -> SimResult<()> {
-        crate::power::clear_player_debuffs(&mut self.powers);
-        self.cannot_draw = false;
-        self.no_draw_precedes_combust = false;
-        let temp_strength = std::mem::take(&mut self.temp_strength);
-        self.powers.strength =
+        // StrengthPower.type follows its actual amount, not the permanent
+        // component in our split representation. Remove the loss bookkeeping
+        // without applying its expiry, then classify the current Strength.
+        let strength =
             self.powers
                 .strength
-                .checked_add(temp_strength)
+                .checked_add(self.temp_strength)
                 .ok_or(SimError::InvalidState(
                     "combat integer addition overflows i32",
                 ))?;
+        self.powers.strength = strength;
+        self.temp_strength = 0;
+        crate::power::clear_player_debuffs(&mut self.powers);
+        self.cannot_draw = false;
+        self.no_draw_precedes_combust = false;
         self.temp_dexterity = 0;
         Ok(())
     }
@@ -974,7 +1011,7 @@ impl CombatState {
             CombatDecisionState::PotionCardReward { choices, .. }
             | CombatDecisionState::ToolboxCardReward { choices, .. }
             | CombatDecisionState::DiscoveryCardReward { choices, .. }
-            | CombatDecisionState::NilrysCodexCardReward { choices } => Some(choices),
+            | CombatDecisionState::NilrysCodexCardReward { choices, .. } => Some(choices),
             _ => None,
         }
     }
@@ -1128,14 +1165,7 @@ impl CombatState {
         if matches!(self.phase, CombatPhase::Won | CombatPhase::Lost) {
             self.decision = None;
             self.queued_decisions.clear();
-        }
-    }
-
-    pub(crate) fn queue_or_activate_decision(&mut self, decision: CombatDecisionState) {
-        if self.decision.is_some() {
-            self.queued_decisions.push_back(decision);
-        } else {
-            self.decision = Some(decision);
+            self.pending_nilrys_codex_potion_actions.clear();
         }
     }
 
@@ -1168,16 +1198,14 @@ impl CombatState {
         if ascension > 20 {
             return Err(SimError::InvalidState("combat ascension exceeds 20"));
         }
-        let state = Self::from_entry_parts(
+        Ok(Self::from_entry_parts(
             player,
             monsters,
             piles,
             relics,
             ascension,
             rng.with_trace_streams(),
-        );
-        state.validate_unique_card_piles()?;
-        Ok(state)
+        ))
     }
 
     #[must_use]
@@ -1287,6 +1315,7 @@ impl CombatState {
             resume_end_turn_after_nilrys_codex: false,
             nilrys_end_powers_pending: false,
             pending_nilrys_codex_draw_inserts: Vec::new(),
+            pending_nilrys_codex_potion_actions: VecDeque::new(),
             pending_end_turn_dead_branch_cards: Vec::new(),
             pending_end_turn_dark_embrace_draws: 0,
             pending_end_turn_juggernaut_damage: Vec::new(),
@@ -1294,7 +1323,9 @@ impl CombatState {
             time_warp_end_turn_pre_discard_settled: false,
             time_warp_end_powers_applied: false,
             time_warp_duplicate_monster_queue: false,
+            time_warp_pre_gain_strength: Vec::new(),
             pending_end_turn_feel_no_pain_block: 0,
+            pending_end_turn_hand_resolution: None,
             time_warp_pending_monster_action: false,
             defer_time_warp_end_turn: false,
         }
@@ -1365,11 +1396,22 @@ impl CombatState {
         Ok(())
     }
 
-    /// Validates invariants required by authoritative combat transitions.
+    /// Explicit structural/invariant audit for tests, snapshot restore, and
+    /// verifier/import boundaries. Ordinary constructors, legal queries, and
+    /// accepted transitions do not invoke this automatically.
     ///
     /// This check is pure: it must not advance RNG or normalize malformed
     /// imported state into a plausible state.
     pub fn validate(&self) -> SimResult<()> {
+        #[cfg(test)]
+        FULL_VALIDATION_COUNT.with(|count| count.set(count.get() + 1));
+        if self.pending_end_turn_hand_resolution.is_some()
+            && !self.time_warp_end_turn_pre_discard_settled
+        {
+            return Err(SimError::InvalidState(
+                "deferred end-turn hand callbacks have no publication marker",
+            ));
+        }
         if [
             self.rng.shuffle_rng.counter(),
             self.rng.monster_rng.counter(),
@@ -1622,6 +1664,15 @@ impl CombatState {
         // END. They must reserve instance IDs so generated wounds (Wild Strike)
         // cannot collide and later fail unique-pile validation (FIDL00222).
         cards.extend(self.pending_hidden_hand_card_until_end_turn.iter());
+        if let Some(resolution) = &self.pending_end_turn_hand_resolution {
+            cards.extend(resolution.ethereal_follow_ups.iter().filter_map(|action| {
+                if let super::hand::EtherealEndTurnFollowUp::DeadBranch(card) = action {
+                    Some(card)
+                } else {
+                    None
+                }
+            }));
+        }
         cards.extend(
             self.deferred_mayhem_play_top_settlements
                 .iter()
@@ -1691,7 +1742,7 @@ fn extend_decision_cards<'a>(cards: &mut Vec<&'a CardInstance>, decision: &'a Co
         CombatDecisionState::PotionCardReward { choices, .. }
         | CombatDecisionState::ToolboxCardReward { choices, .. }
         | CombatDecisionState::DiscoveryCardReward { choices, .. }
-        | CombatDecisionState::NilrysCodexCardReward { choices } => cards.extend(choices),
+        | CombatDecisionState::NilrysCodexCardReward { choices, .. } => cards.extend(choices),
         CombatDecisionState::DiscardSelect { state } => cards.extend(state.source_card.iter()),
         CombatDecisionState::ExhaustSelect { state } => cards.extend(state.source_card.iter()),
         CombatDecisionState::HandSelect { state, .. } => {

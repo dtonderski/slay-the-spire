@@ -37,9 +37,8 @@ use crate::{
         SPIRE_SPEAR_A0, SPIRE_SPEAR_ID, TASKMASTER_ID, WRITHING_MASS_ID,
     },
     map::{
-        apply_map_action, legal_map_actions_after_validation, reachable_nodes, validate_map_action,
-        wing_boots_reachable_nodes, wing_boots_reachable_nodes_after_validation, MapAction,
-        RoomKind, TargetMapAct,
+        apply_map_action, legal_map_actions, reachable_nodes, validate_map_action,
+        wing_boots_reachable_nodes, MapAction, RoomKind, TargetMapAct,
     },
     rng::{seed_for_floor, StsRng},
     MonsterPowers, Relic, RunPhase, RunState, SimError, SimResult,
@@ -63,14 +62,7 @@ fn current_room_kind(run: &RunState) -> Option<RoomKind> {
 }
 
 pub fn legal_map_actions_on_run(run: &RunState) -> SimResult<Vec<MapAction>> {
-    run.validate()?;
-    legal_map_actions_on_run_after_validation(run)
-}
-
-pub(crate) fn legal_map_actions_on_run_after_validation(
-    run: &RunState,
-) -> SimResult<Vec<MapAction>> {
-    if run.phase != RunPhase::Idle && run.map_overlay.is_none() {
+    if run.phase != RunPhase::Idle {
         return Ok(Vec::new());
     }
 
@@ -78,9 +70,9 @@ pub(crate) fn legal_map_actions_on_run_after_validation(
         return Ok(Vec::new());
     };
 
-    let mut actions = legal_map_actions_after_validation(map_state)?;
+    let mut actions = legal_map_actions(map_state)?;
     if run.relics.contains(&Relic::WingBoots) && run.wing_boots_charges > 0 {
-        for node_id in wing_boots_reachable_nodes_after_validation(map_state)? {
+        for node_id in wing_boots_reachable_nodes(map_state)? {
             let action = MapAction::ChooseNode { node_id };
             if !actions.contains(&action) {
                 actions.push(action);
@@ -94,12 +86,8 @@ pub(crate) fn legal_map_actions_on_run_after_validation(
 }
 
 pub fn validate_map_action_on_run(run: &RunState, action: MapAction) -> SimResult<()> {
-    run.validate()?;
-
-    if run.phase != RunPhase::Idle && run.map_overlay.is_none() {
-        return Err(SimError::IllegalAction(
-            "map actions require the map screen",
-        ));
+    if run.phase != RunPhase::Idle {
+        return Err(SimError::IllegalAction("map actions require idle phase"));
     }
 
     let map_state = run
@@ -130,19 +118,8 @@ pub(crate) fn apply_validated_map_action_on_run(
     mut next: RunState,
     action: MapAction,
 ) -> SimResult<RunState> {
-    if next.map_overlay.take().is_some() {
-        // Choosing a node leaves the previous room. Unclaimed overlay rewards
-        // are abandoned, matching Proceed-then-path on CombatRewardScreen.
-        next.event = None;
-        next.reward = None;
-        next.emerald_key_reward_available = false;
-        next.shop = None;
-        next.shop_merchant_open = false;
-        next.card_grid = None;
-        next.rest_room_complete = false;
-        next.treasure_room = None;
-        next.boss_chest_opened = false;
-    }
+    // Actual room entry, unlike opening the map, discards the old room UI.
+    next.map_room_screen = None;
     let map_state = next.map.as_ref().expect("validated map state");
     let last_room_was_shop = next.current_room_kind() == Some(RoomKind::Shop);
     let uses_wing_boots = next.relics.contains(&Relic::WingBoots)
@@ -193,6 +170,106 @@ pub(crate) fn apply_validated_map_action_on_run(
     }
 
     Ok(next)
+}
+
+/// Explicit synthetic entry, not a replay/import path. Loadout must already be installed.
+/// Uses the same spawn helpers and combat-start pipeline as ordinary room entry.
+pub fn enter_synthetic_combat(
+    run: &mut RunState,
+    kind: RoomKind,
+    encounter: &str,
+) -> SimResult<()> {
+    if run.combat.is_some() || run.phase != RunPhase::Idle {
+        return Err(SimError::InvalidState(
+            "synthetic entry requires a fresh map state",
+        ));
+    }
+    run.current_room_override = Some(kind);
+    run.reinit_room_rngs_for_floor();
+    let monsters = if run.current_act == 4 {
+        match (kind, encounter) {
+            (RoomKind::Elite, "Shield and Spear") => elite_combat_monsters_for_run(run)?,
+            (RoomKind::Boss, "Corrupt Heart") => boss_combat_monsters_for_run(run)?,
+            _ => return Err(SimError::InvalidState("unknown act four encounter")),
+        }
+    } else if kind == RoomKind::Boss {
+        match (run.current_act, encounter) {
+            (1, "Hexaghost") => run.act1_boss = crate::run::Act1Boss::Hexaghost,
+            (1, "Slime Boss") => run.act1_boss = crate::run::Act1Boss::SlimeBoss,
+            (1, "The Guardian") => run.act1_boss = crate::run::Act1Boss::Guardian,
+            (3, "Awakened One") => run.act3_boss = crate::run::Act3Boss::AwakenedOne,
+            (3, "Time Eater") => run.act3_boss = crate::run::Act3Boss::TimeEater,
+            (3, "Donu and Deca") => run.act3_boss = crate::run::Act3Boss::DonuAndDeca,
+            (2, "Automaton" | "Collector" | "Champ") => {}
+            _ => return Err(SimError::InvalidState("unknown synthetic boss")),
+        }
+        if run.current_act == 2 {
+            let id = content_id_from_game_monster_id(encounter)
+                .ok_or(SimError::InvalidState("unknown synthetic boss identity"))?;
+            let definition = get_monster_definition(id).ok_or(SimError::UnknownContent(id))?;
+            vec![monster_state_for_ascension(
+                definition,
+                crate::MonsterId::new(1),
+                run.ascension,
+            )]
+        } else {
+            boss_combat_monsters_for_run(run)?
+        }
+    } else if matches!(kind, RoomKind::Combat | RoomKind::Elite) {
+        use crate::content::encounters::*;
+        type Pool = &'static [(&'static str, f32)];
+        let (weak, strong, elites): (Pool, Pool, Pool) = match run.current_act {
+            1 => (
+                &EXORDIUM_WEAK_ENCOUNTERS,
+                &EXORDIUM_STRONG_ENCOUNTERS,
+                &EXORDIUM_ELITE_ENCOUNTERS,
+            ),
+            2 => (
+                &CITY_WEAK_ENCOUNTERS,
+                &CITY_STRONG_ENCOUNTERS,
+                &CITY_ELITE_ENCOUNTERS,
+            ),
+            3 => (
+                &BEYOND_WEAK_ENCOUNTERS,
+                &BEYOND_STRONG_ENCOUNTERS,
+                &BEYOND_ELITE_ENCOUNTERS,
+            ),
+            _ => return Err(SimError::InvalidState("unknown synthetic act")),
+        };
+        let valid = if kind == RoomKind::Elite {
+            elites.iter().any(|(key, _)| *key == encounter)
+        } else {
+            weak.iter().chain(strong).any(|(key, _)| *key == encounter)
+        };
+        if !valid {
+            return Err(SimError::InvalidState("encounter does not match room kind"));
+        }
+        let floor = encounter_floor(run)?;
+        let spawns = match run.current_act {
+            1 => crate::content::monsters::target_encounter_spawn_for_key(
+                run.event_rng_seed as i64,
+                floor,
+                encounter,
+                run.ascension,
+                false,
+            ),
+            2 => target_city_encounter_spawn_for_run(run, floor, encounter, false),
+            3 => target_beyond_encounter_spawn_for_run(run, floor, encounter, false),
+            _ => None,
+        }
+        .ok_or(SimError::InvalidState("unknown synthetic encounter"))?;
+        let mut monsters = spawns
+            .iter()
+            .enumerate()
+            .map(|(index, spawn)| target_spawn_monster_state(spawn, index, run.ascension))
+            .collect::<SimResult<Vec<_>>>()?;
+        assign_initial_gremlin_leader_slots(&mut monsters);
+        assign_initial_reptomancer_dagger_slots(&mut monsters);
+        monsters
+    } else {
+        return Err(SimError::InvalidState("synthetic room is not a combat"));
+    };
+    enter_combat_with_monsters(run, monsters)
 }
 
 fn enter_normal_combat(run: &mut RunState) -> SimResult<()> {
@@ -335,7 +412,6 @@ fn enter_combat_with_monsters(run: &mut RunState, monsters: Vec<MonsterState>) -
     let mut initialized = run.init_combat_consuming_relics(combat)?;
     initialized.rng.monster_rng = monster_rng;
     add_mark_of_pain_wounds_to_draw_pile(run, &mut initialized)?;
-    initialized.validate()?;
     run.install_combat_owner(initialized)?;
     Ok(())
 }

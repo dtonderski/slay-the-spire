@@ -5,6 +5,8 @@ mod decision_actions;
 mod defense_actions;
 mod pile_actions;
 mod player_actions;
+#[cfg(test)]
+mod post_lethal_queue_tests;
 use crate::{
     action::{CardPile, CombatAction, HpLossSource, InternalAction},
     card::{CardType, TargetRequirement},
@@ -41,6 +43,7 @@ use crate::{
     rng::JavaRng,
     CardInstance, CombatState, MonsterState, SimError, SimResult,
 };
+pub(crate) use player_actions::gain_strength_power;
 use std::collections::VecDeque;
 
 pub use super::card_effects::top_draw_card_definition;
@@ -72,7 +75,7 @@ pub struct CombatTransition {
 /// settled and the visible hand discard has completed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DeferredMonsterDeath {
-    pub(crate) stasis_card: Option<CardInstance>,
+    pub(crate) stasis_owner: Option<MonsterId>,
     pub(crate) gremlin_horn: bool,
 }
 
@@ -127,7 +130,6 @@ pub(crate) fn apply_validated_combat_action_owned(
         crate::combat::hand::discard_end_of_turn_hand(&mut transition.state)?;
         crate::combat::turn::settle_opening_end_turn_monster_and_draw(&mut transition.state)?;
     }
-    transition.state.validate()?;
     Ok(transition)
 }
 
@@ -271,7 +273,9 @@ fn apply_play_card(
     // LoseHP queued from triggerOnOtherCardPlayed), tookDamage must not see it.
     prepared.card_in_use = Some(card_id);
     let mut transition = process_internal_queue_owned(prepared, queue, record_events)?;
-    transition.state.card_in_use = None;
+    if transition.state.phase != CombatPhase::Lost {
+        transition.state.card_in_use = None;
+    }
     // Pen Nib doubles only the attack that crossed its threshold. A normal
     // card transition ends that scope after all nested effects settle; retain
     // it only while a hand/exhaust selection still owns the card-in-use
@@ -280,6 +284,23 @@ fn apply_play_card(
         transition.state.pen_nib_double_active = false;
     }
     Ok(transition)
+}
+
+fn is_post_lethal_cancelled_action(action: &InternalAction) -> bool {
+    matches!(
+        action,
+        InternalAction::DrawCards { .. }
+            | InternalAction::DrawCardsWithoutEvolve { .. }
+            | InternalAction::DrawCardsWhilePlayedCardIsInLimbo { .. }
+            | InternalAction::DrawCardsWhilePlayedCardIsInLimboWithoutEvolve { .. }
+            | InternalAction::DrawCardsFromInkBottle { .. }
+            | InternalAction::RandomizeHandCostsForSneckoOil
+            | InternalAction::GainEnergy { .. }
+            | InternalAction::GainEnergyFromPotion { .. }
+            | InternalAction::OpenPotionCardReward { .. }
+            | InternalAction::OpenElixirSelection
+            | InternalAction::OpenGamblersBrewSelection
+    )
 }
 
 pub(crate) fn process_internal_queue(
@@ -305,8 +326,12 @@ fn process_internal_queue_owned(
     let mut event_log = record_events.then(Vec::new);
 
     while let Some(internal_action) = queue.pop_front() {
-        if let InternalAction::PlayCardCopy { card_id } = internal_action {
-            if copied_card_cannot_use(&next, card_id)? {
+        if let InternalAction::PlayCardCopy {
+            card_id,
+            content_id,
+        } = internal_action
+        {
+            if copied_card_cannot_use(&next, card_id, content_id)? {
                 record_event(&mut event_log, internal_action);
                 while let Some(skipped_action) = queue.pop_front() {
                     record_event(&mut event_log, skipped_action);
@@ -376,6 +401,10 @@ fn process_internal_queue_owned(
             record_event(&mut event_log, internal_action);
             continue;
         }
+        let had_living_or_reviving_monster = next
+            .monsters
+            .iter()
+            .any(|monster| monster.alive || awakened_one_is_half_dead(monster));
         let had_hand_select = matches!(next.decision, Some(CombatDecisionState::HandSelect { .. }));
         let pain_before_reaper = matches!(
             internal_action,
@@ -403,7 +432,7 @@ fn process_internal_queue_owned(
             && next.monsters.iter().any(|monster| {
                 monster.alive && monster.content_id == crate::content::monsters::TIME_EATER_ID
             });
-        let follow_ups = if let InternalAction::PlayTopDrawCard {
+        let mut follow_ups = if let InternalAction::PlayTopDrawCard {
             target,
             exhaust_played_card,
             random_living_target,
@@ -441,9 +470,56 @@ fn process_internal_queue_owned(
             apply_internal_action_with_defer(&mut next, internal_action, defer_time_warp_card_play)?
         };
         record_event(&mut event_log, internal_action);
+        if next.player.hp <= 0 {
+            crate::combat::turn::revive_player_if_available(&mut next)?;
+            if next.player.hp <= 0 {
+                // DeathScreen isScreenUp freezes action-manager dispatch. Do
+                // not execute later Draw/GainEnergy/UseCard or copied-card work.
+                // Hand play represents cardInUse in hand until UseCardAction;
+                // materialize its limbo ownership without executing that action
+                // or its discard/exhaust callbacks at the death boundary.
+                if let Some(card_id) = next.card_in_use {
+                    if let Some(index) = next.piles.hand.iter().position(|card| card.id == card_id)
+                    {
+                        let card = next.piles.hand.remove(index);
+                        next.piles.limbo.push(card);
+                    }
+                }
+                settle_combat_end_from_current_hp(&mut next)?;
+                return Ok(CombatTransition {
+                    state: next,
+                    event_log: event_log.unwrap_or_default(),
+                });
+            }
+        }
+        // THORNS DamageAction and DamageAllEnemiesAction can complete even
+        // in an already-dead room; each completion performs another clear.
+        let completed_post_combat_clear = had_living_or_reviving_monster
+            || matches!(
+                internal_action,
+                InternalAction::DealSharpHideDamageToPlayer { .. }
+                    | InternalAction::DealThornsDamageToPlayer { .. }
+                    | InternalAction::FireBreathingDamage { .. }
+                    | InternalAction::DealDamageAll { .. }
+                    | InternalAction::DealDamageAllRepeated { .. }
+            );
+        if completed_post_combat_clear
+            && next
+                .monsters
+                .iter()
+                .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
+        {
+            // DamageAction/DamageAllEnemiesAction call clearPostCombatActions
+            // on damage completion, not on every later queue item.
+            // Remove already-queued draw, cost, energy and potion-selection
+            // actions. Heal/Block/UseCard settlement stay in their FIFO lane.
+            queue.retain(|action| !is_post_lethal_cancelled_action(action));
+            follow_ups.retain(|action| !is_post_lethal_cancelled_action(action));
+        }
         if matches!(
             internal_action,
             InternalAction::ResolveStormOfSteel { .. }
+                | InternalAction::DiscardNonAttackHandCards
                 | InternalAction::ResolveSteamBarrier { .. }
                 | InternalAction::ResolveFollowUpEnergy { .. }
         ) {
@@ -611,7 +687,10 @@ fn process_internal_queue_owned(
                     state.pending_actions.extend(queue.drain(..));
                     break;
                 }
-                Some(CombatDecisionState::DiscoveryCardReward {
+                Some(CombatDecisionState::PotionCardReward {
+                    pending_actions, ..
+                })
+                | Some(CombatDecisionState::DiscoveryCardReward {
                     pending_actions, ..
                 }) => {
                     // FIDL00233: Hex onUseCard Dazed must wait until Discovery
@@ -707,8 +786,12 @@ fn record_event(event_log: &mut Option<Vec<InternalAction>>, action: InternalAct
     }
 }
 
-fn copied_card_cannot_use(state: &CombatState, card_id: CardId) -> SimResult<bool> {
-    let definition = card_content_definition(state, card_id)?;
+fn copied_card_cannot_use(
+    state: &CombatState,
+    card_id: CardId,
+    content_id: ContentId,
+) -> SimResult<bool> {
+    let definition = copied_card_content_definition(state, card_id, content_id)?;
     let normality_blocks = state
         .piles
         .hand
@@ -748,6 +831,17 @@ fn push_follow_up(
     follow_up: InternalAction,
     whirlwind_in_use: bool,
 ) {
+    if matches!(
+        follow_up,
+        InternalAction::DealReflectedThornsDamageToPlayer { .. }
+    ) {
+        // ThornsPower.onAttacked uses addToTop. An all-enemy action completes
+        // its indexed damage loop first, then these hits dispatch in reverse
+        // insertion order before later ordinary or card-queue items.
+        queue.push_front(follow_up);
+        return;
+    }
+
     // ResolveTopDrawCard represents a parked card-queue item. The target action
     // manager drains every action already queued by the outer card—including
     // exhaust callbacks—before servicing that card queue. Keep this as a lane
@@ -773,6 +867,20 @@ fn push_follow_up(
             .iter()
             .position(|action| matches!(action, InternalAction::DealDamageAll { .. }))
         {
+            queue.insert(index, follow_up);
+            return;
+        }
+    }
+
+    if matches!(follow_up, InternalAction::ApplyTimeWarpStrengthGain) {
+        // The onAfterUseCard gain follows card.use effects but precedes source
+        // settlement/forced-turn completion. An open selector remains ahead.
+        if let Some(index) = queue.iter().position(|action| {
+            matches!(
+                action,
+                InternalAction::MoveCard { .. } | InternalAction::EndPlayTopCardResolution { .. }
+            )
+        }) {
             queue.insert(index, follow_up);
             return;
         }
@@ -1289,7 +1397,11 @@ fn is_player_selection_action(action: &InternalAction) -> bool {
             | InternalAction::AwaitDrawSelect { .. }
             | InternalAction::AwaitDiscardSelect { .. }
             | InternalAction::AwaitCopiedDiscardSelect { .. }
+            | InternalAction::AwaitCopiedHandSelect { .. }
             | InternalAction::AwaitExhaustSelect { .. }
+            | InternalAction::OpenElixirSelection
+            | InternalAction::OpenGamblersBrewSelection
+            | InternalAction::OpenPotionCardReward { .. }
             | InternalAction::OpenDiscoveryCardReward { .. }
     )
 }
@@ -1302,6 +1414,11 @@ fn checked_combat_sum(value: i32, amount: i32) -> SimResult<i32> {
 
 fn checked_add_combat_value(value: &mut i32, amount: i32) -> SimResult<()> {
     *value = checked_combat_sum(*value, amount)?;
+    Ok(())
+}
+
+fn checked_add_card_callback_monster_strength(value: &mut i32, amount: i32) -> SimResult<()> {
+    *value = checked_combat_sum(*value, amount)?.clamp(-999, 999);
     Ok(())
 }
 
@@ -1326,7 +1443,14 @@ fn apply_internal_action_with_defer(
             card_actions::play_card(state, card_id, defer_time_warp_card_play)
         }
         InternalAction::ApplyDeferredTimeWarpCardPlay => apply_deferred_time_warp_card_play(state),
-        InternalAction::PlayCardCopy { card_id } => card_actions::play_card_copy(state, card_id),
+        InternalAction::ApplyTimeWarpStrengthGain => {
+            apply_time_warp_strength_gain(state)?;
+            Ok(Vec::new())
+        }
+        InternalAction::PlayCardCopy {
+            card_id,
+            content_id,
+        } => card_actions::play_card_copy(state, card_id, content_id),
         InternalAction::SkipCopiedCardEffectsIfTargetDead { .. }
         | InternalAction::SkipCopiedCardEffectsIfCombatDone => Ok(Vec::new()),
         InternalAction::ResolvePendingMonsterReactions => {
@@ -1347,8 +1471,8 @@ fn apply_internal_action_with_defer(
         InternalAction::SetHandCardCostForCombat { card_id, cost } => {
             card_actions::set_hand_card_cost_for_combat(state, card_id, cost)
         }
-        InternalAction::ReduceHandCardCostForCombat { card_id, amount } => {
-            card_actions::reduce_hand_card_cost_for_combat(state, card_id, amount)
+        InternalAction::ReduceCardCostForCombat { card_id, amount } => {
+            card_actions::reduce_card_cost_for_combat(state, card_id, amount)
         }
         InternalAction::DealDamage { info } => damage_actions::deal_damage(state, info),
         InternalAction::PrepareCardDamage { info } => {
@@ -1397,10 +1521,25 @@ fn apply_internal_action_with_defer(
             damage_actions::deal_damage_and_gain_block_unblocked(state, info)
         }
         InternalAction::DealSharpHideDamageToPlayer { amount }
-        | InternalAction::DealThornsDamageToPlayer { amount } => {
+        | InternalAction::DealThornsDamageToPlayer { amount }
+        | InternalAction::DealReflectedThornsDamageToPlayer { amount } => {
             let relics = state.relics.clone();
             let hp_loss = reflect_spikes_to_player(&mut state.player, &relics, amount);
-            crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)?;
+            crate::combat::hp_loss::apply_reflected_hp_loss_hooks_with_revival(state, hp_loss)
+        }
+        InternalAction::OpenElixirSelection | InternalAction::OpenGamblersBrewSelection => {
+            if state.decision.is_some() {
+                return Err(SimError::InvalidState(
+                    "potion selector started before prior decision closed",
+                ));
+            }
+            if !state.piles.hand.is_empty() {
+                if matches!(action, InternalAction::OpenElixirSelection) {
+                    open_exhaust_select(state)?;
+                } else {
+                    open_gambling_chip_select(state)?;
+                }
+            }
             Ok(Vec::new())
         }
         InternalAction::HealPlayer { amount } => defense_actions::heal_player(state, amount),
@@ -1410,6 +1549,9 @@ fn apply_internal_action_with_defer(
         }
         InternalAction::GainBlockDirect { amount } => {
             defense_actions::gain_player_block_direct(state, amount)
+        }
+        InternalAction::GainBlockFromPotion { amount } => {
+            defense_actions::gain_player_block_from_potion(state, amount)
         }
         InternalAction::GainBlockFromExhaust { amount } => {
             defense_actions::gain_player_block_from_exhaust(state, amount)
@@ -1501,11 +1643,32 @@ fn apply_internal_action_with_defer(
             let to = apply_deferred_played_card_strange_spoon(state, card_id, to);
             pile_actions::move_card_between_piles(state, card_id, from, to)
         }
+        InternalAction::DiscardNonAttackHandCards => {
+            // Unload selects here, after damage and before each copied use's
+            // discards, rather than freezing IDs while its use queue is built.
+            Ok(state
+                .piles
+                .hand
+                .iter()
+                .rev()
+                .filter(|card| {
+                    !get_card_definition(card.content_id)
+                        .is_some_and(|definition| definition.card_type == CardType::Attack)
+                })
+                .map(|card| InternalAction::ManualDiscardCard { card_id: card.id })
+                .collect())
+        }
         InternalAction::ManualDiscardCard { card_id } => {
             pile_actions::manual_discard_card(state, card_id)
         }
         InternalAction::ReturnExhaustCardToHand { card_id } => {
             pile_actions::return_exhaust_card_to_hand(state, card_id)
+        }
+        InternalAction::RandomizeHandCostsForSneckoOil => {
+            let mut rng = state.rng.card_random_rng.clone();
+            crate::combat::cost::randomize_playable_hand_costs_for_snecko_oil(state, &mut rng)?;
+            state.rng.card_random_rng = rng;
+            Ok(Vec::new())
         }
         InternalAction::ForethoughtAutoMove {
             source_card_id,
@@ -1589,6 +1752,10 @@ fn apply_internal_action_with_defer(
         InternalAction::AddCardInstanceToHandOrDiscard { card } => {
             pile_actions::add_card_instance_to_hand_or_discard(state, card)
         }
+        InternalAction::ReturnMonsterStasisCard { monster_id } => {
+            return_monster_stasis_card(state, monster_id)?;
+            Ok(Vec::new())
+        }
         InternalAction::AddGeneratedCardToDrawPileRandomSpot { content_id } => {
             pile_actions::add_generated_card_to_random_draw_spot(state, content_id, None, false)
         }
@@ -1653,6 +1820,9 @@ fn apply_internal_action_with_defer(
             })
         }
         InternalAction::GainEnergy { amount } => player_actions::gain_energy(state, amount),
+        InternalAction::GainEnergyFromPotion { amount } => {
+            player_actions::gain_energy_from_potion(state, amount)
+        }
         InternalAction::LoseEnergy { amount } => player_actions::lose_energy(state, amount),
         InternalAction::LoseHp { amount, source } => player_actions::lose_hp(state, amount, source),
         InternalAction::SetCannotDraw => player_actions::set_cannot_draw(state),
@@ -1761,18 +1931,42 @@ fn apply_internal_action_with_defer(
             player_actions::gain_metallicize(state, amount)
         }
         InternalAction::GainStrength { amount } => player_actions::gain_strength(state, amount),
+        InternalAction::DoublePlayerStrength => {
+            let amount =
+                checked_combat_sum(state.player.powers.strength, state.player.temp_strength)?;
+            player_actions::gain_strength(state, amount)
+        }
         InternalAction::GainMantra { amount } => player_actions::gain_mantra(state, amount),
         InternalAction::EnterCalm => player_actions::enter_calm(state),
         InternalAction::EnterWrath => player_actions::enter_wrath(state),
         InternalAction::ExitCalm => player_actions::enter_neutral(state),
         InternalAction::DiscardToHand { card_id } => pile_actions::discard_to_hand(state, card_id),
         InternalAction::GainDexterity { amount } => player_actions::gain_dexterity(state, amount),
+        InternalAction::GainDexterityFromSpeedPotion { amount }
+        | InternalAction::GainDexterityFromPotion { amount } => {
+            player_actions::gain_dexterity_from_speed_potion(state, amount)
+        }
+        InternalAction::ApplyDexLossFromSpeedPotion { amount } => {
+            player_actions::apply_dex_loss_from_speed_potion(state, amount)
+        }
         InternalAction::GainTempStrength { amount } => {
-            player_actions::gain_temp_strength(state, amount)
+            player_actions::gain_temp_strength(state, amount).map(|()| Vec::new())
         }
         InternalAction::GainIntangible { amount } => player_actions::gain_intangible(state, amount),
         InternalAction::GainRitual { amount } => player_actions::gain_ritual(state, amount),
         InternalAction::GainArtifact { amount } => player_actions::gain_artifact(state, amount),
+        InternalAction::GainPlatedArmorFromPotion { amount } => {
+            player_actions::gain_plated_armor_from_potion(state, amount)
+        }
+        InternalAction::GainArtifactFromPotion { amount } => {
+            player_actions::gain_artifact_from_potion(state, amount)
+        }
+        InternalAction::GainStrengthFromPotion { amount } => {
+            player_actions::gain_strength_from_potion(state, amount)
+        }
+        InternalAction::ApplyStrengthLossFromFlexPotion { amount } => {
+            player_actions::apply_strength_loss_from_flex_potion(state, amount)
+        }
         InternalAction::UpgradeCombatCards => player_actions::upgrade_all_combat_cards(state),
         InternalAction::UnceasingTopDraw => {
             if state.piles.hand.is_empty() {
@@ -1860,16 +2054,18 @@ fn apply_internal_action_with_defer(
         InternalAction::AwaitCopiedDiscardSelect { purpose } => {
             decision_actions::await_copied_discard_select(state, purpose)
         }
+        InternalAction::AwaitCopiedHandSelect { purpose } => {
+            decision_actions::await_copied_hand_select(state, purpose)
+        }
         InternalAction::AwaitExhaustSelect {
             source_card_id,
             purpose,
         } => decision_actions::await_exhaust_select(state, source_card_id, purpose),
+        InternalAction::OpenPotionCardReward { reward_kind } => {
+            decision_actions::open_potion_card_reward(state, reward_kind)
+        }
         InternalAction::OpenDiscoveryCardReward { source_card_id } => {
             decision_actions::open_discovery_card_reward(state, source_card_id)
-        }
-        InternalAction::OpenGenericExhaustSelect => {
-            open_exhaust_select(state)?;
-            Ok(Vec::new())
         }
     }
 }
@@ -1934,6 +2130,19 @@ fn apply_mummified_hand_on_power_play(
     crate::combat::cost::set_card_cost_for_turn(card, 0)
 }
 
+fn apply_time_warp_strength_gain(state: &mut CombatState) -> SimResult<()> {
+    state.time_warp_pre_gain_strength = state
+        .monsters
+        .iter()
+        .filter(|monster| monster.alive)
+        .map(|monster| (monster.id, monster.powers.strength))
+        .collect();
+    for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
+        checked_add_card_callback_monster_strength(&mut monster.powers.strength, 2)?;
+    }
+    Ok(())
+}
+
 fn apply_deferred_time_warp_card_play(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
     let mut triggered = false;
     for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
@@ -1947,9 +2156,7 @@ fn apply_deferred_time_warp_card_play(state: &mut CombatState) -> SimResult<Vec<
     }
     if triggered {
         state.time_warp_end_turn = true;
-        for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
-            checked_add_combat_value(&mut monster.powers.strength, 2)?;
-        }
+        apply_time_warp_strength_gain(state)?;
     }
     Ok(Vec::new())
 }
@@ -1978,7 +2185,7 @@ fn apply_on_card_play_powers(
             && monster.mode_shift == 0
         {
             let curiosity = if state.ascension >= 19 { 2 } else { 1 };
-            checked_add_combat_value(&mut monster.powers.strength, curiosity)?;
+            checked_add_card_callback_monster_strength(&mut monster.powers.strength, curiosity)?;
         }
     }
     if defer_time_warp {
@@ -1986,11 +2193,9 @@ fn apply_on_card_play_powers(
     }
     if time_warp_triggered {
         state.time_warp_end_turn = true;
-        for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
-            // Time Warp's source power applies +2 Strength and calls the early
-            // end-turn sequence; it does not grant monster block.
-            checked_add_combat_value(&mut monster.powers.strength, 2)?;
-        }
+        // ApplyPowerAction is queued after the card's use effects. In
+        // particular, Disarm must reduce Strength before this capped gain.
+        follow_ups.push(InternalAction::ApplyTimeWarpStrengthGain);
     }
 
     if card_type == CardType::Attack {
@@ -2181,7 +2386,11 @@ fn deal_attack_damage_to_all_living(
         if !still_alive {
             defeated_targets.push(target);
         }
-        apply_or_queue_spikes_to_player(state, monster_content_id, spikes)?;
+        follow_ups.extend(apply_or_queue_spikes_to_player(
+            state,
+            monster_content_id,
+            spikes,
+        )?);
     }
 
     for target in defeated_targets {
@@ -2195,19 +2404,16 @@ fn deal_attack_damage_to_all_living(
 }
 
 fn apply_or_queue_spikes_to_player(
-    state: &mut CombatState,
+    _state: &mut CombatState,
     monster_content_id: ContentId,
     spikes: i32,
-) -> SimResult<()> {
-    if spikes <= 0 {
-        return Ok(());
+) -> SimResult<Vec<InternalAction>> {
+    if spikes <= 0 || monster_content_id == GUARDIAN_ID {
+        return Ok(Vec::new());
     }
-    if monster_content_id == GUARDIAN_ID {
-        return Ok(());
-    }
-    let relics = state.relics.clone();
-    let hp_loss = reflect_spikes_to_player(&mut state.player, &relics, spikes);
-    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)
+    Ok(vec![InternalAction::DealReflectedThornsDamageToPlayer {
+        amount: spikes,
+    }])
 }
 
 fn push_attack_block_follow_ups(
@@ -2329,15 +2535,14 @@ pub(crate) fn queue_monster_death_hooks(
     state: &mut CombatState,
     monster_id: MonsterId,
 ) -> SimResult<Vec<InternalAction>> {
-    let stasis_card = state
-        .monsters
-        .iter_mut()
-        .find(|monster| monster.id == monster_id)
-        .and_then(|monster| monster.stasis_card.take());
+    // Keep the physical card owned by Stasis until its queued return. Taking
+    // it into an action payload here hides its ID from intervening generation
+    // (synthetic seed 142376: lethal Wild Strike reused the held card's ID).
+    let stasis_owner = monster_stasis_owner(state, monster_id);
     apply_monster_death_non_stasis_hooks(state, monster_id)?;
-    let mut follow_ups = stasis_card
+    let mut follow_ups = stasis_owner
         .into_iter()
-        .map(|card| InternalAction::AddCardInstanceToHandOrDiscard { card })
+        .map(|monster_id| InternalAction::ReturnMonsterStasisCard { monster_id })
         .collect::<Vec<_>>();
     // GremlinHorn.onMonsterDeath addToBots GainEnergy + Draw at the death
     // inside DamageAll / the lethal hit, after the already-queued UseCardAction
@@ -2360,22 +2565,39 @@ pub(crate) fn queue_end_turn_monster_death(
     monster_id: MonsterId,
     deferred: &mut Vec<DeferredMonsterDeath>,
 ) -> SimResult<()> {
-    let stasis_card = state
-        .monsters
-        .iter_mut()
-        .find(|monster| monster.id == monster_id)
-        .and_then(|monster| monster.stasis_card.take());
+    let stasis_owner = monster_stasis_owner(state, monster_id);
     apply_monster_death_non_stasis_hooks(state, monster_id)?;
     let gremlin_horn = combat_continues_after_monster_death(state)
         && state.player.authority.relics.contains(&Relic::GremlinHorn);
     if combat_continues_after_monster_death(state) {
         deferred.push(DeferredMonsterDeath {
-            stasis_card,
+            stasis_owner,
             gremlin_horn,
         });
-    } else if let Some(card) = stasis_card {
-        release_deferred_stasis_card(state, card);
+    } else if let Some(monster_id) = stasis_owner {
+        return_monster_stasis_card(state, monster_id)?;
     }
+    Ok(())
+}
+
+fn monster_stasis_owner(state: &CombatState, monster_id: MonsterId) -> Option<MonsterId> {
+    state
+        .monsters
+        .iter()
+        .find(|monster| monster.id == monster_id && monster.stasis_card.is_some())
+        .map(|monster| monster.id)
+}
+
+fn return_monster_stasis_card(state: &mut CombatState, monster_id: MonsterId) -> SimResult<()> {
+    let card = state
+        .monsters
+        .iter_mut()
+        .find(|monster| monster.id == monster_id)
+        .and_then(|monster| monster.stasis_card.take())
+        .ok_or(SimError::InvalidState(
+            "queued Stasis return has no held card",
+        ))?;
+    release_deferred_stasis_card(state, card);
     Ok(())
 }
 
@@ -2393,8 +2615,8 @@ pub(crate) fn resolve_deferred_end_turn_monster_deaths(
 ) -> SimResult<()> {
     let mut queue = VecDeque::new();
     for death in deferred {
-        if let Some(card) = death.stasis_card {
-            queue.push_back(InternalAction::AddCardInstanceToHandOrDiscard { card });
+        if let Some(monster_id) = death.stasis_owner {
+            queue.push_back(InternalAction::ReturnMonsterStasisCard { monster_id });
         }
         if death.gremlin_horn {
             queue.push_back(InternalAction::ApplyGremlinHornOnDeath);
@@ -2591,12 +2813,13 @@ pub(crate) fn apply_orb_end_of_turn_passives(state: &mut CombatState) -> SimResu
 }
 
 /// StaticDischargePower.onAttacked: Channel Lightning `amount` times when the
-/// player takes unblocked attack damage (not Thorns / HP_LOSS).
+/// post-block/post-Buffer normal damage is positive (not Thorns / HP_LOSS),
+/// even when later relic callbacks reduce final HP loss to zero.
 pub(crate) fn apply_static_discharge_on_attacked(
     state: &mut CombatState,
-    hp_damage: i32,
+    on_attacked_damage: i32,
 ) -> SimResult<()> {
-    if hp_damage <= 0 || state.player.powers.static_discharge <= 0 {
+    if on_attacked_damage <= 0 || state.player.powers.static_discharge <= 0 {
         return Ok(());
     }
     for _ in 0..state.player.powers.static_discharge {
@@ -2655,6 +2878,7 @@ fn apply_player_card_block_gain(
     }
     let gained = calculate_block(amount, state.player.powers);
     checked_add_combat_value(&mut state.player.block, gained)?;
+    state.player.block = state.player.block.min(999);
     Ok(juggernaut_follow_up_for_positive_block_gain(state, gained))
 }
 
@@ -2666,7 +2890,7 @@ pub(crate) fn apply_player_direct_block_gain_without_juggernaut(
     // ordinary card GainBlock path remains suppressed by that power.
     // The target runtime uses signed 32-bit arithmetic. Authoritative combat
     // transitions validate that block remains nonnegative before returning.
-    state.player.block = state.player.block.wrapping_add(amount);
+    state.player.block = state.player.block.wrapping_add(amount).min(999);
     Ok(())
 }
 
@@ -2689,6 +2913,7 @@ pub(crate) fn apply_player_end_turn_automatic_block_gain(
     // power hooks; Frail modifies card block, not these automatic callbacks.
     let gained = amount.max(0);
     checked_add_combat_value(&mut state.player.block, gained)?;
+    state.player.block = state.player.block.min(999);
     apply_juggernaut_after_direct_block_gain(state, gained)
 }
 
@@ -2782,6 +3007,27 @@ pub(crate) fn apply_on_exhaust_effects_for_end_turn(
     card_id: CardId,
 ) -> SimResult<Option<i32>> {
     apply_on_exhaust_effects_inner(state, card_id, false, true, true)
+}
+
+pub(crate) fn apply_on_exhaust_effects_for_end_turn_deferred_block(
+    state: &mut CombatState,
+    card_id: CardId,
+) -> SimResult<()> {
+    apply_on_exhaust_effects_inner(state, card_id, false, false, true).map(|_| ())
+}
+
+/// A pending GainBlockAction uses live block and emits nominal-positive
+/// Juggernaut damage; never recover its amount from a clipped state delta.
+pub(crate) fn apply_deferred_end_turn_exhaust_block(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Option<i32>> {
+    checked_add_combat_value(&mut state.player.block, amount)?;
+    state.player.block = state.player.block.min(999);
+    Ok(
+        (amount > 0 && state.player.powers.juggernaut > 0)
+            .then_some(state.player.powers.juggernaut),
+    )
 }
 
 fn apply_on_exhaust_effects_except_bot_queued_powers(
@@ -3389,7 +3635,10 @@ fn apply_enrage_on_card_type(state: &mut CombatState, card_type: CardType) -> Si
         if get_monster_definition(monster.content_id).is_some_and(|definition| {
             definition.enrage_weak_on_skill > 0 && monster.powers.anger > 0
         }) {
-            checked_add_combat_value(&mut monster.powers.strength, monster.powers.anger)?;
+            checked_add_card_callback_monster_strength(
+                &mut monster.powers.strength,
+                monster.powers.anger,
+            )?;
         }
     }
     Ok(())
@@ -3501,7 +3750,12 @@ fn upgrade_hand_cards_except(state: &mut CombatState, excluded_card_id: CardId) 
 
 fn upgrade_hand_card(state: &mut CombatState, card_id: CardId) -> SimResult<()> {
     let card = find_hand_card_mut(state, card_id)?;
-    *card = upgrade_card_instance(*card)?.ok_or(SimError::IllegalAction("card cannot upgrade"))?;
+    // ArmamentsAction / AbstractCard.upgrade() no-op when canUpgrade() is false.
+    // A DuplicationPower copy of singleton Armaments keeps the original target
+    // id after that card is already upgraded.
+    if let Some(upgraded) = upgrade_card_instance(*card)? {
+        *card = upgraded;
+    }
     Ok(())
 }
 
@@ -3623,11 +3877,19 @@ fn is_play_top_deferred_power_gain(action: &InternalAction) -> bool {
             | InternalAction::IncreaseMaxOrbs { .. }
             | InternalAction::GainMetallicize { .. }
             | InternalAction::GainStrength { .. }
+            | InternalAction::DoublePlayerStrength
             | InternalAction::GainDexterity { .. }
+            | InternalAction::GainDexterityFromSpeedPotion { .. }
+            | InternalAction::GainDexterityFromPotion { .. }
+            | InternalAction::GainPlatedArmorFromPotion { .. }
+            | InternalAction::ApplyDexLossFromSpeedPotion { .. }
             | InternalAction::GainTempStrength { .. }
             | InternalAction::GainIntangible { .. }
             | InternalAction::GainRitual { .. }
             | InternalAction::GainArtifact { .. }
+            | InternalAction::GainArtifactFromPotion { .. }
+            | InternalAction::GainStrengthFromPotion { .. }
+            | InternalAction::ApplyStrengthLossFromFlexPotion { .. }
             | InternalAction::GainRage { .. }
     )
 }
@@ -4033,13 +4295,14 @@ pub fn confirm_hand_select_with_time_warp_policy(
     let (hand_select, pending_actions) = state
         .take_hand_select()
         .ok_or(SimError::IllegalAction("no hand select is open"))?;
-    let source_settlement_after_pending = matches!(
-        hand_select.purpose,
-        HandSelectPurpose::WarcryPutOnDraw
-            | HandSelectPurpose::ThinkingAheadPutOnDraw
-            | HandSelectPurpose::ForethoughtPutOnDraw
-            | HandSelectPurpose::ForethoughtPutAnyOnDraw
-    );
+    let source_settlement_after_pending = !hand_select.copy_owned
+        && matches!(
+            hand_select.purpose,
+            HandSelectPurpose::WarcryPutOnDraw
+                | HandSelectPurpose::ThinkingAheadPutOnDraw
+                | HandSelectPurpose::ForethoughtPutOnDraw
+                | HandSelectPurpose::ForethoughtPutAnyOnDraw
+        );
     let mut handled_dead_branch_count = 0;
     match hand_select.purpose {
         HandSelectPurpose::WarcryPutOnDraw => {
@@ -4113,6 +4376,7 @@ pub fn confirm_hand_select_with_time_warp_policy(
     } else {
         (pending_actions, VecDeque::new())
     };
+    let (pending_before_source, copied_effects) = split_copied_card_pending(pending_before_source);
     resume_actions_after_hand_select(state, pending_before_source)?;
     if source_settlement_after_pending {
         // UseCardAction exhaust is addToBot Feel No Pain, Dead Branch, then
@@ -4128,8 +4392,12 @@ pub fn confirm_hand_select_with_time_warp_policy(
         if state.piles.hand.is_empty() {
             apply_unceasing_top_after_hand_emptied(state)?;
         }
+        // GameActionManager services the DuplicationPower card-queue item only
+        // after UseCardAction drains.
+        resume_actions_after_hand_select(state, copied_effects)?;
     } else {
         resume_actions_after_hand_select(state, pending_after_source)?;
+        resume_actions_after_hand_select(state, copied_effects)?;
     }
     state.activate_next_queued_decision_if_idle();
     if settle_time_warp {
@@ -4257,8 +4525,31 @@ pub fn settle_time_warp_end_turn_if_ready_public(state: &mut CombatState) -> Sim
 pub fn settle_queued_end_turn_discard_after_rejected_command(
     state: &mut CombatState,
 ) -> SimResult<()> {
+    let mut next = state.clone();
+    settle_queued_end_turn_discard_in_place(&mut next)?;
+    *state = next;
+    Ok(())
+}
+
+fn settle_queued_end_turn_discard_in_place(state: &mut CombatState) -> SimResult<()> {
+    if state.decision.is_some()
+        && (state.opening_end_turn_pending || state.resume_end_turn_after_nilrys_codex)
+    {
+        return Err(SimError::IllegalAction(
+            "end-turn publication requires a closed selection",
+        ));
+    }
+    if (state.opening_end_turn_pending || state.resume_end_turn_after_nilrys_codex)
+        && state.pending_end_turn_hand_resolution.is_some()
+    {
+        return Err(SimError::InvalidState(
+            "deferred end-turn hand callbacks already occupied",
+        ));
+    }
     if state.opening_end_turn_pending {
-        crate::combat::hand::resolve_end_of_turn_hand(state)?;
+        let resolution =
+            crate::combat::hand::resolve_end_of_turn_hand_with_deferred_callbacks(state)?;
+        state.pending_end_turn_hand_resolution = Some(resolution);
         crate::combat::hand::discard_end_of_turn_hand(state)?;
         state.opening_end_turn_pending = false;
         state.time_warp_end_turn_pre_discard_settled = true;
@@ -4267,16 +4558,11 @@ pub fn settle_queued_end_turn_discard_after_rejected_command(
     if state.resume_end_turn_after_nilrys_codex {
         // FrailPower.atEndOfRound waits for leftover takeTurn (FIDL01807
         // discarded-hand STATE after a rejected PLAY still shows Frail 5).
-        let frail_before = state.player.powers.frail;
+        // The combat-backed end-power helper does not tick Frail.
         crate::combat::turn::apply_pending_nilry_end_powers(state)?;
-        state.player.powers.frail = frail_before;
-        let block_before = state.player.block;
-        crate::combat::hand::resolve_end_of_turn_hand(state)?;
-        let gained = state.player.block.saturating_sub(block_before);
-        state.player.block = block_before;
-        state.pending_end_turn_feel_no_pain_block = state
-            .pending_end_turn_feel_no_pain_block
-            .saturating_add(gained);
+        let resolution =
+            crate::combat::hand::resolve_end_of_turn_hand_with_deferred_callbacks(state)?;
+        state.pending_end_turn_hand_resolution = Some(resolution);
         crate::combat::hand::discard_end_of_turn_hand(state)?;
         state.resume_end_turn_after_nilrys_codex = false;
         state.nilrys_end_powers_pending = false;
@@ -4405,15 +4691,23 @@ pub fn confirm_hand_select_without_retrieval(state: &mut CombatState) -> SimResu
 
             let (pending_before_source, pending_after_source) =
                 partition_put_on_deck_source_pending(pending_actions);
+            let (pending_before_source, copied_effects) =
+                split_copied_card_pending(pending_before_source);
             resume_actions_after_hand_select(state, pending_before_source)?;
             let previous_defer_time_warp = state.defer_time_warp_end_turn;
             state.defer_time_warp_end_turn = true;
-            let handled_dead_branch_count = move_delayed_played_source_with_bot_exhaust_queue(
-                state,
-                hand_select.source_card_id,
-                pending_after_source,
-                hand_select.dual_wield_force_exhaust,
-            )?;
+            let handled_dead_branch_count = if hand_select.copy_owned {
+                resume_actions_after_hand_select(state, pending_after_source)?;
+                0
+            } else {
+                move_delayed_played_source_with_bot_exhaust_queue(
+                    state,
+                    hand_select.source_card_id,
+                    pending_after_source,
+                    hand_select.dual_wield_force_exhaust,
+                )?
+            };
+            resume_actions_after_hand_select(state, copied_effects)?;
             state.defer_time_warp_end_turn = previous_defer_time_warp;
             state.activate_next_queued_decision_if_idle();
             settle_time_warp_end_turn_if_ready(state)?;
@@ -4507,6 +4801,24 @@ fn resume_actions_after_hand_select(
     let transition = process_internal_queue(state, pending_actions)?;
     *state = transition.state;
     Ok(())
+}
+
+fn split_copied_card_pending(
+    mut pending_actions: VecDeque<InternalAction>,
+) -> (VecDeque<InternalAction>, VecDeque<InternalAction>) {
+    let index = pending_actions.iter().position(|action| {
+        matches!(
+            action,
+            InternalAction::SkipCopiedCardEffectsIfTargetDead { .. }
+                | InternalAction::SkipCopiedCardEffectsIfCombatDone
+                | InternalAction::PlayCardCopy { .. }
+        )
+    });
+    let Some(index) = index else {
+        return (pending_actions, VecDeque::new());
+    };
+    let copied = pending_actions.split_off(index);
+    (pending_actions, copied)
 }
 
 fn partition_put_on_deck_source_pending(
@@ -5277,7 +5589,7 @@ fn forethought_source_definition(
     card_content_definition(state, source_card_id)
 }
 
-fn move_forethought_selected_card_to_draw_bottom(
+pub(super) fn move_forethought_selected_card_to_draw_bottom(
     state: &mut CombatState,
     card_id: CardId,
 ) -> SimResult<()> {
@@ -6139,7 +6451,7 @@ pub(crate) fn confirm_exhaust_select_with_dead_branch_count(
             confirm_true_grit_select(state, exhaust_select)?;
         }
         crate::combat::ExhaustSelectPurpose::RecycleExhaustOne => {
-            confirm_recycle_select(state, exhaust_select)?;
+            dead_branch_count = confirm_recycle_select(state, exhaust_select)?;
         }
         crate::combat::ExhaustSelectPurpose::Exhaust => {
             let selected =
@@ -6352,7 +6664,7 @@ fn confirm_true_grit_select(
 fn confirm_recycle_select(
     state: &mut CombatState,
     exhaust_select: crate::combat::ExhaustSelectState,
-) -> SimResult<()> {
+) -> SimResult<usize> {
     let selected = unique_selected_indices_in_choice_order(exhaust_select.selected_hand_indices);
     let target_index = selected
         .first()
@@ -6362,23 +6674,51 @@ fn confirm_recycle_select(
         return Err(SimError::IllegalAction("exhaust select index out of range"));
     }
     let target_card = state.piles.hand.remove(target_index);
-    let target_cost = effective_card_cost(&target_card)?;
+    // RecycleAction.update queues current energy for costForTurn == -1,
+    // positive costForTurn otherwise, and nothing for unplayable/zero costs.
+    // Capture before exhaust callbacks, which may themselves alter energy.
+    let energy_gain = match effective_card_cost(&target_card)? {
+        -1 => state.player.energy,
+        // CorruptionPower.onCardDraw sets nonnegative Skill costForTurn to
+        // zero. AbstractCard.setCostForTurn leaves X/unplayable sentinels alone.
+        cost if cost > 0
+            && state.player.powers.corruption > 0
+            && get_card_definition(target_card.content_id)
+                .is_some_and(|definition| definition.card_type == CardType::Skill) =>
+        {
+            0
+        }
+        cost => cost.max(0),
+    };
     state.piles.exhaust_pile.push(target_card);
-    apply_on_exhaust_effects(state, target_card.id)?;
+    // Settle Dead Branch here for both automatic and selected Recycle. Report
+    // its count so the run-level selection fallback cannot generate it twice.
+    let mut dead_branch_count = apply_purity_card_exhausted(state, target_card.id)?;
     state.player.energy = state
         .player
         .energy
-        .checked_add(target_cost)
+        .checked_add(energy_gain)
         .ok_or(SimError::InvalidState("Recycle energy gain overflows i32"))?;
-    if let Some(source_card) = exhaust_select.source_card {
-        state.piles.discard_pile.push(source_card);
-    } else if let Some(source_card_id) = exhaust_select.source_card_id {
-        move_card(state, source_card_id, CardPile::Hand, CardPile::DiscardPile)?;
+    // The selected source is held outside the piles on ordinary hand play.
+    // Forced top-deck play may already have settled it before this screen;
+    // source_card == None then means there is nothing left to move.
+    if let Some(source) = exhaust_select.source_card {
+        let definition = get_card_definition(source.content_id)
+            .ok_or(SimError::UnknownContent(source.content_id))?;
+        let destination = if exhaust_select.source_card_force_exhaust {
+            forced_source_card_destination(state, definition)
+        } else {
+            delayed_source_card_destination(state, definition)
+        };
+        push_card_to_pile(state, source, destination);
+        if destination == CardPile::ExhaustPile {
+            dead_branch_count += apply_purity_card_exhausted(state, source.id)?;
+        }
     }
     if state.piles.hand.is_empty() {
         apply_unceasing_top_after_hand_emptied(state)?;
     }
-    Ok(())
+    Ok(dead_branch_count)
 }
 
 /// True Grit ExhaustAction skipped-retrieval (force-played True Grit+).
@@ -6474,6 +6814,14 @@ fn confirm_burning_pact_select(
     if card.id == source_card_id {
         return Err(SimError::IllegalAction("Burning Pact cannot select itself"));
     }
+    // take_exhaust_select moved this physical source out of state ownership.
+    // Deferred PlayTop resolutions temporarily replace card_in_use, so that
+    // marker alone cannot reserve the source ID during nested card generation.
+    // Keep it in limbo until the existing UseCardAction settlement boundary;
+    // publishing it to discard early would change intervening shuffle inputs.
+    if let Some(source_card) = exhaust_select.source_card {
+        state.piles.limbo.push(source_card);
+    }
     // Normal Burning Pact exhausts the selected card immediately (including
     // Havoc / Mayhem / Distilled Chaos top-draw plays where source_card is
     // already gone). FIDL00221 step 1274 shows Bash+Burning Pact both in
@@ -6538,6 +6886,13 @@ fn confirm_burning_pact_select(
     // discard pile. Under Corruption (or Exhaust), source on-exhaust callbacks
     // are queued behind those already-pending Evolve draws (FIDL00425).
     if let Some(source_card) = exhaust_select.source_card {
+        let source_index = state
+            .piles
+            .limbo
+            .iter()
+            .position(|card| card.id == source_card.id)
+            .ok_or(SimError::UnknownCard(source_card.id))?;
+        let source_card = state.piles.limbo.remove(source_index);
         let definition = get_card_definition(source_card.content_id)
             .ok_or(SimError::UnknownContent(source_card.content_id))?;
         let destination = if exhaust_select.source_card_force_exhaust {
@@ -6789,8 +7144,20 @@ fn confirm_purity_select(
     if let Some(source_card) = exhaust_select.source_card {
         state.piles.limbo.push(source_card);
     }
+    // ExhaustAction.update still owns every selected card while it exhausts
+    // them one at a time. Park the remaining selections in limbo so a callback
+    // (Dead Branch, Hex, draws) cannot allocate a not-yet-exhausted card's id.
+    // Do not publish all selections as exhausted ahead of their callbacks.
+    state.piles.limbo.extend(exhausted.iter().copied());
     let mut dead_branch_count = 0;
     for card in exhausted {
+        let index = state
+            .piles
+            .limbo
+            .iter()
+            .position(|held| held.id == card.id)
+            .ok_or(SimError::UnknownCard(card.id))?;
+        let card = state.piles.limbo.remove(index);
         state.piles.exhaust_pile.push(card);
         dead_branch_count += apply_purity_card_exhausted(state, card.id)?;
     }
@@ -7109,9 +7476,24 @@ fn card_content_definition(
         .chain(state.piles.discard_pile.iter())
         .chain(state.piles.draw_pile.iter())
         .chain(state.piles.exhaust_pile.iter())
+        .chain(state.piles.limbo.iter())
         .find(|card| card.id == card_id)
         .and_then(|card| get_card_definition(card.content_id))
         .ok_or(SimError::UnknownCard(card_id))
+}
+
+fn copied_card_content_definition(
+    state: &CombatState,
+    card_id: CardId,
+    content_id: ContentId,
+) -> SimResult<&'static crate::card::CardDefinition> {
+    // DuplicationPower/DoubleTapPower/EchoPower copies are makeSameInstanceOf
+    // purgeOnUse cards. Identity is the copy's content, not a live original.
+    if let Some(definition) = get_card_definition(content_id) {
+        Ok(definition)
+    } else {
+        card_content_definition(state, card_id)
+    }
 }
 
 fn find_hand_card_mut(state: &mut CombatState, card_id: CardId) -> SimResult<&mut CardInstance> {
@@ -7236,13 +7618,14 @@ fn move_card(
 }
 
 fn upgrade_combat_cards(state: &mut CombatState) -> SimResult<()> {
-    // Apotheosis.use upgrades hand, draw, and discard only — not exhaust.
+    // ApotheosisAction.update upgrades hand, draw, discard, and exhaust.
     let upgrades = state
         .piles
         .hand
         .iter()
         .chain(state.piles.draw_pile.iter())
         .chain(state.piles.discard_pile.iter())
+        .chain(state.piles.exhaust_pile.iter())
         .map(|card| Ok((card.id, upgrade_card_instance(*card)?)))
         .collect::<SimResult<Vec<_>>>()?;
     for (card_id, upgraded) in upgrades {
@@ -7252,6 +7635,9 @@ fn upgrade_combat_cards(state: &mut CombatState) -> SimResult<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod deferred_hand_tests;
 
 #[cfg(test)]
 mod tests {
@@ -7266,6 +7652,51 @@ mod tests {
     use crate::rng::StsRng;
     use crate::run::potion::apply_exhaust_select_choice;
     use crate::{apply_combat_action_on_run, legal_combat_actions, RunState};
+
+    #[test]
+    fn speed_potion_pair_is_classified_as_apply_power_actions() {
+        for action in [
+            InternalAction::GainDexterityFromSpeedPotion { amount: 5 },
+            InternalAction::ApplyDexLossFromSpeedPotion { amount: 5 },
+        ] {
+            assert!(is_play_top_deferred_power_gain(&action));
+        }
+    }
+
+    #[test]
+    fn ancient_potion_is_classified_as_apply_power_action() {
+        assert!(is_play_top_deferred_power_gain(
+            &InternalAction::GainArtifactFromPotion { amount: 1 }
+        ));
+    }
+
+    #[test]
+    fn strength_potion_is_classified_as_apply_power_action() {
+        assert!(is_play_top_deferred_power_gain(
+            &InternalAction::GainStrengthFromPotion { amount: 2 }
+        ));
+    }
+
+    #[test]
+    fn flex_potion_loss_is_classified_as_apply_power_action() {
+        assert!(is_play_top_deferred_power_gain(
+            &InternalAction::ApplyStrengthLossFromFlexPotion { amount: 5 }
+        ));
+    }
+
+    #[test]
+    fn dexterity_potion_is_classified_as_apply_power_action() {
+        assert!(is_play_top_deferred_power_gain(
+            &InternalAction::GainDexterityFromPotion { amount: 2 }
+        ));
+    }
+
+    #[test]
+    fn steel_potion_is_classified_as_apply_power_action() {
+        assert!(is_play_top_deferred_power_gain(
+            &InternalAction::GainPlatedArmorFromPotion { amount: 4 }
+        ));
+    }
 
     #[test]
     fn no_event_path_matches_recording_path() {
@@ -7900,6 +8331,51 @@ mod tests {
     }
 
     #[test]
+    fn true_grit_plus_shortcut_checks_live_hand_after_a_preceding_draw() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), crate::content::cards::TRUE_GRIT_PLUS_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+        ];
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(3), DEFEND_R_ID)];
+        let mut queue =
+            crate::combat::card_effects::play_card_queue_in_place(&mut state, CardId::new(1), None)
+                .unwrap();
+        // Synthetic queue invariant: the hand can change between card.use()
+        // and ExhaustAction.update(), which checks its live size.
+        queue.push_front(InternalAction::DrawCards { count: 1 });
+        let next = process_internal_queue(&state, queue).unwrap().state;
+        assert!(matches!(
+            next.decision,
+            Some(CombatDecisionState::ExhaustSelect { .. })
+        ));
+        assert_eq!(next.piles.hand.len(), 2);
+        assert!(next.piles.exhaust_pile.is_empty());
+    }
+
+    #[test]
+    fn true_grit_plus_singleton_auto_exhausts_without_a_screen_or_rng() {
+        let mut state = CombatState::initial_fixture();
+        state.piles.hand = vec![
+            CardInstance::new(CardId::new(1), crate::content::cards::TRUE_GRIT_PLUS_ID),
+            CardInstance::new(CardId::new(2), STRIKE_R_ID),
+        ];
+        let counter = state.rng.card_random_rng.counter();
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .unwrap();
+        assert!(next.decision.is_none());
+        assert_eq!(next.piles.exhaust_pile[0].id, CardId::new(2));
+        assert_eq!(next.piles.discard_pile[0].id, CardId::new(1));
+        assert_eq!(next.rng.card_random_rng.counter(), counter);
+    }
+
+    #[test]
     fn prismatic_piercing_wail_shackles_all_living_enemies() {
         // PiercingWail.use applies StrengthPower(-6) + GainStrengthPower(6)
         // to every monster.
@@ -7929,6 +8405,16 @@ mod tests {
         assert_eq!(next.monsters[0].temp_strength_down, 6);
         assert_eq!(next.monsters[1].powers.strength, -6);
         assert_eq!(next.monsters[1].temp_strength_down, 6);
+        assert!(next
+            .piles
+            .exhaust_pile
+            .iter()
+            .any(|card| card.id == CardId::new(1)));
+        assert!(!next
+            .piles
+            .discard_pile
+            .iter()
+            .any(|card| card.id == CardId::new(1)));
         assert_eq!(next.player.energy, 2);
     }
 
@@ -9404,7 +9890,7 @@ mod tests {
     }
 
     #[test]
-    fn sentinel_energy_overflow_fails_closed_at_the_combat_action_boundary() {
+    fn sentinel_energy_overflow_is_rejected_by_the_explicit_validator() {
         let mut state = CombatState::initial_fixture();
         state.player.energy = i32::MAX;
         state.piles.hand = vec![
@@ -9412,14 +9898,16 @@ mod tests {
             CardInstance::new(CardId::new(2), SENTINEL_ID),
         ];
 
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("ordinary apply does not structurally scan successors");
         assert_eq!(
-            apply_combat_action(
-                &state,
-                CombatAction::PlayCard {
-                    card_id: CardId::new(1),
-                    target: None,
-                },
-            ),
+            next.validate(),
             Err(SimError::InvalidState(
                 "combat player block or energy is negative"
             ))
@@ -9572,18 +10060,20 @@ mod tests {
     }
 
     #[test]
-    fn sundial_counter_overflow_fails_closed_at_the_combat_action_boundary() {
+    fn sundial_counter_overflow_is_rejected_by_the_explicit_validator() {
         let mut state = shuffle_trigger_state(Relic::Sundial);
         state.sundial_shuffles = i32::MAX as u32;
 
+        let next = apply_combat_action(
+            &state,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("ordinary apply does not structurally scan successors");
         assert_eq!(
-            apply_combat_action(
-                &state,
-                CombatAction::PlayCard {
-                    card_id: CardId::new(1),
-                    target: None,
-                },
-            ),
+            next.validate(),
             Err(SimError::InvalidState(
                 "combat relic counter is outside its stable range"
             ))
@@ -10890,8 +11380,93 @@ mod tests {
         )
         .expect("Pommel Strike+ should play");
 
-        assert_eq!(next.piles.hand.len(), 2);
-        assert_eq!(next.piles.draw_pile.len(), 2);
+        // The original's lethal DamageAction clears its queued DrawCardAction;
+        // the later copied card fizzles rather than drawing either batch.
+        assert!(next.piles.hand.is_empty());
+        assert_eq!(next.piles.draw_pile.len(), 4);
+    }
+
+    fn queued_stasis_identity_fixture() -> CombatState {
+        let mut state = CombatState::initial_fixture();
+        state.monsters = vec![
+            monster_state(&BRONZE_ORB_A0, MonsterId::new(1)),
+            monster_state(&JAW_WORM_A0, MonsterId::new(2)),
+        ];
+        state.monsters[0].hp = 0;
+        state.monsters[0].alive = false;
+        state.monsters[0].stasis_card = Some(CardInstance::new(CardId::new(99), IMMOLATE_ID));
+        state.piles.hand.clear();
+        state.piles.draw_pile = vec![CardInstance::new(CardId::new(98), DEFEND_R_ID)];
+        state.piles.discard_pile.clear();
+        state.piles.exhaust_pile.clear();
+        state.validate().unwrap();
+        state
+    }
+
+    #[test]
+    fn queued_stasis_ownership_survives_snapshot_and_intervening_generation() {
+        let mut state = queued_stasis_identity_fixture();
+        let actions = queue_monster_death_hooks(&mut state, MonsterId::new(1)).unwrap();
+        assert!(state.piles.hand.is_empty(), "return must not happen early");
+        assert!(state.monsters[0].stasis_card.is_some());
+        state.validate().unwrap();
+        let (mut restored, actions): (CombatState, Vec<InternalAction>) =
+            serde_json::from_slice(&serde_json::to_vec(&(state, actions)).unwrap()).unwrap();
+        apply_internal_action(
+            &mut restored,
+            InternalAction::AddGeneratedCardToDrawPileRandomSpot {
+                content_id: WOUND_ID,
+            },
+        )
+        .unwrap();
+        assert!(restored
+            .piles
+            .draw_pile
+            .iter()
+            .any(|card| card.id == CardId::new(100)));
+        let rng = restored.rng.clone();
+        let next = process_internal_queue(&restored, actions.into())
+            .unwrap()
+            .state;
+        next.validate().unwrap();
+        assert_eq!(next.rng, rng, "Stasis transfer consumes no gameplay RNG");
+        assert_eq!(
+            next.piles.hand,
+            vec![CardInstance::new(CardId::new(99), IMMOLATE_ID)]
+        );
+        assert!(next.monsters[0].stasis_card.is_none());
+    }
+
+    #[test]
+    fn deferred_stasis_ownership_reserves_ids_until_full_hand_return() {
+        let mut state = queued_stasis_identity_fixture();
+        state.piles.hand = (1..=MAX_HAND_SIZE as u64)
+            .map(|id| CardInstance::new(CardId::new(id), STRIKE_R_ID))
+            .collect();
+        let mut deaths = Vec::new();
+        queue_end_turn_monster_death(&mut state, MonsterId::new(1), &mut deaths).unwrap();
+        assert!(state.monsters[0].stasis_card.is_some());
+        assert!(state.piles.discard_pile.is_empty());
+        apply_internal_action(
+            &mut state,
+            InternalAction::AddGeneratedCardToDrawPileRandomSpot {
+                content_id: WOUND_ID,
+            },
+        )
+        .unwrap();
+        assert!(state
+            .piles
+            .draw_pile
+            .iter()
+            .any(|card| card.id == CardId::new(100)));
+        resolve_deferred_end_turn_monster_deaths(&mut state, deaths).unwrap();
+        state.validate().unwrap();
+        assert_eq!(state.piles.hand.len(), MAX_HAND_SIZE);
+        assert_eq!(
+            state.piles.discard_pile,
+            vec![CardInstance::new(CardId::new(99), IMMOLATE_ID)]
+        );
+        assert!(state.monsters[0].stasis_card.is_none());
     }
 
     #[test]
@@ -14796,7 +15371,7 @@ mod tests {
     }
 
     #[test]
-    fn apotheosis_does_not_upgrade_cards_in_exhaust() {
+    fn apotheosis_upgrades_cards_in_exhaust() {
         let mut state = CombatState::initial_fixture();
         state.player.energy = 2;
         state.piles.hand = vec![
@@ -14816,8 +15391,7 @@ mod tests {
         )
         .expect("Apotheosis resolves");
         assert_eq!(next.piles.hand[0].content_id, STRIKE_R_PLUS_ID);
-        assert_eq!(next.piles.exhaust_pile[0].content_id, DEFEND_R_ID);
-        assert_ne!(next.piles.exhaust_pile[0].content_id, DEFEND_R_PLUS_ID);
+        assert_eq!(next.piles.exhaust_pile[0].content_id, DEFEND_R_PLUS_ID);
     }
 
     #[test]

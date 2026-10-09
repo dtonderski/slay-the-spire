@@ -6,11 +6,12 @@ from __future__ import annotations
 import argparse
 import json
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
-CardKey = tuple[str, int, int]
+CardKey = tuple[str, int, int, str]
 CardCounts = Counter[CardKey]
 ContentCounts = Counter[str]
 
@@ -25,6 +26,7 @@ def card_counts(cards: list[dict[str, Any]]) -> CardCounts:
             str(card.get("id") or card.get("name") or ""),
             int(card.get("upgrades") or 0),
             int(card.get("misc") or 0),
+            str(card.get("uuid") or ""),
         )
         for card in cards
     )
@@ -32,7 +34,7 @@ def card_counts(cards: list[dict[str, Any]]) -> CardCounts:
 
 def content_counts(cards: CardCounts) -> ContentCounts:
     result: ContentCounts = Counter()
-    for (content_id, _upgrades, _misc), count in cards.items():
+    for (content_id, _upgrades, _misc, _uuid), count in cards.items():
         result[content_id] += count
     return result
 
@@ -47,6 +49,7 @@ class TraceState:
     exhaust: CardCounts
     relics: frozenset[str]
     has_combat: bool
+    selected: CardCounts | None = None
 
     def visible_cards(self) -> CardCounts:
         return self.hand + self.draw + self.discard + self.exhaust
@@ -65,6 +68,11 @@ def state_summary(record: dict[str, Any]) -> TraceState:
         exhaust=card_counts(combat.get("exhaust_pile") or []),
         relics=frozenset(str(relic.get("id") or "") for relic in game_state.get("relics") or []),
         has_combat="hand" in combat,
+        selected=(
+            card_counts(game_state["screen_state"]["selected"])
+            if isinstance((game_state.get("screen_state") or {}).get("selected"), list)
+            else None
+        ),
     )
 
 
@@ -98,10 +106,20 @@ def audit_trace(path: Path) -> tuple[Counter[str], list[tuple[int, str]]]:
         if before.screen != "HAND_SELECT" or before.current_action is None:
             continue
 
-        cursor = step - 1
-        while states.get(cursor - 1) is not None and states[cursor - 1].screen == "HAND_SELECT":
-            cursor -= 1
-        selected = states[cursor].hand - before.hand
+        # CommunicationMod publishes the full current selection, not a delta.
+        # Adjacent HAND_SELECT screens can belong to different queued actions:
+        # walking across them wrongly attributes the preceding card to this
+        # confirmation. Prefer the current screen's explicit selected objects.
+        selected = before.selected
+        if selected is None:
+            cursor = step - 1
+            while (
+                states.get(cursor - 1) is not None
+                and states[cursor - 1].screen == "HAND_SELECT"
+                and states[cursor - 1].current_action == before.current_action
+            ):
+                cursor -= 1
+            selected = states[cursor].hand - before.hand
         if not selected:
             continue
 

@@ -395,7 +395,7 @@ pub(super) fn play_card_queue_in_place(
         INFLAME_ID | INFLAME_PLUS_ID => inflame_queue(card_id, definition),
         FLEX_ID | FLEX_PLUS_ID => flex_queue(card_id, definition),
         JAX_ID | JAX_PLUS_ID => jax_queue(card_id, definition),
-        LIMIT_BREAK_ID | LIMIT_BREAK_PLUS_ID => limit_break_queue(state, card_id, definition),
+        LIMIT_BREAK_ID | LIMIT_BREAK_PLUS_ID => limit_break_queue(card_id, definition),
         MASTER_OF_STRATEGY_ID | MASTER_OF_STRATEGY_PLUS_ID => {
             master_of_strategy_queue(card_id, definition)
         }
@@ -584,7 +584,7 @@ pub(super) fn play_card_queue_in_place(
         QUICK_SLASH_ANY_COLOR_ID => quick_slash_queue(card_id, target, *card, definition),
         NIRVANA_ANY_COLOR_ID => nirvana_queue(card_id, *card),
         DEADLY_POISON_ANY_COLOR_ID => deadly_poison_queue(card_id, target, *card, definition),
-        UNLOAD_ANY_COLOR_ID => unload_queue(state, card_id, target, *card, definition),
+        UNLOAD_ANY_COLOR_ID => unload_queue(card_id, target, *card, definition),
         THIRD_EYE_ANY_COLOR_ID => third_eye_queue(card_id, *card, definition),
         PREPARED_ANY_COLOR_ID => prepared_queue(card_id, *card),
         HOLOGRAM_ANY_COLOR_ID => hologram_queue(state, card_id, *card, definition),
@@ -640,13 +640,14 @@ pub(super) fn play_card_queue_in_place(
     let copied_effects = snapshot_copied_card_effects(&queue, card_id);
     let duplication_effects = snapshot_duplication_potion_effects(&queue, card_id);
     if state.duplication_potion_pending || state.duplication_potion_stacks > 0 {
-        queue = apply_duplication_potion_to_queue(queue, card_id, duplication_effects);
+        queue =
+            apply_duplication_potion_to_queue(queue, card_id, definition.id, duplication_effects);
     }
     if should_apply_necronomicon(state, card, definition)? {
-        queue = apply_necronomicon_to_queue(queue, card_id, copied_effects.clone());
+        queue = apply_necronomicon_to_queue(queue, card_id, definition.id, copied_effects.clone());
     }
     if definition.card_type == CardType::Attack && state.double_tap_pending > 0 {
-        queue = apply_double_tap_to_queue(queue, card_id, copied_effects);
+        queue = apply_double_tap_to_queue(queue, card_id, definition.id, copied_effects);
     }
     // Pen Nib doubles at damage resolution when the 10th attack play wraps the
     // counter (see apply_on_card_play_relics + pen_nib_double_active). Build-time
@@ -1174,6 +1175,7 @@ fn snapshot_duplication_potion_effects(
 fn apply_duplication_potion_to_queue(
     mut queue: VecDeque<InternalAction>,
     card_id: CardId,
+    content_id: ContentId,
     mut duplicated_effects: VecDeque<InternalAction>,
 ) -> VecDeque<InternalAction> {
     let final_move = queue
@@ -1200,7 +1202,7 @@ fn apply_duplication_potion_to_queue(
     if let Some(action) = final_move {
         queue.push_back(action);
     }
-    append_copied_card_effects(&mut queue, card_id, &mut duplicated_effects);
+    append_copied_card_effects(&mut queue, card_id, content_id, &mut duplicated_effects);
 
     queue
 }
@@ -1208,6 +1210,7 @@ fn apply_duplication_potion_to_queue(
 fn apply_double_tap_to_queue(
     mut queue: VecDeque<InternalAction>,
     card_id: CardId,
+    content_id: ContentId,
     mut duplicated_effects: VecDeque<InternalAction>,
 ) -> VecDeque<InternalAction> {
     let rampage_growth = duplicated_effects
@@ -1252,7 +1255,7 @@ fn apply_double_tap_to_queue(
     if let Some(action) = final_move {
         queue.push_back(action);
     }
-    append_copied_card_effects(&mut queue, card_id, &mut duplicated_effects);
+    append_copied_card_effects(&mut queue, card_id, content_id, &mut duplicated_effects);
 
     queue
 }
@@ -1260,6 +1263,7 @@ fn apply_double_tap_to_queue(
 fn apply_necronomicon_to_queue(
     mut queue: VecDeque<InternalAction>,
     card_id: CardId,
+    content_id: ContentId,
     mut duplicated_effects: VecDeque<InternalAction>,
 ) -> VecDeque<InternalAction> {
     let final_move = queue
@@ -1274,7 +1278,7 @@ fn apply_necronomicon_to_queue(
     if let Some(action) = final_move {
         queue.push_back(action);
     }
-    append_copied_card_effects(&mut queue, card_id, &mut duplicated_effects);
+    append_copied_card_effects(&mut queue, card_id, content_id, &mut duplicated_effects);
 
     queue
 }
@@ -1282,6 +1286,7 @@ fn apply_necronomicon_to_queue(
 fn append_copied_card_effects(
     queue: &mut VecDeque<InternalAction>,
     card_id: CardId,
+    content_id: ContentId,
     duplicated_effects: &mut VecDeque<InternalAction>,
 ) {
     let required_target = copied_card_required_living_target(duplicated_effects);
@@ -1292,7 +1297,10 @@ fn append_copied_card_effects(
     // A copied card is a new action-manager boundary. Resolve reactions queued
     // by the original card before the copy's effects begin.
     queue.push_back(InternalAction::ResolvePendingMonsterReactions);
-    queue.push_back(InternalAction::PlayCardCopy { card_id });
+    queue.push_back(InternalAction::PlayCardCopy {
+        card_id,
+        content_id,
+    });
     queue.append(duplicated_effects);
     queue.push_back(InternalAction::EndCopiedCardEffects);
 }
@@ -1360,6 +1368,10 @@ fn unplayable_relic_queue(
 }
 
 fn is_duplicated_card_effect(action: InternalAction, card_id: CardId) -> bool {
+    // A purge-on-use copy must not remove the original Power from hand again.
+    if matches!(action, InternalAction::RemoveCard { card_id: removed, .. } if removed == card_id) {
+        return false;
+    }
     !matches!(
         action,
         InternalAction::ConsumeDuplicationPotion
@@ -1373,18 +1385,48 @@ fn is_duplicated_card_effect(action: InternalAction, card_id: CardId) -> bool {
             | InternalAction::AwaitDrawSelect { .. }
             | InternalAction::AwaitDiscardSelect { .. }
             | InternalAction::AwaitCopiedDiscardSelect { .. }
+            | InternalAction::AwaitCopiedHandSelect { .. }
             | InternalAction::AwaitExhaustSelect { .. }
+            | InternalAction::ForethoughtAutoMove { .. }
     ) && !is_card_move_for(action, card_id)
 }
 
 fn duplicated_card_effect(action: InternalAction, card_id: CardId) -> Option<InternalAction> {
     match action {
+        action @ InternalAction::AwaitExhaustSelect {
+            source_card_id,
+            purpose: crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand,
+        } if source_card_id == card_id => Some(action),
         InternalAction::AwaitDiscardSelect {
             source_card_id,
             purpose: crate::combat::DiscardSelectPurpose::HeadbuttPutOnDraw,
         } if source_card_id == card_id => Some(InternalAction::AwaitCopiedDiscardSelect {
             purpose: crate::combat::DiscardSelectPurpose::HeadbuttPutOnDraw,
         }),
+        // ForethoughtAction auto-places via getTopCard when hand.size()==1.
+        // Replaying that frozen card id after the original moved it fails;
+        // the copy must re-read the live hand (empty skip / singleton auto).
+        InternalAction::ForethoughtAutoMove { source_card_id, .. } if source_card_id == card_id => {
+            Some(InternalAction::AwaitCopiedHandSelect {
+                purpose: HandSelectPurpose::ForethoughtPutOnDraw,
+            })
+        }
+        // The copy is a purgeOnUse instance; PutOnDeckAction must not settle
+        // the original (Warcry.use / PutOnDeckAction).
+        InternalAction::AwaitHandSelect {
+            source_card_id,
+            purpose,
+        } if source_card_id == card_id
+            && matches!(
+                purpose,
+                HandSelectPurpose::WarcryPutOnDraw
+                    | HandSelectPurpose::ThinkingAheadPutOnDraw
+                    | HandSelectPurpose::ForethoughtPutOnDraw
+                    | HandSelectPurpose::ForethoughtPutAnyOnDraw
+            ) =>
+        {
+            Some(InternalAction::AwaitCopiedHandSelect { purpose })
+        }
         InternalAction::ResolveFollowUpEnergy { .. } => {
             Some(InternalAction::ResolveFollowUpEnergy { should_gain: true })
         }
@@ -2861,8 +2903,9 @@ fn sword_boomerang_queue(
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    // Playable with no living enemies: hits fizzle and the card still discards
-    // (Awakened One half-dead window, FIDL00503).
+    // DamageRandomEnemyAction no-ops when no living target (Awakened One
+    // first-form death is not alive). The card still plays, spends, and
+    // settles. Legal generation already allows AllEnemies vs half-dead AO.
     let damage = required_damage(definition)?;
 
     let hits = if definition.id == SWORD_BOOMERANG_PLUS_ID {
@@ -2947,7 +2990,6 @@ fn third_eye_queue(
 }
 
 fn unload_queue(
-    state: &CombatState,
     card_id: CardId,
     target: Option<MonsterId>,
     card: CardInstance,
@@ -2965,15 +3007,7 @@ fn unload_queue(
             },
         },
     ]);
-    for hand_card in state.piles.hand.iter().rev() {
-        let is_attack = get_card_definition(hand_card.content_id)
-            .is_some_and(|definition| definition.card_type == CardType::Attack);
-        if hand_card.id != card_id && !is_attack {
-            queue.push_back(InternalAction::ManualDiscardCard {
-                card_id: hand_card.id,
-            });
-        }
-    }
+    queue.push_back(InternalAction::DiscardNonAttackHandCards);
     queue.push_back(InternalAction::MoveCard {
         card_id,
         from: CardPile::Hand,
@@ -3045,16 +3079,13 @@ fn quick_slash_queue(
 }
 
 fn rip_and_tear_queue(
-    state: &CombatState,
+    _state: &CombatState,
     card_id: CardId,
     card: CardInstance,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
-    if !state.monsters.iter().any(|monster| monster.alive) {
-        return Err(SimError::InvalidState(
-            "Rip and Tear requires a living monster",
-        ));
-    }
+    // RipAndTear.use always queues its two hits. Their live target resolver
+    // handles an empty eligible group (including half-dead Awakened One).
     let amount = required_damage(definition)? + 2 * i32::from(card.upgrades > 0);
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
@@ -4506,36 +4537,18 @@ fn sadistic_nature_queue(
     ]))
 }
 
-fn exhume_queue(state: &CombatState, card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
-    let exhumable_cards = exhumable_card_ids(state);
-    let mut queue = VecDeque::from([
+fn exhume_queue(_state: &CombatState, card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
+    // ExhumeAction.update inspects the live hand/exhaust pile. A copied use
+    // runs after the original return and source settlement, not against IDs
+    // frozen when the original card's queue was constructed.
+    Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
-    ]);
-
-    match exhumable_cards.as_slice() {
-        [] => queue.push_back(InternalAction::MoveCard {
-            card_id,
-            from: CardPile::Hand,
-            to: CardPile::ExhaustPile,
-        }),
-        [exhumed_card_id] => {
-            queue.push_back(InternalAction::ReturnExhaustCardToHand {
-                card_id: *exhumed_card_id,
-            });
-            queue.push_back(InternalAction::MoveCard {
-                card_id,
-                from: CardPile::Hand,
-                to: CardPile::ExhaustPile,
-            });
-        }
-        _ => queue.push_back(InternalAction::AwaitExhaustSelect {
+        InternalAction::AwaitExhaustSelect {
             source_card_id: card_id,
             purpose: crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand,
-        }),
-    }
-
-    Ok(queue)
+        },
+    ]))
 }
 
 fn purity_queue(state: &CombatState, card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
@@ -4556,16 +4569,6 @@ fn purity_queue(state: &CombatState, card_id: CardId) -> SimResult<VecDeque<Inte
         });
     }
     Ok(queue)
-}
-
-fn exhumable_card_ids(state: &CombatState) -> Vec<CardId> {
-    state
-        .piles
-        .exhaust_pile
-        .iter()
-        .filter(|card| card.content_id != EXHUME_ID && card.content_id != EXHUME_PLUS_ID)
-        .map(|card| card.id)
-        .collect()
 }
 
 fn sever_soul_queue(
@@ -5256,7 +5259,7 @@ fn streamline_queue(
                 amount: damage,
             },
         },
-        InternalAction::ReduceHandCardCostForCombat { card_id, amount: 1 },
+        InternalAction::ReduceCardCostForCombat { card_id, amount: 1 },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
@@ -6025,27 +6028,17 @@ fn true_grit_queue(
         },
     ]);
 
+    if definition.id == TRUE_GRIT_PLUS_ID {
+        // ExhaustAction checks the live hand after on-use draws and GainBlock.
+        // Its zero/singleton shortcut belongs at resolution, not queue creation.
+        queue.push_back(InternalAction::AwaitExhaustSelect {
+            source_card_id: card_id,
+            purpose: crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne,
+        });
+        return Ok(queue);
+    }
     if state.piles.hand.iter().any(|card| card.id != card_id) {
-        if definition.id == TRUE_GRIT_PLUS_ID {
-            let others = other_hand_cards(state, card_id);
-            if others.len() <= 1 {
-                // ExhaustAction exhausts the whole remaining hand without a UI
-                // when hand.size <= amount (1 after True Grit+ leaves).
-                if others.len() == 1 {
-                    queue.push_back(InternalAction::MoveCard {
-                        card_id: others[0],
-                        from: CardPile::Hand,
-                        to: CardPile::ExhaustPile,
-                    });
-                }
-            } else {
-                queue.push_back(InternalAction::AwaitExhaustSelect {
-                    source_card_id: card_id,
-                    purpose: crate::combat::ExhaustSelectPurpose::TrueGritExhaustOne,
-                });
-                return Ok(queue);
-            }
-        } else if other_hand_cards(state, card_id).len() == 1 {
+        if other_hand_cards(state, card_id).len() == 1 {
             // Target ExhaustAction takes its non-random "exhaust all" path
             // when this is the only card left in hand, so it does not advance
             // cardRandomRng for unupgraded True Grit.
@@ -6463,16 +6456,13 @@ fn jax_queue(card_id: CardId, definition: &CardDefinition) -> SimResult<VecDeque
 }
 
 fn limit_break_queue(
-    state: &CombatState,
     card_id: CardId,
     definition: &CardDefinition,
 ) -> SimResult<VecDeque<InternalAction>> {
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },
-        InternalAction::GainStrength {
-            amount: state.player.powers.strength + state.player.temp_strength,
-        },
+        InternalAction::DoublePlayerStrength,
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
@@ -6761,6 +6751,37 @@ mod tests {
         assert_eq!(crate::combat::cost::printed_card_cost(streamline), Ok(1));
         assert!(streamline.temp_cost_turn_only);
         assert_eq!(streamline.combat_cost_under_turn_override, Some(1));
+    }
+
+    #[test]
+    fn copied_power_retains_identity_after_original_removal() {
+        // Regression for the existing purge-on-use copy contract: retain its
+        // metadata, but never remove the original Power twice or put it back.
+        for (content_id, rupture) in [(RUPTURE_ID, 2), (RUPTURE_PLUS_ID, 4)] {
+            let mut state = CombatState::initial_fixture();
+            let power = CardInstance::new(CardId::new(100), content_id);
+            state.piles.hand = vec![power];
+            state.duplication_potion_pending = true;
+            let (_, queue) = play_card_queue(&state, power.id, None).expect("power queue");
+            let restored =
+                serde_json::from_str(&serde_json::to_string(&queue).expect("serialize queue"))
+                    .expect("restore queued copy metadata");
+            let next = crate::combat::transition::process_internal_queue(&state, restored)
+                .expect("power copy resolves after original leaves all piles")
+                .state;
+            assert_eq!(next.player.powers.rupture, rupture);
+            assert_eq!(next.player.energy, state.player.energy - 1);
+            assert_eq!(next.relic_counters.cards_played_this_turn, 2);
+            assert!(!next.duplication_potion_pending);
+            assert!(next.piles.hand.is_empty());
+            assert!(!next
+                .piles
+                .discard_pile
+                .iter()
+                .chain(&next.piles.exhaust_pile)
+                .chain(&next.piles.draw_pile)
+                .any(|card| card.id == power.id));
+        }
     }
 
     #[test]

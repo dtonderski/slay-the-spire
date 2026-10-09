@@ -62,7 +62,7 @@ pub(super) fn apply_act_one_event_action(
             }
             2 | 3 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -108,7 +108,7 @@ pub(super) fn apply_act_one_event_action(
                 open_event_remove_return_to_event_grid(next, Event::WingStatue);
             }
             2 if choice_index == 0 => {
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -138,7 +138,7 @@ pub(super) fn apply_act_one_event_action(
                 });
             }
             1 if choice_index == 0 => {
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -193,7 +193,7 @@ pub(super) fn apply_act_one_event_action(
                 next.event = Some(dead_adventurer_screen(next, 1, screen.event_data));
             }
             1 if choice_index == 0 => {
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             2 if choice_index == 0 => {
                 if dead_adventurer_pending_encounter(screen.event_data) {
@@ -224,7 +224,7 @@ pub(super) fn apply_act_one_event_action(
                 }
             }
             2 if choice_index == 1 => {
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             3 if choice_index == 0 => {
                 // Post-combat gold: goldAmount (25–35) plus unclaimed search GOLD
@@ -302,7 +302,7 @@ pub(super) fn apply_act_one_event_action(
             }
             2 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -311,7 +311,7 @@ pub(super) fn apply_act_one_event_action(
             }
         },
         Event::TheCleric if screen.stage > 0 && choice_index == 0 => {
-            leave_event_to_map(next);
+            crate::run::map_overlay::open_completed_room_map(next);
         }
         Event::TheCleric if screen.stage == 0 && choice_index == 0 => {
             if next.gold < 35 {
@@ -373,7 +373,7 @@ pub(super) fn apply_act_one_event_action(
             ));
         }
         Event::ShiningLight if screen.stage == 1 => {
-            leave_event_to_map(next);
+            crate::run::map_overlay::open_completed_room_map(next);
         }
         Event::ScrapOoze => match screen.stage {
             0 if choice_index == 0 => {
@@ -421,7 +421,7 @@ pub(super) fn apply_act_one_event_action(
                 });
             }
             2 if choice_index == 0 => {
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -468,7 +468,7 @@ pub(super) fn apply_act_one_event_action(
             }
             1 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -505,10 +505,10 @@ pub(super) fn apply_act_one_event_action(
             }
             2 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             3 if choice_index == 0 => {
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -520,24 +520,24 @@ pub(super) fn apply_act_one_event_action(
             // Living Wall Change settles its ShowCardAndObtainEffect on Leave;
             // Forget and Grow simply have no pending card.
             next.flush_pending_obtain_cards()?;
-            leave_event_to_map(next);
+            crate::run::map_overlay::open_completed_room_map(next);
         }
         Event::LivingWall if screen.stage == 0 && choice_index == 0 => {
             open_event_remove_return_to_event_grid(next, Event::LivingWall);
             if next.card_grid.is_none() {
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
         }
         Event::LivingWall if screen.stage == 0 && choice_index == 1 => {
             open_event_transform_return_to_event_grid(next, Event::LivingWall, 1);
             if next.card_grid.is_none() {
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
         }
         Event::LivingWall if screen.stage == 0 && choice_index == 2 => {
             open_event_upgrade_return_to_event_grid(next, Event::LivingWall);
             if next.card_grid.is_none() {
-                leave_event_to_map(next);
+                crate::run::map_overlay::open_completed_room_map(next);
             }
         }
         _ => return Ok(false),

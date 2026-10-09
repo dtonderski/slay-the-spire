@@ -104,8 +104,8 @@ const LAGAVULIN_SLEEP_TURNS: u32 = 3;
 /// Lagavulin.usePreBattleAction applies Metallicize 8; changeState(OPEN)
 /// ReducePowerAction removes that same 8 and leaves any stacked amount.
 const LAGAVULIN_SLEEP_METALLICIZE: i32 = 8;
-const LAGAVULIN_SIPHON_STRENGTH: i32 = 1;
-const LAGAVULIN_SIPHON_DEXTERITY: i32 = 1;
+const LAGAVULIN_SIPHON_AMOUNT: i32 = 1;
+const LAGAVULIN_A18_SIPHON_AMOUNT: i32 = 2;
 const LAGAVULIN_ATTACK_DAMAGE: i32 = 18;
 const LAGAVULIN_A3_ATTACK_DAMAGE: i32 = 20;
 
@@ -8008,6 +8008,7 @@ pub fn apply_strength_all_monsters(monsters: &mut [MonsterState], amount: i32) -
                     .powers
                     .strength
                     .checked_add(amount)
+                    .map(|strength| strength.clamp(-999, 999))
                     .ok_or(SimError::InvalidState("monster group arithmetic overflow"))
             } else {
                 Ok(monster.powers.strength)
@@ -8036,7 +8037,8 @@ pub fn apply_gremlin_leader_encourage(
                 .powers
                 .strength
                 .checked_add(strength)
-                .ok_or(SimError::InvalidState("monster group arithmetic overflow"))?;
+                .ok_or(SimError::InvalidState("monster group arithmetic overflow"))?
+                .clamp(-999, 999);
             let next_block = if monster.id == leader_id {
                 monster.block
             } else {
@@ -8044,6 +8046,7 @@ pub fn apply_gremlin_leader_encourage(
                     .block
                     .checked_add(block)
                     .ok_or(SimError::InvalidState("monster group arithmetic overflow"))?
+                    .min(999)
             };
             Ok((next_strength, next_block))
         })
@@ -9653,9 +9656,14 @@ fn lagavulin_intent(
     if sleep_turns_remaining > 0 {
         MonsterIntent::Sleep
     } else if moves_executed % 3 == 2 {
+        let amount = if ascension >= 18 {
+            LAGAVULIN_A18_SIPHON_AMOUNT
+        } else {
+            LAGAVULIN_SIPHON_AMOUNT
+        };
         MonsterIntent::SiphonPlayer {
-            strength: LAGAVULIN_SIPHON_STRENGTH,
-            dexterity: LAGAVULIN_SIPHON_DEXTERITY,
+            strength: amount,
+            dexterity: amount,
         }
     } else {
         MonsterIntent::Attack {
@@ -10096,6 +10104,7 @@ pub(crate) fn apply_monster_intent_with_card_rng_and_revival(
         player_can_revive,
         card_random_rng,
         true,
+        None,
     )
     .map(|prepared| prepared.damage)
 }
@@ -10111,6 +10120,7 @@ pub(crate) fn prepare_monster_intent_with_card_rng_and_revival(
     relics: &[crate::Relic],
     player_can_revive: bool,
     card_random_rng: &mut StsRng,
+    queued_strength: Option<i32>,
 ) -> SimResult<PreparedMonsterIntent> {
     resolve_monster_intent_with_card_rng_and_revival(
         monster,
@@ -10123,6 +10133,7 @@ pub(crate) fn prepare_monster_intent_with_card_rng_and_revival(
         player_can_revive,
         card_random_rng,
         false,
+        queued_strength,
     )
 }
 
@@ -10138,6 +10149,7 @@ fn resolve_monster_intent_with_card_rng_and_revival(
     player_can_revive: bool,
     card_random_rng: &mut StsRng,
     apply_queued_post_attack_debuffs: bool,
+    queued_strength: Option<i32>,
 ) -> SimResult<PreparedMonsterIntent> {
     let local_allocated_through = monster
         .stasis_card
@@ -10164,6 +10176,7 @@ fn resolve_monster_intent_with_card_rng_and_revival(
         relics,
         player_can_revive,
         &mut next_card_random_rng,
+        queued_strength,
     )?;
     if apply_queued_post_attack_debuffs {
         apply_queued_post_attack_player_debuffs(queued_intent, &mut next_player, relics)?;
@@ -10188,6 +10201,12 @@ fn checked_add_monster_intent_value(value: &mut i32, amount: i32) -> SimResult<(
 
 fn checked_add_monster_block_value(value: &mut i32, amount: i32) -> SimResult<()> {
     *value = checked_monster_intent_add(*value, amount)?.min(999);
+    Ok(())
+}
+
+// StrengthPower constructor/stackPower bound the resulting visible power.
+fn checked_add_monster_strength_value(value: &mut i32, amount: i32) -> SimResult<()> {
+    *value = checked_monster_intent_add(*value, amount)?.clamp(-999, 999);
     Ok(())
 }
 
@@ -10318,12 +10337,13 @@ fn apply_monster_intent_with_card_rng_inner(
     relics: &[crate::Relic],
     player_can_revive: bool,
     card_random_rng: &mut StsRng,
+    queued_strength: Option<i32>,
 ) -> SimResult<PreparedMonsterIntent> {
     use crate::combat::damage::deal_unmodified_damage_to_monster;
     use crate::combat::turn_powers::monster_damage_to_player_with_relics;
     use crate::power::{
         apply_player_confusion, apply_player_constricted, reduce_player_dexterity,
-        reduce_player_strength,
+        reduce_player_strength_with_temporary,
     };
 
     let config = AscensionConfig::new(ascension);
@@ -10374,7 +10394,19 @@ fn apply_monster_intent_with_card_rng_inner(
         monster.content_id == GUARDIAN_ID && monster.in_defensive_mode;
     let monster_damage_to_player =
         |player: &crate::PlayerState, monster: &MonsterState, base: i32| {
-            let damage = monster_damage_to_player_with_relics(player, monster, base, relics)?;
+            // Read immutable DamageInfo power context, never temporarily
+            // replace accepted Strength and restore selected fields later.
+            let damage_context = queued_strength.map(|strength| {
+                let mut context = monster.clone();
+                context.powers.strength = strength;
+                context
+            });
+            let damage = monster_damage_to_player_with_relics(
+                player,
+                damage_context.as_ref().unwrap_or(monster),
+                base,
+                relics,
+            )?;
             // DamageInfo.applyPowers calls atDamageFinalReceive after Weak/
             // Vulnerable and before AbstractMonster's Back Attack 1.5x.
             // IntangiblePlayerPower caps that intermediate output at 1, so
@@ -10419,7 +10451,7 @@ fn apply_monster_intent_with_card_rng_inner(
             (damage_taken, 1)
         }
         MonsterIntent::Block { block } => {
-            checked_add_monster_intent_value(&mut monster.block, block)?;
+            checked_add_monster_block_value(&mut monster.block, block)?;
             (0, 0)
         }
         MonsterIntent::Ritual { amount } => {
@@ -10452,11 +10484,11 @@ fn apply_monster_intent_with_card_rng_inner(
                 checked_add_monster_intent_value(&mut monster.powers.spiker_thorns_buffs, 1)?;
                 checked_add_monster_intent_value(&mut monster.powers.spikes, SPIKER_THORNS_BUFF)?;
             } else if monster.content_id == CHAMP_ID {
-                checked_add_monster_intent_value(&mut monster.block, block)?;
+                checked_add_monster_block_value(&mut monster.block, block)?;
                 checked_add_monster_intent_value(&mut monster.powers.metallicize, strength)?;
             } else {
-                checked_add_monster_intent_value(&mut monster.powers.strength, strength)?;
-                checked_add_monster_intent_value(&mut monster.block, block)?;
+                checked_add_monster_strength_value(&mut monster.powers.strength, strength)?;
+                checked_add_monster_block_value(&mut monster.block, block)?;
             }
             (0, 0)
         }
@@ -10470,13 +10502,13 @@ fn apply_monster_intent_with_card_rng_inner(
                 if monster.powers.strength < 0 {
                     monster.powers.strength = 0;
                 }
-                checked_add_monster_intent_value(&mut monster.powers.strength, amount)?;
+                checked_add_monster_strength_value(&mut monster.powers.strength, amount)?;
                 match monster.powers.heart_buff_count {
                     0 => checked_add_monster_intent_value(&mut monster.powers.artifact, 2)?,
                     1 => checked_add_monster_intent_value(&mut monster.powers.beat_of_death, 1)?,
                     2 => monster.powers.painful_stabs = 1,
-                    3 => checked_add_monster_intent_value(&mut monster.powers.strength, 10)?,
-                    _ => checked_add_monster_intent_value(&mut monster.powers.strength, 50)?,
+                    3 => checked_add_monster_strength_value(&mut monster.powers.strength, 10)?,
+                    _ => checked_add_monster_strength_value(&mut monster.powers.strength, 50)?,
                 }
                 monster.powers.heart_buff_count = monster
                     .powers
@@ -10488,7 +10520,7 @@ fn apply_monster_intent_with_card_rng_inner(
             } else if monster.content_id == GREMLIN_NOB_ID {
                 checked_add_monster_intent_value(&mut monster.powers.anger, amount)?;
             } else {
-                checked_add_monster_intent_value(&mut monster.powers.strength, amount)?;
+                checked_add_monster_strength_value(&mut monster.powers.strength, amount)?;
             }
             (0, 0)
         }
@@ -10582,7 +10614,7 @@ fn apply_monster_intent_with_card_rng_inner(
         }
         MonsterIntent::ApplyPlayerWeakStrengthSelf { weak, strength } => {
             apply_player_weak_from_monster(player, relics, weak)?;
-            checked_add_monster_intent_value(&mut monster.powers.strength, strength)?;
+            checked_add_monster_strength_value(&mut monster.powers.strength, strength)?;
             (0, 0)
         }
         MonsterIntent::ApplyPlayerConfusion => {
@@ -10624,7 +10656,7 @@ fn apply_monster_intent_with_card_rng_inner(
             let damage_taken =
                 monster_damage_to_player(player_before, monster, scale_damage(damage)?)?;
             if monster.content_id == TASKMASTER_ID && ascension >= 18 {
-                checked_add_monster_intent_value(
+                checked_add_monster_strength_value(
                     &mut monster.powers.strength,
                     TASKMASTER_A18_STRENGTH,
                 )?;
@@ -10678,8 +10710,14 @@ fn apply_monster_intent_with_card_rng_inner(
             strength,
             dexterity,
         } => {
-            reduce_player_strength(&mut player.powers, strength)?;
+            // Lagavulin queues DexterityPower before StrengthPower. Artifact
+            // must reject the real first application, not a reordered result.
             reduce_player_dexterity(&mut player.powers, dexterity)?;
+            reduce_player_strength_with_temporary(
+                &mut player.powers,
+                player.temp_strength,
+                strength,
+            )?;
             bronze_orb_apply_stasis(monster, piles, card_random_rng);
             monster.has_siphoned = true;
             (0, 0)
@@ -10828,8 +10866,8 @@ fn apply_monster_intent_with_card_rng_inner(
             (0, 0)
         }
         MonsterIntent::DefensiveCharge { block, strength } => {
-            checked_add_monster_intent_value(&mut monster.block, block)?;
-            checked_add_monster_intent_value(&mut monster.powers.strength, strength)?;
+            checked_add_monster_block_value(&mut monster.block, block)?;
+            checked_add_monster_strength_value(&mut monster.powers.strength, strength)?;
             if monster.defensive_turns_remaining > 0 {
                 monster.defensive_turns_remaining -= 1;
             }
@@ -10861,7 +10899,7 @@ fn apply_monster_intent_with_card_rng_inner(
     // A lethal hit opens the death screen and cancels that later block
     // (FIDL02375 Spire Shield smash).
     if monster.alive && block_after_thorns > 0 && player_survives_single_hit {
-        checked_add_monster_intent_value(&mut monster.block, block_after_thorns)?;
+        checked_add_monster_block_value(&mut monster.block, block_after_thorns)?;
     }
     // strength_up (Orb Walker) applies at end of turn via turn_powers, not mid-attack.
     if monster.content_id == GUARDIAN_ID

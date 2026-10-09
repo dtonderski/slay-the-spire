@@ -16,16 +16,9 @@ pub(crate) fn apply_demon_form_strength_post_draw(state: &mut CombatState) -> Si
     if amount <= 0 {
         return Ok(());
     }
-    state.player.powers.strength =
-        state
-            .player
-            .powers
-            .strength
-            .checked_add(amount)
-            .ok_or(SimError::InvalidState(
-                "combat integer addition overflows i32",
-            ))?;
-    Ok(())
+    // Apply the incoming StrengthPower's actual combined-amount bound at
+    // this existing post-draw callback, retaining nominal temporary debt.
+    crate::combat::transition::gain_strength_power(state, amount)
 }
 
 pub fn apply_end_of_player_turn_powers(state: &mut CombatState) -> SimResult<()> {
@@ -136,14 +129,10 @@ fn apply_player_end_of_turn_powers_for_combat_state(
     apply_regeneration: bool,
 ) -> SimResult<()> {
     if state.player.powers.ritual > 0 {
-        state.player.powers.strength = state
-            .player
-            .powers
-            .strength
-            .checked_add(state.player.powers.ritual)
-            .ok_or(SimError::InvalidState(
-                "combat integer addition overflows i32",
-            ))?;
+        // RitualPower.atEndOfTurn(true) queues StrengthPower. Apply its cap
+        // to the actual permanent+temporary amount before nominal loss expires.
+        let amount = state.player.powers.ritual;
+        crate::combat::transition::gain_strength_power(state, amount)?;
     }
     if state.player.powers.like_water > 0
         && state.player.powers.calm > 0
@@ -383,16 +372,17 @@ fn apply_end_of_monster_turn_powers_with_ritual(
             .checked_add(monster.powers.ritual)
             .ok_or(SimError::InvalidState(
                 "monster end-turn arithmetic overflow",
-            ))?;
+            ))?
+            .clamp(-999, 999);
     }
     // GenericStrengthUpPower (Orb Walker): gain Strength at end of turn.
     if monster.powers.strength_up > 0 {
-        strength =
-            strength
-                .checked_add(monster.powers.strength_up)
-                .ok_or(SimError::InvalidState(
-                    "monster end-turn arithmetic overflow",
-                ))?;
+        strength = strength
+            .checked_add(monster.powers.strength_up)
+            .ok_or(SimError::InvalidState(
+                "monster end-turn arithmetic overflow",
+            ))?
+            .clamp(-999, 999);
     }
     let mut block = monster.block;
     if monster.powers.metallicize > 0 {
@@ -400,14 +390,16 @@ fn apply_end_of_monster_turn_powers_with_ritual(
             .checked_add(monster.powers.metallicize)
             .ok_or(SimError::InvalidState(
                 "monster end-turn arithmetic overflow",
-            ))?;
+            ))?
+            .min(999);
     }
     if monster.powers.plated_armor > 0 {
         block = block
             .checked_add(monster.powers.plated_armor)
             .ok_or(SimError::InvalidState(
                 "monster end-turn arithmetic overflow",
-            ))?;
+            ))?
+            .min(999);
     }
     monster.powers.strength = strength;
     monster.block = block;

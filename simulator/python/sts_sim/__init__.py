@@ -10,6 +10,7 @@ from .observations import (
     FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION,
     FAIR_RUN_OBSERVATION_SCHEMA_VERSION,
     OBSERVATION_TYPES,
+    BossEncounter,
     Card,
     CardDynamicValues,
     CardKey,
@@ -49,6 +50,7 @@ from .observations import (
     QueuedCardReward,
     Relic,
     RelicKey,
+    RelicOffer,
     RestDig,
     RestHeal,
     RestLift,
@@ -63,8 +65,11 @@ from .observations import (
     RewardObservation,
     RewardScreen,
     RunContext,
+    RunKeys,
+    RunOutcome,
     Selection,
     SelectionOption,
+    ShopCardOffer,
     ShopObservation,
     ShopOffer,
     ShopScreen,
@@ -75,10 +80,12 @@ from .observations import (
 )
 
 __all__ = [
+    "ACTION_KINDS",
     "FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION",
     "FAIR_RUN_OBSERVATION_SCHEMA_VERSION",
     "OBSERVATION_TYPES",
     "Action",
+    "BossEncounter",
     "Card",
     "CardDynamicValues",
     "CardKey",
@@ -119,6 +126,7 @@ __all__ = [
     "QueuedCardReward",
     "Relic",
     "RelicKey",
+    "RelicOffer",
     "RestDig",
     "RestHeal",
     "RestLift",
@@ -133,8 +141,11 @@ __all__ = [
     "RewardObservation",
     "RewardScreen",
     "RunContext",
+    "RunKeys",
+    "RunOutcome",
     "Selection",
     "SelectionOption",
+    "ShopCardOffer",
     "ShopObservation",
     "ShopOffer",
     "ShopScreen",
@@ -144,6 +155,9 @@ __all__ = [
     "VisibleIntent",
     "observations",
 ]
+
+
+ACTION_KINDS = tuple(_native.action_kind_vocabulary())
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -163,11 +177,73 @@ class State:
         self._native = native
 
     @staticmethod
-    def new(seed: str, ascension: int = 0) -> State:
-        return State(_native.State.new(seed, ascension))
+    def new(
+        seed: str,
+        ascension: int = 0,
+        *,
+        final_act: bool = False,
+        training_rng_seed: int | None = None,
+    ) -> State:
+        """Natural starting state with optional initial Heart/training profiles.
+
+        No keys are granted. ``training_rng_seed`` opts into a private libGDX
+        environmental RNG for simulator-only training, not exact real-game replay.
+        No profile can be changed mid-run and observations never expose RNG state.
+        """
+        return State(
+            _native.State.new(
+                seed, ascension, final_act=final_act, training_rng_seed=training_rng_seed
+            )
+        )
+
+    @staticmethod
+    def new_synthetic(
+        seed: str, ascension: int = 0, hp: int = 10000, *, final_act: bool = False
+    ) -> State:
+        """Opt-in synthetic initial HP/max HP; not a real-game replay constructor."""
+        return State(_native.State.new_synthetic(seed, ascension, hp, final_act))
+
+    @staticmethod
+    def from_synthetic_spec(spec_json: str) -> State:
+        """Create an A0 combat from explicit JSON inputs, before combat-start effects."""
+        return State(_native.State.from_synthetic_spec(spec_json))
+
+    def synthetic_combat_root(self, hp: int = 100) -> State:
+        """Independent HP/max-HP-normalized combat root; does not mutate this state."""
+        return State(self._native.synthetic_combat_root(hp))
+
+    def synthetic_rest_root(self, hp: int) -> State:
+        """Independent synthetic unused A0 Act-1 campfire; current HP only.
+
+        Preserves max HP, inventory, settled entry effects and RNG. Never an
+        in-place game-state setter or replay repair; source remains unchanged.
+        """
+        return State(self._native.synthetic_rest_root(hp))
 
     def clone(self) -> State:
         return State(self._native.clone())
+
+    @staticmethod
+    def numeric_decisions(
+        states: list[State],
+    ) -> tuple[int, list[str], dict[str, tuple[int, bytes]], list[int]]:
+        """Versioned raw public combat tables, without typed observation construction."""
+        return _native.numeric_decisions([state._native for state in states])
+
+    @staticmethod
+    def numeric_steps(
+        states: list[State], indices: list[int], revisions: list[int]
+    ) -> tuple[int, list[str], dict[str, tuple[int, bytes]], list[int]]:
+        """Step by index into each state's current public legal-action list.
+
+        ``revisions`` are the revisions exported with those indices. A mismatch is
+        rejected and does not apply the action. The batch is not atomic: every state is
+        attempted (possibly on worker threads), the first error in input order is raised,
+        and a state passed twice (or borrowed elsewhere) is rejected before any step.
+        """
+        if not (len(states) == len(indices) == len(revisions)):
+            raise ValueError("State/action batch lengths differ")
+        return _native.numeric_steps([state._native for state in states], indices, revisions)
 
     @property
     def revision(self) -> int:
@@ -175,6 +251,10 @@ class State:
 
     def observation(self) -> Observation:
         return decode_observation(self._native.observation()._to_mapping())
+
+    def player_hp(self) -> int:
+        """Public context HP, identical to ``observation().context.player_hp``."""
+        return self._native.player_hp()
 
     def legal_actions(self) -> list[Action]:
         return self._native.legal_actions()

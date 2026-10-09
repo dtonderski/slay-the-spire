@@ -1,182 +1,171 @@
+import json
 import unittest
-from dataclasses import replace
+from itertools import pairwise
 from types import SimpleNamespace
-from typing import ClassVar, cast, get_args
-from unittest.mock import patch
+from typing import cast
 
+import numpy as np
 import torch
-from encoders.cards import tensorize_cards
-from encoders.selection import SELECTION_TO_INDEX
-from jaxtyping import Float
-from model import CombatModel
-from sts_sim import Action, CombatObservation, State
-from sts_sim.observations.combat import Selection, SelectionKind, SelectionOption
-from torch import Tensor
+from sts_sim import Action, State
+
+from encoders.numeric import (
+    ACTION_HAND,
+    ACTION_KIND,
+    ACTION_OPTION,
+    ACTION_OWNER,
+    ACTION_POTION,
+    ACTION_TARGET,
+    NumericBatch,
+)
+from model import CombatValueModel
+from observation_encoder import width_groups
 
 
 def action(kind: str, **slots: int | None) -> Action:
-    """Public-action-shaped fixture; real native candidates are tested separately."""
     return cast(
         Action,
         SimpleNamespace(
-            **{
-                "kind": kind,
-                "hand_slot": 0,
-                "potion_slot": 0,
-                "target_slot": None,
-                "option_slot": 0,
-                **slots,
-            }
+            kind=kind,
+            hand_slot=slots.get("hand_slot", 0),
+            potion_slot=slots.get("potion_slot", 0),
+            target_slot=slots.get("target_slot"),
+            option_slot=slots.get("option_slot", 0),
         ),
     )
 
 
+def candidates_from_rows(groups: list[np.ndarray]) -> np.ndarray:
+    pieces = []
+    for owner, rows in enumerate(groups):
+        pieces.append(
+            np.column_stack(
+                (
+                    np.full(len(rows), owner, dtype=np.int64),
+                    rows[:, ACTION_KIND],
+                    rows[:, ACTION_HAND],
+                    rows[:, ACTION_POTION],
+                    rows[:, ACTION_OPTION],
+                    rows[:, ACTION_TARGET],
+                )
+            )
+        )
+    return np.concatenate(pieces)
+
+
+def combat(seed: int = 1, hp: int = 80, extra_strikes: int = 0) -> State:
+    """Small synthetic test input, not a captured trace."""
+    return State.from_synthetic_spec(
+        json.dumps(
+            {
+                "seed": seed,
+                "floor": 1,
+                "kind": "normal",
+                "encounter": "Cultist",
+                "deck": [
+                    {"key": key, "upgrades": 0}
+                    for key in ["Strike_R"] * (5 + extra_strikes) + ["Defend_R"] * 4 + ["Bash"]
+                ],
+                "relics": ["Burning Blood"],
+                "potions": [None, None, None],
+                "hp": hp,
+                "max_hp": 80,
+                "gold": 99,
+            }
+        )
+    )
+
+
 class ModelTests(unittest.TestCase):
-    observation: ClassVar[CombatObservation]
-    actions: ClassVar[tuple[Action, ...]]
-
-    @classmethod
-    def setUpClass(cls) -> None:
+    def test_batch_padding_single_equivalence_and_gradients(self) -> None:
         torch.set_num_threads(1)
-        state = State.new("HUMAN1")
-        for _ in range(100):
-            decision = state.decision()
-            if decision.observation.kind == "combat":
-                cls.observation = decision.observation
-                cls.actions = decision.actions
-                return
-            state.step(decision.actions[0])
-        raise AssertionError("No combat reached")
+        states = [combat(1), combat(2)]
+        batch = NumericBatch(State.numeric_decisions(states))
+        groups = [batch.action_rows[batch.action_rows[:, ACTION_OWNER] == index] for index in range(2)]
+        groups[0] = groups[0][:-2]
+        actions = candidates_from_rows(groups)
+        for device in ("cpu", "cuda") if torch.cuda.is_available() else ("cpu",):
+            model = CombatValueModel(d_model=16, action_dim=8, n_layers=1).to(device)
+            logits, _, mask = model(batch, actions)
+            self.assertEqual(tuple(logits.shape), (2, len(groups[1])))
+            self.assertTrue(torch.isneginf(logits[~mask]).all())
+            for i, state in enumerate(states):
+                single = NumericBatch(State.numeric_decisions([state]))
+                scores, _, _ = model(single, candidates_from_rows([groups[i]]))
+                torch.testing.assert_close(logits[i, : len(groups[i])], scores[0], atol=1e-6, rtol=1e-5)
+            logits[mask].square().sum().backward()
+            self.assertTrue(all(torch.isfinite(p.grad).all() for p in model.parameters() if p.grad is not None))
 
-    def setUp(self) -> None:
-        self.model = CombatModel(d_model=16, action_dim=8, n_heads=4, n_layers=1).double()
+    def test_value_model_numeric_batch_and_both_head_gradients(self) -> None:
+        torch.set_num_threads(1)
+        states = [combat(1), combat(2)]
+        batch = NumericBatch(State.numeric_decisions(states))
+        groups = [batch.action_rows[batch.action_rows[:, ACTION_OWNER] == index] for index in range(2)]
+        groups[0] = groups[0][:-2]
+        actions = candidates_from_rows(groups)
+        for device in ("cpu", "cuda") if torch.cuda.is_available() else ("cpu",):
+            model = CombatValueModel(d_model=16, action_dim=8, n_layers=1).to(device)
+            logits, values, mask = model(batch, actions)
+            self.assertEqual(tuple(values.shape), (2, 1))
+            self.assertEqual(tuple(logits.shape), tuple(mask.shape))
+            self.assertTrue(torch.isneginf(logits[~mask]).all())
+            for i, state in enumerate(states):
+                single = NumericBatch(State.numeric_decisions([state]))
+                scores, value, _ = model(single, candidates_from_rows([groups[i]]))
+                torch.testing.assert_close(logits[i, : len(groups[i])], scores[0], atol=1e-6, rtol=1e-5)
+                torch.testing.assert_close(values[i], value[0], atol=1e-6, rtol=1e-5)
+            (logits[mask].square().sum() + values.square().sum()).backward()
+            for head in (model.policy_head, model.value_head, model.observation_encoder.query):
+                self.assertIsNotNone(head.weight.grad)
+                assert head.weight.grad is not None
+                self.assertTrue(torch.isfinite(head.weight.grad).all())
+                self.assertGreater(head.weight.grad.abs().sum().item(), 0)
+            with self.assertRaises(ValueError):
+                model(batch, candidates_from_rows([groups[1]]))
 
-    def observe(
-        self, observation: CombatObservation
-    ) -> tuple[Float[Tensor, " action_dim"], dict[str, Float[Tensor, "?n_rows ?feature_dim"]]]:
-        return self.model.observation_encoder(observation)
+    def test_width_groups_cover_sorted_rows(self) -> None:
+        counts = np.array([30, 5, 12, 12, 40, 7, 9, 31, 6, 18])
+        groups = width_groups(counts, 40, min_rows=2, growth=1.25)
+        self.assertGreater(len(groups), 1)
+        ordered = np.sort(counts)
+        self.assertEqual(groups[0][0], 0)
+        self.assertEqual(groups[-1][1], len(counts))
+        for (_, end, _), (start, _, _) in pairwise(groups):
+            self.assertEqual(end, start)
+        for start, end, width in groups:
+            self.assertGreaterEqual(end - start, 2)
+            self.assertGreaterEqual(width, ordered[end - 1])
+            self.assertLessEqual(width, 40)
+        self.assertEqual(width_groups(counts, 40, min_rows=256, growth=1.25), [(0, len(counts), 40)])
 
-    def test_live_decision_and_parameter_ownership(self) -> None:
-        logits = self.model(self.observation, self.actions)
-        self.assertEqual(logits.shape, (len(self.actions),))
-        self.assertEqual(logits.dtype, torch.float64)
-        self.assertTrue(torch.isfinite(logits).all())
-        torch.testing.assert_close(self.model(self.observation, self.actions[::-1]), logits.flip(0))
-        self.assertEqual(self.model(self.observation, ()).shape, (0,))
-        parameters = list(self.model.named_parameters(remove_duplicate=False))
-        self.assertEqual(len(parameters), len({id(parameter) for _, parameter in parameters}))
-        for name in ("cards", "enemies", "potions", "relics"):
-            table = getattr(self.model.observation_encoder, name).embedding
-            self.assertEqual(
-                [key for key, parameter in parameters if parameter is table.weight],
-                [f"observation_encoder.{name}.embedding.weight"],
-            )
+    def test_width_grouped_transformer_matches_one_padded_call(self) -> None:
+        torch.set_num_threads(1)
+        # Different deck sizes give different draw-pile token counts.
+        states = [combat(seed, extra_strikes=3 * seed) for seed in range(1, 13)]
+        batch = NumericBatch(State.numeric_decisions(states))
+        groups = [batch.action_rows[batch.action_rows[:, ACTION_OWNER] == index] for index in range(len(states))]
+        actions = candidates_from_rows(groups)
+        for device in ("cpu", "cuda") if torch.cuda.is_available() else ("cpu",):
+            model = CombatValueModel(d_model=16, action_dim=8, n_layers=2).to(device)
+            outputs = []
+            for min_rows in (10**9, 2):
+                model.observation_encoder.width_group_min_rows = min_rows
+                model.zero_grad()
+                logits, values, mask = model(batch, actions)
+                (logits[mask].square().sum() + values.square().sum()).backward()
+                grads = [p.grad.clone() for p in model.parameters() if p.grad is not None]
+                outputs.append((logits.detach(), values.detach(), grads))
+            counts = model.observation_encoder.prepare_numeric(batch)[3]
+            self.assertGreater(len(width_groups(counts, int(counts.max()), 2, 1.25)), 1)
+            (single_logits, single_values, single_grads), (logits, values, grads) = outputs
+            torch.testing.assert_close(logits, single_logits, atol=1e-5, rtol=1e-5)
+            torch.testing.assert_close(values, single_values, atol=1e-5, rtol=1e-5)
+            for grouped, single in zip(grads, single_grads, strict=True):
+                torch.testing.assert_close(grouped, single, atol=1e-5, rtol=1e-4)
 
-    def test_shared_rows_and_gradients_from_both_paths(self) -> None:
-        query, features = self.observe(self.observation)
-        expected = tensorize_cards(
-            tuple(entry.card for entry in self.observation.screen.hand), self.model.observation_encoder.cards.embedding
-        )
-        torch.testing.assert_close(features["hand"], expected)
-        query.square().sum().backward()
-        for name in ("cards", "enemies", "potions", "relics"):
-            gradient = getattr(self.model.observation_encoder, name).embedding.weight.grad
-            self.assertIsNotNone(gradient)
-            self.assertGreater(gradient.abs().sum().item(), 0)
-        self.model.zero_grad(set_to_none=True)
-        _, features = self.observe(self.observation)
-        actions = (action("play_hand_slot", target_slot=0), action("use_potion_slot", target_slot=0))
-        # Action-only gradients must reach identity tables, not observation projections.
-        with patch.object(
-            self.model.observation_encoder.cards.embedding,
-            "forward",
-            side_effect=AssertionError("Card rows recomputed"),
-        ):
-            self.model.action_encoder(actions, features).sum().backward()
-        for name in ("cards", "enemies", "potions"):
-            gradient = getattr(self.model.observation_encoder, name).embedding.weight.grad
-            self.assertIsNotNone(gradient)
-            self.assertGreater(gradient.abs().sum().item(), 0)
-        self.assertIsNone(self.model.observation_encoder.cards.projection.weight.grad)
-        self.assertIsNone(self.model.observation_encoder.enemies.projection.weight.grad)
-
-    def test_selection_and_all_action_kinds(self) -> None:
-        card = self.observation.screen.hand[0].card
-        selection = Selection(
-            kind=get_args(SelectionKind)[0],
-            options=(SelectionOption(slot=0, card=card), SelectionOption(slot=1, card=card)),
-            selected_slots=(1,),
-        )
-        obs = replace(self.observation, screen=replace(self.observation.screen, selection=selection))
-        query, features = self.observe(obs)
-        self.assertEqual(features["selection"][:, -1].tolist(), [0, 1])
-        kinds = (
-            "play_hand_slot",
-            "use_potion_slot",
-            "discard_potion_slot",
-            "toggle_visible_card",
-            "choose_visible_option",
-            "end_turn",
-            "confirm_selection",
-            "confirm_selection_without_retrieval",
-            "skip_selection",
-        )
-        actions = tuple(action(kind, target_slot=0, option_slot=1) for kind in kinds)
-        vectors = self.model.action_encoder(actions, features)
-        self.assertEqual(vectors.shape, (9, 8))
-        torch.testing.assert_close(self.model(obs, actions), vectors @ query)
-        vectors.sum().backward()
-        self.assertTrue(all(parameter.grad is not None for parameter in self.model.action_encoder.parameters()))
-        # Every public selection kind remains encodable through the slice.
-        for kind in SELECTION_TO_INDEX:
-            changed = None if kind is None else replace(selection, kind=kind)
-            options, context, tokens = self.model.observation_encoder.selection(
-                changed, self.model.observation_encoder.cards
-            )
-            self.assertEqual(context.shape, (1, 16))
-            self.assertEqual(tokens.shape[0], 0 if kind is None else 2)
-            self.assertEqual(options.shape[0], tokens.shape[0])
-        with self.assertRaises(NotImplementedError):
-            self.model.action_encoder((action("proceed"),), features)
+    def test_empty_candidate_rejected(self) -> None:
+        batch = NumericBatch(State.numeric_decisions([combat()]))
         with self.assertRaises(ValueError):
-            self.model.action_encoder((action("toggle_visible_card", option_slot=-1),), features)
-
-    def test_stasis_uses_shared_card_encoder(self) -> None:
-        cards = self.model.observation_encoder.cards
-        card = self.observation.screen.hand[0].card
-        monster = replace(self.observation.screen.monsters[0], stasis_card=card)
-        features, _ = self.model.observation_encoder.enemies((monster,), cards)
-        expected = tensorize_cards((card,), cards.embedding)
-        held_card = features[:, -expected.shape[1] :]
-        torch.testing.assert_close(held_card, expected)
-        held_card.sum().backward()
-        gradient = cards.embedding.weight.grad
-        assert gradient is not None
-        self.assertGreater(gradient.abs().sum().item(), 0)
-
-    def test_empty_groups_and_draw_permutation(self) -> None:
-        screen = self.observation.screen
-        query, _ = self.observe(self.observation)
-        reversed_draw = replace(screen.draw_pile, cards=screen.draw_pile.cards[::-1])
-        permuted = replace(self.observation, screen=replace(screen, draw_pile=reversed_draw))
-        torch.testing.assert_close(self.observe(permuted)[0], query)
-        empty_pile = replace(screen.draw_pile, cards=(), known_positions=())
-        empty = replace(
-            self.observation,
-            screen=replace(
-                screen,
-                hand=(),
-                monsters=(),
-                draw_pile=empty_pile,
-                discard_pile=empty_pile,
-                exhaust_pile=empty_pile,
-                selection=None,
-            ),
-            context=replace(self.observation.context, relics=(), potion_slots=()),
-        )
-        logits = self.model(empty, (action("end_turn"),))
-        self.assertEqual(logits.shape, (1,))
-        self.assertTrue(torch.isfinite(logits).all())
+            CombatValueModel()(batch, np.zeros((0, 6), dtype=np.int64))
 
 
 if __name__ == "__main__":

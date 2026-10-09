@@ -13,6 +13,8 @@ import com.megacrit.cardcrawl.screens.select.GridCardSelectScreen;
 import communicationmod.patches.GridCardSelectScreenPatch;
 import communicationmod.patches.GridCardSelectScreenUpdatePatch;
 import communicationmod.patches.ShopScreenPatch;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 import sun.misc.Unsafe;
 
@@ -27,6 +29,19 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 public class ShopPurgeConfirmAckTest {
+    private TestStateSnapshot statics;
+
+    @Before
+    public void captureStatics() {
+        statics = TestStateSnapshot.of(
+                GameStateListener.class, CardCrawlGame.class,
+                GridCardSelectScreenPatch.class, ShopScreenPatch.class);
+    }
+
+    @After
+    public void restoreStatics() {
+        statics.restore();
+    }
 
     private static Unsafe getUnsafe() throws ReflectiveOperationException {
         Field field = Unsafe.class.getDeclaredField("theUnsafe");
