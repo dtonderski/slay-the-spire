@@ -348,6 +348,16 @@ This is source-backed synthetic coverage, not dedicated interaction trace parity
 AncientPotion's incoming Artifact likewise waits behind the current action and
 cannot reject a preceding queued Speed loss or end-power loss before it is
 actually applied. Reverse Ancient/Speed order is intentionally noncommutative.
+StrengthPotion likewise queues its positive Strength application before the use
+heal. SteroidPotion (Flex Potion) queues positive Strength, then creation of
+LoseStrengthPower, then the heal. That loss application changes nominal debt,
+not actual Strength; in the split representation it shifts bookkeeping components
+without undoing the preceding capped positive application. Reject new debt with
+Artifact before rejected-debt arithmetic. Old Flex loss must settle in Codex's
+old END window, while a new loss applied after that window survives the intervening
+player start until the next END. Keep this phase distinction in private lifecycle
+state, not by clearing at start and repairing an observed amount afterward.
+These are source-backed synthetic prefixes, not dedicated interaction-trace parity.
 Other stat/power potions' own action queues remain separate audits.
 
 ## Collection timing lesson

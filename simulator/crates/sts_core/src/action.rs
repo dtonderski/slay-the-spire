@@ -544,6 +544,9 @@ pub enum InternalAction {
     GainStrengthFromPotion {
         amount: i32,
     },
+    ApplyStrengthLossFromFlexPotion {
+        amount: i32,
+    },
     UpgradeCombatCards,
     ApplyWeak {
         target: MonsterId,

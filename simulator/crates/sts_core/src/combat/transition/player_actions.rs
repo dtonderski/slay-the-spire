@@ -739,6 +739,40 @@ pub(super) fn gain_strength_from_potion(
     Ok(Vec::new())
 }
 
+pub(super) fn apply_strength_loss_from_flex_potion(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    // LoseStrengthPower application does not change actual Strength. Artifact
+    // rejects only this new debt before debt/component arithmetic.
+    if state.player.powers.artifact > 0 {
+        state.player.powers.artifact -= 1;
+        return Ok(Vec::new());
+    }
+    let error = || SimError::InvalidState("combat potion stat gain overflows i32");
+    let debt = state
+        .player
+        .temp_strength
+        .checked_add(amount)
+        .ok_or_else(error)?;
+    let permanent = state
+        .player
+        .powers
+        .strength
+        .checked_sub(amount)
+        .ok_or_else(error)?;
+    // These are the representation of a newly accepted nominal loss power;
+    // the preceding positive application already determined actual Strength.
+    state.player.temp_strength = debt;
+    state.player.powers.strength = permanent;
+    if state.resume_end_turn_after_nilrys_codex && !state.nilrys_end_powers_pending {
+        // This loss was created after the old END power window. It expires
+        // at the next END, not at the intervening player-start cleanup.
+        state.preserve_temp_strength_on_next_start = true;
+    }
+    Ok(Vec::new())
+}
+
 pub(super) fn gain_artifact_from_potion(
     state: &mut CombatState,
     amount: i32,

@@ -7,8 +7,8 @@ use crate::{
         confirm_discard_select, confirm_draw_select, confirm_exhaust_select_with_dead_branch_count,
         confirm_hand_select, confirm_hand_select_without_retrieval,
         discard_select_ui_to_discard_index, draw_select_ui_to_draw_index,
-        flush_pending_player_spikes_damage_if_ready, gain_temp_strength,
-        hand_select_ui_to_hand_index, open_discard_select_with_max_choices,
+        flush_pending_player_spikes_damage_if_ready, hand_select_ui_to_hand_index,
+        open_discard_select_with_max_choices,
     },
     combat::{
         apply_burning_blood, CombatDecisionState, CombatPhase, CombatState, DiscardSelectPurpose,
@@ -1338,14 +1338,17 @@ pub(crate) fn apply_validated_potion_action_owned(
                     }
                 }
                 Potion::Flex => {
-                    let combat = next.combat.as_mut().expect("validated combat state");
-                    // SteroidPotion.use applies the same ordered Strength /
-                    // LoseStrengthPower pair as Flex.use, including Artifact.
+                    defer_potion_use_relics = true;
                     let amount =
                         checked_potion_stat_gain(0, FLEX_POTION_TEMP_STRENGTH, multiplier)?;
-                    gain_temp_strength(combat, amount).map_err(|_| {
-                        SimError::InvalidState("combat potion stat gain overflows i32")
-                    })?;
+                    let combat = next.combat.as_mut().expect("validated combat state");
+                    let actions = std::collections::VecDeque::from([
+                        crate::InternalAction::GainStrengthFromPotion { amount },
+                        crate::InternalAction::ApplyStrengthLossFromFlexPotion { amount },
+                    ]);
+                    if queue_combat_potion_actions(combat, actions)? {
+                        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+                    }
                 }
                 Potion::Speed => {
                     defer_potion_use_relics = true;

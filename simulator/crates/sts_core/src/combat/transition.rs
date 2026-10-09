@@ -42,7 +42,7 @@ use crate::{
     rng::JavaRng,
     CardInstance, CombatState, MonsterState, SimError, SimResult,
 };
-pub(crate) use player_actions::{gain_strength_power, gain_temp_strength};
+pub(crate) use player_actions::gain_strength_power;
 use std::collections::VecDeque;
 
 pub use super::card_effects::top_draw_card_definition;
@@ -1882,6 +1882,9 @@ fn apply_internal_action_with_defer(
         }
         InternalAction::GainStrengthFromPotion { amount } => {
             player_actions::gain_strength_from_potion(state, amount)
+        }
+        InternalAction::ApplyStrengthLossFromFlexPotion { amount } => {
+            player_actions::apply_strength_loss_from_flex_potion(state, amount)
         }
         InternalAction::UpgradeCombatCards => player_actions::upgrade_all_combat_cards(state),
         InternalAction::UnceasingTopDraw => {
@@ -3790,6 +3793,7 @@ fn is_play_top_deferred_power_gain(action: &InternalAction) -> bool {
             | InternalAction::GainArtifact { .. }
             | InternalAction::GainArtifactFromPotion { .. }
             | InternalAction::GainStrengthFromPotion { .. }
+            | InternalAction::ApplyStrengthLossFromFlexPotion { .. }
             | InternalAction::GainRage { .. }
     )
 }
@@ -7526,6 +7530,13 @@ mod tests {
     fn strength_potion_is_classified_as_apply_power_action() {
         assert!(is_play_top_deferred_power_gain(
             &InternalAction::GainStrengthFromPotion { amount: 2 }
+        ));
+    }
+
+    #[test]
+    fn flex_potion_loss_is_classified_as_apply_power_action() {
+        assert!(is_play_top_deferred_power_gain(
+            &InternalAction::ApplyStrengthLossFromFlexPotion { amount: 5 }
         ));
     }
 

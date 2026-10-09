@@ -1592,6 +1592,11 @@ mod tests {
             pending.push_back(
                 sts_core::adapter_internals::InternalAction::GainStrengthFromPotion { amount: 99 },
             );
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::ApplyStrengthLossFromFlexPotion {
+                    amount: 99,
+                },
+            );
             assert_hidden_equivalent("active card reward pending actions", &left, &right);
         }
     }
@@ -1633,6 +1638,16 @@ mod tests {
         pending.push_back(
             sts_core::adapter_internals::InternalAction::GainStrengthFromPotion { amount: 99 },
         );
+        pending.push_back(
+            sts_core::adapter_internals::InternalAction::ApplyStrengthLossFromFlexPotion {
+                amount: 99,
+            },
+        );
+        right
+            .combat
+            .as_mut()
+            .expect("combat")
+            .preserve_temp_strength_on_next_start = true;
         assert_hidden_equivalent("Nilry pending potion actions", &left, &right);
     }
 
