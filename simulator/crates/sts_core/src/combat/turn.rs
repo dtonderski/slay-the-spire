@@ -151,12 +151,27 @@ pub(crate) fn end_player_turn_owned(mut next: CombatState) -> SimResult<CombatSt
         apply_pending_nilry_end_powers(&mut next)?;
         crate::relic::nilrys_codex_flush_pending_draw_inserts(&mut next)?;
         if !next.pending_nilrys_codex_potion_actions.is_empty() {
-            if finish_combat_if_over(&mut next, started_with_living_monster)? {
-                next.pending_nilrys_codex_potion_actions.clear();
+            let mut actions = std::mem::take(&mut next.pending_nilrys_codex_potion_actions);
+            if next.player.hp > 0
+                && next
+                    .monsters
+                    .iter()
+                    .all(|monster| !monster.alive && !awakened_one_is_half_dead(monster))
+            {
+                // Earlier end-turn damage cleared the pending draw/manipulation
+                // actions, but clearPostCombatActions retains Heal/GainBlock.
+                // Drain them before settling victory, not after Burning Blood.
+                actions.retain(|action| {
+                    matches!(
+                        action,
+                        crate::InternalAction::HealPlayer { .. }
+                            | crate::InternalAction::GainBlockFromPotion { .. }
+                    )
+                });
+            } else if finish_combat_if_over(&mut next, started_with_living_monster)? {
                 next.resume_end_turn_after_nilrys_codex = false;
                 return Ok(next);
             }
-            let actions = std::mem::take(&mut next.pending_nilrys_codex_potion_actions);
             next = crate::combat::transition::process_internal_queue(&next, actions)?.state;
             if matches!(next.phase, CombatPhase::Won | CombatPhase::Lost) {
                 next.resume_end_turn_after_nilrys_codex = false;
@@ -1682,7 +1697,11 @@ fn execute_generic_monster_intent(
             if state.max_orbs > 0 && state.rng.monster_rng.random_bool() {
                 crate::power::reduce_player_focus(&mut state.player.powers, 1)?;
             } else {
-                crate::power::reduce_player_strength(&mut state.player.powers, 1)?;
+                crate::power::reduce_player_strength_with_temporary(
+                    &mut state.player.powers,
+                    state.player.temp_strength,
+                    1,
+                )?;
             }
         }
     }
