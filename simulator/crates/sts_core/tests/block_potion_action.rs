@@ -198,6 +198,34 @@ fn potion_block_ignores_card_block_modifiers_control() {
     assert_eq!(next.combat.as_ref().unwrap().player.block, 12);
 }
 #[test]
+fn nilry_lethal_power_retains_queued_gain_block_diagnostic() {
+    // Direct paused-turn infrastructure diagnostic: not an accepted gameplay
+    // prefix or real-game parity evidence. Check the retained combat block
+    // before the run's victory handoff discards the combat payload.
+    let mut c = setup(vec![], vec![]).combat.unwrap();
+    c.monsters[0].hp = 5;
+    c.player.powers.combust = 1;
+    c.player.powers.combust_damage = 5;
+    c.resume_end_turn_after_nilrys_codex = true;
+    c.nilrys_end_powers_pending = true;
+    c.pending_nilrys_codex_potion_actions
+        .push_back(sts_core::adapter_internals::InternalAction::GainBlockFromPotion { amount: 12 });
+    let before = serde_json::to_value(&c).unwrap();
+    let restored = serde_json::from_value(before.clone()).unwrap();
+    let next = sts_core::adapter_internals::combat::end_player_turn(&c).unwrap();
+    assert_eq!(serde_json::to_value(&c).unwrap(), before);
+    assert_eq!(
+        serde_json::to_value(&next).unwrap(),
+        serde_json::to_value(
+            sts_core::adapter_internals::combat::end_player_turn(&restored).unwrap()
+        )
+        .unwrap()
+    );
+    assert_eq!(next.phase, sts_core::adapter_internals::CombatPhase::Won);
+    assert_eq!(next.player.block, 12);
+}
+
+#[test]
 fn malformed_overflow_keeps_potion_error_and_immutable_input() {
     let mut r = setup(vec![], vec![Potion::Block]);
     r.combat.as_mut().unwrap().player.block = i32::MAX;

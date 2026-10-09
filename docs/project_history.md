@@ -124,8 +124,62 @@ than unmodified uniform random collection. Schema 5 exposes the burning marker
 and boss chest category; it does not reveal hidden encounters or rewards. Earlier
 Act 1 artifacts retain their original constructor inputs and are not rewritten.
 
+## Run-level health conditioning and campfire pilot (October 2026)
+
+The A0 macro actor/critic with frozen sampled combat exposed substantial macro
+headroom but weak HP conditioning. On 54 naturally reached low-HP campfires,
+adding 25 HP to public model inputs changed mean value by only 0.000338.
+Privileged diagnostic continuations (not training targets or deployed search)
+cleared 32/432 times after healing versus 3/432 after the actor's best-scored
+single upgrade. This rejected the premise that the existing critic already
+represented healing's continuation benefit adequately for value-guided search.
+Measured context saturation motivated ablations, not a proven sole cause.
+
+A subsequent bounded pilot reconstructed immutable natural action prefixes at
+pre-boss campfires: 128 training roots, 32 seed-disjoint evaluation roots,
+current-HP-only synthetic initialization, fixed inventory/max-HP/RNG, and binary
+accepted Act-2-entry rewards. Both encoder arms used fresh weights, frozen combat,
+4,096 matched root/HP/policy-RNG setups, 256 updates, and learning rate 0.001.
+The health arm added normalized public-HP residual paths; the hashed arm retained
+the original encoder mathematics. This also changed learning rate from the older
+natural-run experiment, so comparisons against that experiment do not isolate
+curriculum alone.
+
+Eight matched policy-RNG repetitions at each of three held-out HP levels yielded:
+
+| Policy | Synthetic root clears | Separate natural-start clears |
+| --- | --- | --- |
+| Initial uniform macro | 50/768 | 3/128 |
+| Trained hashed encoder | 50/768 | 4/128 |
+| Trained explicit-health paths | 49/768 | 2/128 |
+
+All pilot training, scheduled validation and additional evaluations completed
+without errors/cutoffs or discarded batches. The paired root-bootstrap 95%
+interval for hashed-minus-initial clear rate was [-0.651, +0.651] percentage
+points; health-minus-initial was [-0.781, +0.521]. These conditional synthetic
+results and small natural evaluation do not establish useful policy improvement.
+
+At 15% versus 85% HP, mean values were 0.190 versus 0.192 (hashed) and 0.173
+versus 0.202 (health), while measured clear rates were 0% versus about 18%.
+Health-arm initial healing probability remained about 11.26% at both HP levels.
+Both critics' root-value MSE was worse than their initial zero predictor. Root
+successes comprised only 6.30% of training episodes, but roughly 20% of the
+critic's decision-level targets were positive because successful episodes had
+more macro decisions. Predictions near this pooled target mean are consistent
+with weak state discrimination; this is not proof that loss weighting alone
+caused the failure. Neither arm saw any successful training episode starting
+below 25% HP, including its sampled heals, limiting that stratum's teaching signal.
+
+Conclusion: this short-root/binary-reward recipe and simple explicit-health paths
+were insufficient in the tested budget. Do not scale an unchanged run on the
+assumption the curriculum solved credit assignment. Root-level value calibration,
+context/action-family interactions, and exploration remain investigations; the
+broader curriculum idea is not ruled out. See the [current experimental
+workflow](../rl/run_training/README.md#synthetic-pre-boss-campfire-experiment).
+
 ## Open questions
 
 - What trace coverage is sufficient before large simulator-only training runs?
-- Which run-level learning approach should be attempted first?
+- Which state/action representation and credit-assignment changes make the
+  experimental macro policy learn useful held-out decisions?
 - What seed count and compute budget define the final A20 Heart claim?
