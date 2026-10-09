@@ -1491,8 +1491,7 @@ fn apply_internal_action_with_defer(
         | InternalAction::DealThornsDamageToPlayer { amount } => {
             let relics = state.relics.clone();
             let hp_loss = reflect_spikes_to_player(&mut state.player, &relics, amount);
-            crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)?;
-            Ok(Vec::new())
+            crate::combat::hp_loss::apply_reflected_hp_loss_hooks_with_revival(state, hp_loss)
         }
         InternalAction::OpenElixirSelection | InternalAction::OpenGamblersBrewSelection => {
             if state.decision.is_some() {
@@ -2345,16 +2344,13 @@ fn apply_or_queue_spikes_to_player(
     state: &mut CombatState,
     monster_content_id: ContentId,
     spikes: i32,
-) -> SimResult<()> {
-    if spikes <= 0 {
-        return Ok(());
-    }
-    if monster_content_id == GUARDIAN_ID {
-        return Ok(());
+) -> SimResult<Vec<InternalAction>> {
+    if spikes <= 0 || monster_content_id == GUARDIAN_ID {
+        return Ok(Vec::new());
     }
     let relics = state.relics.clone();
     let hp_loss = reflect_spikes_to_player(&mut state.player, &relics, spikes);
-    crate::combat::hp_loss::apply_player_hp_loss_hooks(state, hp_loss)
+    crate::combat::hp_loss::apply_reflected_hp_loss_hooks_with_revival(state, hp_loss)
 }
 
 fn push_attack_block_follow_ups(

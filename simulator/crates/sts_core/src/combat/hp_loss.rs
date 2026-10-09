@@ -101,6 +101,25 @@ pub(crate) fn apply_player_card_hp_loss_hooks_queued_follow_ups(
 }
 
 #[allow(dead_code)]
+/// Reflected damage retains nominal HP-loss draws through the zero-HP frame.
+/// Draw-generated actions return to the owning card/action queue after revival.
+pub(crate) fn apply_reflected_hp_loss_hooks_with_revival(
+    state: &mut CombatState,
+    hp_loss: i32,
+) -> SimResult<Vec<crate::action::InternalAction>> {
+    if hp_loss > 0 && state.player.hp <= 0 {
+        apply_player_hp_loss_hooks_with_draw_policy(
+            state,
+            hp_loss,
+            crate::relic::HpLossDrawPolicy::DeferDraws,
+        )?;
+        crate::combat::turn::revive_player_if_available(state)?;
+        return crate::relic::settle_deferred_hp_loss_draw_relics(state);
+    }
+    apply_player_hp_loss_hooks(state, hp_loss)?;
+    Ok(Vec::new())
+}
+
 pub(crate) fn apply_player_card_hp_loss_hooks_deferred_draws(
     state: &mut CombatState,
     hp_loss: i32,
