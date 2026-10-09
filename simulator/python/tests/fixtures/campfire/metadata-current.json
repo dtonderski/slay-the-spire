@@ -1,0 +1,19 @@
+[
+  {
+    "seed": "8257716864277523305",
+    "split": "train",
+    "stop_step": 313,
+    "journal": "train.jsonl.gz",
+    "journal_sha256": "9af7f5dea8b0e7490000c90c59d1362ac4f34806cb12e080dc6e0e0b651c3be9",
+    "original_journal": "run-a0-shaped-master-20261004-080218/journals/train-1-100.jsonl.gz"
+  },
+  {
+    "seed": "2259584173543947591",
+    "split": "validation",
+    "stop_step": 276,
+    "journal": "validation-eval-440-103.jsonl.gz",
+    "journal_sha256": "fadb36382f2a8f0b9b96ce3c879bbcbea61d136bc289282b54c1d7b71726328a",
+    "original_journal": "run-a0-shaped-master-20261004-080218/journals/eval-440-103.jsonl.gz",
+    "fixture_selection": "Different unchanged simulator evaluation journal; original validation.jsonl.gz is retained and rejected under corrected grid-preview rules, not repaired."
+  }
+]

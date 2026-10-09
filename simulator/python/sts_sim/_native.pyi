@@ -48,6 +48,7 @@ type ActionKind = Literal[
     "enter_shop",
     "leave_shop",
     "open_shop_remove",
+    "return_to_room",
 ]
 type Phase = Literal["combat", "reward", "treasure", "rest", "event", "shop", "idle", "complete"]
 type ObservationKind = Literal[
@@ -116,7 +117,13 @@ def numeric_steps(
 
 class State:
     @staticmethod
-    def new(seed: str, ascension: int = ..., *, final_act: bool = ...) -> State: ...
+    def new(
+        seed: str,
+        ascension: int = ...,
+        *,
+        final_act: bool = ...,
+        training_rng_seed: int | None = ...,
+    ) -> State: ...
     @staticmethod
     def new_synthetic(
         seed: str, ascension: int = ..., hp: int = ..., final_act: bool = ...
@@ -124,6 +131,7 @@ class State:
     @staticmethod
     def from_synthetic_spec(spec_json: str) -> State: ...
     def synthetic_combat_root(self, hp: int) -> State: ...
+    def synthetic_rest_root(self, hp: int) -> State: ...
     def clone(self) -> State: ...
     @property
     def revision(self) -> int: ...
