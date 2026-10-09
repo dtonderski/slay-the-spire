@@ -16,8 +16,8 @@ pub(crate) fn cap_player_damage_with_intangible(player: &PlayerState, amount: i3
 
 pub(crate) fn lose_player_hp(state: &mut CombatState, amount: i32) -> i32 {
     let incoming = cap_player_damage_with_intangible(&state.player, amount);
-    let mitigated = crate::relic::mitigate_hp_loss(&state.player.authority.relics, incoming);
-    let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
+    let buffered = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, incoming);
+    let hp_loss = crate::relic::mitigate_hp_loss(&state.player.authority.relics, buffered);
     state.player.hp = (state.player.hp - hp_loss).max(0);
     hp_loss
 }
@@ -26,9 +26,9 @@ pub(crate) fn lose_player_blockable_hp(state: &mut CombatState, amount: i32) -> 
     let incoming = cap_player_damage_with_intangible(&state.player, amount);
     let blocked = state.player.block.min(incoming);
     state.player.block -= blocked;
-    let mitigated =
-        crate::relic::mitigate_hp_loss(&state.player.authority.relics, incoming - blocked);
-    let hp_loss = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
+    let buffered =
+        crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, incoming - blocked);
+    let hp_loss = crate::relic::mitigate_hp_loss(&state.player.authority.relics, buffered);
     state.player.hp = (state.player.hp - hp_loss).max(0);
     hp_loss
 }

@@ -2745,15 +2745,15 @@ fn deal_player_damage_with_type(
     let incoming = crate::combat::hp_loss::cap_player_damage_with_intangible(&state.player, amount);
     let blocked = state.player.block.min(incoming);
     state.player.block -= blocked;
-    let mitigated = if damage_type == PlayerDamageType::Normal {
-        crate::relic::mitigate_unblocked_attack_damage(
-            &state.player.authority.relics,
-            incoming - blocked,
-        )
+    // Buffer.onAttackedToChangeDamage precedes Torii.onAttacked and
+    // TungstenRod.onLoseHpLast, even when the rod would erase a raw one.
+    let buffered =
+        crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, incoming - blocked);
+    let hp_damage = if damage_type == PlayerDamageType::Normal {
+        crate::relic::mitigate_unblocked_attack_damage(&state.player.authority.relics, buffered)
     } else {
-        crate::relic::mitigate_hp_loss(&state.player.authority.relics, incoming - blocked)
+        crate::relic::mitigate_hp_loss(&state.player.authority.relics, buffered)
     };
-    let hp_damage = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
     state.player.hp = (state.player.hp - hp_damage).max(0);
     crate::combat::hp_loss::apply_player_hp_loss_hooks_with_draw_policy(
         state,
