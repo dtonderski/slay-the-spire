@@ -1865,7 +1865,8 @@ fn apply_internal_action_with_defer(
         InternalAction::ExitCalm => player_actions::enter_neutral(state),
         InternalAction::DiscardToHand { card_id } => pile_actions::discard_to_hand(state, card_id),
         InternalAction::GainDexterity { amount } => player_actions::gain_dexterity(state, amount),
-        InternalAction::GainDexterityFromSpeedPotion { amount } => {
+        InternalAction::GainDexterityFromSpeedPotion { amount }
+        | InternalAction::GainDexterityFromPotion { amount } => {
             player_actions::gain_dexterity_from_speed_potion(state, amount)
         }
         InternalAction::ApplyDexLossFromSpeedPotion { amount } => {
@@ -3786,6 +3787,7 @@ fn is_play_top_deferred_power_gain(action: &InternalAction) -> bool {
             | InternalAction::DoublePlayerStrength
             | InternalAction::GainDexterity { .. }
             | InternalAction::GainDexterityFromSpeedPotion { .. }
+            | InternalAction::GainDexterityFromPotion { .. }
             | InternalAction::ApplyDexLossFromSpeedPotion { .. }
             | InternalAction::GainTempStrength { .. }
             | InternalAction::GainIntangible { .. }
@@ -7537,6 +7539,13 @@ mod tests {
     fn flex_potion_loss_is_classified_as_apply_power_action() {
         assert!(is_play_top_deferred_power_gain(
             &InternalAction::ApplyStrengthLossFromFlexPotion { amount: 5 }
+        ));
+    }
+
+    #[test]
+    fn dexterity_potion_is_classified_as_apply_power_action() {
+        assert!(is_play_top_deferred_power_gain(
+            &InternalAction::GainDexterityFromPotion { amount: 2 }
         ));
     }
 
