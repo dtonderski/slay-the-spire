@@ -1589,6 +1589,9 @@ mod tests {
             pending.push_back(
                 sts_core::adapter_internals::InternalAction::GainArtifactFromPotion { amount: 99 },
             );
+            pending.push_back(
+                sts_core::adapter_internals::InternalAction::GainStrengthFromPotion { amount: 99 },
+            );
             assert_hidden_equivalent("active card reward pending actions", &left, &right);
         }
     }
@@ -1626,6 +1629,9 @@ mod tests {
         );
         pending.push_back(
             sts_core::adapter_internals::InternalAction::GainArtifactFromPotion { amount: 99 },
+        );
+        pending.push_back(
+            sts_core::adapter_internals::InternalAction::GainStrengthFromPotion { amount: 99 },
         );
         assert_hidden_equivalent("Nilry pending potion actions", &left, &right);
     }

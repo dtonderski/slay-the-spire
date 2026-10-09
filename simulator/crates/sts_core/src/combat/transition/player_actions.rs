@@ -718,6 +718,27 @@ pub(super) fn gain_ritual(state: &mut CombatState, amount: i32) -> SimResult<Vec
     Ok(Vec::new())
 }
 
+pub(super) fn gain_strength_from_potion(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    let error = || SimError::InvalidState("combat potion stat gain overflows i32");
+    let current = state
+        .player
+        .powers
+        .strength
+        .checked_add(state.player.temp_strength)
+        .ok_or_else(error)?;
+    let bounded = current
+        .checked_add(amount)
+        .ok_or_else(error)?
+        .clamp(-999, 999);
+    state.player.powers.strength = bounded
+        .checked_sub(state.player.temp_strength)
+        .ok_or_else(error)?;
+    Ok(Vec::new())
+}
+
 pub(super) fn gain_artifact_from_potion(
     state: &mut CombatState,
     amount: i32,

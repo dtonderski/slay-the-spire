@@ -1327,22 +1327,15 @@ pub(crate) fn apply_validated_potion_action_owned(
                     )?;
                 }
                 Potion::Strength => {
+                    defer_potion_use_relics = true;
+                    let amount = checked_potion_stat_gain(0, STRENGTH_POTION_STRENGTH, multiplier)?;
                     let combat = next.combat.as_mut().expect("validated combat state");
-                    // StrengthPotion.use applies StrengthPower: bound the current
-                    // amount, not just the permanent bookkeeping component, and
-                    // retain the full loss already scheduled by Flex.
-                    let current = checked_potion_stat_gain(
-                        combat.player.powers.strength,
-                        combat.player.temp_strength,
-                        1,
-                    )?;
-                    let bounded =
-                        checked_potion_stat_gain(current, STRENGTH_POTION_STRENGTH, multiplier)?
-                            .clamp(-999, 999);
-                    combat.player.powers.strength =
-                        bounded.checked_sub(combat.player.temp_strength).ok_or(
-                            SimError::InvalidState("combat potion stat gain overflows i32"),
-                        )?;
+                    let actions = std::collections::VecDeque::from([
+                        crate::InternalAction::GainStrengthFromPotion { amount },
+                    ]);
+                    if queue_combat_potion_actions(combat, actions)? {
+                        next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+                    }
                 }
                 Potion::Flex => {
                     let combat = next.combat.as_mut().expect("validated combat state");
