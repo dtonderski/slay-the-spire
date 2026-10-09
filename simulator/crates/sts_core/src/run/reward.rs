@@ -2067,6 +2067,10 @@ pub(crate) fn settle_run_after_combat_transition(
     mut after: crate::combat::CombatState,
     finish_revived_end_turn: bool,
 ) -> SimResult<crate::combat::CombatState> {
+    // Publish the actual core consumption before any run-owned fallback can
+    // inspect this one-use resource. Never infer it from final HP or revive it
+    // again merely because a later hit in the same transition killed the player.
+    run.lizard_tail_used |= after.lizard_tail_used;
     if after.relic_counters.fairy_consumed {
         if let Some((slot, _)) = run
             .occupied_potion_slots()
