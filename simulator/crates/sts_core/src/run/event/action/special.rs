@@ -25,8 +25,7 @@ pub(super) fn apply_special_event_action(
                 }
             }
             2 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -106,8 +105,7 @@ pub(super) fn apply_special_event_action(
             }
             2 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -136,8 +134,7 @@ pub(super) fn apply_special_event_action(
             2 if choice_index == 0 => {
                 // Flush deferred Duplicator copy (and Ceramic Fish) on Leave.
                 next.flush_pending_obtain_cards()?;
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -176,8 +173,7 @@ pub(super) fn apply_special_event_action(
                 });
             }
             1 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -209,8 +205,7 @@ pub(super) fn apply_special_event_action(
             }
             1 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -276,8 +271,7 @@ pub(super) fn apply_special_event_action(
                     });
                 }
                 1 if choice_index == 0 => {
-                    next.phase = RunPhase::Idle;
-                    next.event = None;
+                    crate::run::map_overlay::open_completed_room_map(next);
                 }
                 _ => {
                     return Err(SimError::IllegalAction(
@@ -319,8 +313,7 @@ pub(super) fn apply_special_event_action(
                 });
             }
             1 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -366,8 +359,7 @@ pub(super) fn apply_special_event_action(
                 next.event = Some(make_event_screen(Event::TheJoust, joust_choices(4), 4));
             }
             4 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -423,8 +415,7 @@ pub(super) fn apply_special_event_action(
             ));
         }
         Event::TheWomanInBlue if screen.stage == 1 && choice_index == 0 => {
-            next.phase = RunPhase::Idle;
-            next.event = None;
+            crate::run::map_overlay::open_completed_room_map(next);
         }
         Event::FaceTrader => match screen.stage {
             0 if choice_index == 0 => {
@@ -465,8 +456,7 @@ pub(super) fn apply_special_event_action(
                 });
             }
             2 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -497,8 +487,7 @@ pub(super) fn apply_special_event_action(
                 });
             }
             2 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -540,8 +529,7 @@ pub(super) fn apply_special_event_action(
                 enter_secret_portal_boss_combat(next)?;
             }
             2 if choice_index == 0 => {
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(
@@ -617,8 +605,7 @@ pub(super) fn apply_special_event_action(
             }
             2 if choice_index == 0 => {
                 next.flush_pending_obtain_cards()?;
-                next.phase = RunPhase::Idle;
-                next.event = None;
+                crate::run::map_overlay::open_completed_room_map(next);
             }
             _ => {
                 return Err(SimError::IllegalAction(

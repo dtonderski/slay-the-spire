@@ -107,6 +107,30 @@ fn lethal_end_power_abandons_draw_and_cost_actions() {
     assert_eq!(next.card_random_rng_counter, opened.card_random_rng_counter);
 }
 #[test]
+fn lethal_end_power_retains_potion_use_heal_before_victory_heal() {
+    let mut r = RunState::combat_fixture_with_relics(vec![
+        Relic::NilrysCodex,
+        Relic::ToyOrnithopter,
+        Relic::BurningBlood,
+    ]);
+    r.potions = vec![Potion::Swift];
+    let c = r.combat.as_mut().unwrap();
+    c.player.hp = 30;
+    c.player.powers.combust = 1;
+    c.player.powers.combust_damage = 5;
+    c.monsters[0].hp = 5;
+    let opened = step(&r, None);
+    let pending = drink(&opened);
+    let next = step(&pending, Some(RunAction::SkipCombatCardReward));
+    assert_eq!(next.phase, sts_core::adapter_internals::RunPhase::Reward);
+    assert_eq!(
+        next.hp, 40,
+        "Combust loss, retained potion heal, then Burning Blood"
+    );
+    assert_eq!(next.card_random_rng_counter, opened.card_random_rng_counter);
+}
+
+#[test]
 fn parked_choice_hook_preserves_serialized_pending_potions() {
     // Infrastructure diagnostic using the explicit publication hook, not a
     // claim that this direct hook is an accepted RunAction gameplay prefix.
