@@ -2324,9 +2324,10 @@ pub fn apply_player_hp_loss_relics_with_draw_policy(
         && next.relic_counters.centennial_puzzle_triggers == 0
     {
         next.relic_counters.centennial_puzzle_triggers = 1;
-        // CentennialPuzzle.onLoseHp addToBot's DrawCardAction; lethal damage
-        // ends the fight before the bot runs.
-        if next.player.hp > 0 {
+        // CentennialPuzzle.wasHPLost addToTop's DrawCardAction. Queue it
+        // across the damage frame even at zero HP: revival may still happen.
+        // The owning settlement drops it on actual death.
+        if next.player.hp > 0 || draw_policy == HpLossDrawPolicy::DeferDraws {
             match draw_policy {
                 HpLossDrawPolicy::Immediate => {
                     crate::combat::transition::player_draw_cards(
