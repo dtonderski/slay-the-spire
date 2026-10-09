@@ -272,7 +272,9 @@ fn apply_play_card(
     // LoseHP queued from triggerOnOtherCardPlayed), tookDamage must not see it.
     prepared.card_in_use = Some(card_id);
     let mut transition = process_internal_queue_owned(prepared, queue, record_events)?;
-    transition.state.card_in_use = None;
+    if transition.state.phase != CombatPhase::Lost {
+        transition.state.card_in_use = None;
+    }
     // Pen Nib doubles only the attack that crossed its threshold. A normal
     // card transition ends that scope after all nested effects settle; retain
     // it only while a hand/exhaust selection still owns the card-in-use
@@ -467,6 +469,28 @@ fn process_internal_queue_owned(
             apply_internal_action_with_defer(&mut next, internal_action, defer_time_warp_card_play)?
         };
         record_event(&mut event_log, internal_action);
+        if next.player.hp <= 0 {
+            crate::combat::turn::revive_player_if_available(&mut next)?;
+            if next.player.hp <= 0 {
+                // DeathScreen isScreenUp freezes action-manager dispatch. Do
+                // not execute later Draw/GainEnergy/UseCard or copied-card work.
+                // Hand play represents cardInUse in hand until UseCardAction;
+                // materialize its limbo ownership without executing that action
+                // or its discard/exhaust callbacks at the death boundary.
+                if let Some(card_id) = next.card_in_use {
+                    if let Some(index) = next.piles.hand.iter().position(|card| card.id == card_id)
+                    {
+                        let card = next.piles.hand.remove(index);
+                        next.piles.limbo.push(card);
+                    }
+                }
+                settle_combat_end_from_current_hp(&mut next)?;
+                return Ok(CombatTransition {
+                    state: next,
+                    event_log: event_log.unwrap_or_default(),
+                });
+            }
+        }
         // THORNS DamageAction and DamageAllEnemiesAction can complete even
         // in an already-dead room; each completion performs another clear.
         let completed_post_combat_clear = had_living_or_reviving_monster
