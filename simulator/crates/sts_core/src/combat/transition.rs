@@ -2728,12 +2728,13 @@ pub(crate) fn apply_orb_end_of_turn_passives(state: &mut CombatState) -> SimResu
 }
 
 /// StaticDischargePower.onAttacked: Channel Lightning `amount` times when the
-/// player takes unblocked attack damage (not Thorns / HP_LOSS).
+/// post-block/post-Buffer normal damage is positive (not Thorns / HP_LOSS),
+/// even when later relic callbacks reduce final HP loss to zero.
 pub(crate) fn apply_static_discharge_on_attacked(
     state: &mut CombatState,
-    hp_damage: i32,
+    on_attacked_damage: i32,
 ) -> SimResult<()> {
-    if hp_damage <= 0 || state.player.powers.static_discharge <= 0 {
+    if on_attacked_damage <= 0 || state.player.powers.static_discharge <= 0 {
         return Ok(());
     }
     for _ in 0..state.player.powers.static_discharge {
