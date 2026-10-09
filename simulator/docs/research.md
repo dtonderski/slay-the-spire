@@ -247,7 +247,13 @@ target action/effect lifecycle rather than an observed deck snapshot.
 - Random card upgrades seed Java shuffle from `miscRng.randomLong()`; Neow paths
   consume a hidden misc draw before relic equip.
 - Distilled Chaos constructs three PlayTop actions up front. Selected cards stay
-  in limbo and are excluded from an intervening empty-deck shuffle. Combat potions
+  in limbo and are excluded from an intervening empty-deck shuffle. Use the same
+  action/card lanes for immediate and screen-delayed use: every ordinary action
+  drains before parked card items. A Scry pause must not stage a sibling into
+  hand under a later Elixir/Gambler selector or restore held siblings into draw.
+  Later potion addToBot actions follow older ordinary actions but precede parked
+  card items. This source-backed reduction of random failure948657 is not
+  dedicated interaction-trace parity. Combat potions
   that `addToBot(DrawCardAction)` (Swift Potion) likewise wait behind an open
   `AttackFromDeckToHandAction` / `SkillFromDeckToHandAction` grid; the draw pile
   on screen is still the live deck. `DiscoveryAction` (potion rewards) and
