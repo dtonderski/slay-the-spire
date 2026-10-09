@@ -830,6 +830,17 @@ fn push_follow_up(
     follow_up: InternalAction,
     whirlwind_in_use: bool,
 ) {
+    if matches!(
+        follow_up,
+        InternalAction::DealReflectedThornsDamageToPlayer { .. }
+    ) {
+        // ThornsPower.onAttacked uses addToTop. An all-enemy action completes
+        // its indexed damage loop first, then these hits dispatch in reverse
+        // insertion order before later ordinary or card-queue items.
+        queue.push_front(follow_up);
+        return;
+    }
+
     // ResolveTopDrawCard represents a parked card-queue item. The target action
     // manager drains every action already queued by the outer card—including
     // exhaust callbacks—before servicing that card queue. Keep this as a lane
@@ -1488,7 +1499,8 @@ fn apply_internal_action_with_defer(
             damage_actions::deal_damage_and_gain_block_unblocked(state, info)
         }
         InternalAction::DealSharpHideDamageToPlayer { amount }
-        | InternalAction::DealThornsDamageToPlayer { amount } => {
+        | InternalAction::DealThornsDamageToPlayer { amount }
+        | InternalAction::DealReflectedThornsDamageToPlayer { amount } => {
             let relics = state.relics.clone();
             let hp_loss = reflect_spikes_to_player(&mut state.player, &relics, amount);
             crate::combat::hp_loss::apply_reflected_hp_loss_hooks_with_revival(state, hp_loss)
@@ -2345,16 +2357,16 @@ fn deal_attack_damage_to_all_living(
 }
 
 fn apply_or_queue_spikes_to_player(
-    state: &mut CombatState,
+    _state: &mut CombatState,
     monster_content_id: ContentId,
     spikes: i32,
 ) -> SimResult<Vec<InternalAction>> {
     if spikes <= 0 || monster_content_id == GUARDIAN_ID {
         return Ok(Vec::new());
     }
-    let relics = state.relics.clone();
-    let hp_loss = reflect_spikes_to_player(&mut state.player, &relics, spikes);
-    crate::combat::hp_loss::apply_reflected_hp_loss_hooks_with_revival(state, hp_loss)
+    Ok(vec![InternalAction::DealReflectedThornsDamageToPlayer {
+        amount: spikes,
+    }])
 }
 
 fn push_attack_block_follow_ups(
