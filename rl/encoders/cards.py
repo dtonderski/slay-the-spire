@@ -4,16 +4,16 @@ from jaxtyping import Float
 from sts_sim import CardKey
 from torch import Tensor, nn
 
-from .numeric import FeatureArrays, NumericBatch, upload_features
+from .numeric import CARD_ROW_WIDTH, FeatureArrays, NumericBatch, upload_features
+from .vocabulary import public_vocabulary
 
 CARD_EMBEDDING_DIM = 16
-CARD_STATE_DIM = 11
+CARD_STATE_DIM = 20
 CARD_FEATURE_DIM = CARD_EMBEDDING_DIM + CARD_STATE_DIM
 # Every public card table, encoded together in one pass.
 CARD_TABLES = ("hand", "draw", "discard", "exhaust", "stasis", "selection_cards")
 
-# Current-catalog indices only. Checkpoint compatibility is not implemented yet.
-CARD_TO_INDEX = {key: index for index, key in enumerate(CardKey)}
+CARD_TO_INDEX = public_vocabulary(CardKey)
 
 
 class CardEncoder(nn.Module):
@@ -25,14 +25,14 @@ class CardEncoder(nn.Module):
     @staticmethod
     def prepare(batch: NumericBatch) -> FeatureArrays:
         """Gather the public card tables once, before any learned embedding."""
-        tables = [batch.table(name, 18) for name in CARD_TABLES]
+        tables = [batch.table(name, CARD_ROW_WIDTH) for name in CARD_TABLES]
         rows = np.concatenate(tables)
         raw_ids = rows[:, 1]
         if len(raw_ids) and (int(raw_ids.min()) < 0 or int(raw_ids.max()) >= len(CARD_TO_INDEX)):
             raise ValueError("Card id is outside content vocabulary v1")
         return FeatureArrays(
             {"ids": raw_ids},
-            {"state": rows[:, [2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 17]]},
+            {"state": rows[:, [2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 17, *range(18, 27)]]},
             {name: batch.lengths(table) for name, table in zip(CARD_TABLES, tables, strict=True)},
         )
 

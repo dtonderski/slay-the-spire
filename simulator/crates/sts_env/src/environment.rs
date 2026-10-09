@@ -610,11 +610,19 @@ mod tests {
         let decision = env.decision().expect("modeled cross-color card");
         assert_eq!(env.decision().expect("repeat"), decision);
         assert_eq!(env.state, before, "export draws no RNG");
-        // This change is not a claim that all cross-color mechanics are modeled.
-        // Retain the content-level guard instead of fabricating a card cost.
+        // Definition/owned-card projection does not claim completed gameplay
+        // effects. Printed values are audited; truly unknown content stays guarded.
         env.state.deck.push(CardInstance::new(
             CardId::new(101),
             shop_card_content_id("FLYING_KNEE"),
+        ));
+        let known = env
+            .decision()
+            .expect("newly registered printed card values");
+        assert_eq!(known.observation.context.deck.last().unwrap().cost, 1);
+        env.state.deck.push(CardInstance::new(
+            CardId::new(102),
+            sts_core::adapter_internals::ContentId::new(9_999_999),
         ));
         assert_eq!(env.decision(), Err(FairError::DecisionUnavailable));
     }

@@ -48,6 +48,7 @@ pub(super) fn play_card(
     let card = find_hand_card(state, card_id)?;
     let definition =
         get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
+    crate::combat::prismatic::on_card_play(state, definition.card_type)?;
     apply_enrage_on_card_type(state, definition.card_type)?;
     let mut follow_ups = apply_rage_on_card_type(state, definition.card_type, definition.id)?;
     follow_ups.extend(crate::relic::apply_on_card_play_relics(
@@ -71,6 +72,7 @@ pub(super) fn play_card_copy(
     content_id: ContentId,
 ) -> SimResult<Vec<InternalAction>> {
     let definition = copied_card_content_definition(state, card_id, content_id)?;
+    crate::combat::prismatic::on_card_play(state, definition.card_type)?;
     apply_enrage_on_card_type(state, definition.card_type)?;
     let mut follow_ups = apply_rage_on_card_type(state, definition.card_type, definition.id)?;
     follow_ups.extend(crate::relic::apply_on_card_play_relics(

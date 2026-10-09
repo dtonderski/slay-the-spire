@@ -113,6 +113,9 @@ pub(super) fn play_card_queue_in_place(
             card.content_id,
             definition,
         ),
+        id if crate::content::prismatic::prismatic_card_spec(id).is_some() => {
+            super::prismatic::play_card_queue(state, *card, target, false)
+        }
         STRIKE_R_ID | STRIKE_R_PLUS_ID => strike_queue(
             state,
             card_id,
@@ -630,8 +633,26 @@ pub(super) fn play_card_queue_in_place(
     // the original card (`purgeOnUse` copies). Wrapping an already-wrapped
     // queue nests those copies (FIDL00036: Heavy Blade 4 intangible hits
     // instead of original + Necronomicon + Double Tap).
-    let copied_effects = snapshot_copied_card_effects(&queue, card_id);
-    let duplication_effects = snapshot_duplication_potion_effects(&queue, card_id);
+    let (copied_effects, duplication_effects) =
+        if crate::content::prismatic::prismatic_card_spec(card.content_id).is_some()
+            && !definition.keywords.unplayable
+        {
+            // New cross-color use handlers run anew for each purgeOnUse copy,
+            // with the copy's initial stats but live piles/orbs/history. Replaying
+            // a frozen effects list would miscompute Chill, Stack, Finisher, etc.
+            let effects = VecDeque::from([InternalAction::Foreign(
+                crate::action::ForeignAction::CopiedUse {
+                    card: *card,
+                    target,
+                },
+            )]);
+            (effects.clone(), effects)
+        } else {
+            (
+                snapshot_copied_card_effects(&queue, card_id),
+                snapshot_duplication_potion_effects(&queue, card_id),
+            )
+        };
     if state.duplication_potion_pending || state.duplication_potion_stacks > 0 {
         queue =
             apply_duplication_potion_to_queue(queue, card_id, definition.id, duplication_effects);
@@ -1314,6 +1335,7 @@ fn copied_card_required_living_target(effects: &VecDeque<InternalAction>) -> Opt
 
 fn action_required_living_target(action: InternalAction) -> Option<MonsterId> {
     match action {
+        InternalAction::Foreign(crate::action::ForeignAction::CopiedUse { target, .. }) => target,
         InternalAction::DealDamage { info }
         | InternalAction::PrepareCardDamage { info }
         | InternalAction::DealDamageAndHealUnblocked { info }
@@ -1381,6 +1403,7 @@ fn is_duplicated_card_effect(action: InternalAction, card_id: CardId) -> bool {
             | InternalAction::AwaitCopiedHandSelect { .. }
             | InternalAction::AwaitExhaustSelect { .. }
             | InternalAction::ForethoughtAutoMove { .. }
+            | InternalAction::Foreign(crate::action::ForeignAction::StageInLimbo { .. })
     ) && !is_card_move_for(action, card_id)
 }
 
@@ -3443,14 +3466,19 @@ fn compile_driver_queue(
     let mut seen_lightning = false;
     let mut seen_frost = false;
     let mut seen_dark = false;
+    let mut seen_plasma = false;
     for orb in &state.orbs {
         match orb {
             crate::combat::CombatOrb::Lightning => seen_lightning = true,
             crate::combat::CombatOrb::Frost => seen_frost = true,
             crate::combat::CombatOrb::Dark { .. } => seen_dark = true,
+            crate::combat::CombatOrb::Plasma => seen_plasma = true,
         }
     }
-    let draw_count = usize::from(seen_lightning) + usize::from(seen_frost) + usize::from(seen_dark);
+    let draw_count = usize::from(seen_lightning)
+        + usize::from(seen_frost)
+        + usize::from(seen_dark)
+        + usize::from(seen_plasma);
     let mut queue = VecDeque::from([
         InternalAction::PlayCard { card_id },
         InternalAction::SpendCardEnergy { card_id },

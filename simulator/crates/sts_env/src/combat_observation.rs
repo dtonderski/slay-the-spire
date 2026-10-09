@@ -22,7 +22,7 @@ use sts_core::adapter_internals::{
 };
 
 /// Version of the serialized symbolic fair-combat observation contract.
-pub const FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION: u32 = 4;
+pub const FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -97,6 +97,7 @@ pub enum FairOrb {
     Lightning,
     Frost,
     Dark { evoke: i32 },
+    Plasma,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -119,6 +120,20 @@ pub struct FairCard {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct FairCardDynamicValues {
+    /// Public Genetic Algorithm block growth above its constructor value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub misc_bonus: Option<i32>,
+    /// Public base-number changes (Claw, Glass Knife, Perseverance).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_damage_delta: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_block_delta: Option<i32>,
+    /// Expunger's displayed number of hits, fixed by Conjure Blade.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x_magic: Option<i32>,
+    /// Visible one-turn Retain from Meditate or Well-Laid Plans.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub retain_once: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rampage_damage_bonus: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -383,12 +398,25 @@ pub(crate) fn project_card(
     Ok(FairCard {
         content_key: definition.key.to_owned(),
         cost,
-        cost_is_modified: cost != i32::from(definition.cost),
+        cost_is_modified: cost
+            != i32::from(
+                sts_core::adapter_internals::content::prismatic::prismatic_card_spec(
+                    card.content_id,
+                )
+                .map_or(definition.cost, |spec| spec.cost(card.upgrades > 0)),
+            ),
         cost_resets_next_turn: card.temp_cost_turn_only,
         upgrade_level: card.upgrades.max(card.searing_blow_upgrades),
         bottled: card.bottled,
         temporary: card.combat_only,
         dynamic: FairCardDynamicValues {
+            misc_bonus: nonzero(card.misc_bonus),
+            base_damage_delta: nonzero(card.base_damage_delta),
+            base_block_delta: nonzero(card.base_block_delta),
+            x_magic: (card.content_id
+                == sts_core::adapter_internals::content::prismatic::EXPUNGER_ID)
+                .then_some(card.x_magic),
+            retain_once: card.retain_once,
             rampage_damage_bonus: nonzero(card.rampage_damage_bonus),
             ritual_dagger_damage_bonus: nonzero(card.ritual_dagger_damage_bonus),
             windmill_retain_damage: nonzero(card.windmill_retain_damage),
@@ -411,6 +439,7 @@ fn project_orb(orb: CombatOrb) -> Result<FairOrb, FairObservationError> {
     match orb {
         CombatOrb::Lightning => Ok(FairOrb::Lightning),
         CombatOrb::Frost => Ok(FairOrb::Frost),
+        CombatOrb::Plasma => Ok(FairOrb::Plasma),
         CombatOrb::Dark { evoke } if evoke >= 0 => Ok(FairOrb::Dark { evoke }),
         CombatOrb::Dark { .. } => Err(FairObservationError::InvalidAuthoritativeState),
     }
@@ -1683,7 +1712,10 @@ mod tests {
         combat.piles.hand[0].windmill_retain_damage = 8;
 
         let projected = observation(&run);
-        assert_eq!(projected.schema_version, 4);
+        assert_eq!(
+            projected.schema_version,
+            FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION
+        );
         assert_eq!(
             projected.orb_slots,
             vec![
@@ -2045,11 +2077,14 @@ mod tests {
     }
 
     #[test]
-    fn unmodeled_prismatic_pool_cards_fail_without_fabricating_cost() {
+    fn newly_registered_prismatic_cards_publish_audited_base_and_upgrade_costs() {
         let synthetic =
             sts_core::adapter_internals::content::shop_pool::shop_card_content_id("FLYING_KNEE");
-        assert!(
-            sts_core::adapter_internals::content::cards::get_card_definition(synthetic).is_none()
+        assert_eq!(
+            sts_core::adapter_internals::content::cards::get_card_definition(synthetic)
+                .unwrap()
+                .cost,
+            1,
         );
         assert_eq!(
             sts_core::adapter_internals::run::reward::any_color_reward_card_key(synthetic),
@@ -2060,16 +2095,13 @@ mod tests {
         run.combat.as_mut().expect("combat").piles.hand[0] =
             CardInstance::new(CardId::new(1), synthetic);
 
-        let error =
-            fair_combat_observation(&run).expect_err("unmodeled pool content is not projected");
-        assert_eq!(
-            error,
-            FairObservationError::UnmodeledPublicContent("FLYING_KNEE")
-        );
-        assert_eq!(
-            error.to_string(),
-            "public combat content is unmodeled: FLYING_KNEE"
-        );
+        let base = observation(&run);
+        assert_eq!(base.hand[0].card.content_key, "FLYING_KNEE");
+        assert_eq!(base.hand[0].card.cost, 1);
+        run.combat.as_mut().unwrap().piles.hand[0].upgrades = 1;
+        let upgraded = observation(&run);
+        assert_eq!(upgraded.hand[0].card.cost, 1);
+        assert_eq!(upgraded.hand[0].card.upgrade_level, 1);
     }
 
     #[test]

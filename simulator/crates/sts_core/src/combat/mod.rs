@@ -8,6 +8,7 @@ pub mod hp_loss;
 pub mod legal;
 pub(crate) mod pile_knowledge;
 pub(crate) mod piles;
+pub(crate) mod prismatic;
 pub mod setup;
 pub mod state;
 pub mod transition;
@@ -22,8 +23,10 @@ pub use setup::{card_has_innate, initialize_combat_piles_with_relics};
 pub use state::{
     BombTimer, CardPiles, CombatDecisionState, CombatOrb, CombatPhase, CombatRngState, CombatState,
     DiscardSelectPurpose, DiscardSelectState, DrawSelectPurpose, DrawSelectState,
-    ExhaustSelectPurpose, ExhaustSelectState, HandSelectPurpose, HandSelectState, MonsterIntent,
-    MonsterState, PlayerState, PotionCardRewardKind, SlimeSize, BASE_PLAYER_ENERGY,
+    ExhaustSelectPurpose, ExhaustSelectState, ForeignCombatState, ForeignPower, ForeignSelection,
+    ForeignSelectionKind, ForeignSelectionPile, ForeignTurnResume, HandSelectPurpose,
+    HandSelectState, MonsterIntent, MonsterState, NightmareCopy, PlayerState, PotionCardRewardKind,
+    SlimeSize, BASE_PLAYER_ENERGY,
 };
 pub use transition::{
     add_generated_card_to_draw_pile_random_spot_public, apply_combat_action,

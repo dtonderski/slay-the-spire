@@ -29,7 +29,7 @@ from .common import (
     decode_counter,
 )
 
-FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION = 4
+FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION = 5
 
 CombatPhase = Literal["waiting_for_player", "monster_turn", "won", "lost"]
 SlimeSize = Literal["Small", "Medium", "Large"]
@@ -111,7 +111,12 @@ class DarkOrb:
     evoke: int
 
 
-Orb = LightningOrb | FrostOrb | DarkOrb
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PlasmaOrb:
+    type: Literal["plasma"]
+
+
+Orb = LightningOrb | FrostOrb | DarkOrb | PlasmaOrb
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -265,6 +270,9 @@ def decode_orb(value: object, path: str) -> Orb:
     if orb_type == "dark":
         _mapping(data, path, required=frozenset({"type", "evoke"}))
         return DarkOrb(type="dark", evoke=_int(data["evoke"], f"{path}.evoke"))
+    if orb_type == "plasma":
+        data = _exact(value, path, PlasmaOrb)
+        return PlasmaOrb(type="plasma")
     raise ValueError(f"{path}.type: unknown orb type {orb_type!r}")
 
 
@@ -375,8 +383,7 @@ def decode_selection(value: object, path: str) -> Selection:
 def decode_selection_option(value: object, path: str) -> SelectionOption:
     data = _exact(value, path, SelectionOption)
     return SelectionOption(
-        slot=_int(data["slot"], f"{path}.slot"),
-        card=decode_card(data["card"], f"{path}.card"),
+        slot=_int(data["slot"], f"{path}.slot"), card=decode_card(data["card"], f"{path}.card")
     )
 
 

@@ -66,11 +66,20 @@ experiment identity after a source change, using explicit weights-only transfer
 if compatible. This supplies the supported libGDX distribution, not the actual
 game's global RNG sequence or real-game run-seed parity.
 
-Prismatic reward publication (including matching Egg upgrades) now supports
-source-backed unowned previews. **Full cross-color gameplay is still incomplete:**
-142 pool entries have preview metadata but no gameplay implementation. Taking
-one still fails atomically; no fake effects, substitute cards, or legal-candidate
-filtering are provided. The historical Headbutt victory-settlement defect was
+Prismatic reward publication and acquisition (including matching Egg upgrades)
+now use registered source-backed card definitions. **Full cross-color gameplay
+is still incomplete:** registration does not implement every card or power hook.
+Unfinished plays still fail atomically; no fake effects, substitute cards, or
+legal-candidate filtering are provided.
+
+Public combat vocabulary v2 preserves v1 card indices and appends new identities;
+transport v4 includes new public dynamic card values. Frozen v1 combat checkpoints
+are rejected unless `--adapt-legacy-combat-checkpoint` explicitly permits the
+weights-only zero extension. It preserves old semantic columns, including cards
+inside enemy/action inputs, and initializes new identity rows/value columns to
+zero. The checkpoint hash, actual adapter protocol, flag, and source archive are
+persisted and checked on resume. This is not optimizer migration or evidence that
+the frozen policy is competent with new cards. The historical Headbutt victory-settlement defect was
 fixed separately. These diagnostics are simulator-only, not real-game parity
 findings. The default **aborts** on simulator errors or incomplete training batches. Both serial and batched modes log localized collection failures in
 `collection-errors.jsonl`, including failures that abort the run. For an

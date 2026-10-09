@@ -24,6 +24,7 @@ from encoders.numeric import (
 from model import CombatValueModel
 from sts_sim import Decision, Observation, State
 
+from run_training.combat_compat import frozen_weights
 from run_training.contracts import PolicyAction, controller, outcome
 from run_training.environment import journal_environment_seed
 from run_training.metrics import BehaviorStats
@@ -78,18 +79,13 @@ def sample(logits: torch.Tensor, generator: torch.Generator) -> int:
     return int(torch.multinomial(logits.softmax(0), 1, generator=generator).item())
 
 
-def sample_many(
-    logits: list[torch.Tensor], generators: list[torch.Generator]
-) -> list[int]:
+def sample_many(logits: list[torch.Tensor], generators: list[torch.Generator]) -> list[int]:
     """Keep each run's RNG and true candidate length; synchronize choices once."""
     if not logits or any(row.ndim != 1 or not len(row) for row in logits):
         raise ValueError("Expected nonempty complete candidate rows")
     if not torch.isfinite(torch.cat(logits)).all():
         raise ValueError("Nonfinite policy logits")
-    choices = [
-        torch.multinomial(row.softmax(0), 1, generator=rng)
-        for row, rng in zip(logits, generators, strict=True)
-    ]
+    choices = [torch.multinomial(row.softmax(0), 1, generator=rng) for row, rng in zip(logits, generators, strict=True)]
     return torch.cat(choices).cpu().tolist()
 
 
@@ -116,42 +112,30 @@ class MacroPrediction:
 
 
 class FrozenCombat:
-    def __init__(self, checkpoint: Path, device: str) -> None:
+    def __init__(self, checkpoint: Path, device: str, *, adapt_legacy: bool = False) -> None:
         # Checkpoints must be trusted. This is weight-only integration, not resume
         # of the original combat optimizer, precision protocol, or simulator.
         source = torch.load(checkpoint, map_location="cpu", weights_only=True)
         config = source["config"]
         width = config.get("model_width", 64)
         self.model = CombatValueModel(
-            d_model=width,
-            action_dim=width,
-            n_layers=config.get("model_layers", 2),
-            precision="fp32",
+            d_model=width, action_dim=width, n_layers=config.get("model_layers", 2), precision="fp32"
         ).to(device)
-        self.model.load_state_dict(source["model"], strict=True)
+        weights, self.checkpoint_adapter = frozen_weights(self.model, source["model"], adapt_legacy=adapt_legacy)
+        self.model.load_state_dict(weights, strict=True)
         if not all(torch.isfinite(p).all() for p in self.model.parameters()):
             raise ValueError("Nonfinite combat checkpoint")
         self.model.requires_grad_(False)
         self.model.eval()
 
     @torch.no_grad()
-    def choose(
-        self, state: State, decision: Decision, generator: torch.Generator
-    ) -> int:
+    def choose(self, state: State, decision: Decision, generator: torch.Generator) -> int:
         batch = NumericBatch(simulator_call(lambda: State.numeric_decisions([state])))
         rows = batch.action_rows
-        if len(rows) != len(decision.actions) or np.any(
-            rows[:, ACTION_REVISION] != decision.revision
-        ):
-            raise ValueError(
-                "Combat numeric/typed candidate count or revision mismatch"
-            )
-        if sorted(rows[:, ACTION_LEGAL_INDEX].tolist()) != list(
-            range(len(decision.actions))
-        ):
-            raise ValueError(
-                "Combat numeric rows must cover every legal candidate exactly once"
-            )
+        if len(rows) != len(decision.actions) or np.any(rows[:, ACTION_REVISION] != decision.revision):
+            raise ValueError("Combat numeric/typed candidate count or revision mismatch")
+        if sorted(rows[:, ACTION_LEGAL_INDEX].tolist()) != list(range(len(decision.actions))):
+            raise ValueError("Combat numeric rows must cover every legal candidate exactly once")
         # Unlike synthetic combat training, full-run play keeps escape potions.
         # Every advertised legal candidate is scored; no retry/filter fallback.
         candidates = np.zeros((len(rows), 6), dtype=np.int64)
@@ -162,25 +146,17 @@ class FrozenCombat:
     @torch.no_grad()
     def choose_many(self, requests: list[CombatRequest]) -> list[int]:
         try:
-            batch = NumericBatch(
-                State.numeric_decisions([row.state for row in requests])
-            )
+            batch = NumericBatch(State.numeric_decisions([row.state for row in requests]))
         except (ValueError, RuntimeError) as error:
             # A collective export failure has no trustworthy per-case attribution.
             # Do not retry exports/actions individually or silently drop a state.
-            raise RuntimeError(
-                "Batched numeric export failed; aborting unlocalized cohort"
-            ) from error
+            raise RuntimeError("Batched numeric export failed; aborting unlocalized cohort") from error
         if batch.model_rows != list(range(len(requests))):
-            raise ValueError(
-                "Combat batch must represent every requested state exactly once"
-            )
+            raise ValueError("Combat batch must represent every requested state exactly once")
         rows = batch.action_rows
         if len(rows) == 0 or np.any(np.diff(rows[:, ACTION_OWNER]) < 0):
             raise ValueError("Combat rows must be nonempty and grouped by owner")
-        expected_owners = np.repeat(
-            np.arange(len(requests)), [len(r.decision.actions) for r in requests]
-        )
+        expected_owners = np.repeat(np.arange(len(requests)), [len(r.decision.actions) for r in requests])
         if not np.array_equal(rows[:, ACTION_OWNER], expected_owners):
             raise ValueError("Combat numeric/typed batch owner/count mismatch")
         groups = []
@@ -191,9 +167,7 @@ class FrozenCombat:
             if np.any(group[:, ACTION_REVISION] != request.decision.revision) or sorted(
                 group[:, ACTION_LEGAL_INDEX].tolist()
             ) != list(range(count)):
-                raise ValueError(
-                    "Combat numeric rows must preserve revisions and every legal candidate"
-                )
+                raise ValueError("Combat numeric rows must preserve revisions and every legal candidate")
             groups.append(group)
             start += count
         candidates = np.empty((len(rows), 6), dtype=np.int64)
@@ -201,13 +175,9 @@ class FrozenCombat:
         candidates[:, 1:] = rows[:, ACTION_KIND : ACTION_TARGET + 1]
         logits, _, _ = self.model(batch, candidates)
         choices = sample_many(
-            [logits[i, : len(group)] for i, group in enumerate(groups)],
-            [request.generator for request in requests],
+            [logits[i, : len(group)] for i, group in enumerate(groups)], [request.generator for request in requests]
         )
-        return [
-            int(group[choice, ACTION_LEGAL_INDEX])
-            for group, choice in zip(groups, choices, strict=True)
-        ]
+        return [int(group[choice, ACTION_LEGAL_INDEX]) for group, choice in zip(groups, choices, strict=True)]
 
 
 def task_result(
@@ -222,9 +192,7 @@ def task_result(
         return status, terminal_parts(objective, status, furthest_act1_floor).total
     # Act-1 curriculum terminates at the observable transition into Act 2.
     if objective in ("act1", "act1_binary") and decision.observation.context.act >= 2:
-        return "act1_clear", terminal_parts(
-            objective, "act1_clear", furthest_act1_floor
-        ).total
+        return "act1_clear", terminal_parts(objective, "act1_clear", furthest_act1_floor).total
     if status != "ongoing":
         if objective in ("act1", "act1_binary"):
             raise CollectionFailure("Unexpected Act-1 terminal boundary")
@@ -263,11 +231,7 @@ def _trajectory(
     furthest_act1_floor = 0
     behavior = BehaviorStats()
     journal.parent.mkdir(parents=True, exist_ok=True)
-    with (
-        gzip.open(journal, "xt", compresslevel=1)
-        if journal.suffix == ".gz"
-        else journal.open("x")
-    ) as log:
+    with gzip.open(journal, "xt", compresslevel=1) if journal.suffix == ".gz" else journal.open("x") as log:
 
         def emit(row: dict) -> None:
             log.write(json.dumps(row) + "\n")
@@ -288,26 +252,14 @@ def _trajectory(
             }
         )
         try:
-            profile = (
-                {"training_rng_seed": training_rng_seed}
-                if training_rng_seed is not None
-                else {}
-            )
-            state = simulator_call(
-                lambda: state_factory(seed, ascension=0, final_act=final_act, **profile)
-            )
+            profile = {"training_rng_seed": training_rng_seed} if training_rng_seed is not None else {}
+            state = simulator_call(lambda: state_factory(seed, ascension=0, final_act=final_act, **profile))
             decision = simulator_call(state.decision)
             while True:
                 if decision.observation.context.act == 1:
-                    furthest_act1_floor = max(
-                        furthest_act1_floor, decision.observation.context.floor
-                    )
+                    furthest_act1_floor = max(furthest_act1_floor, decision.observation.context.floor)
                 status, reward = task_result(decision, objective, furthest_act1_floor)
-                if (
-                    reward is not None
-                    or accepted >= max_actions
-                    or (stop_requested and stop_requested())
-                ):
+                if reward is not None or accepted >= max_actions or (stop_requested and stop_requested()):
                     if reward is None:
                         status = "cutoff"
                     emit(
@@ -320,9 +272,7 @@ def _trajectory(
                             "hp": decision.observation.context.player_hp,
                             "macro_decisions": len(steps),
                             "furthest_act1_floor": furthest_act1_floor,
-                            "reward_parts": asdict(
-                                terminal_parts(objective, status, furthest_act1_floor)
-                            )
+                            "reward_parts": asdict(terminal_parts(objective, status, furthest_act1_floor))
                             if reward is not None
                             else None,
                             "behavior": asdict(behavior),
@@ -341,10 +291,7 @@ def _trajectory(
                 observation = decision.observation
                 if observation.kind == "map":
                     visible_map = observation
-                if (
-                    visible_map is not None
-                    and visible_map.context.act != observation.context.act
-                ):
+                if visible_map is not None and visible_map.context.act != observation.context.act:
                     visible_map = None
                 owner = controller(decision)
                 step = None
@@ -364,18 +311,9 @@ def _trajectory(
                     if heal_indices:
                         heal_probability = 1.0
                 else:
-                    descriptors = tuple(
-                        PolicyAction.from_action(a) for a in decision.actions
-                    )
-                    inputs = encode(
-                        observation,
-                        descriptors,
-                        visible_map=visible_map,
-                        previous=previous,
-                    )
-                    prediction = yield MacroRequest(
-                        inputs, macro_rng, tuple(heal_indices)
-                    )
+                    descriptors = tuple(PolicyAction.from_action(a) for a in decision.actions)
+                    inputs = encode(observation, descriptors, visible_map=visible_map, previous=previous)
+                    prediction = yield MacroRequest(inputs, macro_rng, tuple(heal_indices))
                     if not isinstance(prediction, MacroPrediction):
                         raise TypeError("Expected a macro prediction")
                     index = prediction.index
@@ -391,12 +329,8 @@ def _trajectory(
                         "owner": owner,
                         "index": index,
                         "action": asdict(descriptor),
-                        "rest_pre_hp": observation.context.player_hp
-                        if heal_indices
-                        else None,
-                        "rest_pre_max_hp": observation.context.player_max_hp
-                        if heal_indices
-                        else None,
+                        "rest_pre_hp": observation.context.player_hp if heal_indices else None,
+                        "rest_pre_max_hp": observation.context.player_max_hp if heal_indices else None,
                         "heal_probability": heal_probability,
                     }
                 )
@@ -407,21 +341,13 @@ def _trajectory(
                 if observation.kind != "combat":
                     previous = descriptor
                 accepted += 1
-                emit(
-                    {
-                        "type": "accepted",
-                        "step": accepted - 1,
-                        "revision": decision.revision,
-                    }
-                )
+                emit({"type": "accepted", "step": accepted - 1, "revision": decision.revision})
         except Exception as error:
             if isinstance(error, CollectionFailure):
                 error.accepted = accepted
                 error.behavior = behavior
                 error.furthest_act1_floor = furthest_act1_floor
-                error.floor = (
-                    decision.observation.context.floor if "decision" in locals() else 0
-                )
+                error.floor = decision.observation.context.floor if "decision" in locals() else 0
             emit(
                 {
                     "type": "error",
@@ -461,28 +387,17 @@ def _predict_one(model: MacroModel, request: MacroRequest) -> MacroPrediction:
     if not torch.isfinite(value):
         raise ValueError("Nonfinite macro value")
     index = sample(logits, request.generator)
-    probability = (
-        float(logits.softmax(0)[list(request.heal_indices)].sum())
-        if request.heal_indices
-        else None
-    )
-    return MacroPrediction(
-        index, tuple(logits.cpu().tolist()), float(value), probability
-    )
+    probability = float(logits.softmax(0)[list(request.heal_indices)].sum()) if request.heal_indices else None
+    return MacroPrediction(index, tuple(logits.cpu().tolist()), float(value), probability)
 
 
 @torch.no_grad()
-def _predict_many(
-    model: MacroModel, requests: list[MacroRequest]
-) -> list[MacroPrediction]:
+def _predict_many(model: MacroModel, requests: list[MacroRequest]) -> list[MacroPrediction]:
     batch = model.pack([r.inputs for r in requests])
     logits, values = model.forward_batch(batch)
     if not torch.isfinite(values).all():
         raise ValueError("Nonfinite macro value")
-    choices = sample_many(
-        [logits[i, :n] for i, n in enumerate(batch.lengths)],
-        [r.generator for r in requests],
-    )
+    choices = sample_many([logits[i, :n] for i, n in enumerate(batch.lengths)], [r.generator for r in requests])
     probabilities = logits.softmax(1).cpu().tolist()
     cpu_logits, cpu_values = logits.cpu().tolist(), values.cpu().tolist()
     return [
@@ -490,9 +405,7 @@ def _predict_many(
             choice,
             tuple(row[:n]),
             value,
-            sum(probabilities[i][j] for j in request.heal_indices)
-            if request.heal_indices
-            else None,
+            sum(probabilities[i][j] for j in request.heal_indices) if request.heal_indices else None,
         )
         for i, (request, choice, row, value, n) in enumerate(
             zip(requests, choices, cpu_logits, cpu_values, batch.lengths, strict=True)
@@ -500,12 +413,7 @@ def _predict_many(
     ]
 
 
-def collect(
-    seed: str,
-    macro: MacroModel,
-    combat: FrozenCombat,
-    **options: Unpack[CollectionOptions],
-) -> RunEpisode:
+def collect(seed: str, macro: MacroModel, combat: FrozenCombat, **options: Unpack[CollectionOptions]) -> RunEpisode:
     """Serial reference driver of the same journaled trajectory state machine."""
     trajectory = _trajectory(seed, **options)
     try:
@@ -515,16 +423,10 @@ def collect(
                 if isinstance(request, MacroRequest):
                     response = _predict_one(macro, request)
                 else:
-                    response = combat.choose(
-                        request.state, request.decision, request.generator
-                    )
+                    response = combat.choose(request.state, request.decision, request.generator)
             except Exception as error:
-                trajectory.throw(
-                    error
-                )  # Attribute/log at the suspended decision; no retry.
-                raise AssertionError(
-                    "Trajectory swallowed an inference failure"
-                ) from error
+                trajectory.throw(error)  # Attribute/log at the suspended decision; no retry.
+                raise AssertionError("Trajectory swallowed an inference failure") from error
             request = trajectory.send(response)
     except StopIteration as done:
         return done.value
@@ -594,11 +496,7 @@ def collect_many(
 
     try:
         while True:
-            while (
-                not exhausted
-                and len(active) < width
-                and not (stop_requested and stop_requested())
-            ):
+            while not exhausted and len(active) < width and not (stop_requested and stop_requested()):
                 try:
                     job = next(source)
                 except StopIteration:
@@ -617,28 +515,14 @@ def collect_many(
             fights = [(i, r) for i, r in wave if isinstance(r, CombatRequest)]
             responses = {}
             if macros:
-                responses.update(
-                    zip(
-                        [i for i, _ in macros],
-                        _predict_many(macro, [r for _, r in macros]),
-                        strict=True,
-                    )
-                )
+                responses.update(zip([i for i, _ in macros], _predict_many(macro, [r for _, r in macros]), strict=True))
             if fights:
-                responses.update(
-                    zip(
-                        [i for i, _ in fights],
-                        combat.choose_many([r for _, r in fights]),
-                        strict=True,
-                    )
-                )
+                responses.update(zip([i for i, _ in fights], combat.choose_many([r for _, r in fights]), strict=True))
             for index, _ in wave:
                 advance(index, responses[index])
     except BaseException as fatal:
         for _, trajectory in active.values():
-            cancelled = RuntimeError(
-                "Collection cancelled after a peer/inference failure"
-            )
+            cancelled = RuntimeError("Collection cancelled after a peer/inference failure")
             try:
                 trajectory.throw(cancelled)
             except Exception as cleanup_error:  # noqa: BLE001 — preserve the original fatal exception

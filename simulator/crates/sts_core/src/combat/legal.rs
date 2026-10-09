@@ -62,6 +62,9 @@ pub fn legal_combat_actions(state: &CombatState) -> SimResult<Vec<CombatAction>>
         if is_clash(definition) && !hand_contains_only_attacks(state) {
             continue;
         }
+        if !satisfies_cross_color_play_condition(state, card.id, definition.id) {
+            continue;
+        }
 
         if definition.id == HAVOC_ID || definition.id == HAVOC_PLUS_ID {
             push_havoc_actions(&mut actions, state, card.id);
@@ -239,6 +242,12 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
                 ));
             }
 
+            if !satisfies_cross_color_play_condition(state, card.id, definition.id) {
+                return Err(SimError::IllegalAction(
+                    "card play condition is not satisfied",
+                ));
+            }
+
             match (definition.target, target) {
                 (TargetRequirement::Enemy, Some(monster_id)) => {
                     if is_living_monster(state, monster_id) {
@@ -267,6 +276,27 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
             }
         }
     }
+}
+
+/// Source `canUse`: Grand Finale requires an empty draw pile; Signature
+/// Move requires no other Attack in hand. Both predicates are entirely public.
+fn satisfies_cross_color_play_condition(
+    state: &CombatState,
+    card_id: CardId,
+    content_id: crate::ContentId,
+) -> bool {
+    use crate::content::prismatic::{GRAND_FINALE_ANY_COLOR_ID, SIGNATURE_MOVE_ANY_COLOR_ID};
+    if content_id == GRAND_FINALE_ANY_COLOR_ID {
+        return state.piles.draw_pile.is_empty();
+    }
+    if content_id == SIGNATURE_MOVE_ANY_COLOR_ID {
+        return !state.piles.hand.iter().any(|card| {
+            card.id != card_id
+                && get_card_definition(card.content_id)
+                    .is_some_and(|definition| definition.card_type == CardType::Attack)
+        });
+    }
+    true
 }
 
 fn is_affordable(

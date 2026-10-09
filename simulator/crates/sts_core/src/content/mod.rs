@@ -4,6 +4,6 @@ pub mod character;
 pub mod deck;
 pub mod encounters;
 pub mod monsters;
-pub mod reward_card_metadata;
+pub mod prismatic;
 pub mod reward_pool;
 pub mod shop_pool;

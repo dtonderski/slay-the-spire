@@ -15,7 +15,6 @@ ENUMS = (
     ("relics", "RelicKey", "Fair relic content_key values from Relic::trace_name."),
     ("potions", "PotionKey", "Fair potion content_key values from potion_key()."),
     ("cards", "CardKey", "Fair card content_key values from public card definitions."),
-    ("reward_only_cards", "RewardOnlyCardKey", "Source-backed unowned reward previews, not implemented combat cards."),
     ("monsters", "MonsterKey", "Fair monster content_key values from monster definition names."),
     ("events", "EventKey", "Fair EventScreen.event values from the Event enum."),
     ("powers", "PowerKey", "Fair Power.key values emitted by combat projection."),

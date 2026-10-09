@@ -5325,8 +5325,9 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | STREAMLINE_ANY_COLOR_ID
             | FOLLOW_UP_ANY_COLOR_ID
             | STEAM_BARRIER_ANY_COLOR_ID
-    ) || (get_card_definition(id).is_none()
-        && crate::run::reward::any_color_reward_card_key(id).is_some())
+    ) || crate::content::prismatic::is_prismatic_card(id)
+        || (get_card_definition(id).is_none()
+            && crate::run::reward::any_color_reward_card_key(id).is_some())
 }
 
 pub static CHARGE_BATTERY_ANY_COLOR: CardDefinition = CardDefinition {
@@ -6718,12 +6719,28 @@ pub static EXTRA_PUBLIC_CARD_DEFINITIONS: &[CardDefinition] = &[
 ];
 
 pub fn public_card_definitions() -> impl Iterator<Item = &'static CardDefinition> {
-    ALL_CARDS.iter().chain(EXTRA_PUBLIC_CARD_DEFINITIONS.iter())
+    ALL_CARDS
+        .iter()
+        .chain(EXTRA_PUBLIC_CARD_DEFINITIONS.iter())
+        .chain(crate::content::prismatic::prismatic_card_definitions())
 }
 
 #[must_use]
 pub fn get_card_definition(id: ContentId) -> Option<&'static CardDefinition> {
-    public_card_definitions().find(|definition| definition.id == id)
+    static INDEX: std::sync::OnceLock<
+        std::collections::HashMap<ContentId, &'static CardDefinition>,
+    > = std::sync::OnceLock::new();
+    INDEX
+        .get_or_init(|| {
+            let mut index = std::collections::HashMap::new();
+            for definition in public_card_definitions() {
+                // Keep the first definition, matching the former linear scan.
+                index.entry(definition.id).or_insert(definition);
+            }
+            index
+        })
+        .get(&id)
+        .copied()
 }
 
 /// Returns the vanilla `AbstractCard.cardID` spelling for a modeled card.
@@ -6931,6 +6948,16 @@ pub fn ritual_dagger_card_growth(card: &CardInstance) -> Option<i32> {
     }
 }
 
+/// Current instance keywords, including upgradeBaseCost/keyword-changing
+/// synthetic cross-color upgrades without a separate content identity.
+pub fn card_instance_keywords(card: &CardInstance) -> Option<CardKeywords> {
+    if let Some(spec) = crate::content::prismatic::prismatic_card_spec(card.content_id) {
+        Some(spec.keywords(card.upgrades > 0))
+    } else {
+        get_card_definition(card.content_id).map(|definition| definition.keywords)
+    }
+}
+
 pub fn upgrade_card_instance(card: CardInstance) -> SimResult<Option<CardInstance>> {
     validate_searing_blow_metadata(&card)?;
     if (card.content_id == RITUAL_DAGGER_ID || card.content_id == INSIGHT_ID) && card.upgrades == 0
@@ -7064,10 +7091,16 @@ mod tests {
 
     #[test]
     fn upgrade_card_instance_tracks_synthetic_pool_card_upgrades() {
-        // Prismatic shard any-color cards use stable synthetic content ids
-        // without a CardDefinition / upgrade ContentId pair.
+        // Prismatic any-color cards keep their stable content id on upgrade;
+        // printed upgraded values are now supplied by the registered spec.
         let synthetic = crate::content::shop_pool::shop_card_content_id("FLYING_KNEE");
-        assert!(get_card_definition(synthetic).is_none());
+        assert_eq!(get_card_definition(synthetic).unwrap().key, "FLYING_KNEE");
+        assert_eq!(
+            crate::content::prismatic::prismatic_card_spec(synthetic)
+                .unwrap()
+                .damage(true),
+            11
+        );
         let base = CardInstance::new(CardId::new(1), synthetic);
         let upgraded = upgrade_card_instance(base)
             .expect("upgrade is fallible only for invalid searing-blow metadata")

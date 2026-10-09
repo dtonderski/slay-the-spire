@@ -16,7 +16,7 @@ use sts_env::{
 
 type Tables = BTreeMap<String, (usize, Py<PyBytes>)>;
 type Batch = (u32, Vec<String>, Tables, Vec<usize>);
-pub const NUMERIC_VERSION: u32 = 3;
+pub const NUMERIC_VERSION: u32 = 4;
 pub const ACTION_ROW_WIDTH: usize = 12;
 /// Fixed public kind order. Codes are vocabulary indices, not batch symbol positions.
 pub const ACTION_KINDS: &[&str] = &[
@@ -228,7 +228,7 @@ impl Export {
             d.steam_barrier_block_reduction,
             d.combat_cost_under_turn_override,
         ];
-        let mut row = [0; 18];
+        let mut row = [0; 27];
         row[..8].copy_from_slice(&[
             owner,
             key,
@@ -243,6 +243,15 @@ impl Export {
             row[8 + index] = i64::from(value.unwrap_or(0));
             row[13 + index] = i64::from(value.is_some());
         }
+        row[18] = i64::from(d.misc_bonus.unwrap_or(0));
+        row[19] = i64::from(d.base_damage_delta.unwrap_or(0));
+        row[20] = i64::from(d.base_block_delta.unwrap_or(0));
+        row[21] = i64::from(d.x_magic.unwrap_or(0));
+        row[22] = i64::from(d.retain_once);
+        row[23] = i64::from(d.misc_bonus.is_some());
+        row[24] = i64::from(d.base_damage_delta.is_some());
+        row[25] = i64::from(d.base_block_delta.is_some());
+        row[26] = i64::from(d.x_magic.is_some());
         self.row(group, &row);
         Ok(())
     }
@@ -760,6 +769,11 @@ mod tests {
                 windmill_retain_damage: Some(31),
                 steam_barrier_block_reduction: Some(5),
                 combat_cost_under_turn_override: Some(0),
+                misc_bonus: Some(7),
+                base_damage_delta: Some(-2),
+                base_block_delta: Some(3),
+                x_magic: Some(0),
+                retain_once: true,
             },
         }
     }
@@ -787,12 +801,21 @@ mod tests {
             1,
             1,
             1,
+            7,
+            -2,
+            3,
+            0,
+            1,
+            1,
+            1,
+            1,
+            1,
         ];
         assert_eq!(out.tables["hand"].1, expected);
         let mut absent = card();
         absent.dynamic = FairCardDynamicValues::default();
         out.card("draw", 4, &absent).unwrap();
-        assert_eq!(&out.tables["draw"].1[8..], &[0; 10]);
+        assert_eq!(&out.tables["draw"].1[8..], &[0; 19]);
         assert!(out.symbols.is_empty());
     }
 

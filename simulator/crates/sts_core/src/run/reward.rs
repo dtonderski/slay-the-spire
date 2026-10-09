@@ -1328,7 +1328,7 @@ pub(crate) fn roll_pending_card_reward_choices(run: &mut RunState) -> SimResult<
     // preserves generic upgrade metadata (including repeated Searing Blow
     // upgrades) while keeping TakeCardReward from re-applying the egg.
     for choice in &mut choices {
-        *choice = run.card_after_reward_preview_relics(*choice)?;
+        *choice = run.card_after_card_add_relics(*choice)?;
     }
     run.reward.as_mut().expect("reward screen present").choices = choices;
     Ok(())
@@ -1393,12 +1393,32 @@ fn any_color_reward_card_rarity(content_id: ContentId) -> Option<CardRarity> {
 /// of the simulator's modeled card registry.
 #[must_use]
 pub fn any_color_reward_card_key(content_id: ContentId) -> Option<&'static str> {
-    ANY_COLOR_COMMON_CARDS
-        .iter()
-        .chain(ANY_COLOR_UNCOMMON_CARDS.iter())
-        .chain(ANY_COLOR_RARE_CARDS.iter())
+    static INDEX: std::sync::OnceLock<std::collections::HashMap<ContentId, &'static str>> =
+        std::sync::OnceLock::new();
+    INDEX
+        .get_or_init(|| {
+            let mut index = std::collections::HashMap::new();
+            for name in ANY_COLOR_COMMON_CARDS
+                .iter()
+                .chain(ANY_COLOR_UNCOMMON_CARDS.iter())
+                .chain(ANY_COLOR_RARE_CARDS.iter())
+            {
+                index.entry(shop_card_content_id(name)).or_insert(*name);
+            }
+            index
+        })
+        .get(&content_id)
         .copied()
-        .find(|name| shop_card_content_id(name) == content_id)
+}
+
+/// Vanilla `CardLibrary.getAnyColorCard(rarity)` candidates in sorted order.
+#[must_use]
+pub fn any_color_reward_pool(rarity: CardRarity) -> &'static [&'static str] {
+    match rarity {
+        CardRarity::Common => ANY_COLOR_COMMON_CARDS,
+        CardRarity::Uncommon => ANY_COLOR_UNCOMMON_CARDS,
+        CardRarity::Rare => ANY_COLOR_RARE_CARDS,
+    }
 }
 
 #[must_use]

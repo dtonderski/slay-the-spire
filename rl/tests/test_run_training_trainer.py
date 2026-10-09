@@ -49,10 +49,7 @@ def macro_decision():
 
 def inputs():
     decision = macro_decision()
-    return encode(
-        decision.observation,
-        tuple(PolicyAction.from_action(a) for a in decision.actions),
-    )
+    return encode(decision.observation, tuple(PolicyAction.from_action(a) for a in decision.actions))
 
 
 def learned_episode(model, reward=6.0):
@@ -78,10 +75,7 @@ class RunTrainerTests(unittest.TestCase):
     def test_cli_routes_without_combat_required_arguments(self):
         import train
 
-        with (
-            patch("run_training.trainer.main") as run,
-            patch("train.combat_main") as combat,
-        ):
+        with patch("run_training.trainer.main") as run, patch("train.combat_main") as combat:
             train.main(["--task", "run", "--run-id", "test"])
             run.assert_called_once_with(["--run-id", "test"])
             combat.assert_not_called()
@@ -97,31 +91,20 @@ class RunTrainerTests(unittest.TestCase):
             encode(decision.observation, decision.actions)
         changed = replace(decision, revision=99999)
         self.assertEqual(
-            encode(
-                decision.observation,
-                tuple(PolicyAction.from_action(a) for a in decision.actions),
-            ),
-            encode(
-                changed.observation,
-                tuple(PolicyAction.from_action(a) for a in changed.actions),
-            ),
+            encode(decision.observation, tuple(PolicyAction.from_action(a) for a in decision.actions)),
+            encode(changed.observation, tuple(PolicyAction.from_action(a) for a in changed.actions)),
         )
 
     def test_logits_cover_all_candidates_and_public_changes_matter(self):
         decision = macro_decision()
         descriptors = tuple(PolicyAction.from_action(a) for a in decision.actions)
         original = encode(decision.observation, descriptors)
-        changed = replace(
-            decision.observation,
-            context=replace(decision.observation.context, gold=777),
-        )
+        changed = replace(decision.observation, context=replace(decision.observation.context, gold=777))
         self.assertNotEqual(original, encode(changed, descriptors))
         logits, value = self.model(original)
         self.assertEqual(logits.shape, (len(decision.actions),))
         self.assertEqual(value.shape, ())
-        reversed_logits, _ = self.model(
-            replace(original, candidates=original.candidates[::-1])
-        )
+        reversed_logits, _ = self.model(replace(original, candidates=original.candidates[::-1]))
         torch.testing.assert_close(reversed_logits, logits.flip(0))
         with self.assertRaises(ValueError):
             sample(torch.tensor([float("nan")]), torch.Generator())
@@ -139,17 +122,12 @@ class RunTrainerTests(unittest.TestCase):
                 value_coef=0.1,
             )
         for key, value in before.items():
-            torch.testing.assert_close(
-                value, self.model.state_dict()[key], rtol=0, atol=0
-            )
+            torch.testing.assert_close(value, self.model.state_dict()[key], rtol=0, atol=0)
         decision = macro_decision()
         bad = replace(
             decision,
             observation=replace(
-                decision.observation,
-                context=replace(
-                    decision.observation.context, outcome="unknown_complete"
-                ),
+                decision.observation, context=replace(decision.observation.context, outcome="unknown_complete")
             ),
         )
         with self.assertRaises(CollectionFailure):
@@ -161,27 +139,16 @@ class RunTrainerTests(unittest.TestCase):
         before = self.model.value.weight.clone()
         bad_step = replace(episode.steps[0], value=100.0)
         with self.assertRaisesRegex(ValueError, "recomputation"):
-            update(
-                [replace(episode, steps=(bad_step,))],
-                self.model,
-                optimizer,
-                entropy_coef=0,
-                value_coef=1,
-            )
+            update([replace(episode, steps=(bad_step,))], self.model, optimizer, entropy_coef=0, value_coef=1)
         self.assertFalse(optimizer.state)
-        result = update(
-            [episode], self.model, optimizer, entropy_coef=0.01, value_coef=1
-        )
+        result = update([episode], self.model, optimizer, entropy_coef=0.01, value_coef=1)
         self.assertEqual(result["optimizer_step"], 1)
         self.assertFalse(torch.equal(before, self.model.value.weight))
 
     def test_collector_terminal_cutoff_and_failure_journals(self):
         initial = macro_decision()
         terminal = replace(
-            initial,
-            observation=replace(
-                initial.observation, context=replace(initial.observation.context, act=2)
-            ),
+            initial, observation=replace(initial.observation, context=replace(initial.observation.context, act=2))
         )
 
         class ScriptedState:
@@ -193,9 +160,7 @@ class RunTrainerTests(unittest.TestCase):
 
         # Dynamic doubles intentionally implement only the exercised boundary.
         forbidden_combat: Any = Mock(spec=FrozenCombat)
-        forbidden_combat.choose.side_effect = AssertionError(
-            "noncombat must not use the combat model"
-        )
+        forbidden_combat.choose.side_effect = AssertionError("noncombat must not use the combat model")
 
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "episode.jsonl"
@@ -215,10 +180,7 @@ class RunTrainerTests(unittest.TestCase):
             self.assertEqual(episode.reward, 6)
             self.assertEqual(len(episode.steps), 1)
             rows = [json.loads(line) for line in path.read_text().splitlines()]
-            self.assertEqual(
-                [row["type"] for row in rows],
-                ["setup", "attempt", "accepted", "result"],
-            )
+            self.assertEqual([row["type"] for row in rows], ["setup", "attempt", "accepted", "result"])
             with patch.object(ScriptedState, "step", return_value=initial):
                 cutoff = collect(
                     "1",
@@ -234,9 +196,7 @@ class RunTrainerTests(unittest.TestCase):
                 )
                 self.assertEqual(cutoff.status, "cutoff")
                 self.assertIsNone(cutoff.reward)
-            with patch.object(
-                ScriptedState, "step", side_effect=ValueError("unsupported")
-            ) as step:
+            with patch.object(ScriptedState, "step", side_effect=ValueError("unsupported")) as step:
                 error_path = Path(directory) / "error.jsonl"
                 with self.assertRaisesRegex(CollectionFailure, "unsupported"):
                     collect(
@@ -251,12 +211,8 @@ class RunTrainerTests(unittest.TestCase):
                         journal=error_path,
                         state_factory=lambda *a, **kw: cast(Any, ScriptedState()),
                     )
-                self.assertEqual(
-                    step.call_count, 1, "never retry a different candidate"
-                )
-                self.assertEqual(
-                    json.loads(error_path.read_text().splitlines()[-1])["accepted"], 0
-                )
+                self.assertEqual(step.call_count, 1, "never retry a different candidate")
+                self.assertEqual(json.loads(error_path.read_text().splitlines()[-1])["accepted"], 0)
 
     def test_combat_scorer_keeps_escape_and_does_not_receive_revision(self):
         spec = {
@@ -273,11 +229,7 @@ class RunTrainerTests(unittest.TestCase):
         }
         state = State.from_synthetic_spec(json.dumps(spec))
         decision = state.decision()
-        smoke = next(
-            i
-            for i, a in enumerate(decision.actions)
-            if a.kind == "use_potion_slot" and a.potion_slot == 0
-        )
+        smoke = next(i for i, a in enumerate(decision.actions) if a.kind == "use_potion_slot" and a.potion_slot == 0)
         calls = []
 
         def score(batch, candidates):
@@ -293,10 +245,7 @@ class RunTrainerTests(unittest.TestCase):
         self.assertEqual(calls[0].shape, (len(decision.actions), 6))
         self.assertEqual(decision.actions[choice].family, "run")
         # Screen routing must still invoke combat for that family='run' candidate.
-        with (
-            tempfile.TemporaryDirectory() as directory,
-            patch.object(frozen, "choose", wraps=frozen.choose) as choose,
-        ):
+        with tempfile.TemporaryDirectory() as directory, patch.object(frozen, "choose", wraps=frozen.choose) as choose:
             # This isolated synthetic combat has no successor map after escape;
             # the collector must reject that boundary, not fabricate a win/loss.
             with self.assertRaises(CollectionFailure):
@@ -324,9 +273,7 @@ class RunTrainerTests(unittest.TestCase):
         original = encode(decision.observation, descriptors)
         choices = decision.observation.screen.choices
         swapped_screen = replace(decision.observation.screen, choices=choices[::-1])
-        swapped = encode(
-            replace(decision.observation, screen=swapped_screen), descriptors
-        )
+        swapped = encode(replace(decision.observation, screen=swapped_screen), descriptors)
         self.assertNotEqual(original.candidates[0], swapped.candidates[0])
 
     def test_deadline_cutoff_and_compressed_journal(self):
@@ -395,7 +342,10 @@ class RunTrainerTests(unittest.TestCase):
                 "--continue-on-collection-failure",
             ]
             with (
-                patch("run_training.trainer.FrozenCombat"),
+                patch(
+                    "run_training.trainer.FrozenCombat",
+                    return_value=Mock(checkpoint_adapter="public_combat_v2_strict_weights"),
+                ),
                 patch("run_training.trainer.collect", side_effect=fake_collect),
             ):
                 main(args)
@@ -408,10 +358,11 @@ class RunTrainerTests(unittest.TestCase):
             # A model/infrastructure exception must still stop even in continuation mode.
             args[1] = "bad-model"
             with (
-                patch("run_training.trainer.FrozenCombat"),
                 patch(
-                    "run_training.trainer.collect", side_effect=ValueError("bad model")
+                    "run_training.trainer.FrozenCombat",
+                    return_value=Mock(checkpoint_adapter="public_combat_v2_strict_weights"),
                 ),
+                patch("run_training.trainer.collect", side_effect=ValueError("bad model")),
                 self.assertRaisesRegex(ValueError, "bad model"),
             ):
                 main(args)
@@ -422,9 +373,7 @@ class RunTrainerTests(unittest.TestCase):
         def fake_collect(seed, macro, combat, **kwargs):
             if seed not in ("100", "101"):
                 error = SimulatorFailure("unsupported")
-                error.behavior = BehaviorStats(
-                    map_nodes_visited=2, elite_nodes_visited=1
-                )
+                error.behavior = BehaviorStats(map_nodes_visited=2, elite_nodes_visited=1)
                 error.accepted = 2
                 error.floor = error.furthest_act1_floor = 4
                 raise error
@@ -437,7 +386,10 @@ class RunTrainerTests(unittest.TestCase):
             combat = root / "combat.pt"
             combat.write_bytes(b"mocked loader")
             with (
-                patch("run_training.trainer.FrozenCombat"),
+                patch(
+                    "run_training.trainer.FrozenCombat",
+                    return_value=Mock(checkpoint_adapter="public_combat_v2_strict_weights"),
+                ),
                 patch("run_training.trainer.collect", side_effect=fake_collect),
                 patch("run_training.trainer.wandb.init") as init,
             ):
@@ -465,27 +417,17 @@ class RunTrainerTests(unittest.TestCase):
                     ]
                 )
                 run.define_metric.assert_any_call("train/*", step_metric="iteration")
-                run.define_metric.assert_any_call(
-                    "validation/*", step_metric="iteration"
-                )
+                run.define_metric.assert_any_call("validation/*", step_metric="iteration")
                 rows = [call.args[0] for call in run.log.call_args_list]
                 self.assertEqual([row["iteration"] for row in rows], [0, 1, 1])
-                self.assertTrue(
-                    all(
-                        call.kwargs == {"commit": True}
-                        for call in run.log.call_args_list
-                    )
-                )
+                self.assertTrue(all(call.kwargs == {"commit": True} for call in run.log.call_args_list))
                 train = rows[1]
                 self.assertEqual(train["train/errors"], 1)
                 self.assertEqual(train["train/map/elite_percent"], 50)
                 self.assertEqual(train["train/map/nodes_visited"], 2)
                 self.assertEqual(train["train/reward/terminal_samples"], 0)
                 self.assertNotIn("train/reward/mean", train)
-                self.assertEqual(
-                    json.loads((root / "metrics/tracking.json").read_text())["url"],
-                    run.url,
-                )
+                self.assertEqual(json.loads((root / "metrics/tracking.json").read_text())["url"], run.url)
 
     def test_explicit_warm_start_transfers_weights_across_native_versions(self):
         config = {
@@ -520,25 +462,12 @@ class RunTrainerTests(unittest.TestCase):
             )
             target = MacroModel(8)
             metadata = load_warm_start(
-                target,
-                path,
-                {
-                    **config,
-                    "native_sha256": "new-native",
-                    "source_sha256": "new-source",
-                },
+                target, path, {**config, "native_sha256": "new-native", "source_sha256": "new-source"}
             )
             self.assertEqual(metadata["parent_optimizer_updates"], 8)
             for key, value in self.model.state_dict().items():
-                torch.testing.assert_close(
-                    value, target.state_dict()[key], atol=0, rtol=0
-                )
-            for key in (
-                "reward_protocol",
-                "feature_version",
-                "combat_sha256",
-                "objective",
-            ):
+                torch.testing.assert_close(value, target.state_dict()[key], atol=0, rtol=0)
+            for key in ("reward_protocol", "feature_version", "combat_sha256", "objective"):
                 with self.assertRaisesRegex(ValueError, key):
                     load_warm_start(target, path, {**config, key: "changed"})
 
@@ -564,30 +493,17 @@ class RunTrainerTests(unittest.TestCase):
 
             def save(source_config, model):
                 torch.save(
-                    {
-                        "config": source_config,
-                        "model": model.state_dict(),
-                        "iteration": 9,
-                        "optimizer_updates": 8,
-                    },
-                    path,
+                    {"config": source_config, "model": model.state_dict(), "iteration": 9, "optimizer_updates": 8}, path
                 )
 
-            for parent in (
-                config,
-                {**config, "encoder": "hashed", "feature_version": 3},
-            ):
+            for parent in (config, {**config, "encoder": "hashed", "feature_version": 3}):
                 save(parent, self.model)
                 target = MacroModel(8)
                 metadata = load_warm_start(target, path, settings)
                 self.assertEqual(metadata["parent_encoder"], "hashed")
-                self.assertEqual(
-                    metadata["parent_feature_version"], parent["feature_version"]
-                )
+                self.assertEqual(metadata["parent_feature_version"], parent["feature_version"])
                 for key, value in self.model.state_dict().items():
-                    torch.testing.assert_close(
-                        value, target.state_dict()[key], atol=0, rtol=0
-                    )
+                    torch.testing.assert_close(value, target.state_dict()[key], atol=0, rtol=0)
             for parent in (
                 {**config, "feature_version": 3},  # No known encoder-v3 producer.
                 {**config, "encoder": "hashed", "feature_version": 4},
@@ -630,9 +546,7 @@ class RunTrainerTests(unittest.TestCase):
                         ]
                     )
                 self.assertEqual(error.exception.code, 2)
-                self.assertIn(
-                    "distinct rounded-percent metric names", stderr.getvalue()
-                )
+                self.assertIn("distinct rounded-percent metric names", stderr.getvalue())
                 frozen.assert_not_called()
                 self.assertFalse((path / "collision").exists())
 
@@ -644,17 +558,17 @@ class RunTrainerTests(unittest.TestCase):
             for width in (1, 2):
                 run_id = f"abort-{width}"
                 with (
-                    patch("run_training.trainer.FrozenCombat"),
                     patch(
-                        "run_training.trainer.State.new",
-                        side_effect=ValueError("injected native failure"),
+                        "run_training.trainer.FrozenCombat",
+                        return_value=Mock(checkpoint_adapter="public_combat_v2_strict_weights"),
+                    ),
+                    patch(
+                        "run_training.trainer.State.new", side_effect=ValueError("injected native failure")
                     ) as native,
                     patch("run_training.trainer.wandb.init") as init,
                 ):
                     init.return_value.__enter__.return_value.url = None
-                    with self.assertRaisesRegex(
-                        CollectionFailure, "injected native failure"
-                    ):
+                    with self.assertRaisesRegex(CollectionFailure, "injected native failure"):
                         main(
                             [
                                 "--run-id",
@@ -677,19 +591,11 @@ class RunTrainerTests(unittest.TestCase):
                         )
                     native.assert_called_once()
                 output = root / run_id
-                rows = [
-                    json.loads(s)
-                    for s in (output / "collection-errors.jsonl")
-                    .read_text()
-                    .splitlines()
-                ]
+                rows = [json.loads(s) for s in (output / "collection-errors.jsonl").read_text().splitlines()]
                 self.assertEqual(len(rows), 1)
                 self.assertEqual(rows[0]["seed"], "100")
                 self.assertIn("injected native failure", rows[0]["error"])
-                journal = [
-                    json.loads(s)
-                    for s in Path(rows[0]["journal"]).read_text().splitlines()
-                ]
+                journal = [json.loads(s) for s in Path(rows[0]["journal"]).read_text().splitlines()]
                 self.assertEqual(journal[-1]["type"], "error")
                 self.assertTrue((output / "failure.json").exists())
                 checkpoint = torch.load(output / "latest.pt", weights_only=True)
@@ -702,12 +608,13 @@ class RunTrainerTests(unittest.TestCase):
             (root / "seeds.json").write_text('["100"]')
             (root / "combat.pt").write_bytes(b"mocked")
             with (
-                patch("run_training.trainer.FrozenCombat"),
+                patch(
+                    "run_training.trainer.FrozenCombat",
+                    return_value=Mock(checkpoint_adapter="public_combat_v2_strict_weights"),
+                ),
                 patch(
                     "run_training.trainer.collect",
-                    side_effect=lambda seed, model, combat, **kwargs: learned_episode(
-                        model
-                    ),
+                    side_effect=lambda seed, model, combat, **kwargs: learned_episode(model),
                 ),
                 patch("run_training.trainer.wandb.init") as init,
             ):
@@ -744,9 +651,7 @@ class RunTrainerTests(unittest.TestCase):
             failure = json.loads((root / "telemetry/failure.json").read_text())
             self.assertEqual(checkpoint["iteration"], 1)
             self.assertEqual(checkpoint["optimizer_updates"], 1)
-            self.assertEqual(
-                failure["last_committed_iteration"], checkpoint["iteration"]
-            )
+            self.assertEqual(failure["last_committed_iteration"], checkpoint["iteration"])
 
     def test_seed_validation_rejects_aliases(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -783,22 +688,15 @@ class RunTrainerTests(unittest.TestCase):
                 "2",
             ]
             with (
-                patch("run_training.trainer.FrozenCombat"),
+                patch(
+                    "run_training.trainer.FrozenCombat",
+                    return_value=Mock(checkpoint_adapter="public_combat_v2_strict_weights"),
+                ),
                 patch("run_training.trainer.collect", side_effect=fake_collect),
             ):
                 main([*common, "--run-id", "whole", "--updates", "2"])
                 main([*common, "--run-id", "first", "--updates", "1"])
-                main(
-                    [
-                        *common,
-                        "--run-id",
-                        "resumed",
-                        "--updates",
-                        "1",
-                        "--resume-from",
-                        str(root / "first/latest.pt"),
-                    ]
-                )
+                main([*common, "--run-id", "resumed", "--updates", "1", "--resume-from", str(root / "first/latest.pt")])
             whole = torch.load(root / "whole/latest.pt", weights_only=True)
             resumed = torch.load(root / "resumed/latest.pt", weights_only=True)
             self.assertEqual(whole["iteration"], resumed["iteration"])

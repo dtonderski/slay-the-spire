@@ -87,7 +87,7 @@ def _observation(kind: str, screen: object, phase: str | None = None) -> dict[st
 
 def _combat_screen() -> dict[str, object]:
     return {
-        "schema_version": 4,
+        "schema_version": 5,
         "phase": "waiting_for_player",
         "player": {
             "hp": 80,
@@ -330,7 +330,7 @@ class TypedObservationRuntimeTest(unittest.TestCase):
         self.assertIsInstance(observation, CombatObservation)
         if observation.kind != "combat":
             self.fail("expected a combat observation")
-        self.assertEqual(observation.screen.schema_version, 4)
+        self.assertEqual(observation.screen.schema_version, 5)
         self.assertGreaterEqual(observation.screen.player.energy, 0)
         self.assertTrue(observation.screen.hand)
         self.assertTrue(observation.screen.monsters)

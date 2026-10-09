@@ -373,8 +373,8 @@ fn exhaust_unplayed_ethereal_cards_inner(
         .hand
         .iter()
         .filter(|card| {
-            get_card_definition(card.content_id)
-                .is_some_and(|definition| definition.keywords.ethereal)
+            crate::content::cards::card_instance_keywords(card)
+                .is_some_and(|keywords| keywords.ethereal)
         })
         .map(|card| card.id)
         .collect();
@@ -449,8 +449,9 @@ fn discard_non_retain_hand(state: &mut CombatState) -> SimResult<()> {
 
     for card in state.piles.hand.drain(..) {
         if retain_hand
-            || get_card_definition(card.content_id)
-                .is_some_and(|definition| definition.keywords.retain)
+            || card.retain_once
+            || crate::content::cards::card_instance_keywords(&card)
+                .is_some_and(|keywords| keywords.retain)
         {
             retained.push(card);
         } else {
@@ -469,6 +470,18 @@ fn discard_non_retain_hand(state: &mut CombatState) -> SimResult<()> {
 fn apply_on_retained_card_effects(state: &mut CombatState) -> SimResult<()> {
     use crate::content::cards::WINDMILL_STRIKE_ANY_COLOR_ID;
     for card in &mut state.piles.hand {
+        card.retain_once = false;
+        if card.content_id == crate::content::prismatic::PERSEVERANCE_ANY_COLOR_ID {
+            let spec = crate::content::prismatic::prismatic_card_spec(card.content_id)
+                .ok_or(SimError::UnknownContent(card.content_id))?;
+            // Perseverance.onRetained upgradeBlock(magicNumber).
+            card.base_block_delta = card
+                .base_block_delta
+                .checked_add(spec.magic(card.upgrades > 0))
+                .ok_or(SimError::InvalidState(
+                    "Perseverance block growth overflows i32",
+                ))?;
+        }
         if card.content_id != WINDMILL_STRIKE_ANY_COLOR_ID {
             continue;
         }

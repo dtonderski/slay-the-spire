@@ -166,6 +166,23 @@ fn apply_player_hp_loss_hooks_in_place_with_draw_policy(
             "player damage event counter overflows i32",
         ))?;
     reduce_blood_for_blood_costs(state)?;
+    // AbstractPlayer.damage invokes tookDamage on hand, draw and discard
+    // after positive HP loss. MasterfulStab.updateCost(1) preserves cost vs
+    // costForTurn, and must not visit exhausted cards or cardInUse.
+    let skip_id = state.card_in_use;
+    for card in state
+        .piles
+        .hand
+        .iter_mut()
+        .chain(state.piles.draw_pile.iter_mut())
+        .chain(state.piles.discard_pile.iter_mut())
+    {
+        if card.content_id == crate::content::prismatic::MASTERFUL_STAB_ANY_COLOR_ID
+            && Some(card.id) != skip_id
+        {
+            crate::combat::cost::update_card_cost(card, 1)?;
+        }
+    }
     crate::relic::apply_player_hp_loss_relics_with_draw_policy(state, hp_loss, draw_policy)
 }
 

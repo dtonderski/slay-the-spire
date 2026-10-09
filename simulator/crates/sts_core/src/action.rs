@@ -619,6 +619,314 @@ pub enum InternalAction {
     OpenDiscoveryCardReward {
         source_card_id: CardId,
     },
+    /// Mechanics introduced by Silent/Defect/Watcher cards (Prismatic Shard).
+    Foreign(ForeignAction),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum OrbKind {
+    Lightning,
+    Frost,
+    Dark,
+    Plasma,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ForeignMonsterPower {
+    Choke,
+    CorpseExplosion,
+    BlockReturn,
+    LockOn,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum StanceKind {
+    Neutral,
+    Calm,
+    Wrath,
+    Divinity,
+}
+
+/// Where `MakeTempCard*` actions put a created card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TempCardDestination {
+    Hand,
+    DiscardPile,
+    /// `MakeTempCardInDrawPileAction(randomSpot = true)`.
+    DrawPileRandom,
+}
+
+/// Source actions used by the cross-color cards. Each variant mirrors one
+/// vanilla action (named in its documentation) and computes state-dependent
+/// amounts when it resolves, so Burst/Echo/Double Tap copies recompute them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ForeignAction {
+    /// A purgeOnUse card-queue copy runs use() again against live state. Keep
+    /// its stat-equivalent source snapshot, never relocate the original card.
+    CopiedUse {
+        card: CardInstance,
+        target: Option<MonsterId>,
+    },
+    /// `AbstractPlayer.useCard` removes the played card from hand before its
+    /// actions resolve. A copy whose source already left hand is a no-op.
+    StageInLimbo {
+        card_id: CardId,
+    },
+    /// `ChannelAction`.
+    Channel {
+        orb: OrbKind,
+    },
+    /// `ChannelAction(AbstractOrb.getRandomOrb(true))` (Chaos).
+    ChannelRandom,
+    /// `EvokeOrbAction(1)` / `EvokeWithoutRemovingOrbAction(1)`.
+    EvokeFirst {
+        remove: bool,
+    },
+    /// `EvokeAllOrbsAction`.
+    EvokeAll,
+    /// `RemoveAllOrbsAction`.
+    RemoveAllOrbs,
+    /// `DecreaseMaxOrbAction`.
+    DecreaseMaxOrbs {
+        amount: i32,
+    },
+    /// LoopPower: first orb's `onStartOfTurn` then `onEndOfTurn`.
+    TriggerFirstOrb,
+    /// `BarrageAction`: one hit per filled orb slot.
+    Barrage {
+        info: DamageInfo,
+    },
+    /// `GashAction` (Claw).
+    Gash {
+        card_id: CardId,
+        amount: i32,
+    },
+    /// `HeadStompAction` (Sash Whip).
+    WeakIfPreviousAttack {
+        target: MonsterId,
+        amount: i32,
+    },
+    /// `SanctityAction`.
+    DrawIfPreviousSkill {
+        count: i32,
+    },
+    /// `AggregateEnergyAction`.
+    AggregateEnergy {
+        divide: i32,
+    },
+    /// Auto Shields' use-time `currentBlock == 0` check.
+    BlockIfNoBlock {
+        amount: i32,
+    },
+    /// `BouncingFlaskAction`; `None` rolls the initial target.
+    BouncingFlask {
+        target: Option<MonsterId>,
+        amount: i32,
+        times: i32,
+    },
+    /// `CalculatedGambleAction`.
+    CalculatedGamble {
+        upgraded: bool,
+    },
+    /// `DiscardAction(amount, isRandom)`.
+    DiscardFromHand {
+        amount: i32,
+        random: bool,
+    },
+    /// `DoublePoisonAction` / `TriplePoisonAction`: add `multiplier` x current Poison.
+    MultiplyPoison {
+        target: MonsterId,
+        multiplier: i32,
+    },
+    /// `ApplyPowerAction(FocusPower)`.
+    GainFocus {
+        amount: i32,
+    },
+    /// `ApplyPowerAction(VigorPower/BufferPower)`.
+    GainVigor {
+        amount: i32,
+    },
+    GainBuffer {
+        amount: i32,
+    },
+    /// `DoubleEnergyAction`.
+    DoubleEnergy,
+    /// `DrawCardAction(1, EscapePlanAction)`.
+    EscapePlan {
+        block: i32,
+    },
+    /// `ExpertiseAction` (Expertise, Scrawl).
+    Expertise {
+        hand_size: i32,
+    },
+    /// `FTLAction`.
+    Ftl {
+        info: DamageInfo,
+        threshold: i32,
+    },
+    /// `DamagePerAttackPlayedAction` (Finisher).
+    Finisher {
+        info: DamageInfo,
+    },
+    /// `FlechetteAction`.
+    Flechettes {
+        info: DamageInfo,
+    },
+    /// `ForeignInfluenceAction`.
+    ForeignInfluence {
+        upgraded: bool,
+    },
+    /// `IncreaseMiscAction` (Genetic Algorithm).
+    IncreaseMisc {
+        card_id: CardId,
+        amount: i32,
+    },
+    /// `HeelHookAction`.
+    HeelHook {
+        info: DamageInfo,
+    },
+    /// `IndignationAction`.
+    Indignation {
+        amount: i32,
+    },
+    /// `InnerPeaceAction`.
+    InnerPeace {
+        amount: i32,
+    },
+    /// `MeditateAction`.
+    Meditate {
+        amount: i32,
+    },
+    /// `RemoveAllBlockAction` (Melter).
+    RemoveMonsterBlock {
+        target: MonsterId,
+    },
+    /// `SetupAction`.
+    Setup,
+    /// `SunderAction`.
+    Sunder {
+        info: DamageInfo,
+        energy: i32,
+    },
+    /// `AllCostToHandAction(0)` (All for One).
+    AllCostToHand {
+        cost: i32,
+    },
+    /// `ApplyBulletTimeAction`.
+    BulletTime,
+    /// `ConjureBladeAction`.
+    ConjureBlade {
+        x: i32,
+    },
+    /// `FissionAction`.
+    Fission {
+        upgraded: bool,
+    },
+    /// `ModifyDamageAction` (Glass Knife).
+    ModifyDamage {
+        card_id: CardId,
+        amount: i32,
+    },
+    /// `MulticastAction` after X was fixed at use time.
+    Multicast {
+        effect: i32,
+    },
+    /// `NightmareAction`.
+    Nightmare {
+        amount: i32,
+    },
+    /// `OmniscienceAction`.
+    Omniscience {
+        plays: i32,
+    },
+    /// Thunder Strike: one `NewThunderStrikeAction` per Lightning channeled.
+    ThunderStrike {
+        source: CardId,
+        amount: i32,
+    },
+    /// `ShuffleAllAction` + `ShuffleAction` (Reboot).
+    Reboot,
+    /// `BetterDrawPileToHandAction` (Seek).
+    Seek {
+        amount: i32,
+    },
+    /// `SkipEnemiesTurnAction`.
+    SkipEnemiesTurn,
+    /// Wish's `ChooseOneAction`.
+    Wish {
+        upgraded: bool,
+    },
+    /// `ScryAction`.
+    Scry {
+        amount: i32,
+    },
+    /// `MakeTempCardInHandAction(returnTrulyRandomCardInCombat(type))` with an optional cost for turn.
+    RandomCombatCardToHand {
+        card_type: crate::card::CardType,
+        cost_for_turn: Option<u8>,
+    },
+    /// HelloPower: `MakeTempCardInHandAction(getCard(COMMON, cardRandomRng))`.
+    RandomCommonCardToHand,
+    /// `ApplyPowerAction` for a foreign player power.
+    GainPower {
+        power: crate::combat::ForeignPower,
+        amount: i32,
+    },
+    /// `ApplyPowerAction` for a foreign monster debuff.
+    ApplyMonsterPower {
+        target: MonsterId,
+        power: ForeignMonsterPower,
+        amount: i32,
+    },
+    /// `ChangeStanceAction`.
+    ChangeStance {
+        stance: StanceKind,
+    },
+    /// `MakeTempCardIn*Action` for a special card.
+    MakeTempCard {
+        content_id: ContentId,
+        destination: TempCardDestination,
+        count: i32,
+        upgraded: bool,
+    },
+    /// `GainGoldAction` (Fame and Fortune).
+    GainGold {
+        amount: i32,
+    },
+    /// `ApplyPowerAction(PlatedArmorPower)` (Live Forever).
+    GainPlatedArmor {
+        amount: i32,
+    },
+    /// `ObtainPotionAction(returnRandomPotion(true))` (Alchemize).
+    ObtainRandomPotion,
+    /// `ApplyPowerAction(VulnerablePower)` against every monster.
+    ApplyVulnerableAll {
+        amount: i32,
+    },
+    /// `ApplyPowerAction(WeakPower)` against every monster (Wave of the Hand).
+    ApplyWeakAll {
+        amount: i32,
+    },
+    /// `DamageAllEnemiesAction(createDamageMatrix(amount, true), THORNS)`.
+    DamageAllThorns {
+        amount: i32,
+    },
+    /// Spirit Shield: `applyPowers` block from the other hand cards.
+    SpiritShield {
+        per_card: i32,
+    },
+    /// Stack: `applyPowers` block from the discard pile size.
+    Stack {
+        bonus: i32,
+    },
+    /// EndlessAgony/DeusExMachina `triggerWhenDrawn` follow-ups.
+    EndlessAgonyCopy {
+        card_id: CardId,
+    },
+    DeusExMachinaDrawn {
+        card_id: CardId,
+        miracles: i32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

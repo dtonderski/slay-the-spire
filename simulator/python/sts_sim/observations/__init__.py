@@ -4,16 +4,7 @@ from __future__ import annotations
 
 from typing import get_args
 
-from ..content_ids import (
-    CardKey,
-    CounterKey,
-    EventKey,
-    MonsterKey,
-    PotionKey,
-    PowerKey,
-    RelicKey,
-    RewardOnlyCardKey,
-)
+from ..content_ids import CardKey, CounterKey, EventKey, MonsterKey, PotionKey, PowerKey, RelicKey
 from ._decode import _int, _literal, _mapping, _none
 from .combat import (
     FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION,
@@ -30,6 +21,7 @@ from .combat import (
     NoneIntent,
     OrbSlot,
     Pile,
+    PlasmaOrb,
     Player,
     Power,
     Selection,
@@ -53,8 +45,6 @@ from .common import (
     Phase,
     PotionSlot,
     Relic,
-    RewardOnlyCard,
-    RewardOnlyCardSlot,
     RunContext,
     RunKeys,
     decode_run_context,
@@ -139,9 +129,7 @@ OBSERVATION_TYPES: tuple[type[Observation], ...] = (
 def decode_observation(value: object, path: str = "observation") -> Observation:
     """Strictly decode a native fair-run mapping into concrete observation types."""
     data = _mapping(
-        value,
-        path,
-        required=frozenset({"schema_version", "phase", "kind", "context", "screen"}),
+        value, path, required=frozenset({"schema_version", "phase", "kind", "context", "screen"})
     )
     schema_version = _int(data["schema_version"], f"{path}.schema_version")
     if schema_version != FAIR_RUN_OBSERVATION_SCHEMA_VERSION:
@@ -153,11 +141,7 @@ def decode_observation(value: object, path: str = "observation") -> Observation:
     if kind == "idle":
         _none(screen_value, f"{path}.screen")
         return IdleObservation(
-            schema_version=schema_version,
-            phase=phase,
-            kind="idle",
-            context=context,
-            screen=None,
+            schema_version=schema_version, phase=phase, kind="idle", context=context, screen=None
         )
     if kind == "complete":
         _none(screen_value, f"{path}.screen")
@@ -272,6 +256,7 @@ __all__ = [
     "Observation",
     "OrbSlot",
     "Pile",
+    "PlasmaOrb",
     "Player",
     "PotionKey",
     "PotionSlot",
@@ -293,9 +278,6 @@ __all__ = [
     "RestScreen",
     "RestSmith",
     "RewardObservation",
-    "RewardOnlyCard",
-    "RewardOnlyCardKey",
-    "RewardOnlyCardSlot",
     "RewardScreen",
     "RunContext",
     "RunKeys",

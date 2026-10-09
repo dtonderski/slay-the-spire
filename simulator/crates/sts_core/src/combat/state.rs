@@ -328,6 +328,116 @@ pub struct CombatState {
     /// DrawCardAction, then the EndTurnAction appended by Time Warp.
     #[serde(default, skip_serializing_if = "is_false")]
     pub defer_time_warp_end_turn: bool,
+    /// Combat bookkeeping for Silent/Defect/Watcher cards offered by Prismatic Shard.
+    #[serde(default, skip_serializing_if = "ForeignCombatState::is_empty")]
+    pub foreign: ForeignCombatState,
+}
+
+/// Source-order identity of a [`crate::power::ForeignPlayerPowers`] entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ForeignPower {
+    NextTurnBlock,
+    Rebound,
+    Accuracy,
+    Rushdown,
+    BattleHymn,
+    Blur,
+    DrawCardNextTurn,
+    Heatsink,
+    HelloWorld,
+    InfiniteBlades,
+    Loop,
+    MentalFortress,
+    NoxiousFumes,
+    Repair,
+    FreeAttack,
+    Study,
+    WrathNextTurn,
+    WaveOfTheHand,
+    RetainCards,
+    Foresight,
+    ThousandCuts,
+    Amplify,
+    Burst,
+    Deva,
+    Devotion,
+    EchoForm,
+    Electro,
+    Envenom,
+    Establishment,
+    Draw,
+    MasterReality,
+    Phantasmal,
+    DoubleDamage,
+    ToolsOfTheTrade,
+    Omega,
+    WraithForm,
+    Collect,
+    Energized,
+    Nightmare,
+}
+
+impl ForeignPower {
+    /// `AbstractPower.priority`; `ApplyPowerAction` stable-sorts the list by it.
+    #[must_use]
+    pub const fn priority(self) -> i32 {
+        match self {
+            Self::DrawCardNextTurn => 20,
+            Self::ToolsOfTheTrade | Self::Establishment => 25,
+            Self::DoubleDamage => 6,
+            _ => 5,
+        }
+    }
+}
+
+/// A NightmarePower instance: copies of `card` added to hand next turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NightmareCopy {
+    pub card: CardInstance,
+    pub amount: i32,
+}
+
+/// Where an interrupted turn boundary resumes after a foreign-card selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ForeignTurnResume {
+    /// Foresight's pre-draw Scry closed: continue with orbs, block loss and the hand draw.
+    StartOfTurnAfterPowers { apply_post_draw_relics: bool },
+    /// Tools of the Trade's post-draw discard closed: finish the turn start.
+    StartOfTurnAfterPostDrawPowers,
+    /// RetainCardsAction closed: continue with ethereal exhaust and the discard.
+    EndOfTurnBeforeDiscard,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ForeignCombatState {
+    /// Insertion order of active foreign player powers.
+    pub power_order: Vec<ForeignPower>,
+    /// `orbsChannelledThisCombat` counts used by Blizzard and Thunder Strike.
+    pub lightning_channeled_this_combat: u32,
+    pub frost_channeled_this_combat: u32,
+    /// `GameActionManager.mantraGained` (Brilliance).
+    pub mantra_gained_this_combat: i32,
+    /// Powers in `cardsPlayedThisCombat` (Force Field.configureCostsOnNewCard).
+    pub powers_played_this_combat: u32,
+    /// Attacks in `cardsPlayedThisTurn` (Finisher).
+    pub attacks_played_this_turn: u32,
+    /// Type of `cardsPlayedThisCombat[size - 2]` (Sash Whip, Sanctity).
+    pub previous_played_card_type: Option<CardType>,
+    /// NightmarePower instances in application order.
+    pub nightmare: Vec<NightmareCopy>,
+    /// `AbstractRoom.skipMonsterTurn` (Vault).
+    pub skip_monster_turn: bool,
+    pub turn_resume: Option<ForeignTurnResume>,
+    /// Hand cards marked by RetainCardsAction this end of turn.
+    pub end_turn_retained: Vec<crate::ids::CardId>,
+}
+
+impl ForeignCombatState {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -340,7 +450,11 @@ pub struct BombTimer {
 pub enum CombatOrb {
     Lightning,
     Frost,
-    Dark { evoke: i32 },
+    Dark {
+        evoke: i32,
+    },
+    /// Plasma: +1 Energy at turn start, +2 when evoked; unaffected by Focus.
+    Plasma,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -527,6 +641,80 @@ pub enum CombatDecisionState {
     ExhaustSelect {
         state: ExhaustSelectState,
     },
+}
+
+/// What a [`ForeignSelection`] does when confirmed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ForeignSelectionKind {
+    /// DiscardAction(amount, random=false) with more hand cards than `amount`.
+    DiscardFromHand,
+    /// SetupAction: put one hand card on top of the draw pile, free once.
+    SetupPutOnDraw,
+    /// NightmareAction: choose the card copied next turn.
+    NightmareCopy,
+    /// RetainCardsAction: retain up to `amount` hand cards.
+    RetainFromHand,
+    /// ScryAction: discard any of the revealed top cards.
+    Scry,
+    /// BetterDrawPileToHandAction (Seek).
+    SeekFromDraw,
+    /// OmniscienceAction: play a draw-pile card `amount` times.
+    OmniscienceFromDraw,
+    /// MeditateAction: return discard cards to hand with Retain.
+    MeditateFromDiscard,
+    /// ForeignInfluenceAction card reward (skippable).
+    ForeignInfluence,
+    /// Wish ChooseOneAction (not skippable).
+    Wish,
+}
+
+/// Which visible cards a [`ForeignSelection`] chooses from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ForeignSelectionPile {
+    Hand,
+    DrawPile,
+    DiscardPile,
+    /// `ForeignSelection::choices` (card-reward style screens).
+    Choices,
+}
+
+impl ForeignSelectionKind {
+    #[must_use]
+    pub const fn pile(self) -> ForeignSelectionPile {
+        match self {
+            Self::DiscardFromHand
+            | Self::SetupPutOnDraw
+            | Self::NightmareCopy
+            | Self::RetainFromHand => ForeignSelectionPile::Hand,
+            Self::Scry | Self::SeekFromDraw | Self::OmniscienceFromDraw => {
+                ForeignSelectionPile::DrawPile
+            }
+            Self::MeditateFromDiscard => ForeignSelectionPile::DiscardPile,
+            Self::ForeignInfluence | Self::Wish => ForeignSelectionPile::Choices,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ForeignSelection {
+    pub kind: ForeignSelectionKind,
+    /// Selectable pile cards in public UI order (empty for `Choices`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub candidates: Vec<crate::ids::CardId>,
+    /// Card-reward choices for `Choices` screens.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub choices: Vec<CardInstance>,
+    /// Inclusive bounds on the number of selected candidates at CONFIRM.
+    pub min: usize,
+    pub max: usize,
+    /// Selected candidate positions in choice order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selected: Vec<usize>,
+    /// Kind-specific amount (Nightmare copies, Omniscience plays, ...).
+    #[serde(default)]
+    pub amount: i32,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub upgraded: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -1327,6 +1515,7 @@ impl CombatState {
             pending_end_turn_hand_resolution: None,
             time_warp_pending_monster_action: false,
             defer_time_warp_end_turn: false,
+            foreign: ForeignCombatState::default(),
         }
     }
 

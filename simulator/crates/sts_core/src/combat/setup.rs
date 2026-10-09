@@ -23,6 +23,9 @@ pub fn card_has_innate(content_id: ContentId) -> SimResult<bool> {
 }
 
 fn card_instance_is_innate(card: &CardInstance) -> SimResult<bool> {
+    if let Some(spec) = crate::content::prismatic::prismatic_card_spec(card.content_id) {
+        return Ok(spec.keywords(card.upgrades > 0).innate);
+    }
     // Storm.upgrade sets isInnate. Synthetic Storm keeps the base content id and
     // only increments upgrades, so the instance — not the printed definition —
     // is authoritative.

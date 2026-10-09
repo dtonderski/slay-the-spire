@@ -21,10 +21,6 @@ from typing import cast
 
 import numpy as np
 import torch
-from sts_sim import ACTION_KINDS, PotionKey, State
-from torch import Tensor
-from torch.distributions import Categorical
-
 import wandb
 from beam_search import beam_search
 from combat_task import action_indices, combat_outcome, terminal_reward
@@ -36,6 +32,7 @@ from encoders.numeric import (
     ACTION_REVISION,
     ACTION_TARGET,
     CANDIDATE_OWNER,
+    CARD_ROW_WIDTH,
     NumericBatch,
     upload,
 )
@@ -44,7 +41,10 @@ from loadout_sampling import LoadoutSampler
 from model import CombatValueModel
 from rollout_errors import SimulatorStepError
 from scenarios import ScenarioConfig
+from sts_sim import ACTION_KINDS, PotionKey, State
 from synthetic_roots import SyntheticRoot, sample_root
+from torch import Tensor
+from torch.distributions import Categorical
 from trajectories import DecisionRound, Trajectories, validate_gradients
 from validation_set import Root, load_validation
 
@@ -215,19 +215,13 @@ def play_combats(
                     for position, row in enumerate(active):
                         choices.append(
                             sample_unpadded_action(
-                                logits[position],
-                                counts[position],
-                                episode_generators[remaining[row]],
+                                logits[position], counts[position], episode_generators[remaining[row]]
                             )
                         )
                 if replays is not None:
                     replays.append(
                         ReplayRound(
-                            batch,
-                            candidates,
-                            tuple(remaining[row] for row in active),
-                            tuple(choices),
-                            tuple(counts),
+                            batch, candidates, tuple(remaining[row] for row in active), tuple(choices), tuple(counts)
                         )
                     )
         chosen_indices = [legal_indices[position][choice] for position, choice in enumerate(choices)]
@@ -456,11 +450,11 @@ def replay_storage_bytes(replays: list[ReplayRound]) -> int:
 
 _MODEL_OWNER_WIDTHS = {
     "player_powers": 3,
-    "hand": 18,
-    "draw": 18,
-    "discard": 18,
-    "exhaust": 18,
-    "selection_cards": 18,
+    "hand": CARD_ROW_WIDTH,
+    "draw": CARD_ROW_WIDTH,
+    "discard": CARD_ROW_WIDTH,
+    "exhaust": CARD_ROW_WIDTH,
+    "selection_cards": CARD_ROW_WIDTH,
     "enemies": 18,
     "relics": 2,
     "potions": 3,
@@ -469,7 +463,7 @@ _MODEL_OWNER_WIDTHS = {
 }
 _ALIGNED_WIDTHS = {"player": 6, "selection": 1}
 _GLOBAL_OWNER_PARENT = {"enemy_powers": "enemies", "stasis": "enemies", "relic_counters": "relics"}
-_GLOBAL_OWNER_WIDTHS = {"enemy_powers": 3, "stasis": 18, "relic_counters": 3}
+_GLOBAL_OWNER_WIDTHS = {"enemy_powers": 3, "stasis": CARD_ROW_WIDTH, "relic_counters": 3}
 
 
 def _max_token_width(batch: NumericBatch) -> int:
@@ -832,10 +826,7 @@ def evaluate_baselines(
     )
     print("Computing privileged beam reference: main", flush=True)
     beam_scores, beam_records = evaluate_beam(
-        roots,
-        width=beam_width,
-        max_decisions=max_decisions,
-        max_transitions=beam_transitions,
+        roots, width=beam_width, max_decisions=max_decisions, max_transitions=beam_transitions
     )
     references.update({f"random_main/{key}": value for key, value in random_scores.items()})
     references.update({f"privileged_beam_main/{key}": value for key, value in beam_scores.items()})
@@ -966,13 +957,7 @@ def update_with_diagnostics(
     """Never retry partially advanced states; preserve failed batch inputs for diagnosis."""
     try:
         return train_batch(
-            roots,
-            model,
-            optimizer,
-            max_decisions,
-            entropy_coef,
-            value_coef=value_coef,
-            chunk_decisions=chunk_decisions,
+            roots, model, optimizer, max_decisions, entropy_coef, value_coef=value_coef, chunk_decisions=chunk_decisions
         )
     except SimulatorStepError as error:
         failure_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1138,10 +1123,7 @@ def combat_main(argv: list[str] | None = None) -> None:
     torch.manual_seed(args.seed)
     rng = random.Random(args.seed)
     model = CombatValueModel(
-        d_model=args.model_width,
-        action_dim=args.model_width,
-        n_layers=args.model_layers,
-        precision=args.precision,
+        d_model=args.model_width, action_dim=args.model_width, n_layers=args.model_layers, precision=args.precision
     ).to(args.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     initial_checkpoint = args.resume_from or args.warm_start

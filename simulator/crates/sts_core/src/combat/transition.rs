@@ -3,6 +3,7 @@ mod card_actions;
 mod damage_actions;
 mod decision_actions;
 mod defense_actions;
+mod foreign_actions;
 mod pile_actions;
 mod player_actions;
 #[cfg(test)]
@@ -297,6 +298,17 @@ fn is_post_lethal_cancelled_action(action: &InternalAction) -> bool {
             | InternalAction::OpenPotionCardReward { .. }
             | InternalAction::OpenElixirSelection
             | InternalAction::OpenGamblersBrewSelection
+            | InternalAction::Foreign(crate::action::ForeignAction::Channel { .. })
+            | InternalAction::Foreign(crate::action::ForeignAction::MakeTempCard { .. })
+            | InternalAction::Foreign(crate::action::ForeignAction::EvokeFirst { .. })
+            | InternalAction::Foreign(crate::action::ForeignAction::Gash { .. })
+            | InternalAction::Foreign(crate::action::ForeignAction::AggregateEnergy { .. })
+            | InternalAction::Foreign(crate::action::ForeignAction::DoubleEnergy)
+            | InternalAction::Foreign(crate::action::ForeignAction::Expertise { .. })
+            | InternalAction::Foreign(crate::action::ForeignAction::GainFocus { .. })
+            | InternalAction::Foreign(crate::action::ForeignAction::GainVigor { .. })
+            | InternalAction::Foreign(crate::action::ForeignAction::GainBuffer { .. })
+            | InternalAction::Foreign(crate::action::ForeignAction::MultiplyPoison { .. })
     )
 }
 
@@ -316,9 +328,18 @@ fn process_internal_queue_with_event_recording(
 }
 
 fn process_internal_queue_owned(
+    next: CombatState,
+    queue: VecDeque<InternalAction>,
+    record_events: bool,
+) -> SimResult<CombatTransition> {
+    drain_internal_queue_owned(next, queue, record_events, true)
+}
+
+fn drain_internal_queue_owned(
     mut next: CombatState,
     mut queue: VecDeque<InternalAction>,
     record_events: bool,
+    settle_card_boundary: bool,
 ) -> SimResult<CombatTransition> {
     let mut event_log = record_events.then(Vec::new);
 
@@ -497,6 +518,8 @@ fn process_internal_queue_owned(
                 | InternalAction::DiscardNonAttackHandCards
                 | InternalAction::ResolveSteamBarrier { .. }
                 | InternalAction::ResolveFollowUpEnergy { .. }
+                | InternalAction::GainMantra { .. }
+                | InternalAction::Foreign(_)
         ) {
             // These source actions compute from live card/hand history at their
             // action-manager boundary. Drain their newly queued actions before
@@ -676,6 +699,16 @@ fn process_internal_queue_owned(
                 _ => {}
             }
         }
+    }
+
+    if !settle_card_boundary {
+        // A monster attack's onAttacked actions preempt its next queued attack,
+        // but do not complete a player card, enable player input, or settle
+        // deferred card-boundary reactions. The caller owns that lifecycle.
+        return Ok(CombatTransition {
+            state: next,
+            event_log: event_log.unwrap_or_default(),
+        });
     }
 
     if !matches!(
@@ -1980,6 +2013,7 @@ fn apply_internal_action_with_defer(
         InternalAction::OpenDiscoveryCardReward { source_card_id } => {
             decision_actions::open_discovery_card_reward(state, source_card_id)
         }
+        InternalAction::Foreign(action) => foreign_actions::apply(state, action),
     }
 }
 
@@ -2726,9 +2760,17 @@ pub(crate) fn apply_static_discharge_on_attacked(
     if hp_damage <= 0 || state.player.powers.static_discharge <= 0 {
         return Ok(());
     }
-    for _ in 0..state.player.powers.static_discharge {
-        player_actions::channel_lightning(state)?;
-    }
+    // StaticDischargePower.onAttacked addToTops ChannelAction, whose full-slot
+    // path in turn queues EvokeOrbAction then its channel retry. Drain actual
+    // actions rather than discard channel/evoke follow-ups (notably Plasma).
+    let queue = (0..state.player.powers.static_discharge)
+        .map(|_| {
+            InternalAction::Foreign(crate::action::ForeignAction::Channel {
+                orb: crate::action::OrbKind::Lightning,
+            })
+        })
+        .collect();
+    *state = drain_internal_queue_owned(state.clone(), queue, false, false)?.state;
     Ok(())
 }
 
@@ -7418,7 +7460,16 @@ fn move_card(
     to: CardPile,
 ) -> SimResult<()> {
     let card = match from {
-        CardPile::Hand => remove_card_from_hand(state, card_id)?,
+        CardPile::Hand => {
+            // Cross-color cards follow AbstractPlayer.useCard: the physical
+            // source leaves hand before its use actions execute. UseCardAction
+            // later settles that same source from limbo, not a replacement.
+            if let Some(index) = state.piles.limbo.iter().position(|card| card.id == card_id) {
+                state.piles.limbo.remove(index)
+            } else {
+                remove_card_from_hand(state, card_id)?
+            }
+        }
         CardPile::DrawPile => {
             let index = state
                 .piles

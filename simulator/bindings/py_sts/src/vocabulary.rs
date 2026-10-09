@@ -1,11 +1,12 @@
-//! Version 1 public content ids. Order matches the current Python catalogs.
-//! Do not reorder without bumping CONTENT_VOCABULARY_VERSION.
+//! Version 2 public content ids. v1 prefixes retain their exact numeric ids;
+//! newly registered identities append lexically. Enum declaration order is not
+//! the ML ABI. Do not alter the frozen v1 prefixes.
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use pyo3::prelude::*;
 
-pub const CONTENT_VOCABULARY_VERSION: u32 = 1;
+pub const CONTENT_VOCABULARY_VERSION: u32 = 2;
 
 pub static CARD_KEYS: &[&str] = &[
     "AFTER_IMAGE",
@@ -752,10 +753,21 @@ pub fn card_id(key: &str) -> Option<i64> {
     static INDEX: OnceLock<HashMap<&'static str, i64>> = OnceLock::new();
     INDEX
         .get_or_init(|| {
+            let old = CARD_KEYS
+                .iter()
+                .copied()
+                .collect::<std::collections::BTreeSet<_>>();
+            let added = sts_env::fair_content_catalog()
+                .cards
+                .into_iter()
+                .filter(|key| !old.contains(key))
+                .collect::<std::collections::BTreeSet<_>>();
             CARD_KEYS
                 .iter()
+                .copied()
+                .chain(added)
                 .enumerate()
-                .map(|(index, value)| (*value, index as i64))
+                .map(|(index, value)| (value, index as i64))
                 .collect()
         })
         .get(key)
@@ -894,6 +906,29 @@ pub fn selection_catalog_id(kind: Option<&str>) -> Option<i64> {
     match kind {
         None => Some(0),
         Some(value) => selection_kind_id(value).map(|index| index + 1),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn card_v2_preserves_the_v1_prefix_and_appends_public_keys_lexically() {
+        let public = sts_env::fair_content_catalog().cards;
+        for (index, key) in CARD_KEYS.iter().enumerate() {
+            assert!(public.contains(key), "removed legacy identity {key}");
+            assert_eq!(card_id(key), Some(index as i64));
+        }
+        let extra = public
+            .into_iter()
+            .filter(|key| !CARD_KEYS.contains(key))
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(extra.len(), 152);
+        for (offset, key) in extra.into_iter().enumerate() {
+            assert_eq!(card_id(key), Some((CARD_KEYS.len() + offset) as i64));
+        }
+        assert_eq!(card_id("not a public card"), None);
     }
 }
 

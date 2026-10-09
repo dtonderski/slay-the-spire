@@ -47,6 +47,15 @@ def reference_batch(decisions):
                 value.temporary,
                 *(x if x is not None else 0 for x in dynamic),
                 *(x is not None for x in dynamic),
+                d.misc_bonus or 0,
+                d.base_damage_delta or 0,
+                d.base_block_delta or 0,
+                d.x_magic or 0,
+                d.retain_once,
+                d.misc_bonus is not None,
+                d.base_damage_delta is not None,
+                d.base_block_delta is not None,
+                d.x_magic is not None,
             ]
         )
 

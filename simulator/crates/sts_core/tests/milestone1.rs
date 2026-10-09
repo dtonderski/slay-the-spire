@@ -4,7 +4,9 @@ use sts_core::adapter_internals::{
     CombatAction, CombatPhase, CombatState, ContentId,
 };
 
-const EXPECTED_FINAL_HASH: &str = "e29a12ffddce7739";
+// This synthetic fixture now serializes cross-color card-play history used by
+// Finisher/Sash Whip/Force Field. Its actions and gameplay result are unchanged.
+const EXPECTED_FINAL_HASH: &str = "1ee9268c351b32f0";
 
 #[test]
 fn full_replay_final_hash_matches_expected() {

@@ -8,7 +8,7 @@ from sts_sim.observations.combat import IntentCategory, SlimeSize
 from torch import Tensor, nn
 
 from .cards import CARD_FEATURE_DIM
-from .numeric import FeatureArrays, NumericBatch
+from .numeric import CARD_ROW_WIDTH, FeatureArrays, NumericBatch
 from .player import GOLD_SCALE, POWER_TO_INDEX
 
 # Include hidden/none separately from visible categories such as "unknown".
@@ -53,7 +53,7 @@ class EnemyEncoder(nn.Module):
         slime = np.eye(len(SLIME_SIZE_TO_INDEX))[rows[:, 6]]
         extra = rows[:, 12:17] / np.array([1.0, 1.0, 1.0, GOLD_SCALE, 1.0])
         return FeatureArrays(
-            {"ids": raw_ids, "stasis": batch.table("stasis", 18)[:, 0]},
+            {"ids": raw_ids, "stasis": batch.table("stasis", CARD_ROW_WIDTH)[:, 0]},
             {"state": np.concatenate((stats, powers, intent, numbers, slime, extra), axis=1)},
             {"enemies": batch.lengths(rows)},
         )

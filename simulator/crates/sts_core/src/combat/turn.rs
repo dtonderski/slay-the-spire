@@ -19,8 +19,7 @@ use crate::{
     },
     combat::{CombatPhase, CombatState, SlimeSize},
     content::cards::{
-        get_card_definition, BURN_ID, DAZED_ID, DECAY_ID, DOUBT_ID, REGRET_ID, SHAME_ID, SLIMED_ID,
-        VOID_ID, WOUND_ID,
+        BURN_ID, DAZED_ID, DECAY_ID, DOUBT_ID, REGRET_ID, SHAME_ID, SLIMED_ID, VOID_ID, WOUND_ID,
     },
     content::monsters::{
         apply_bronze_automaton_orb_spawn, apply_collector_spawn_torch_heads,
@@ -799,7 +798,8 @@ fn hand_has_end_turn_autoplay_cards(state: &CombatState) -> bool {
 
 fn draw_pile_top_is_ethereal(state: &CombatState) -> bool {
     state.piles.draw_pile.last().is_some_and(|card| {
-        get_card_definition(card.content_id).is_some_and(|definition| definition.keywords.ethereal)
+        crate::content::cards::card_instance_keywords(card)
+            .is_some_and(|keywords| keywords.ethereal)
     })
 }
 
@@ -881,6 +881,7 @@ fn start_player_turn_in_place(
     state.player.temp_rage_block = 0;
     state.player.powers.panache_cards_played = 0;
     state.total_discarded_this_turn = 0;
+    state.foreign.attacks_played_this_turn = 0;
     state.double_tap_pending = 0;
     state.pen_nib_double_active = false;
     for monster in state
@@ -909,6 +910,18 @@ fn start_player_turn_in_place(
     }
     apply_start_of_turn_magnetism(state)?;
     apply_start_of_turn_creative_ai(state)?;
+    // AbstractPlayer.applyStartOfTurnOrbs invokes Plasma.onStartOfTurn:
+    // one queued GainEnergyAction(1) per occupied Plasma slot, unaffected by
+    // Focus. These actions precede the ordinary hand draw.
+    let plasma_actions = state
+        .orbs
+        .iter()
+        .filter(|orb| **orb == crate::combat::CombatOrb::Plasma)
+        .map(|_| crate::InternalAction::GainEnergy { amount: 1 })
+        .collect::<VecDeque<_>>();
+    if !plasma_actions.is_empty() {
+        *state = crate::combat::transition::process_internal_queue(state, plasma_actions)?.state;
+    }
     // MayhemPower.atStartOfTurn queues one anonymous action per stack before
     // DrawCardAction. That wrapper rolls getRandomMonster (cardRandomRng) and
     // only then addToBot(PlayTopCardAction). Confusion on the hand draw must
@@ -2743,11 +2756,13 @@ fn deal_damage_to_player_with_draw_policy(
         hp_damage,
         draw_policy,
     )?;
-    crate::combat::transition::apply_static_discharge_on_attacked(state, hp_damage)?;
     revive_player_if_available(state)?;
     if hp_damage > 0 && state.player.powers.plated_armor > 0 {
         state.player.powers.plated_armor -= 1;
     }
+    // onAttacked queued ChannelActions execute only after player.damage's
+    // inline HP/revival/power mutations finish, before the next attack action.
+    crate::combat::transition::apply_static_discharge_on_attacked(state, hp_damage)?;
     Ok(hp_damage)
 }
 

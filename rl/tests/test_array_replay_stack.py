@@ -1,7 +1,6 @@
 import unittest
 
 import numpy as np
-
 from encoders.numeric import NUMERIC_VERSION, NumericBatch
 from train import _stack_observations
 
@@ -18,7 +17,7 @@ def batch(size: int, enemy_owners: list[int], relic_owners: list[int]) -> Numeri
         "enemies": owned(enemy_owners, 18),
         "relics": owned(relic_owners, 2),
         "enemy_powers": owned(list(range(len(enemy_owners))), 3),
-        "stasis": owned([len(enemy_owners) - 1] if enemy_owners else [], 18),
+        "stasis": owned([len(enemy_owners) - 1] if enemy_owners else [], 27),
         "relic_counters": owned(list(range(len(relic_owners))), 3),
     }
     payload = {key: (rows.shape[1], rows.tobytes()) for key, rows in tables.items()}

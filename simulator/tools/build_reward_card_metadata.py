@@ -1,12 +1,13 @@
-"""Generate reward-only foreign-card metadata from the authoritative desktop JAR.
+"""Generate an independent desktop-JAR audit table for Prismatic pool cards.
 
-Requires CFR-decompiled cards/{blue,green,purple} from that same JAR. This does
-not implement card effects, modify pools, or manufacture gameplay parity. The
-output remains separate from the gameplay CardDefinition registry.
+Requires CFR-decompiled cards/{blue,green,purple} from that same JAR. The output
+is test data only: `tests/prismatic_card_definitions.rs` compares it with the
+hand-transcribed gameplay table in `content/prismatic.rs`. It never supplies
+gameplay values itself.
 
 uv run --no-project python simulator/tools/build_reward_card_metadata.py \
     --jar /path/to/desktop-1.0.jar --source /path/to/cfr-output \
-    --out simulator/crates/sts_core/src/content/reward_card_metadata.rs
+    --out simulator/crates/sts_core/tests/data/prismatic_desktop_metadata.rs
 """
 
 import argparse
@@ -91,8 +92,8 @@ def main():
 // JAR SHA256: """
         + TARGET_SHA256
         + """
-// Reward preview metadata ONLY. No gameplay effects are supplied by this table.
-use crate::{card::{CardRarity, CardType}, content::shop_pool::shop_card_content_id, ids::ContentId};
+// Independent audit data for tests only. No gameplay values come from this table.
+use sts_core::card::{CardRarity, CardType};
 
 #[derive(Debug, Clone, Copy)]
 pub struct RewardCardMetadata {
@@ -114,14 +115,9 @@ pub const REWARD_ONLY_CARD_METADATA: &[RewardCardMetadata] = &[
             f"    RewardCardMetadata {{ key: {json.dumps(key)}, card_id: {json.dumps(identity)}, cost: {cost}, upgraded_cost: {upgraded}, card_type: CardType::{kind}, rarity: CardRarity::{rarity} }}, \n"
         )
     lines.append("""];
-
-#[must_use]
-pub fn reward_only_card_metadata(id: ContentId) -> Option<&'static RewardCardMetadata> {
-    REWARD_ONLY_CARD_METADATA.iter().find(|card| shop_card_content_id(card.key) == id)
-}
 """)
     args.out.write_text("".join(lines))
-    print(f"Generated {len(rows)} reward-only entries; no gameplay definitions added")
+    print(f"Generated {len(rows)} audit entries (test data only)")
 
 
 if __name__ == "__main__":

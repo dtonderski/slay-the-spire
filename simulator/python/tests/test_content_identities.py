@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import subprocess
 import sys
@@ -16,8 +15,6 @@ from sts_sim import (
     PotionKey,
     PowerKey,
     RelicKey,
-    RewardOnlyCard,
-    RewardOnlyCardKey,
     ShopCardOffer,
     ShopOffer,
     ShopScreen,
@@ -178,7 +175,6 @@ class ContentIdentityRuntimeTest(unittest.TestCase):
 
         for name in (
             "CardKey",
-            "RewardOnlyCardKey",
             "RelicKey",
             "PotionKey",
             "MonsterKey",
@@ -191,27 +187,6 @@ class ContentIdentityRuntimeTest(unittest.TestCase):
 
 
 class ContentIdentityCatalogTest(unittest.TestCase):
-    def test_reward_only_namespace_preserves_frozen_combat_vocabulary(self) -> None:
-        self.assertEqual(len(CardKey), 322)
-        self.assertEqual(
-            hashlib.sha256("\0".join(CardKey).encode()).hexdigest(),
-            "ffc34bc9b7953682503d55d9e051fbafbad5354858ef9c6bfabbfde92a16551e",
-        )
-        self.assertEqual(len(RewardOnlyCardKey), 142)
-        self.assertFalse(set(CardKey) & set(RewardOnlyCardKey))
-        self.assertIs(get_type_hints(RewardOnlyCard)["content_key"], RewardOnlyCardKey)
-        from sts_sim.observations.common import decode_card, decode_reward_card_slot
-
-        card = {**_card(), "content_key": "CHILL", "cost": 0}
-        preview = decode_reward_card_slot({"slot": 2, "card": card}, "test.reward")
-        self.assertIsInstance(preview.card, RewardOnlyCard)
-        self.assertIs(preview.card.content_key, RewardOnlyCardKey.CHILL)
-        with self.assertRaisesRegex(ValueError, "unknown CardKey"):
-            decode_card(card, "test.deck")
-        card["content_key"] = "unknown_foreign_card"
-        with self.assertRaisesRegex(ValueError, "unknown RewardOnlyCardKey"):
-            decode_reward_card_slot({"slot": 2, "card": card}, "test.reward")
-
     def test_generated_enums_match_authoritative_catalog(self) -> None:
         exported = subprocess.run(
             ["cargo", "run", "-q", "-p", "sts_env", "--bin", "export_fair_catalog"],
@@ -226,7 +201,6 @@ class ContentIdentityCatalogTest(unittest.TestCase):
             "relics": RelicKey,
             "potions": PotionKey,
             "cards": CardKey,
-            "reward_only_cards": RewardOnlyCardKey,
             "monsters": MonsterKey,
             "events": EventKey,
             "powers": PowerKey,

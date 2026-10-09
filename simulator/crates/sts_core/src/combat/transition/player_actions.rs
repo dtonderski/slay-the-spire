@@ -400,12 +400,12 @@ pub(super) fn recurse_rightmost_orb(state: &mut CombatState) -> SimResult<Vec<In
         return Ok(Vec::new());
     }
     let orb = state.orbs.remove(0);
-    evoke_orb(state, orb)?;
+    let follow_ups = evoke_orb(state, orb)?;
     // ChannelAction(orb, autoEvoke=false) fills the emptied slot.
     if state.max_orbs > 0 {
         state.orbs.insert(0, orb);
     }
-    Ok(Vec::new())
+    Ok(follow_ups)
 }
 
 pub(super) fn increase_max_orbs(
@@ -463,7 +463,7 @@ pub(super) fn dark_impulse(state: &mut CombatState) -> SimResult<Vec<InternalAct
     Ok(Vec::new())
 }
 
-fn channel_orb(
+pub(super) fn channel_orb(
     state: &mut CombatState,
     orb: crate::combat::CombatOrb,
 ) -> SimResult<Vec<InternalAction>> {
@@ -471,16 +471,44 @@ fn channel_orb(
     if state.max_orbs <= 0 {
         return Ok(Vec::new());
     }
-    if state.orbs.len() >= state.max_orbs as usize {
+    let follow_ups = if state.orbs.len() >= state.max_orbs as usize {
         // A filled slot evokes the oldest orb before the new one lands.
         let evoked = state.orbs.remove(0);
-        evoke_orb(state, evoked)?;
+        evoke_orb(state, evoked)?
+    } else {
+        Vec::new()
+    };
+    match orb {
+        crate::combat::CombatOrb::Lightning => {
+            state.foreign.lightning_channeled_this_combat = state
+                .foreign
+                .lightning_channeled_this_combat
+                .checked_add(1)
+                .ok_or(SimError::InvalidState(
+                    "Lightning channel count overflows u32",
+                ))?;
+        }
+        crate::combat::CombatOrb::Frost => {
+            state.foreign.frost_channeled_this_combat = state
+                .foreign
+                .frost_channeled_this_combat
+                .checked_add(1)
+                .ok_or(SimError::InvalidState("Frost channel count overflows u32"))?;
+        }
+        _ => {}
     }
     state.orbs.push(orb);
-    Ok(Vec::new())
+    Ok(follow_ups)
 }
 
-fn evoke_orb(state: &mut CombatState, orb: crate::combat::CombatOrb) -> SimResult<()> {
+pub(super) fn evoke_orb(
+    state: &mut CombatState,
+    orb: crate::combat::CombatOrb,
+) -> SimResult<Vec<InternalAction>> {
+    if orb == crate::combat::CombatOrb::Plasma {
+        // Plasma.onEvoke queues this GainEnergyAction with addToTop.
+        return Ok(vec![InternalAction::GainEnergy { amount: 2 }]);
+    }
     match orb {
         crate::combat::CombatOrb::Lightning => super::apply_juggernaut_random_damage(
             state,
@@ -491,7 +519,9 @@ fn evoke_orb(state: &mut CombatState, orb: crate::combat::CombatOrb) -> SimResul
             focused_orb_amount(state, FROST_EVOKE_BLOCK),
         ),
         crate::combat::CombatOrb::Dark { evoke } => evoke_dark(state, evoke),
-    }
+        crate::combat::CombatOrb::Plasma => unreachable!("Plasma handled above"),
+    }?;
+    Ok(Vec::new())
 }
 
 const LIGHTNING_PASSIVE_DAMAGE: i32 = 3;
@@ -561,6 +591,7 @@ pub(crate) fn apply_orb_end_of_turn_passives(state: &mut CombatState) -> SimResu
                     focused_orb_amount(state, FROST_PASSIVE_BLOCK),
                 )?;
             }
+            crate::combat::CombatOrb::Plasma => {}
             crate::combat::CombatOrb::Dark { .. } => {
                 if let Some(crate::combat::CombatOrb::Dark { evoke }) = state.orbs.get_mut(index) {
                     *evoke = evoke
@@ -618,15 +649,20 @@ pub(crate) fn gain_strength_power(state: &mut CombatState, amount: i32) -> SimRe
 }
 
 pub(super) fn gain_mantra(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
+    state.foreign.mantra_gained_this_combat = state
+        .foreign
+        .mantra_gained_this_combat
+        .checked_add(amount)
+        .ok_or(SimError::InvalidState("mantra history overflows i32"))?;
+    let had_mantra = state.player.powers.mantra != 0;
     checked_add_combat_value(&mut state.player.powers.mantra, amount)?;
-    while state.player.powers.mantra >= 10 {
+    if had_mantra && state.player.powers.mantra >= 10 {
+        // Only MantraPower.stackPower checks the threshold; its constructor
+        // has no onInitialApplication transition, even for amount >= 10.
+        // Stack queues one ChangeStanceAction with addToTop, not eager energy
+        // or repeated transitions. Calm's exit and stance callbacks still run.
         state.player.powers.mantra -= 10;
-        state.player.energy = state
-            .player
-            .energy
-            .checked_add(3)
-            .ok_or(SimError::InvalidState("mantra energy gain overflows i32"))?;
-        state.player.powers.divinity = 1;
+        return Ok(vec![InternalAction::EnterDivinity]);
     }
     Ok(Vec::new())
 }
@@ -745,4 +781,24 @@ pub(super) fn gain_artifact(
 pub(super) fn upgrade_all_combat_cards(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
     upgrade_combat_cards(state)?;
     Ok(Vec::new())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Initialized desktop-source rule, not real-game parity evidence.
+    #[test]
+    fn mantra_constructor_does_not_run_the_stacking_threshold_callback() {
+        let mut state = CombatState::initial_fixture();
+        assert!(gain_mantra(&mut state, 25).unwrap().is_empty());
+        assert_eq!(state.player.powers.mantra, 25);
+        assert_eq!(state.player.powers.divinity, 0);
+        assert_eq!(
+            gain_mantra(&mut state, 1).unwrap(),
+            vec![InternalAction::EnterDivinity]
+        );
+        assert_eq!(state.player.powers.mantra, 16);
+        assert_eq!(state.foreign.mantra_gained_this_combat, 26);
+    }
 }

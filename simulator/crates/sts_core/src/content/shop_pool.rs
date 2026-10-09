@@ -310,14 +310,8 @@ pub fn shop_card_content_id(name: &str) -> ContentId {
         "THINKING_AHEAD" => THINKING_AHEAD_ID,
         "TRANSMUTATION" => TRANSMUTATION_ID,
         "VIOLENCE" => VIOLENCE_ID,
-        other => ContentId::new(600 + stable_pool_name_id(other)),
+        other => crate::content::prismatic::pool_content_id(other),
     }
-}
-
-fn stable_pool_name_id(name: &str) -> u64 {
-    name.bytes().fold(0u64, |acc, byte| {
-        acc.wrapping_mul(31).wrapping_add(u64::from(byte))
-    })
 }
 
 #[must_use]

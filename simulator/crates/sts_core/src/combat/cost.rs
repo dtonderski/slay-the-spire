@@ -68,6 +68,9 @@ pub(crate) fn printed_card_cost(card: &CardInstance) -> SimResult<i32> {
     }
     get_card_definition(card.content_id)
         .map(|definition| {
+            if let Some(spec) = crate::content::prismatic::prismatic_card_spec(card.content_id) {
+                return i32::from(spec.cost(card.upgrades > 0));
+            }
             // Recursion / Crescendo / Recycle upgradeBaseCost(0). Synthetic plus cards keep
             // the base content id and only increment upgrades.
             if card.upgrades > 0
@@ -89,6 +92,39 @@ pub(crate) fn printed_card_cost(card: &CardInstance) -> SimResult<i32> {
             }
         })
         .ok_or(SimError::UnknownContent(card.content_id))
+}
+
+/// AbstractCard.updateCost: modify the combat-long printed cost while keeping
+/// the difference from costForTurn. This is not modifyCostForCombat.
+pub(crate) fn update_card_cost(card: &mut CardInstance, amount: i32) -> SimResult<()> {
+    let old = printed_card_cost(card)?;
+    if old < 0 {
+        return Ok(());
+    }
+    let old_turn = effective_card_cost(card)?;
+    let new = old
+        .checked_add(amount)
+        .ok_or(SimError::InvalidState("card cost update overflows i32"))?
+        .max(0);
+    if new == old {
+        return Ok(());
+    }
+    let turn = new
+        .checked_sub(old - old_turn)
+        .ok_or(SimError::InvalidState(
+            "card turn cost update overflows i32",
+        ))?
+        .max(0);
+    let new = u8::try_from(new).map_err(|_| SimError::InvalidState("card cost exceeds u8"))?;
+    let turn =
+        u8::try_from(turn).map_err(|_| SimError::InvalidState("card turn cost exceeds u8"))?;
+    if card.temp_cost_turn_only {
+        card.temp_cost = Some(turn);
+        card.combat_cost_under_turn_override = Some(new);
+    } else {
+        card.temp_cost = Some(new);
+    }
+    Ok(())
 }
 
 pub(crate) fn set_card_cost_for_turn(card: &mut CardInstance, cost: u8) -> SimResult<()> {

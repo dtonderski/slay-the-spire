@@ -111,6 +111,23 @@ pub struct CardInstance {
     /// Steam Barrier loses one base Block each time this instance is played.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub steam_barrier_block_reduction: i32,
+    /// `AbstractCard.misc` growth above the constructor value. Genetic
+    /// Algorithm's IncreaseMiscAction persists this in the master deck.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub misc_bonus: i32,
+    /// Combat-local `baseDamage` changes (Claw's GashAction growth, Glass
+    /// Knife's ModifyDamageAction decay).
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub base_damage_delta: i32,
+    /// Combat-local `baseBlock` growth (Perseverance.onRetained).
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub base_block_delta: i32,
+    /// Expunger.setX hit count chosen by Conjure Blade.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub x_magic: i32,
+    /// One-turn `AbstractCard.retain` flag (Meditate, Well-Laid Plans).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub retain_once: bool,
 }
 
 impl CardInstance {
@@ -132,6 +149,11 @@ impl CardInstance {
             searing_blow_upgrades: 0,
             windmill_retain_damage: 0,
             steam_barrier_block_reduction: 0,
+            misc_bonus: 0,
+            base_damage_delta: 0,
+            base_block_delta: 0,
+            x_magic: 0,
+            retain_once: false,
         }
     }
 
@@ -153,6 +175,11 @@ impl CardInstance {
             searing_blow_upgrades: 0,
             windmill_retain_damage: 0,
             steam_barrier_block_reduction: 0,
+            misc_bonus: 0,
+            base_damage_delta: 0,
+            base_block_delta: 0,
+            x_magic: 0,
+            retain_once: false,
         }
     }
 }

@@ -121,6 +121,85 @@ pub struct PlayerPowers {
     pub draw_reduction: i32,
     #[serde(default, skip_serializing_if = "is_false")]
     pub draw_reduction_first_draw_seen: bool,
+    /// Powers introduced by the cross-color cards Prismatic Shard can offer.
+    #[serde(default, skip_serializing_if = "ForeignPlayerPowers::is_empty")]
+    pub foreign: ForeignPlayerPowers,
+}
+
+/// Player powers from Silent/Defect/Watcher cards. Amounts follow the source
+/// power's `amount`; boolean-like powers use 0/1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ForeignPlayerPowers {
+    /// NextTurnBlockPower (Dodge and Roll).
+    pub next_turn_block: i32,
+    /// ReboundPower and its `justEvoked` latch.
+    pub rebound: i32,
+    pub rebound_just_applied: bool,
+    pub accuracy: i32,
+    /// RushdownPower (`Adaptation`).
+    pub rushdown: i32,
+    pub battle_hymn: i32,
+    pub blur: i32,
+    /// DrawCardNextTurnPower.
+    pub draw_card_next_turn: i32,
+    pub heatsink: i32,
+    /// HelloPower (Hello World).
+    pub hello_world: i32,
+    pub infinite_blades: i32,
+    pub loop_power: i32,
+    pub mental_fortress: i32,
+    pub noxious_fumes: i32,
+    /// RepairPower (Self Repair).
+    pub repair: i32,
+    /// FreeAttackPower (Swivel).
+    pub free_attack: i32,
+    pub study: i32,
+    /// WrathNextTurnPower (Simmering Fury).
+    pub wrath_next_turn: i32,
+    pub wave_of_the_hand: i32,
+    /// RetainCardPower (Well-Laid Plans).
+    pub retain_cards: i32,
+    /// ForesightPower (`WireheadingPower`).
+    pub foresight: i32,
+    pub thousand_cuts: i32,
+    pub amplify: i32,
+    pub burst: i32,
+    /// DevaPower amount and its private `energyGainAmount`.
+    pub deva: i32,
+    pub deva_energy: i32,
+    pub devotion: i32,
+    /// EchoPower amount and its per-turn `cardsDoubledThisTurn`.
+    pub echo_form: i32,
+    pub echo_doubled_this_turn: i32,
+    /// ElectroPower (Electrodynamics), 0/1.
+    pub electro: i32,
+    pub envenom: i32,
+    pub establishment: i32,
+    /// DrawPower (Machine Learning): `gameHandSize` increase.
+    pub draw: i32,
+    /// MasterRealityPower, 0/1.
+    pub master_reality: i32,
+    /// PhantasmalPower (Phantasmal Killer).
+    pub phantasmal: i32,
+    /// DoubleDamagePower and its `justApplied` latch.
+    pub double_damage: i32,
+    pub double_damage_just_applied: bool,
+    pub tools_of_the_trade: i32,
+    pub omega: i32,
+    /// WraithFormPower (negative Dexterity per turn).
+    pub wraith_form: i32,
+    /// CollectPower: Miracle+ at turn start, one stack per turn.
+    pub collect: i32,
+    /// EnergizedPower (Flying Knee, Outmaneuver); capped at 999.
+    pub energized: i32,
+}
+
+impl ForeignPlayerPowers {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 fn is_zero_i32(value: &i32) -> bool {
@@ -192,6 +271,15 @@ pub struct MonsterPowers {
     pub invincible_max: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub heart_buff_count: i32,
+    /// ChokePower (Choke): lose HP whenever the player plays a card.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub choke: i32,
+    /// CorpseExplosionPower.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub corpse_explosion: i32,
+    /// BlockReturnPower (Talk to the Hand).
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub block_return: i32,
 }
 
 fn is_false(value: &bool) -> bool {

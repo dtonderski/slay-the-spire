@@ -8,6 +8,18 @@ from unittest.mock import patch
 
 import numpy as np
 import torch
+from encoders.cards import CARD_TABLES, CARD_TO_INDEX, CardEncoder
+from encoders.numeric import (
+    ACTION_KIND,
+    ACTION_LEGAL_INDEX,
+    ACTION_OWNER,
+    ACTION_REVISION,
+    CARD_ROW_WIDTH,
+    NUMERIC_VERSION,
+    NumericBatch,
+    upload,
+)
+from model import CombatValueModel
 from numeric_reference import CATEGORICAL, reference_batch, semantic_tables
 from sts_sim import ACTION_KINDS, CounterKey, PowerKey, State
 from sts_sim.observations import (
@@ -18,25 +30,13 @@ from sts_sim.observations import (
     VisibleIntent,
 )
 from test_model import action, combat
-
-from encoders.cards import CARD_TABLES, CARD_TO_INDEX, CardEncoder
-from encoders.numeric import (
-    ACTION_KIND,
-    ACTION_LEGAL_INDEX,
-    ACTION_OWNER,
-    ACTION_REVISION,
-    NUMERIC_VERSION,
-    NumericBatch,
-    upload,
-)
-from model import CombatValueModel
 from train import play_combats
 
 
 def _per_table_card_encoding(encoder: CardEncoder, rows: np.ndarray) -> tuple[torch.Tensor, torch.Tensor]:
     """Reference for one card table: the per-table lookup and projection fused encoding replaced."""
     identities = encoder.embedding(torch.tensor(rows[:, 1], dtype=torch.long))
-    state = torch.tensor(rows[:, [2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 17]], dtype=identities.dtype)
+    state = torch.tensor(rows[:, [2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 17, *range(18, 27)]], dtype=identities.dtype)
     features = torch.cat((identities, state), dim=1)
     return features, encoder.projection(features)
 
@@ -136,7 +136,7 @@ class NumericObservationTests(unittest.TestCase):
     def test_immutable_buffer_lifetime_and_rejected_transition(self) -> None:
         state = combat()
         batch = NumericBatch(State.numeric_decisions([state]))
-        before = batch.table("hand", 18).copy()
+        before = batch.table("hand", CARD_ROW_WIDTH).copy()
         legal = int(batch.action_rows[0, ACTION_LEGAL_INDEX])
         revision = int(batch.action_rows[0, ACTION_REVISION])
         State.numeric_steps([state], [legal], [revision])
@@ -153,9 +153,9 @@ class NumericObservationTests(unittest.TestCase):
         self.assertEqual(fresh.revision, advanced)
         self.assertEqual(observation, state.observation())
         del state
-        np.testing.assert_array_equal(before, batch.table("hand", 18))
+        np.testing.assert_array_equal(before, batch.table("hand", CARD_ROW_WIDTH))
         with self.assertRaises(ValueError):
-            batch.table("hand", 18)[0, 2] = 999
+            batch.table("hand", CARD_ROW_WIDTH)[0, 2] = 999
 
     def test_features_masks_logits_and_gradients_on_edge_cases(self) -> None:
         torch.set_num_threads(1)
@@ -173,6 +173,11 @@ class NumericObservationTests(unittest.TestCase):
             cost_resets_next_turn=True,
             dynamic=replace(
                 base.dynamic,
+                misc_bonus=8,
+                base_damage_delta=4,
+                base_block_delta=6,
+                x_magic=3,
+                retain_once=True,
                 rampage_damage_bonus=17,
                 ritual_dagger_damage_bonus=0,
                 windmill_retain_damage=31,
@@ -233,9 +238,9 @@ class NumericObservationTests(unittest.TestCase):
         encoder = CardEncoder(16)
         fused = encoder.numeric(raw)
         for name in ("hand", "draw", "stasis", "selection_cards"):
-            self.assertGreater(len(raw.table(name, 18)), 0, name)
+            self.assertGreater(len(raw.table(name, CARD_ROW_WIDTH)), 0, name)
         for name in CARD_TABLES:
-            rows = raw.table(name, 18)
+            rows = raw.table(name, CARD_ROW_WIDTH)
             features, tokens = _per_table_card_encoding(encoder, rows)
             self.assertEqual(fused[name][2], raw.lengths(rows))
             torch.testing.assert_close(fused[name][0], features, atol=1e-6, rtol=1e-6)
@@ -254,7 +259,7 @@ class NumericObservationTests(unittest.TestCase):
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA staging only")
     def test_staged_uploads_match_synchronous_copies(self) -> None:
         batch = NumericBatch(State.numeric_decisions([combat()]))
-        read_only = batch.table("hand", 18)
+        read_only = batch.table("hand", CARD_ROW_WIDTH)
         cases = [
             (read_only, torch.long),
             (read_only[:, [2, 3, 17]], torch.float32),
@@ -305,14 +310,12 @@ class NumericObservationTests(unittest.TestCase):
         # on the old, invalid ability to click through an open preview.
         for selection_index, card_slot in enumerate((3, 2, 8, 8, 1, 6)):
             choice = next(
-                action for action in smoke.decision().actions
+                action
+                for action in smoke.decision().actions
                 if action.kind == "toggle_grid_card" and action.card_slot == card_slot
             )
             preview = smoke.step(choice)
-            self.assertEqual(
-                {action.kind for action in preview.actions},
-                {"confirm_grid", "cancel_grid"},
-            )
+            self.assertEqual({action.kind for action in preview.actions}, {"confirm_grid", "cancel_grid"})
             if selection_index < 5:
                 smoke.step(next(action for action in preview.actions if action.kind == "cancel_grid"))
         smoke.step(next(action for action in smoke.decision().actions if action.kind == "confirm_grid"))
@@ -363,7 +366,7 @@ class NumericObservationTests(unittest.TestCase):
         native = NumericBatch(State.numeric_decisions([state]))
         typed = state.decision()
         assert typed.observation.kind == "combat"
-        hand = native.table("hand", 18)
+        hand = native.table("hand", CARD_ROW_WIDTH)
         for row, entry in zip(hand, typed.observation.screen.hand, strict=True):
             self.assertEqual(int(row[1]), CARD_TO_INDEX[entry.card.content_key])
         reference = reference_batch([typed])

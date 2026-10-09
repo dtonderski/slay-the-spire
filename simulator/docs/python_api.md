@@ -77,10 +77,11 @@ passed more than once, or borrowed elsewhere (e.g. by another Python thread), is
 before any state is stepped. The worker cap defaults to half the logical CPUs; set
 `STS_NUMERIC_THREADS` to a positive integer to override it (read once per process).
 
-The version-3 payload is `(version, symbols, tables, model_rows)`:
+The version-4 payload is `(version, symbols, tables, model_rows)`:
 
 - `symbols`: public strings for header/screen fields that are still batch-local.
-  Content-key columns are vocabulary v1 catalog ids, not symbol positions or instance ids.
+  Content-key columns are vocabulary v2 catalog ids, not symbol positions or instance ids.
+  Card ids preserve the immutable v1 prefix; newly registered keys append lexically.
   `-1` means an absent optional category in the remaining symbol columns.
 - `tables[name] = (width, bytes)`: row-major native-endian signed int64 columns.
   Bytes are immutable, independently owned, and remain valid after stepping/cloning.
@@ -95,7 +96,7 @@ Columns (zero-based row references are transport offsets, never instance IDs):
 | `header` | kind code, run phase code, combat phase code or -1, HP, max HP; one row per input state |
 | `player` | HP, max HP, block, energy, max energy, gold; one row per model observation |
 | `player_powers` | observation owner, power key code, amount |
-| `hand`, `draw`, `discard`, `exhaust`, `selection_cards` | owner, card key code, cost, upgrade level, cost-modified, cost-resets, bottled, temporary; five dynamic values followed by their five presence bits |
+| `hand`, `draw`, `discard`, `exhaust`, `selection_cards` | owner, card key code, cost, upgrade level, cost-modified, cost-resets, bottled, temporary; five legacy dynamic values and five presence bits; misc bonus, base damage delta, base block delta, X hits, retain-once, then four optional-value presence bits (27 columns) |
 | `stasis` | same card columns, but owner is the global enemy row |
 | `enemies` | owner, key code, HP, max HP, block, alive, slime-size code, intent key code, damage, hits, damage-present, hits-present, escaped, minion, defensive-mode, stolen gold, Stasis-present, targetable |
 | `enemy_powers` | global enemy row, power key code, amount |
@@ -137,20 +138,15 @@ fidelity guarantee. The present training target is A0.
 
 ### Supported-surface limits
 
-Prismatic Shard acquisition no longer rejects a successor solely for owning the
-relic. Its existing core equip and reward-pool rules are unchanged. Pristine,
-unowned foreign-card reward previews now use source-backed identity, base/upgrade
-cost and type metadata, including the matching Egg preview upgrade. This permits
-reward publication after a legal kill and reward skipping without inventing effects.
-Python distinguishes these as `RewardOnlyCardSlot` / `RewardOnlyCard`, whose keys
-are `RewardOnlyCardKey`, rather than adding them to the gameplay `CardKey` or
-frozen combat-model vocabulary. Owned/deck/combat/grid projection remains strict.
-
-This does **not** establish full Prismatic/cross-color run support: 142 reward-pool
-entries still lack gameplay definitions/effects. Selecting such a card fails
-atomically with an explicit unsupported-mechanic core error; the fair Python
-binding retains its stable generic invalid-choice error. Legal candidates are
-not filtered and the collector must still quarantine incomplete episodes/batches.
+Prismatic Shard changes combat reward pools and adds one orb slot, not shops,
+transforms, or ordinary in-combat generation pools. The 142 formerly missing pool
+entries now have source-backed definitions and use the ordinary `Card`/`CardKey`
+API, including matching Egg upgrades and acquisition. Registration is **not**
+implementation: cross-color gameplay remains incomplete. Implemented queues use
+real effects; unfinished card plays fail atomically with an unsupported-mechanic
+core error, not a substitute, fallback attack, or no-op. Fair Python errors remain
+generic. Legal candidates are not filtered; incomplete episodes/batches must still
+be rejected. Source-backed initialized tests are not real-game parity evidence.
 Synthetic combat-spec construction still rejects the broader Prismatic loadout.
 
 The Courier's colored-card restock identity uses vanilla process-global
@@ -255,8 +251,9 @@ state repair occurs. Boss/key visibility follows CommunicationMod's public
 `act_boss`/`keys` output (`GameStateConverter.getGameState`).
 
 Schema 5 introduced the public `MapNode.burning_elite` marker and
-`TreasureScreen.chest_size == "boss"`. Combat schema remains 4; numeric
-combat transport is unchanged by these run-observation additions. Victory screens use kind `complete` but may still
+`TreasureScreen.chest_size == "boss"`. Combat schema 5 separately adds Plasma and
+public instance-local card values. Numeric combat transport v4 includes the new
+card values; the run-schema additions themselves do not change numeric columns. Victory screens use kind `complete` but may still
 have a legal Proceed (notably before Act 4); run collectors must use the explicit
 outcome rather than assume every positive-HP `complete` screen is final. Numeric
 combat transport is unchanged and is not a lossless macro/run observation API.
@@ -288,7 +285,6 @@ because they are not owned.
 
 Finite content identities are generated `StrEnum` members: `RelicKey`,
 `PotionKey`, `CardKey`, `MonsterKey`, `PowerKey`, `EventKey`, and `CounterKey`.
-Unowned reward-only previews additionally use the separate `RewardOnlyCardKey`.
 Decoder output uses those enum instances, and unknown keys are rejected. Empty
 potion slots are `None`, not an empty string or a sentinel member. Enum values
 are the exact fair serialized strings, so `card.content_key == "Strike_R"` and
