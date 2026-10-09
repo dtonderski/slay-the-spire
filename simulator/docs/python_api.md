@@ -138,11 +138,20 @@ fidelity guarantee. The present training target is A0.
 ### Supported-surface limits
 
 Prismatic Shard acquisition no longer rejects a successor solely for owning the
-relic. Its existing core equip and reward-pool rules are unchanged. Public cards
-are still checked individually: modeled cross-color cards can be exported, but
-unmodeled cards fail explicitly rather than receiving invented costs or effects.
-This does **not** establish full Prismatic/cross-color run support; synthetic
-combat-spec construction still rejects the broader Prismatic loadout.
+relic. Its existing core equip and reward-pool rules are unchanged. Pristine,
+unowned foreign-card reward previews now use source-backed identity, base/upgrade
+cost and type metadata, including the matching Egg preview upgrade. This permits
+reward publication after a legal kill and reward skipping without inventing effects.
+Python distinguishes these as `RewardOnlyCardSlot` / `RewardOnlyCard`, whose keys
+are `RewardOnlyCardKey`, rather than adding them to the gameplay `CardKey` or
+frozen combat-model vocabulary. Owned/deck/combat/grid projection remains strict.
+
+This does **not** establish full Prismatic/cross-color run support: 142 reward-pool
+entries still lack gameplay definitions/effects. Selecting such a card fails
+atomically with an explicit unsupported-mechanic core error; the fair Python
+binding retains its stable generic invalid-choice error. Legal candidates are
+not filtered and the collector must still quarantine incomplete episodes/batches.
+Synthetic combat-spec construction still rejects the broader Prismatic loadout.
 
 The Courier's colored-card restock identity uses vanilla process-global
 `MathUtils.random`, not a run-seeded stream. Strict core replay requires a typed
@@ -279,6 +288,7 @@ because they are not owned.
 
 Finite content identities are generated `StrEnum` members: `RelicKey`,
 `PotionKey`, `CardKey`, `MonsterKey`, `PowerKey`, `EventKey`, and `CounterKey`.
+Unowned reward-only previews additionally use the separate `RewardOnlyCardKey`.
 Decoder output uses those enum instances, and unknown keys are rejected. Empty
 potion slots are `None`, not an empty string or a sentinel member. Enum values
 are the exact fair serialized strings, so `card.content_key == "Strike_R"` and

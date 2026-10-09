@@ -9,6 +9,7 @@ use sts_core::adapter_internals::{
     content::{
         cards::{public_card_definitions, THE_BOMB_TURNS},
         monsters::public_monster_definitions,
+        reward_card_metadata::REWARD_ONLY_CARD_METADATA,
     },
     potion::Potion,
     relic::{Relic, ALL_RELICS},
@@ -21,6 +22,8 @@ pub struct FairContentCatalog {
     pub relics: Vec<&'static str>,
     pub potions: Vec<&'static str>,
     pub cards: Vec<&'static str>,
+    /// Unowned reward previews only; not the combat/owned-card vocabulary.
+    pub reward_only_cards: Vec<&'static str>,
     pub monsters: Vec<&'static str>,
     pub events: Vec<&'static str>,
     pub powers: Vec<&'static str>,
@@ -35,6 +38,7 @@ pub fn fair_content_catalog() -> FairContentCatalog {
         relics: unique_sorted(ALL_RELICS.iter().copied().map(Relic::trace_name)),
         potions: unique_sorted(ALL_POTIONS.iter().copied().map(potion_key)),
         cards: unique_sorted(public_card_definitions().map(|definition| definition.key)),
+        reward_only_cards: unique_sorted(REWARD_ONLY_CARD_METADATA.iter().map(|card| card.key)),
         monsters: unique_sorted(public_monster_definitions().map(|definition| definition.name)),
         events: unique_sorted(ALL_EVENTS.iter().copied().map(event_key)),
         powers: unique_sorted(fair_power_keys()),
@@ -349,6 +353,7 @@ mod tests {
             ("relics", &catalog.relics),
             ("potions", &catalog.potions),
             ("cards", &catalog.cards),
+            ("reward_only_cards", &catalog.reward_only_cards),
             ("monsters", &catalog.monsters),
             ("events", &catalog.events),
             ("powers", &catalog.powers),

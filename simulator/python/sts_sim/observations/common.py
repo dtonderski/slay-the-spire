@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, get_args
 
-from ..content_ids import CardKey, CounterKey, PotionKey, RelicKey
+from ..content_ids import CardKey, CounterKey, PotionKey, RelicKey, RewardOnlyCardKey
 from ._decode import (
     _bool,
     _enum,
@@ -17,6 +17,7 @@ from ._decode import (
     _optional_int,
     _optional_present_enum,
     _seq,
+    _str,
 )
 
 FAIR_RUN_OBSERVATION_SCHEMA_VERSION = 8
@@ -67,6 +68,26 @@ class Card:
 class CardSlot:
     slot: int
     card: Card
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RewardOnlyCard:
+    """Source-backed unowned preview; not a claim of implemented card effects."""
+
+    content_key: RewardOnlyCardKey
+    cost: int
+    cost_is_modified: bool
+    cost_resets_next_turn: bool
+    upgrade_level: int
+    bottled: bool
+    temporary: bool
+    dynamic: CardDynamicValues
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RewardOnlyCardSlot:
+    slot: int
+    card: RewardOnlyCard
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -177,6 +198,30 @@ def decode_card_slot(value: object, path: str) -> CardSlot:
     return CardSlot(
         slot=_int(data["slot"], f"{path}.slot"),
         card=decode_card(data["card"], f"{path}.card"),
+    )
+
+
+def decode_reward_card_slot(value: object, path: str) -> CardSlot | RewardOnlyCardSlot:
+    data = _exact(value, path, CardSlot)
+    card_path = f"{path}.card"
+    card = _exact(data["card"], card_path, Card)
+    key = _str(card["content_key"], f"{card_path}.content_key")
+    if key in CardKey:
+        return decode_card_slot(value, path)
+    return RewardOnlyCardSlot(
+        slot=_int(data["slot"], f"{path}.slot"),
+        card=RewardOnlyCard(
+            content_key=_enum(key, f"{card_path}.content_key", RewardOnlyCardKey),
+            cost=_int(card["cost"], f"{card_path}.cost"),
+            cost_is_modified=_bool(card["cost_is_modified"], f"{card_path}.cost_is_modified"),
+            cost_resets_next_turn=_bool(
+                card["cost_resets_next_turn"], f"{card_path}.cost_resets_next_turn"
+            ),
+            upgrade_level=_int(card["upgrade_level"], f"{card_path}.upgrade_level"),
+            bottled=_bool(card["bottled"], f"{card_path}.bottled"),
+            temporary=_bool(card["temporary"], f"{card_path}.temporary"),
+            dynamic=decode_card_dynamic(card["dynamic"], f"{card_path}.dynamic"),
+        ),
     )
 
 

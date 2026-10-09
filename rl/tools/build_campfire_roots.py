@@ -15,10 +15,11 @@ from run_training.contracts import PolicyAction
 from run_training.roots import (
     ROOT_PROTOCOL,
     file_hash,
+    natural_state_from_setup,
     reconstruct,
     validate_natural_setup,
 )
-from sts_sim import State, _native
+from sts_sim import _native
 
 
 def find_root(path: Path):
@@ -28,7 +29,7 @@ def find_root(path: Path):
     validate_natural_setup(setup)
     if not setup["final_act"]:
         raise ValueError("Expected natural A0 Heart-profile source")
-    state = State.new(setup["seed"], ascension=0, final_act=True)
+    state = natural_state_from_setup(setup)
     decision = state.decision()
     accepted = {r["step"] for r in rows if r["type"] == "accepted"}
     for row in rows:

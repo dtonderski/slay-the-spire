@@ -24,12 +24,14 @@ from .common import (
     Card,
     CardSlot,
     Phase,
+    RewardOnlyCardSlot,
     RunContext,
     decode_card,
     decode_card_key,
     decode_card_slot,
     decode_potion_key,
     decode_relic_key,
+    decode_reward_card_slot,
 )
 
 RoomKind = Literal["combat", "elite", "event", "rest", "shop", "treasure", "boss", "victory"]
@@ -109,7 +111,7 @@ class RelicOffer:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RewardScreen:
-    cards: tuple[CardSlot, ...]
+    cards: tuple[CardSlot | RewardOnlyCardSlot, ...]
     queued_card_rewards: tuple[QueuedCardReward, ...]
     gold_offer: int
     stolen_gold_offer: int
@@ -372,7 +374,7 @@ def decode_match_and_keep_card(value: object, path: str) -> MatchAndKeepCard:
 def decode_reward_screen(value: object, path: str) -> RewardScreen:
     data = _exact(value, path, RewardScreen)
     return RewardScreen(
-        cards=_seq(data["cards"], f"{path}.cards", decode_card_slot),
+        cards=_seq(data["cards"], f"{path}.cards", decode_reward_card_slot),
         queued_card_rewards=_seq(
             data["queued_card_rewards"], f"{path}.queued_card_rewards", decode_queued_card_reward
         ),
