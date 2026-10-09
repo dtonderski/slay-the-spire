@@ -252,8 +252,7 @@ pub(crate) fn apply_validated_rest_action(
             next.rest_room_complete = true;
         }
         RestAction::Proceed => {
-            next.phase = RunPhase::Idle;
-            next.rest_room_complete = false;
+            super::map_overlay::open_completed_room_map(&mut next);
         }
     }
 
