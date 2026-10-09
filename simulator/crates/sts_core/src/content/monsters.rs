@@ -8046,6 +8046,7 @@ pub fn apply_gremlin_leader_encourage(
                     .block
                     .checked_add(block)
                     .ok_or(SimError::InvalidState("monster group arithmetic overflow"))?
+                    .min(999)
             };
             Ok((next_strength, next_block))
         })
@@ -10338,7 +10339,7 @@ fn apply_monster_intent_with_card_rng_inner(
     use crate::combat::turn_powers::monster_damage_to_player_with_relics;
     use crate::power::{
         apply_player_confusion, apply_player_constricted, reduce_player_dexterity,
-        reduce_player_strength,
+        reduce_player_strength_with_temporary,
     };
 
     let config = AscensionConfig::new(ascension);
@@ -10708,7 +10709,11 @@ fn apply_monster_intent_with_card_rng_inner(
             // Lagavulin queues DexterityPower before StrengthPower. Artifact
             // must reject the real first application, not a reordered result.
             reduce_player_dexterity(&mut player.powers, dexterity)?;
-            reduce_player_strength(&mut player.powers, strength)?;
+            reduce_player_strength_with_temporary(
+                &mut player.powers,
+                player.temp_strength,
+                strength,
+            )?;
             bronze_orb_apply_stasis(monster, piles, card_random_rng);
             monster.has_siphoned = true;
             (0, 0)
