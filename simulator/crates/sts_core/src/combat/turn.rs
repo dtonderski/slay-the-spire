@@ -2760,13 +2760,15 @@ fn deal_player_damage_with_type(
         hp_damage,
         draw_policy,
     )?;
-    if damage_type == PlayerDamageType::Normal {
+    // AbstractPlayer.damage settles Fairy/Lizard Tail before returning to the
+    // action manager. A real death opens DeathScreen and freezes queued channels.
+    revive_player_if_available(state)?;
+    if damage_type == PlayerDamageType::Normal && state.player.hp > 0 {
         // StaticDischarge's onAttacked sees post-block/post-Buffer damage,
         // before Torii/onLoseHpLast relics. Its queued channel still settles
         // after this DamageAction's HP commit and HP-loss hooks.
         crate::combat::transition::apply_static_discharge_on_attacked(state, buffered)?;
     }
-    revive_player_if_available(state)?;
     if damage_type == PlayerDamageType::Normal
         && hp_damage > 0
         && state.player.powers.plated_armor > 0
