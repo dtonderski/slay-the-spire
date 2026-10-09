@@ -50,6 +50,45 @@ class FairApiTest(unittest.TestCase):
             if observation.kind == "map":
                 self.assertEqual(sum(node.burning_elite for node in observation.screen.nodes), 1)
 
+    def assert_matching_decisions(self, left: sts_sim.State, right: sts_sim.State) -> None:
+        a, b = left.decision(), right.decision()
+        self.assertEqual(a.revision, b.revision)
+        self.assertEqual(a.observation, b.observation)
+        fields = (
+            "kind", "hand_slot", "target_slot", "option_slot", "card_slot",
+            "node_slot", "reward_slot", "shop_slot", "potion_slot",
+        )
+        self.assertEqual(
+            [tuple(getattr(choice, field) for field in fields) for choice in a.actions],
+            [tuple(getattr(choice, field) for field in fields) for choice in b.actions],
+        )
+
+    def test_training_rng_is_explicit_private_initial_configuration(self) -> None:
+        strict = sts_sim.State.new("HUMAN1", final_act=True)
+        disabled = sts_sim.State.new("HUMAN1", final_act=True, training_rng_seed=None)
+        training = sts_sim.State.new("HUMAN1", final_act=True, training_rng_seed=123456789)
+        self.assert_matching_decisions(strict, disabled)
+        self.assert_matching_decisions(strict, training)
+        self.assert_matching_decisions(training.clone(), training)
+        self.assertFalse(hasattr(training, "training_rng_seed"))
+        self.assertFalse(hasattr(training, "set_training_rng_seed"))
+        self.assertEqual(training.player_hp(), 80)
+        for value in (-1, 1 << 64):
+            with self.assertRaises(OverflowError):
+                sts_sim.State.new("HUMAN1", training_rng_seed=value)
+
+    def test_training_rng_clones_repeat_public_steps(self) -> None:
+        left = sts_sim.State.new("7", final_act=True, training_rng_seed=987654321)
+        right = left.clone()
+        for _ in range(40):
+            before = left.decision()
+            self.assert_matching_decisions(left, right)
+            if not before.actions:
+                break
+            left.step(before.actions[0])
+            right.step(right.decision().actions[0])
+            self.assert_matching_decisions(left, right)
+
     def test_natural_death_is_explicit_before_and_after_ui_proceed(self) -> None:
         state = sts_sim.State.new("1")
         for _ in range(80):

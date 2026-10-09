@@ -297,8 +297,26 @@ class NumericObservationTests(unittest.TestCase):
     def test_generated_smoke_is_excluded_after_rows_finish(self) -> None:
         # Accepted public-action fixture from the simulator collector, not a captured game trace.
         smoke = State.new("2000140")
-        prefix = [0, 1, 0, 3, 4, 8, 6, 5, 4, 3, 3, 2, 0, 4, 3, 0, 0, 3, 5, 0, 1, 0, 3, 2, 8, 8, 1, 6, 10, 0, 0]
+        prefix = [0, 1, 0, 3, 4, 8, 6, 5, 4, 3, 3, 2, 0, 4, 3, 0, 0, 3, 5, 0, 1, 0]
         for index in prefix:
+            smoke.step(smoke.decision().actions[index])
+        # The one-card purge preview blocks reselection until Cancel dismisses
+        # it. Preserve the generated fixture's final selection without relying
+        # on the old, invalid ability to click through an open preview.
+        for selection_index, card_slot in enumerate((3, 2, 8, 8, 1, 6)):
+            choice = next(
+                action for action in smoke.decision().actions
+                if action.kind == "toggle_grid_card" and action.card_slot == card_slot
+            )
+            preview = smoke.step(choice)
+            self.assertEqual(
+                {action.kind for action in preview.actions},
+                {"confirm_grid", "cancel_grid"},
+            )
+            if selection_index < 5:
+                smoke.step(next(action for action in preview.actions if action.kind == "cancel_grid"))
+        smoke.step(next(action for action in smoke.decision().actions if action.kind == "confirm_grid"))
+        for index in (0, 0):
             smoke.step(smoke.decision().actions[index])
         action_to_brew = next(a for a in smoke.decision().actions if a.kind == "use_potion_slot" and a.potion_slot == 0)
         after = smoke.step(action_to_brew)
