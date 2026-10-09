@@ -16,6 +16,20 @@ pub(super) fn gain_energy(state: &mut CombatState, amount: i32) -> SimResult<Vec
     Ok(Vec::new())
 }
 
+pub(super) fn gain_energy_from_potion(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    state.player.energy = state
+        .player
+        .energy
+        .checked_add(amount)
+        .ok_or(SimError::InvalidState(
+            "Energy Potion energy gain overflows i32",
+        ))?;
+    Ok(Vec::new())
+}
+
 /// EnergyPanel.useEnergy floors at zero after subtracting `amount`.
 pub(super) fn lose_energy(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
     state.player.energy = (state.player.energy - amount).max(0);
@@ -682,21 +696,30 @@ pub(super) fn gain_dexterity(
     Ok(Vec::new())
 }
 
-pub(super) fn gain_temp_strength(
-    state: &mut CombatState,
-    amount: i32,
-) -> SimResult<Vec<InternalAction>> {
-    // Flex applies Strength and a debuff that removes it at end of turn.
-    // Artifact blocks that debuff when it is created, consuming one Artifact
-    // and leaving the gained Strength permanent.
-    if state.player.powers.artifact > 0 {
-        let strength = checked_combat_sum(state.player.powers.strength, amount)?;
-        state.player.powers.artifact -= 1;
-        state.player.powers.strength = strength;
+pub(crate) fn gain_temp_strength(state: &mut CombatState, amount: i32) -> SimResult<()> {
+    // Flex.use applies bounded Strength, then the nominal LoseStrengthPower.
+    // The latter inherits uncapped AbstractPower stacking. Retain its full
+    // amount even when StrengthPower.stackPower clips the visible gain.
+    // Artifact blocks creation of only the new loss, not an existing one.
+    let current = checked_combat_sum(state.player.powers.strength, state.player.temp_strength)?;
+    let bounded = checked_combat_sum(current, amount)?.clamp(-999, 999);
+    let blocks_loss = state.player.powers.artifact > 0;
+    let pending_loss = if blocks_loss {
+        state.player.temp_strength
     } else {
-        checked_add_combat_value(&mut state.player.temp_strength, amount)?;
+        checked_combat_sum(state.player.temp_strength, amount)?
+    };
+    let strength = bounded
+        .checked_sub(pending_loss)
+        .ok_or(SimError::InvalidState(
+            "strength component subtraction overflows i32",
+        ))?;
+    state.player.powers.strength = strength;
+    state.player.temp_strength = pending_loss;
+    if blocks_loss {
+        state.player.powers.artifact -= 1;
     }
-    Ok(Vec::new())
+    Ok(())
 }
 
 pub(super) fn gain_intangible(

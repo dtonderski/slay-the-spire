@@ -2002,7 +2002,11 @@ pub fn apply_start_of_combat_relics(combat: &mut CombatState, relics: &[Relic]) 
                 heal_combat_player_with_relics(combat, BLOOD_VIAL_HEAL)?;
             }
             Relic::Vajra => {
-                checked_add_relic_value(&mut combat.player.powers.strength, VAJRA_STRENGTH)?;
+                checked_add_relic_strength(
+                    &mut combat.player.powers.strength,
+                    combat.player.temp_strength,
+                    VAJRA_STRENGTH,
+                )?;
             }
             Relic::OddlySmoothStone => {
                 checked_add_relic_value(
@@ -2614,9 +2618,17 @@ pub fn apply_start_of_player_turn_relics(state: &mut CombatState) -> SimResult<V
     }
 
     if state.player.authority.relics.contains(&Relic::Brimstone) {
-        checked_add_relic_value(&mut state.player.powers.strength, BRIMSTONE_PLAYER_STRENGTH)?;
+        checked_add_relic_strength(
+            &mut state.player.powers.strength,
+            state.player.temp_strength,
+            BRIMSTONE_PLAYER_STRENGTH,
+        )?;
         for monster in state.monsters.iter_mut().filter(|monster| monster.alive) {
-            checked_add_relic_value(&mut monster.powers.strength, BRIMSTONE_MONSTER_STRENGTH)?;
+            checked_add_relic_strength(
+                &mut monster.powers.strength,
+                0,
+                BRIMSTONE_MONSTER_STRENGTH,
+            )?;
         }
     }
 
@@ -3255,6 +3267,25 @@ fn checked_add_relic_value(value: &mut i32, amount: i32) -> SimResult<()> {
     *value = value.checked_add(amount).ok_or(SimError::InvalidState(
         "combat integer addition overflows i32",
     ))?;
+    Ok(())
+}
+
+pub(crate) fn checked_add_relic_strength(
+    value: &mut i32,
+    temporary: i32,
+    amount: i32,
+) -> SimResult<()> {
+    // Relics apply StrengthPower: bound the combined current amount,
+    // retaining the full pending temporary loss rather than capping its debt.
+    let mut current = *value;
+    checked_add_relic_value(&mut current, temporary)?;
+    checked_add_relic_value(&mut current, amount)?;
+    *value = current
+        .clamp(-999, 999)
+        .checked_sub(temporary)
+        .ok_or(SimError::InvalidState(
+            "combat integer addition overflows i32",
+        ))?;
     Ok(())
 }
 

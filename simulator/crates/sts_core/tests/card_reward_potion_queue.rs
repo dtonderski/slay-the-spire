@@ -197,6 +197,28 @@ fn draw_before_second_reward_drains_before_that_reward() {
 }
 
 #[test]
+fn skipping_potion_reward_settles_draw_triggered_victory_once() {
+    let mut run = setup(
+        vec![Relic::BurningBlood],
+        1,
+        vec![Potion::Attack, Potion::Swift],
+    );
+    let combat = run.combat.as_mut().unwrap();
+    combat.player.hp = 30;
+    combat.player.powers.fire_breathing = 6;
+    combat.monsters[0].hp = 6;
+    combat.piles.draw_pile.last_mut().unwrap().content_id = sts_core::content::cards::BURN_ID;
+    let opened = drink(&run);
+    let pending = drink(&opened);
+    assert_paused(&opened, &pending);
+    let settled = step(&pending, RunAction::SkipCombatCardReward);
+    assert_eq!(settled.phase, sts_core::adapter_internals::RunPhase::Reward);
+    assert!(settled.reward.is_some());
+    assert_eq!(settled.hp, 36, "Burning Blood settles exactly once");
+    assert!(apply_run_action(&settled, RunAction::SkipCombatCardReward).is_err());
+}
+
+#[test]
 fn swift_without_a_reward_is_still_immediate() {
     let run = setup(vec![], 5, vec![Potion::Swift]);
     let next = drink(&run);
