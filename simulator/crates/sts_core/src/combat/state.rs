@@ -638,19 +638,23 @@ impl PlayerState {
     }
 
     /// `RemoveDebuffsAction`: drop debuff powers without running Flex /
-    /// LoseDexterity `atEndOfTurn`. Already-applied Strength and Dexterity stay.
+    /// LoseDexterity `atEndOfTurn`. Retain positive current stat amounts.
     pub(crate) fn remove_debuffs(&mut self) -> SimResult<()> {
-        crate::power::clear_player_debuffs(&mut self.powers);
-        self.cannot_draw = false;
-        self.no_draw_precedes_combust = false;
-        let temp_strength = std::mem::take(&mut self.temp_strength);
-        self.powers.strength =
+        // StrengthPower.type follows its actual amount, not the permanent
+        // component in our split representation. Remove the loss bookkeeping
+        // without applying its expiry, then classify the current Strength.
+        let strength =
             self.powers
                 .strength
-                .checked_add(temp_strength)
+                .checked_add(self.temp_strength)
                 .ok_or(SimError::InvalidState(
                     "combat integer addition overflows i32",
                 ))?;
+        self.powers.strength = strength;
+        self.temp_strength = 0;
+        crate::power::clear_player_debuffs(&mut self.powers);
+        self.cannot_draw = false;
+        self.no_draw_precedes_combust = false;
         self.temp_dexterity = 0;
         Ok(())
     }
@@ -1162,14 +1166,6 @@ impl CombatState {
             self.decision = None;
             self.queued_decisions.clear();
             self.pending_nilrys_codex_potion_actions.clear();
-        }
-    }
-
-    pub(crate) fn queue_or_activate_decision(&mut self, decision: CombatDecisionState) {
-        if self.decision.is_some() {
-            self.queued_decisions.push_back(decision);
-        } else {
-            self.decision = Some(decision);
         }
     }
 
