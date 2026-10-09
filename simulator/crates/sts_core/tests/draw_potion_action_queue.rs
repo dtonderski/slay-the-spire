@@ -175,6 +175,89 @@ fn full_hand_snecko_does_not_draw_but_randomizes_all_existing_cards() {
     assert_eq!(next.card_random_rng_counter, r.card_random_rng_counter + 10);
 }
 #[test]
+fn queued_reward_waits_before_bot_queued_draw_damage() {
+    let mut r = setup(
+        vec![Relic::BurningBlood],
+        vec![Potion::Attack, Potion::Swift, Potion::Skill],
+    );
+    let c = r.combat.as_mut().unwrap();
+    c.player.hp = 30;
+    c.player.powers.fire_breathing = 6;
+    c.monsters[0].hp = 6;
+    c.piles.draw_pile.last_mut().unwrap().content_id = BURN_ID;
+    let opened = drink(&r);
+    let drawn = drink(&opened);
+    let pending = drink(&drawn);
+    let selected = step(&pending, RunAction::ChooseCombatCardReward { index: 0 });
+    let c = selected
+        .combat
+        .as_ref()
+        .expect("later reward precedes on-draw damage");
+    assert!(c.potion_card_reward_choices().is_some());
+    assert_eq!(c.monsters[0].hp, 6);
+    assert_eq!(c.piles.hand.len(), 5);
+    let settled = step(&selected, RunAction::SkipCombatCardReward);
+    assert_eq!(settled.phase, sts_core::adapter_internals::RunPhase::Reward);
+    assert_eq!(settled.hp, 36);
+}
+
+#[test]
+fn queued_reward_generates_after_earlier_snecko_randomization() {
+    let opened = drink(&setup(
+        vec![],
+        vec![Potion::Attack, Potion::SneckoOil, Potion::Skill],
+    ));
+    let snecko = drink(&opened);
+    let pending = drink(&snecko);
+    assert_eq!(
+        pending.card_random_rng_counter, opened.card_random_rng_counter,
+        "queued offer must not consume RNG at use time"
+    );
+    let mut rng = opened.combat.as_ref().unwrap().rng.card_random_rng.clone();
+    // One original, one chosen, five drawn cards are randomized before the offer.
+    for _ in 0..7 {
+        rng.random_int_range(0, 3);
+    }
+    let expected = sts_core::content::shop_pool::discovery_card_choices(
+        &mut rng,
+        sts_core::adapter_internals::CardType::Skill,
+        3,
+    );
+    let selected = step(&pending, RunAction::ChooseCombatCardReward { index: 0 });
+    let c = selected.combat.as_ref().unwrap();
+    let choices = c.potion_card_reward_choices().unwrap();
+    assert_eq!(
+        choices
+            .iter()
+            .map(|card| card.content_id)
+            .collect::<Vec<_>>(),
+        expected
+    );
+    assert_eq!(c.rng.card_random_rng, rng);
+    assert_eq!(selected.card_random_rng_counter, rng.counter());
+}
+
+#[test]
+fn queued_reward_use_heal_keeps_original_fifo_position() {
+    let mut r = setup(
+        vec![Relic::ToyOrnithopter, Relic::RedSkull],
+        vec![Potion::Attack, Potion::Swift, Potion::Skill],
+    );
+    r.combat.as_mut().unwrap().player.hp = 30;
+    let opened = drink(&r);
+    let swift = drink(&opened);
+    let pending = drink(&swift);
+    let selected = step(&pending, RunAction::ChooseCombatCardReward { index: 0 });
+    assert_eq!(
+        selected.combat.as_ref().unwrap().player.hp,
+        40,
+        "first reward and Swift heals precede second offer"
+    );
+    let settled = step(&selected, RunAction::SkipCombatCardReward);
+    assert_eq!(settled.combat.as_ref().unwrap().player.hp, 45);
+}
+
+#[test]
 fn ordinary_swift_control_preserves_rng() {
     let r = setup(vec![], vec![Potion::Swift]);
     let next = drink(&r);

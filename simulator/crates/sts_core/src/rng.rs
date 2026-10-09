@@ -26,6 +26,8 @@ pub enum RngTraceStream {
     Relic,
     Shuffle,
     Treasure,
+    /// Opt-in simulator-training source for non-run-seeded environmental draws.
+    TrainingEnvironment,
 }
 
 /// Replay command that was active when an RNG draw occurred.
@@ -61,6 +63,10 @@ pub(crate) enum RngTraceOperation {
     },
     RandomLong {
         result: i64,
+    },
+    ExternalRandomInt {
+        input: ExternalRngInput,
+        result: u32,
     },
     RawNextInt {
         bound_exclusive: i32,
@@ -272,6 +278,73 @@ pub struct ExternalRngInput {
     pub state: MathUtilsRngState,
     /// Inclusive range passed to `MathUtils.random(int)`.
     pub range_inclusive: u32,
+}
+
+/// Explicit, private simulation-only provider for typed environmental inputs.
+///
+/// This models the distribution of libGDX `MathUtils.random` without claiming
+/// its actual process-global state is derivable from a run seed. It advances
+/// only at implemented gameplay call sites, not for cosmetic global draws.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrainingExternalRng {
+    /// Experiment provenance, never a fair observation.
+    seed: u64,
+    state: MathUtilsRngState,
+    counter: u32,
+}
+
+impl TrainingExternalRng {
+    #[must_use]
+    pub fn seeded(seed: u64) -> Self {
+        Self {
+            seed,
+            state: MathUtilsRngState::seeded(seed),
+            counter: 0,
+        }
+    }
+
+    pub(crate) fn validate(&self) -> crate::SimResult<()> {
+        if !rng_counter_is_supported(self.counter)
+            || (self.state.state0 == 0 && self.state.state1 == 0)
+        {
+            return Err(crate::SimError::InvalidState(
+                "invalid training environmental RNG",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Produce the same typed call-time state consumed by strict replay, then
+    /// execute the target's inclusive bounded draw. No transition retry occurs.
+    #[track_caller]
+    pub(crate) fn draw(
+        &mut self,
+        kind: ExternalRngKind,
+        range_inclusive: u32,
+    ) -> crate::SimResult<u32> {
+        self.validate()?;
+        if self.counter == MAX_SUPPORTED_RNG_COUNTER {
+            return Err(crate::SimError::InvalidState(
+                "training environmental RNG counter exhausted",
+            ));
+        }
+        let input = ExternalRngInput {
+            kind,
+            state: self.state,
+            range_inclusive,
+        };
+        let result = self.state.random_int(range_inclusive);
+        let before = self.counter;
+        self.counter += 1;
+        record_rng_trace_event(
+            RngTraceStream::TrainingEnvironment,
+            before,
+            self.counter,
+            RngTraceOperation::ExternalRandomInt { input, result },
+            Location::caller(),
+        );
+        Ok(result)
+    }
 }
 
 /// Derives the target game's per-floor RNG seed with Java `long` overflow
@@ -593,6 +666,16 @@ impl JavaRng {
 }
 
 impl MathUtilsRngState {
+    /// Match libGDX `RandomXS128.setSeed(long)`, including seed zero.
+    #[must_use]
+    pub fn seeded(seed: u64) -> Self {
+        let rng = StsRng::new(seed as i64);
+        Self {
+            state0: rng.seed0,
+            state1: rng.seed1,
+        }
+    }
+
     /// Match libGDX `MathUtils.random(maxInclusive)`.
     #[must_use]
     pub fn random_int(&mut self, max_inclusive: u32) -> u32 {
@@ -805,6 +888,60 @@ mod tests {
                 state1: 0x4c3b_7355_7711_e6f7,
             }
         );
+    }
+
+    #[test]
+    fn training_environmental_draw_is_named_typed_and_snapshot_repeatable() {
+        let mut rng = TrainingExternalRng::seeded(1);
+        let before = rng;
+        let source_line = line!() + 2;
+        let (result, events) =
+            capture_rng_trace(|| rng.draw(ExternalRngKind::CardGroupGetRandomCardByType, 13));
+        let result = result.expect("draw");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].stream, RngTraceStream::TrainingEnvironment);
+        assert_eq!(events[0].counter_before, 0);
+        assert_eq!(events[0].counter_after, 1);
+        assert_eq!(events[0].source_line, source_line);
+        let input = ExternalRngInput {
+            kind: ExternalRngKind::CardGroupGetRandomCardByType,
+            state: before.state,
+            range_inclusive: 13,
+        };
+        assert_eq!(
+            events[0].operation,
+            RngTraceOperation::ExternalRandomInt { input, result }
+        );
+        let restored: TrainingExternalRng =
+            serde_json::from_str(&serde_json::to_string(&rng).expect("snapshot")).expect("restore");
+        let mut restored = restored;
+        assert_eq!(rng.draw(input.kind, 5), restored.draw(input.kind, 5));
+        assert_eq!(rng, restored);
+    }
+
+    #[test]
+    fn invalid_training_environmental_state_and_counter_fail_without_drawing() {
+        for (state, counter) in [
+            (
+                MathUtilsRngState {
+                    state0: 0,
+                    state1: 0,
+                },
+                0,
+            ),
+            (MathUtilsRngState::seeded(1), MAX_SUPPORTED_RNG_COUNTER),
+        ] {
+            let mut rng = TrainingExternalRng {
+                seed: 1,
+                state,
+                counter,
+            };
+            let before = rng;
+            assert!(rng
+                .draw(ExternalRngKind::CardGroupGetRandomCardByType, 13)
+                .is_err());
+            assert_eq!(rng, before);
+        }
     }
 
     #[test]
