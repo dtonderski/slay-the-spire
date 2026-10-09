@@ -20,22 +20,25 @@ use crate::{
     map::{milestone8_fixture, MapRunState, RoomKind, TargetMapAct},
     potion::{Potion, MAX_POTIONS},
     relic::{
-        apply_start_of_combat_relics, combat_healing_amount_with_relics,
-        initialize_ironclad_relic_pools, Relic, RelicPoolState, RelicSpawnContext,
-        ANCIENT_TEA_SET_ENERGY, BLOODY_IDOL_HEAL, BUSTED_CROWN_ENERGY, CERAMIC_FISH_GOLD,
-        COFFEE_DRIPPER_ENERGY, DARKSTONE_PERIAPT_MAX_HP, DU_VU_DOLL_STRENGTH_PER_CURSE,
-        ECTOPLASM_ENERGY, ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS, FUSION_HAMMER_ENERGY,
-        GIRYA_MAX_LIFTS, HAPPY_FLOWER_THRESHOLD, INCENSE_BURNER_THRESHOLD, INK_BOTTLE_THRESHOLD,
-        LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, MARK_OF_PAIN_ENERGY, MATRYOSHKA_MAX_CHESTS,
-        MAW_BANK_GOLD, NUNCHAKU_THRESHOLD, OLD_COIN_GOLD, OMAMORI_CHARGES, ORRERY_CARD_REWARDS,
-        PANTOGRAPH_HEAL, PEAR_MAX_HP, PEN_NIB_THRESHOLD, PHILOSOPHERS_STONE_ENERGY,
-        PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS, PRESERVED_INSECT_HP_DENOMINATOR,
-        PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY, SLAVERS_COLLAR_ENERGY,
-        SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, SSSERPENT_HEAD_GOLD, STRAWBERRY_MAX_HP,
-        TINY_CHEST_THRESHOLD, TINY_HOUSE_GOLD, TINY_HOUSE_MAX_HP, VELVET_CHOKER_ENERGY,
-        WING_BOOTS_CHARGES,
+        apply_start_of_combat_relics, checked_add_relic_strength,
+        combat_healing_amount_with_relics, initialize_ironclad_relic_pools, Relic, RelicPoolState,
+        RelicSpawnContext, ANCIENT_TEA_SET_ENERGY, BLOODY_IDOL_HEAL, BUSTED_CROWN_ENERGY,
+        CERAMIC_FISH_GOLD, COFFEE_DRIPPER_ENERGY, DARKSTONE_PERIAPT_MAX_HP,
+        DU_VU_DOLL_STRENGTH_PER_CURSE, ECTOPLASM_ENERGY, ETERNAL_FEATHER_HEAL_PER_FIVE_CARDS,
+        FUSION_HAMMER_ENERGY, GIRYA_MAX_LIFTS, HAPPY_FLOWER_THRESHOLD, INCENSE_BURNER_THRESHOLD,
+        INK_BOTTLE_THRESHOLD, LEES_WAFFLE_MAX_HP, MANGO_MAX_HP, MARK_OF_PAIN_ENERGY,
+        MATRYOSHKA_MAX_CHESTS, MAW_BANK_GOLD, NUNCHAKU_THRESHOLD, OLD_COIN_GOLD, OMAMORI_CHARGES,
+        ORRERY_CARD_REWARDS, PANTOGRAPH_HEAL, PEAR_MAX_HP, PEN_NIB_THRESHOLD,
+        PHILOSOPHERS_STONE_ENERGY, PHILOSOPHERS_STONE_MONSTER_STRENGTH, POTION_BELT_SLOTS,
+        PRESERVED_INSECT_HP_DENOMINATOR, PRESERVED_INSECT_HP_NUMERATOR, RUNIC_DOME_ENERGY,
+        SLAVERS_COLLAR_ENERGY, SLING_OF_COURAGE_STRENGTH, SOZU_ENERGY, SSSERPENT_HEAD_GOLD,
+        STRAWBERRY_MAX_HP, TINY_CHEST_THRESHOLD, TINY_HOUSE_GOLD, TINY_HOUSE_MAX_HP,
+        VELVET_CHOKER_ENERGY, WING_BOOTS_CHARGES,
     },
-    rng::{rng_counter_is_supported, ExternalRngInput, JavaRng, RngTraceStream, StsRng},
+    rng::{
+        rng_counter_is_supported, ExternalRngInput, ExternalRngKind, JavaRng, RngTraceStream,
+        StsRng, TrainingExternalRng,
+    },
     SimError, SimResult,
 };
 use serde::{Deserialize, Serialize};
@@ -1157,6 +1160,9 @@ pub struct RunState {
     #[serde(default = "default_energy_per_turn")]
     pub energy_per_turn: i32,
     pub map: Option<MapRunState>,
+    /// Suspended completed-room screens while a dismissable map owns input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_room_screen: Option<Box<super::MapRoomScreen>>,
     /// Persistent target map RNG state after topology and room assignment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub map_rng: Option<StsRng>,
@@ -1212,6 +1218,10 @@ pub struct RunState {
     /// Ordered call-time inputs for gameplay draws from process-global RNG.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_external_rng: Vec<ExternalRngInput>,
+    /// Explicit simulation-only source for environmental draws. Never enabled
+    /// by replay, never exported to a policy, and never mixed with captured inputs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub training_external_rng: Option<TrainingExternalRng>,
     #[serde(default)]
     pub event_rng_seed: u64,
     #[serde(default)]
@@ -1849,6 +1859,36 @@ impl std::ops::DerefMut for RunState {
 }
 
 impl RunState {
+    /// Resolve a typed environmental draw at its gameplay call site. Strict
+    /// replay still requires the exact ordered input; training is opt-in.
+    #[track_caller]
+    pub(crate) fn draw_external_rng(
+        &mut self,
+        kind: ExternalRngKind,
+        range_inclusive: u32,
+        call_site: &'static str,
+    ) -> SimResult<u32> {
+        if let Some(training) = self.training_external_rng.as_mut() {
+            if !self.pending_external_rng.is_empty() {
+                return Err(SimError::InvalidState(
+                    "training environmental RNG cannot be mixed with replay inputs",
+                ));
+            }
+            return training.draw(kind, range_inclusive);
+        }
+        let input = self
+            .pending_external_rng
+            .first()
+            .copied()
+            .ok_or(SimError::MissingExternalRng(call_site))?;
+        if input.kind != kind || input.range_inclusive != range_inclusive {
+            return Err(SimError::ExternalRngMismatch(call_site));
+        }
+        self.pending_external_rng.remove(0);
+        let mut rng = input.state;
+        Ok(rng.random_int(range_inclusive))
+    }
+
     pub(crate) fn transactional<T>(
         &mut self,
         operation: impl FnOnce(&mut Self) -> SimResult<T>,
@@ -1932,10 +1972,19 @@ impl RunState {
     /// this rejects contradictory ownership without normalizing valid
     /// event/reward/grid subflows.
     pub fn validate(&self) -> SimResult<()> {
+        super::map_overlay::validate_suspended_room(self)?;
         #[cfg(test)]
         FULL_VALIDATION_COUNT.with(|count| count.set(count.get() + 1));
 
         self.validate_terminal_outcome()?;
+        if let Some(training) = &self.training_external_rng {
+            training.validate()?;
+            if !self.pending_external_rng.is_empty() {
+                return Err(SimError::InvalidState(
+                    "training environmental RNG cannot be mixed with replay inputs",
+                ));
+            }
+        }
         match (&self.phase, &self.run_player, &self.combat) {
             (RunPhase::Combat, None, Some(_)) => {}
             (phase, Some(_), None) if *phase != RunPhase::Combat => {}
@@ -2829,8 +2878,9 @@ impl RunState {
         if self.current_room_kind() == Some(RoomKind::Elite)
             && self.relics.contains(&Relic::SlingOfCourage)
         {
-            combat.player.powers.strength = checked_combat_initialization_add(
-                combat.player.powers.strength,
+            checked_add_relic_strength(
+                &mut combat.player.powers.strength,
+                combat.player.temp_strength,
                 SLING_OF_COURAGE_STRENGTH,
             )?;
         }
@@ -2848,14 +2898,20 @@ impl RunState {
                     .ok_or(SimError::InvalidState(
                         "combat integer multiplication overflows i32",
                     ))?;
-            combat.player.powers.strength =
-                checked_combat_initialization_add(combat.player.powers.strength, strength)?;
+            checked_add_relic_strength(
+                &mut combat.player.powers.strength,
+                combat.player.temp_strength,
+                strength,
+            )?;
         }
         if self.relics.contains(&Relic::Girya) {
             let strength = i32::try_from(self.girya_lifts)
                 .map_err(|_| SimError::InvalidState("Girya lifts exceed i32"))?;
-            combat.player.powers.strength =
-                checked_combat_initialization_add(combat.player.powers.strength, strength)?;
+            checked_add_relic_strength(
+                &mut combat.player.powers.strength,
+                combat.player.temp_strength,
+                strength,
+            )?;
         }
         if self.relics.contains(&Relic::AncientTeaSet) && self.ancient_tea_set_armed {
             combat.player.energy =
@@ -2863,8 +2919,9 @@ impl RunState {
         }
         if self.relics.contains(&Relic::PhilosophersStone) {
             for monster in &mut combat.monsters {
-                monster.powers.strength = checked_combat_initialization_add(
-                    monster.powers.strength,
+                checked_add_relic_strength(
+                    &mut monster.powers.strength,
+                    0,
                     PHILOSOPHERS_STONE_MONSTER_STRENGTH,
                 )?;
             }
@@ -2963,6 +3020,7 @@ impl RunState {
             #[cfg(test)]
             clone_probe: RunCloneProbe,
             phase: RunPhase::Combat,
+            training_external_rng: None,
             deck,
             run_player: Some(PlayerAuthorityState {
                 hp: IRONCLAD_A0_BASE_HP,
@@ -2982,6 +3040,7 @@ impl RunState {
             match_and_keep: None,
             shop: None,
             shop_merchant_open: false,
+            map_room_screen: None,
             card_grid: None,
             potions: Vec::new(),
             empty_potion_slots: Vec::new(),
@@ -3077,6 +3136,7 @@ impl RunState {
             #[cfg(test)]
             clone_probe: RunCloneProbe,
             phase: RunPhase::Idle,
+            training_external_rng: None,
             deck: crate::content::deck::ironclad_starter_deck_for_ascension(ascension),
             run_player: Some(PlayerAuthorityState {
                 hp: IRONCLAD_A0_BASE_HP,
@@ -3096,6 +3156,7 @@ impl RunState {
             match_and_keep: None,
             shop: None,
             shop_merchant_open: false,
+            map_room_screen: None,
             card_grid: None,
             potions: Vec::new(),
             empty_potion_slots: Vec::new(),
@@ -4338,9 +4399,8 @@ impl RunState {
                 if offered.is_none() {
                     return Err(SimError::IllegalAction("no potion reward offered"));
                 }
-                if !self.can_gain_potions() {
-                    return Err(SimError::IllegalAction("potions cannot be obtained"));
-                }
+                // RewardItem.claimReward flashes Sozu and returns true. The
+                // reward can be consumed even though no potion is obtained.
                 Ok(())
             }
             RunAction::TakeRelicReward => {
@@ -4404,10 +4464,9 @@ impl RunState {
             RunAction::Proceed => {
                 let final_boss_victory =
                     self.current_act == 3 && self.current_room_kind() == Some(RoomKind::Boss);
-                // Ordinary map combat/elite rewards use continuation=None. CommunicationMod
-                // leaves via PROCEED, which abandons any still-unclaimed reward items
-                // (for example an unpicked potion) and returns to the map. Act 1/2 boss
-                // combat rewards likewise leave via PROCEED into the boss chest room.
+                // Ordinary combat/elite PROCEED opens a dismissable map over
+                // the existing reward screen, including its unclaimed items.
+                // Act 1/2 boss rewards instead enter the boss chest room.
                 let map_or_boss_combat_reward = reward.continuation == RewardContinuation::None
                     && matches!(
                         self.current_room_kind(),
@@ -4420,11 +4479,13 @@ impl RunState {
                     );
                 // Colosseum's event-owned reward returns to the map while a
                 // non-card item (typically its potion) may remain unclaimed.
-                // Keep this scoped to Event rooms: Map continuation is also used
-                // by treasure rewards, where pending items must not be abandoned
-                // through the same Event lifecycle exception.
+                // Treasure reward Proceed uses that same overlay transition;
+                // unclaimed chest offers remain available after Return.
                 let event_map_reward = reward.continuation == RewardContinuation::Map
-                    && self.current_room_kind() == Some(RoomKind::Event)
+                    && matches!(
+                        self.current_room_kind(),
+                        Some(RoomKind::Event | RoomKind::Treasure)
+                    )
                     && !reward.card_reward_is_active();
                 // Dig/Dream Catcher CombatRewardScreen frames expose PROCEED
                 // after the rest action has already completed. The overlay
@@ -4433,7 +4494,7 @@ impl RunState {
                     && self.rest_room_complete
                     && !reward.card_reward_is_active();
                 // Shop-owned CombatRewardScreen frames (Cauldron / Orrery) also
-                // expose PROCEED and abandon leftover overlay items.
+                // expose PROCEED with the reward list retained under the map.
                 let shop_overlay_reward = reward.continuation == RewardContinuation::Shop
                     && !reward.card_reward_is_active();
                 // Tiny House's leftover CombatRewardScreen sits on an opened
