@@ -777,15 +777,16 @@ pub(super) fn gain_plated_armor_from_potion(
     state: &mut CombatState,
     amount: i32,
 ) -> SimResult<Vec<InternalAction>> {
-    state.player.powers.plated_armor =
-        state
-            .player
-            .powers
-            .plated_armor
-            .checked_add(amount)
-            .ok_or(SimError::InvalidState(
-                "combat potion stat gain overflows i32",
-            ))?;
+    if amount == 0 {
+        return Ok(Vec::new());
+    }
+    let current = state.player.powers.plated_armor;
+    let next = current.checked_add(amount).ok_or(SimError::InvalidState(
+        "combat potion stat gain overflows i32",
+    ))?;
+    // PlatedArmorPower's constructor keeps raw input; an existing power's
+    // stackPower caps only the upper bound. Zero represents absence here.
+    state.player.powers.plated_armor = if current == 0 { next } else { next.min(999) };
     Ok(Vec::new())
 }
 
@@ -816,4 +817,44 @@ pub(super) fn gain_artifact(
 pub(super) fn upgrade_all_combat_cards(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
     upgrade_combat_cards(state)?;
     Ok(Vec::new())
+}
+
+#[cfg(test)]
+mod plated_armor_boundary_tests {
+    use super::{gain_plated_armor_from_potion, CombatState};
+    #[test]
+    fn raw_constructor_then_existing_upper_cap() {
+        let mut s = CombatState::initial_fixture();
+        gain_plated_armor_from_potion(&mut s, 2000).unwrap();
+        assert_eq!(s.player.powers.plated_armor, 2000);
+        gain_plated_armor_from_potion(&mut s, 1).unwrap();
+        assert_eq!(s.player.powers.plated_armor, 999);
+    }
+    #[test]
+    fn stacking_has_no_lower_floor_or_input_preclip() {
+        let mut s = CombatState::initial_fixture();
+        s.player.powers.plated_armor = 10;
+        gain_plated_armor_from_potion(&mut s, -1010).unwrap();
+        assert_eq!(s.player.powers.plated_armor, -1000);
+    }
+    #[test]
+    fn no_op_does_not_repair_malformed_old_amount() {
+        let mut s = CombatState::initial_fixture();
+        s.player.powers.plated_armor = 2000;
+        gain_plated_armor_from_potion(&mut s, 0).unwrap();
+        assert_eq!(s.player.powers.plated_armor, 2000);
+    }
+    #[test]
+    fn checked_overflow_preserves_state() {
+        let mut s = CombatState::initial_fixture();
+        s.player.powers.plated_armor = i32::MAX;
+        let before = serde_json::to_value(&s).unwrap();
+        assert!(matches!(
+            gain_plated_armor_from_potion(&mut s, 4),
+            Err(crate::SimError::InvalidState(
+                "combat potion stat gain overflows i32"
+            ))
+        ));
+        assert_eq!(serde_json::to_value(&s).unwrap(), before);
+    }
 }
