@@ -221,10 +221,15 @@ target action/effect lifecycle rather than an observed deck snapshot.
   otherwise repair an unchanged amount. These boundaries are source-backed
   synthetic coverage, not dedicated interaction-trace parity; broader mixed
   power ordering and potion queues remain separate audits.
-- `RedSkull.onNotBloodied` applies negative `StrengthPower` through
-  `ApplyPowerAction`, so Artifact can block its removal. The relic's active flag
-  still resets; a subsequent heal does not retry the blocked loss. This is
-  source-backed, not established by a dedicated real-game interaction trace.
+- `ThornsPower.onAttacked` queues THORNS `DamageAction` with `addToTop`:
+  all-enemy damage completes its indexed loop before reflections execute in
+  reverse insertion order. `VampireDamageAllEnemiesAction` queues Reaper's heal
+  with `addToBot`, behind those reflections. Fairy/Lizard Tail revival happens
+  within `AbstractPlayer.damage`; genuine death freezes subsequent action
+  dispatch. Publish consumed revival resources to their run owner before any
+  fallback checks them. The reviewed corpus covers Reaper regression; extreme
+  reflected damage/revival combinations remain source-backed synthetic tests,
+  not dedicated real-game interaction parity.
 - Summoned Gremlins consume an identity draw and an otherwise ignored opening
   AI roll before their fixed opening move.
 - `TimeWarpPower.onAfterUseCard` calls the early-end sequence and queues
