@@ -1667,7 +1667,6 @@ fn execute_generic_monster_intent(
             && total_player_thorns > 0
             && actor_was_alive
             && !state.monsters[index].alive;
-        let plated_armor_before_thorns_damage = state.player.powers.plated_armor;
         apply_monster_pending_effects(
             state,
             intent,
@@ -1685,9 +1684,6 @@ fn execute_generic_monster_intent(
             deferred_upgrade_burns,
             Some(index),
         )?;
-        if matches!(intent, crate::MonsterIntent::Stun) {
-            state.player.powers.plated_armor = plated_armor_before_thorns_damage;
-        }
         if state.monsters[index].content_id == SPIRE_SHIELD_ID
             && matches!(
                 intent,
@@ -2502,6 +2498,11 @@ fn apply_monster_pending_effects(
     // addToBot behind the remaining hits. This distinction is observable when
     // a later hit is lethal: cards drawn by earlier hits remain in hand while
     // the queued on-draw callbacks are abandoned by the death screen.
+    // ExplosivePower queues a THORNS DamageInfo. Select its pipeline before
+    // callbacks; never apply normal damage and restore selected power fields.
+    let thorns_damage = matches!(intent, crate::MonsterIntent::Stun)
+        && attacker_index
+            .is_some_and(|i| state.monsters[i].content_id == crate::content::monsters::EXPLODER_ID);
     let mut total_hp_damage = 0;
     let mut painful_stabs_triggers = 0;
     let mut inter_hit_draw_follow_ups = Vec::new();
@@ -2554,7 +2555,14 @@ fn apply_monster_pending_effects(
         // Orb Walker's Burn action is already queued behind its DamageAction.
         // Runic Cube's DrawCardAction runs first, but Evolve/Fire Breathing
         // actions created by that draw append behind the pending Burn insert.
-        let hp_damage = if burn_to_discard > 0 || burn_to_discard_and_draw > 0 {
+        let hp_damage = if thorns_damage {
+            deal_player_damage_with_type(
+                state,
+                damage,
+                HpLossDrawPolicy::Immediate,
+                PlayerDamageType::Thorns,
+            )?
+        } else if burn_to_discard > 0 || burn_to_discard_and_draw > 0 {
             deal_damage_to_player_with_draw_policy(state, damage, HpLossDrawPolicy::DeferDraws)?
         } else {
             deal_damage_to_player(state, damage)?
@@ -2727,18 +2735,37 @@ pub(crate) fn deal_non_attack_damage_to_player(
     Ok(hp_damage)
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PlayerDamageType {
+    Normal,
+    Thorns,
+}
+
 fn deal_damage_to_player_with_draw_policy(
     state: &mut CombatState,
     amount: i32,
     draw_policy: HpLossDrawPolicy,
 ) -> SimResult<i32> {
+    deal_player_damage_with_type(state, amount, draw_policy, PlayerDamageType::Normal)
+}
+
+fn deal_player_damage_with_type(
+    state: &mut CombatState,
+    amount: i32,
+    draw_policy: HpLossDrawPolicy,
+    damage_type: PlayerDamageType,
+) -> SimResult<i32> {
     let incoming = crate::combat::hp_loss::cap_player_damage_with_intangible(&state.player, amount);
     let blocked = state.player.block.min(incoming);
     state.player.block -= blocked;
-    let mitigated = crate::relic::mitigate_unblocked_attack_damage(
-        &state.player.authority.relics,
-        incoming - blocked,
-    );
+    let mitigated = if damage_type == PlayerDamageType::Normal {
+        crate::relic::mitigate_unblocked_attack_damage(
+            &state.player.authority.relics,
+            incoming - blocked,
+        )
+    } else {
+        crate::relic::mitigate_hp_loss(&state.player.authority.relics, incoming - blocked)
+    };
     let hp_damage = crate::relic::apply_buffer_to_hp_loss(&mut state.player.powers, mitigated);
     state.player.hp = (state.player.hp - hp_damage).max(0);
     crate::combat::hp_loss::apply_player_hp_loss_hooks_with_draw_policy(
@@ -2746,9 +2773,14 @@ fn deal_damage_to_player_with_draw_policy(
         hp_damage,
         draw_policy,
     )?;
-    crate::combat::transition::apply_static_discharge_on_attacked(state, hp_damage)?;
+    if damage_type == PlayerDamageType::Normal {
+        crate::combat::transition::apply_static_discharge_on_attacked(state, hp_damage)?;
+    }
     revive_player_if_available(state)?;
-    if hp_damage > 0 && state.player.powers.plated_armor > 0 {
+    if damage_type == PlayerDamageType::Normal
+        && hp_damage > 0
+        && state.player.powers.plated_armor > 0
+    {
         state.player.powers.plated_armor -= 1;
     }
     Ok(hp_damage)
