@@ -31,6 +31,11 @@ from run_training.collector import (
     collect_many,
     failed_episode,
 )
+from run_training.environment import (
+    ENVIRONMENT_PROTOCOL,
+    episode_environment_seed,
+    journal_environment_seed,
+)
 from run_training.metrics import behavior_scores
 from run_training.model import (
     FEATURE_VERSION,
@@ -398,6 +403,11 @@ def parser() -> argparse.ArgumentParser:
     )
     result.add_argument("--model-width", type=int, default=64)
     result.add_argument("--seed", type=int, default=123)
+    result.add_argument(
+        "--training-environment-seed",
+        type=int,
+        help="Explicit unsigned-64-bit master seed for private simulator-only libGDX inputs; omitted keeps strict replay-style inputs",
+    )
     result.add_argument("--lr", type=float, default=1e-4)
     result.add_argument("--entropy-coef", type=float, default=0.01)
     result.add_argument("--value-coef", type=float, default=0.1)
@@ -468,6 +478,13 @@ def main(argv: list[str] | None = None) -> None:
         cli.error("CUDA unavailable")
     if args.learner_batch_size < 0:
         cli.error("learner-batch-size must be nonnegative")
+    if args.training_environment_seed is not None:
+        if not 0 <= args.training_environment_seed < 2**64:
+            cli.error("training-environment-seed must be an unsigned 64-bit integer")
+        if args.root_manifest:
+            cli.error(
+                "Root curricula inherit journaled environmental inputs; training-environment-seed requires natural starts"
+            )
     held_out = validation_seeds(args.validation_seeds)
     if not 0 < args.root_hp_min <= 1 or any(not 0 < x <= 1 for x in args.root_eval_hp):
         cli.error("Root HP fractions must be finite and in (0, 1]")
@@ -545,6 +562,13 @@ def main(argv: list[str] | None = None) -> None:
         if args.encoder == "health"
         else FEATURE_VERSION,
         ascension=0,
+        environment_protocol=(
+            "root_journal_inherited_environment"
+            if bank
+            else ENVIRONMENT_PROTOCOL
+            if args.training_environment_seed is not None
+            else "strict_explicit_inputs"
+        ),
         gamma=1.0,
         observation_schema=FAIR_RUN_OBSERVATION_SCHEMA_VERSION,
         native_sha256=digest(Path(_native.__file__)),
@@ -638,6 +662,11 @@ def main(argv: list[str] | None = None) -> None:
         visible = None
         previous = None
         metadata = None
+        environment_seed = (
+            episode_environment_seed(args.training_environment_seed, seed)
+            if args.training_environment_seed is not None
+            else None
+        )
         if bank:
             fraction = (
                 rng.uniform(args.root_hp_min, 1.0)
@@ -645,6 +674,7 @@ def main(argv: list[str] | None = None) -> None:
                 else hp_fraction
             )
             state, visible, previous, metadata = bank.initial(seed, fraction)
+            environment_seed = journal_environment_seed(metadata)
 
             def start_root(*_args, **_kwargs) -> State:
                 return state
@@ -668,6 +698,7 @@ def main(argv: list[str] | None = None) -> None:
                 "initial_visible_map": visible,
                 "initial_previous": previous,
                 "initial_metadata": metadata,
+                "training_rng_seed": environment_seed,
             },
         )
 

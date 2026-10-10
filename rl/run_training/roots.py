@@ -15,6 +15,7 @@ from pathlib import Path
 from sts_sim import Observation, State, _native
 
 from run_training.contracts import PolicyAction
+from run_training.environment import journal_environment_seed
 
 ROOT_PROTOCOL = "natural_prefix_a0_preboss_rest_hp_only_v1"
 
@@ -36,6 +37,16 @@ def validate_natural_setup(setup: dict) -> None:
         raise ValueError("Root source must be a natural A0 trainer journal")
 
 
+def natural_state_from_setup(setup: dict) -> State:
+    validate_natural_setup(setup)
+    return State.new(
+        setup["seed"],
+        ascension=0,
+        final_act=setup["final_act"],
+        training_rng_seed=journal_environment_seed(setup),
+    )
+
+
 def reconstruct(
     path: Path, stop_step: int
 ) -> tuple[State, Observation | None, PolicyAction | None]:
@@ -44,8 +55,7 @@ def reconstruct(
     with gzip.open(path, "rt") if path.suffix == ".gz" else path.open() as source:
         rows = [json.loads(line) for line in source]
     setup = rows[0]
-    validate_natural_setup(setup)
-    state = State.new(setup["seed"], ascension=0, final_act=setup["final_act"])
+    state = natural_state_from_setup(setup)
     decision = state.decision()
     visible = None
     previous = None
@@ -68,7 +78,9 @@ def reconstruct(
             or not isinstance(index, int)
             or not 0 <= index < len(decision.actions)
         ):
-            raise ValueError("Root source public action index unavailable under current rules")
+            raise ValueError(
+                "Root source public action index unavailable under current rules"
+            )
         action = decision.actions[index]
         descriptor = PolicyAction.from_action(action)
         if asdict(descriptor) != row["action"]:
@@ -116,6 +128,7 @@ class RootBank:
         self.training = []
         self.validation = []
         self.cache = {}
+        self.environment_seeds = {}
         for case in data["cases"]:
             seed = case["seed"]
             if (
@@ -141,6 +154,7 @@ class RootBank:
             ):
                 setup = json.loads(source.readline())
             validate_natural_setup(setup)
+            self.environment_seeds[seed] = journal_environment_seed(setup)
             if (
                 setup["seed"] != seed
                 or setup["final_act"] != final_act
@@ -177,6 +191,7 @@ class RootBank:
             previous,
             {
                 "protocol": ROOT_PROTOCOL,
+                "training_rng_seed": self.environment_seeds[seed],
                 "root_manifest": str(self.path),
                 "root_journal_sha256": case["journal_sha256"],
                 "prefix_accepted": case["stop_step"],
