@@ -49,10 +49,31 @@ simulator futures enter the macro model.
 
 ## Environment limitations
 
-Known failure classes include Prismatic Shard and Courier purchase successors,
-and Headbutt selection completion leaving a won combat without a legal next
-run action. These have simulator-only reproductions; they are not real-game
-parity findings. The default **aborts** on simulator errors or incomplete training
+Prismatic Shard still exposes unsupported cross-color gameplay. Strict Courier
+purchase successors may require process-global libGDX draws absent from run-seeded
+inputs. Headbutt run-boundary settlement has a separate simulator fix. These
+simulator-only findings are not dedicated real-game interaction parity.
+
+### Explicit Courier environmental-input profile
+
+`--training-environment-seed UINT64` opts natural runs into the existing native
+private simulation-only environmental-input provider. Omission remains strict:
+no automatic opt-in, repair, action retry, or failed-candidate filtering.
+`environment.py` derives each episode input from a versioned SHA256 of the declared
+master seed and canonical decimal run seed, independently of policy RNGs and
+collection scheduling. Fixed validation seeds retain the same input on every
+assessment. Neither seed becomes a policy feature.
+
+The master seed/protocol is archived in config and checked on exact resume; each
+allocated `training_rng_seed` is journaled at setup and used verbatim for
+reconstruction. Existing journals without it retain strict semantics. Synthetic
+root curricula inherit the original journal input and reject a new master-seed
+option rather than substituting a different stream. This profile is **not** exact
+vanilla global-RNG sequence replay or permission to restart a stopped experiment.
+No Prismatic cards, checkpoint adapters, numeric schemas or vocabularies change
+with this option.
+
+The default **aborts** on simulator errors or incomplete training
 batches. Both serial and batched modes log localized collection failures in
 `collection-errors.jsonl`, including failures that abort the run. For an
 explicitly authorized bounded experiment, `--continue-on-collection-failure`
