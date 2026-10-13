@@ -606,6 +606,58 @@ public class PendingGameplayEffectTest {
     }
 
     @Test
+    public void armamentsStyleHandSelectChooseSettlesWhileOwnerRemains() throws Exception {
+        FixtureSnapshot fixture = FixtureSnapshot.capture();
+        try {
+            installHeadlessGameDependencies(fixture);
+            fixture.captureDungeon();
+            configureDungeonFixture();
+            AbstractDungeon.currMapNode.room.phase = AbstractRoom.RoomPhase.COMBAT;
+            AbstractDungeon.currMapNode.room.monsters = new MonsterGroup(
+                    new com.megacrit.cardcrawl.monsters.AbstractMonster[0]);
+            AbstractDungeon.isFadingIn = false;
+            AbstractDungeon.isFadingOut = false;
+            AbstractDungeon.player.endTurnQueued = false;
+            com.megacrit.cardcrawl.actions.unique.ArmamentsAction owner = allocate(
+                    com.megacrit.cardcrawl.actions.unique.ArmamentsAction.class);
+            AbstractDungeon.actionManager.currentAction = owner;
+            AbstractDungeon.actionManager.phase = GameActionManager.Phase.EXECUTING_ACTIONS;
+            AbstractDungeon.screen = AbstractDungeon.CurrentScreen.HAND_SELECT;
+            AbstractDungeon.isScreenUp = true;
+            GameStateListener.resetStateVariables();
+            GameStateListener.signalTurnStart();
+            assertTrue(GameStateListener.checkForDungeonStateChange());
+
+            // HandCardSelectScreenPatch.registerStateChange after CHOOSE: the
+            // screen stays HAND_SELECT and ArmamentsAction remains currentAction.
+            GameStateListener.beforeCommand("choose-armaments", "choose");
+            GameStateListener.registerStateChange();
+            assertTrue(GameStateListener.checkForDungeonStateChange());
+            assertTrue(GameStateListener.isWaitingForCommand());
+            assertEquals("interaction_ready", GameStateListener.consumeBoundaryKind());
+            assertEquals("choose-armaments", GameStateListener.getCommandResponseId());
+            assertFalse(owner.isDone);
+            assertSame(owner, AbstractDungeon.actionManager.currentAction);
+            assertSame(AbstractDungeon.CurrentScreen.HAND_SELECT, AbstractDungeon.screen);
+            assertFalse(GameStateListener.combatSelectOwnerIsWaiting(
+                    AbstractDungeon.CurrentScreen.MAP));
+
+            AbstractDungeon.screen = AbstractDungeon.CurrentScreen.GRID;
+            GameStateListener.resetStateVariables();
+            GameStateListener.signalTurnStart();
+            assertTrue(GameStateListener.checkForDungeonStateChange());
+            GameStateListener.beforeCommand("choose-grid", "choose");
+            GameStateListener.registerStateChange();
+            assertTrue(GameStateListener.checkForDungeonStateChange());
+            assertEquals("interaction_ready", GameStateListener.consumeBoundaryKind());
+            assertSame(AbstractDungeon.CurrentScreen.GRID, AbstractDungeon.screen);
+            assertFalse(owner.isDone);
+        } finally {
+            try { fixture.restoreGlobals(); } finally { fixture.restoreConfigFile(); }
+        }
+    }
+
+    @Test
     public void unownedOrFinishedScreenCannotBypassQueuedEndTurn() throws Exception {
         FixtureSnapshot fixture = FixtureSnapshot.capture();
         try {
@@ -618,7 +670,6 @@ public class PendingGameplayEffectTest {
             AbstractDungeon.player.endTurnQueued = true;
             for (AbstractDungeon.CurrentScreen screen : Arrays.asList(
                     AbstractDungeon.CurrentScreen.CARD_REWARD,
-                    AbstractDungeon.CurrentScreen.HAND_SELECT,
                     AbstractDungeon.CurrentScreen.MAP,
                     AbstractDungeon.CurrentScreen.GAME_DECK_VIEW)) {
                 AbstractDungeon.screen = screen;
