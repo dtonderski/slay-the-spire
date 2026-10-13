@@ -567,7 +567,11 @@ public class GameStateListener {
      */
     static boolean combatSelectOwnerIsWaiting(AbstractDungeon.CurrentScreen screen) {
         AbstractGameAction owner = AbstractDungeon.actionManager.currentAction;
-        if (owner == null || owner.isDone) {
+        if (owner == null || owner.isDone
+                || owner instanceof com.megacrit.cardcrawl.actions.utility.WaitAction
+                || AbstractDungeon.player == null || AbstractDungeon.player.endTurnQueued) {
+            // A queued end turn is only bypassed by the source-backed owners in
+            // endTurnInputOwnerIsWaiting; a generic live action is not enough.
             return false;
         }
         return screen == AbstractDungeon.CurrentScreen.HAND_SELECT

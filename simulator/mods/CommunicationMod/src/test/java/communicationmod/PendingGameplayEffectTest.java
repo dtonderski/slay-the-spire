@@ -670,6 +670,8 @@ public class PendingGameplayEffectTest {
             AbstractDungeon.player.endTurnQueued = true;
             for (AbstractDungeon.CurrentScreen screen : Arrays.asList(
                     AbstractDungeon.CurrentScreen.CARD_REWARD,
+                    AbstractDungeon.CurrentScreen.HAND_SELECT,
+                    AbstractDungeon.CurrentScreen.GRID,
                     AbstractDungeon.CurrentScreen.MAP,
                     AbstractDungeon.CurrentScreen.GAME_DECK_VIEW)) {
                 AbstractDungeon.screen = screen;
