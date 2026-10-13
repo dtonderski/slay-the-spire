@@ -87,9 +87,12 @@ for example, Souls are outside the effect lists. Zero counts alone do not prove
 settlement. Diagnostics remain opt-in; immutable live traces are required to
 validate lifecycle behavior beyond the headless readiness fixtures. End-turn
 external mutations are allowed to settle on an already-open screen only for
-active CodexAction/CARD_REWARD or RetainCardsAction/HAND_SELECT owners. Well-Laid
-Plans' RetainCardPower queues the latter. These are interaction-ready boundaries,
-not quiescence: queued follow-up work and endTurnQueued remain untouched.
+active CodexAction/CARD_REWARD or RetainCardsAction/HAND_SELECT owners, and for
+a live combat action that still owns HAND_SELECT or GRID (Armaments, Exhaust,
+Dual Wield, Forethought, Headbutt, and similar). Well-Laid Plans' RetainCardPower
+queues the retain owner. These are interaction-ready boundaries, not quiescence:
+queued follow-up work and endTurnQueued remain untouched. Arbitrary overlays
+such as map or deck view are not treated as owned input.
 
 Raw-clock ExhaustCardEffect resets still require **same-command** exhaust then
 retrieval coverage. Waiting for effects between commands cannot prove that

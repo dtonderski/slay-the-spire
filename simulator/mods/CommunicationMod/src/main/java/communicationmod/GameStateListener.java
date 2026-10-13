@@ -358,15 +358,20 @@ public class GameStateListener {
             waitOneUpdate = false;
             return true;
         }
-        // A real command can mutate state while an end-turn interaction is
-        // already open. Nilry's Codex retains its current action and the
-        // endTurnQueued flag until its card reward is chosen; discarding a
-        // potion on that screen changes the potion slots but not the screen.
-        // RetainCardPower (Well-Laid Plans) similarly queues RetainCardsAction
-        // and its HAND_SELECT screen. These source-backed owners wait for input
-        // while follow-up work remains queued; requiring an empty queue would
-        // deadlock them. An arbitrary overlay is not evidence of that ownership.
-        if (externalChange && inCombat && newScreenUp && endTurnInputOwnerIsWaiting(newScreen)) {
+        // A real command can mutate state while an interaction is already
+        // open without changing screen, screenUp, or phase. Nilry's Codex
+        // retains its current action and the endTurnQueued flag until its card
+        // reward is chosen; discarding a potion on that screen changes the
+        // potion slots but not the screen. RetainCardPower (Well-Laid Plans)
+        // similarly queues RetainCardsAction and its HAND_SELECT screen. During
+        // the player turn, Armaments, Exhaust, Dual Wield, Forethought,
+        // Headbutt, and similar owners keep currentAction while HAND_SELECT or
+        // GRID waits for CHOOSE. These owners wait for input while follow-up
+        // work remains queued; requiring an empty queue would deadlock them.
+        // An arbitrary overlay (map, deck view) is not evidence of ownership,
+        // and this must not fall back to "any screenUp during combat."
+        if (externalChange && inCombat && newScreenUp
+                && (endTurnInputOwnerIsWaiting(newScreen) || combatSelectOwnerIsWaiting(newScreen))) {
             return true;
         }
         // We are assuming that commands are only being submitted through our interface. Some actions that require
@@ -553,6 +558,24 @@ public class GameStateListener {
         }
         return (screen == AbstractDungeon.CurrentScreen.CARD_REWARD && owner instanceof CodexAction)
                 || (screen == AbstractDungeon.CurrentScreen.HAND_SELECT && owner instanceof RetainCardsAction);
+    }
+
+    /**
+     * In-combat card select keeps the owning action as {@code currentAction}
+     * until CONFIRM. CHOOSE does not change screen or phase, so the usual
+     * screen-transition detector never fires, and the queue is not empty.
+     */
+    static boolean combatSelectOwnerIsWaiting(AbstractDungeon.CurrentScreen screen) {
+        AbstractGameAction owner = AbstractDungeon.actionManager.currentAction;
+        if (owner == null || owner.isDone
+                || owner instanceof com.megacrit.cardcrawl.actions.utility.WaitAction
+                || AbstractDungeon.player == null || AbstractDungeon.player.endTurnQueued) {
+            // A queued end turn is only bypassed by the source-backed owners in
+            // endTurnInputOwnerIsWaiting; a generic live action is not enough.
+            return false;
+        }
+        return screen == AbstractDungeon.CurrentScreen.HAND_SELECT
+                || screen == AbstractDungeon.CurrentScreen.GRID;
     }
 
     private static boolean quiescentCombatBoundaryIsReady() {
