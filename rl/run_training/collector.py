@@ -116,7 +116,9 @@ class MacroPrediction:
 
 
 class FrozenCombat:
-    def __init__(self, checkpoint: Path, device: str) -> None:
+    def __init__(
+        self, checkpoint: Path, device: str, *, adapt_legacy: bool = False
+    ) -> None:
         # Checkpoints must be trusted. This is weight-only integration, not resume
         # of the original combat optimizer, precision protocol, or simulator.
         source = torch.load(checkpoint, map_location="cpu", weights_only=True)
@@ -128,7 +130,12 @@ class FrozenCombat:
             n_layers=config.get("model_layers", 2),
             precision="fp32",
         ).to(device)
-        self.model.load_state_dict(source["model"], strict=True)
+        from run_training.combat_compat import frozen_weights
+
+        self.model.load_state_dict(
+            frozen_weights(self.model, source["model"], adapt_legacy=adapt_legacy),
+            strict=True,
+        )
         if not all(torch.isfinite(p).all() for p in self.model.parameters()):
             raise ValueError("Nonfinite combat checkpoint")
         self.model.requires_grad_(False)
@@ -266,8 +273,8 @@ def _trajectory(
     with (
         gzip.open(journal, "xt", compresslevel=1)
         if journal.suffix == ".gz"
-        else journal.open("x")
-    ) as log:
+        else journal.open("x") as log
+    ):
 
         def emit(row: dict) -> None:
             log.write(json.dumps(row) + "\n")

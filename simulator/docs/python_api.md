@@ -80,7 +80,11 @@ before any state is stepped. The worker cap defaults to half the logical CPUs; s
 The version-3 payload is `(version, symbols, tables, model_rows)`:
 
 - `symbols`: public strings for header/screen fields that are still batch-local.
-  Content-key columns are vocabulary v1 catalog ids, not symbol positions or instance ids.
+  Content-key columns are vocabulary v2 catalog ids, not symbol positions or instance ids.
+  All 322 v1 card indices retain their meanings; Cold Snap and Piercing Wail append
+  at indices 322 and 323. Other identity tables and numeric row widths are unchanged.
+  Consumers must use the versioned mapping, not current enum ordinals. Frozen
+  checkpoint migration is explicit in the [run-training guide](../../rl/run_training/README.md).
   `-1` means an absent optional category in the remaining symbol columns.
 - `tables[name] = (width, bytes)`: row-major native-endian signed int64 columns.
   Bytes are immutable, independently owned, and remain valid after stepping/cloning.

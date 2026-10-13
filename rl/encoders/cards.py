@@ -1,19 +1,16 @@
 import numpy as np
 import torch
 from jaxtyping import Float
-from sts_sim import CardKey
 from torch import Tensor, nn
 
 from .numeric import FeatureArrays, NumericBatch, upload_features
+from .vocabulary import CARD_TO_INDEX
 
 CARD_EMBEDDING_DIM = 16
 CARD_STATE_DIM = 11
 CARD_FEATURE_DIM = CARD_EMBEDDING_DIM + CARD_STATE_DIM
 # Every public card table, encoded together in one pass.
 CARD_TABLES = ("hand", "draw", "discard", "exhaust", "stasis", "selection_cards")
-
-# Current-catalog indices only. Checkpoint compatibility is not implemented yet.
-CARD_TO_INDEX = {key: index for index, key in enumerate(CardKey)}
 
 
 class CardEncoder(nn.Module):
@@ -29,7 +26,7 @@ class CardEncoder(nn.Module):
         rows = np.concatenate(tables)
         raw_ids = rows[:, 1]
         if len(raw_ids) and (int(raw_ids.min()) < 0 or int(raw_ids.max()) >= len(CARD_TO_INDEX)):
-            raise ValueError("Card id is outside content vocabulary v1")
+            raise ValueError("Card id is outside content vocabulary v2")
         return FeatureArrays(
             {"ids": raw_ids},
             {"state": rows[:, [2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 17]]},

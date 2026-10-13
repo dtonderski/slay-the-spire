@@ -1,11 +1,11 @@
-//! Version 1 public content ids. Order matches the current Python catalogs.
+//! Version 2 public content ids. Card v1 prefix is immutable; additions append.
 //! Do not reorder without bumping CONTENT_VOCABULARY_VERSION.
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use pyo3::prelude::*;
 
-pub const CONTENT_VOCABULARY_VERSION: u32 = 1;
+pub const CONTENT_VOCABULARY_VERSION: u32 = 2;
 
 pub static CARD_KEYS: &[&str] = &[
     "AFTER_IMAGE",
@@ -330,6 +330,8 @@ pub static CARD_KEYS: &[&str] = &[
     "Whirlwind+",
     "Wound",
     "Writhe",
+    "COLD_SNAP",
+    "PIERCING_WAIL",
 ];
 
 pub static MONSTER_KEYS: &[&str] = &[
@@ -900,4 +902,25 @@ pub fn selection_catalog_id(kind: Option<&str>) -> Option<i64> {
 #[pyfunction]
 pub fn content_vocabulary_version() -> u32 {
     CONTENT_VOCABULARY_VERSION
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn v2_preserves_the_entire_v1_card_prefix_and_appends_new_ids() {
+        let mut hash = 0xcbf29ce484222325_u64;
+        for name in &CARD_KEYS[..322] {
+            for byte in name.bytes().chain(std::iter::once(0)) {
+                hash = (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3);
+            }
+        }
+        // Frozen v1 name sequence, including zero delimiters; independent of enum order.
+        assert_eq!(hash, 0xff45166c9aabc6dd);
+        assert_eq!(CARD_KEYS.len(), 324);
+        assert_eq!(card_id("COLD_SNAP"), Some(322));
+        assert_eq!(card_id("PIERCING_WAIL"), Some(323));
+        assert_eq!(content_vocabulary_version(), 2);
+    }
 }

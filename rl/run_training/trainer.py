@@ -14,6 +14,7 @@ import shutil
 import signal
 import time
 from contextlib import contextmanager
+from itertools import count
 from pathlib import Path
 from threading import Event
 
@@ -351,7 +352,12 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument(
         "--final-act", action=argparse.BooleanOptionalAction, default=True
     )
-    result.add_argument("--updates", type=int, default=1)
+    result.add_argument(
+        "--updates",
+        type=int,
+        default=1,
+        help="Additional batch attempts; 0 runs until stopped",
+    )
     result.add_argument(
         "--batch-size", type=int, default=8, help="Complete natural A0 runs per update"
     )
@@ -376,9 +382,14 @@ def parser() -> argparse.ArgumentParser:
         "--max-consecutive-skips",
         type=int,
         default=8,
-        help="Stop rather than repeatedly sampling unusable batches",
+        help="Stop after this many consecutive incomplete batches; 0 disables this campaign limit",
     )
     result.add_argument("--compress-journals", action="store_true")
+    result.add_argument(
+        "--adapt-legacy-combat-checkpoint",
+        action="store_true",
+        help="Explicit weights-only v1 card vocabulary migration; append two zero embedding rows",
+    )
     result.add_argument(
         "--collection-width",
         type=int,
@@ -441,17 +452,17 @@ def main(argv: list[str] | None = None) -> None:
     args = cli.parse_args(argv)
     if (
         min(
-            args.updates,
             args.batch_size,
             args.max_actions,
             args.eval_every,
             args.model_width,
-            args.max_consecutive_skips,
             args.collection_width,
         )
         < 1
     ):
         cli.error("Counts must be positive")
+    if args.updates < 0 or args.max_consecutive_skips < 0:
+        cli.error("Updates and consecutive skips must be nonnegative")
     if (
         not args.run_id
         or Path(args.run_id).name != args.run_id
@@ -515,7 +526,11 @@ def main(argv: list[str] | None = None) -> None:
     rng = random.Random(args.seed)
     model_type = HealthMacroModel if args.encoder == "health" else MacroModel
     model = model_type(args.model_width).to(args.device)
-    combat = FrozenCombat(args.combat_checkpoint, args.device)
+    combat = FrozenCombat(
+        args.combat_checkpoint,
+        args.device,
+        adapt_legacy=args.adapt_legacy_combat_checkpoint,
+    )
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     settings = {
         key: str(value) if isinstance(value, Path) else value
@@ -525,6 +540,7 @@ def main(argv: list[str] | None = None) -> None:
     source_files = sorted(
         set(source_root.glob("*.py"))
         | set((source_root / "encoders").glob("*.py"))
+        | set((source_root / "encoders").glob("*.json"))
         | set(Path(__file__).parent.glob("*.py"))
     )
     source_bytes = b"".join(
@@ -555,6 +571,9 @@ def main(argv: list[str] | None = None) -> None:
         torch_version=str(torch.__version__),
         cuda_version=torch.version.cuda,
         combat_execution="frozen sampled FP32 weights-only; all legal candidates retained",
+        combat_checkpoint_adapter="public_card_v1_to_v2_zero_extension"
+        if args.adapt_legacy_combat_checkpoint
+        else "strict_current_weights",
         failure_policy="quarantine whole batches; conditional supported training"
         if args.continue_on_collection_failure
         else "abort",
@@ -824,7 +843,7 @@ def main(argv: list[str] | None = None) -> None:
         checkpoint()  # Last valid boundary remains recoverable after collection failure.
         try:
             evaluate(iteration)
-            for _ in range(args.updates):
+            for _ in range(args.updates) if args.updates else count():
                 if stopped():
                     break
                 next_iteration = iteration + 1
@@ -887,7 +906,10 @@ def main(argv: list[str] | None = None) -> None:
                 )
                 if stopped():
                     break
-                if consecutive_skips >= args.max_consecutive_skips:
+                if (
+                    args.max_consecutive_skips
+                    and consecutive_skips >= args.max_consecutive_skips
+                ):
                     raise CollectionFailure(
                         "Consecutive incomplete-batch limit reached; stopping safely"
                     )

@@ -85,9 +85,17 @@ experimental training distribution is **conditional on complete supported
 batches**, potentially biased toward paths without simulator failures; it is not
 an unrestricted full-game training claim. Evaluation includes error/cutoff counts,
 all attempted seeds in its success lower bound, and any unattempted scheduled cases.
-`--max-consecutive-skips` (default 8) stops a repeatedly failing campaign.
+`--max-consecutive-skips` (default 8) stops a repeatedly failing campaign;
+explicit `0` disables that campaign limit without changing whole-batch quarantine.
 
 Use `--max-hours 8 --compress-journals` for a bounded overnight experiment.
+For an explicitly operator-authorized indefinite campaign, use `--updates 0`,
+omit `--max-hours`, and set `--max-consecutive-skips 0` with continuation mode.
+Zero updates means unbounded batch attempts, not zero learning. SIGTERM/SIGINT
+still stop cooperatively and commit the last valid boundary. Per-episode action
+limits, complete-batch learning, public-input checks and fatal model/numerical
+errors remain enforced; disabling campaign limits does not repair gameplay.
+Monitor disk usage: immutable journals accumulate without a time bound.
 Deadlines and SIGTERM/SIGINT request a cooperative stop between simulator calls;
 a partial batch is discarded and the checkpoint records consumed sampler state.
 Do not treat a signal-interrupted fragment as an exactly resumed trajectory.
@@ -105,7 +113,14 @@ completion and `failure.json` records a fatal stop. Source files are copied to
 learning steps. The wall-clock limit can be changed on resume. Changes to simulator, source, features,
 objective, seeds, controller, device or loss protocol reject exact continuation.
 The combat checkpoint is a weight-only FP32 integration, not continuation of its
-original training job. It is never optimized by this trainer.
+original training job. It is never optimized by this trainer. Public card vocabulary
+v2 preserves all 322 v1 indices and appends Cold Snap and Piercing Wail. An old
+322-row checkpoint requires explicit `--adapt-legacy-combat-checkpoint`: only those
+two new embedding rows are initialized to zero; every old parameter/index is
+preserved and all other shapes and parameter keys must match. This does not claim
+bitwise logit equivalence, optimizer compatibility or competence with new cards.
+The original checkpoint bytes/hash remain unchanged; config records the adapter
+and source archives include the immutable legacy identity list.
 
 After an intentional simulator/source update, use `--warm-start /path/to/latest.pt`
 for explicit **macro weights-only transfer** into a new run. Architecture, feature,
