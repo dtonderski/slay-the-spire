@@ -3767,7 +3767,8 @@ impl RunState {
     }
 
     pub fn potion_capacity(&self) -> usize {
-        MAX_POTIONS
+        // AbstractPlayer's constructor removes one base slot at A11+.
+        MAX_POTIONS - usize::from(self.ascension >= 11)
             + self
                 .relics
                 .iter()
