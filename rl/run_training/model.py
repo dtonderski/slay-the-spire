@@ -16,6 +16,7 @@ from sts_sim.observations.screens import MapScreen
 from torch import Tensor, nn
 
 from run_training.contracts import PolicyAction
+from run_training.restrictions import macro_eligibility
 
 # The hashed representation is unchanged from #93. Only the opt-in health
 # encoder consumes the additional normalized-HP input introduced in version 3.
@@ -99,6 +100,7 @@ class MacroInput:
     context: Features
     candidates: tuple[Features, ...]
     health: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    eligibility: tuple[bool, ...] = ()
 
 
 def candidate_facts(
@@ -175,6 +177,7 @@ def encode(
     *,
     visible_map: Observation | None = None,
     previous: PolicyAction | None = None,
+    avoid_prismatic: bool = False,
 ) -> MacroInput:
     if not isinstance(observation, OBSERVATION_TYPES) or any(
         not isinstance(a, PolicyAction) for a in actions
@@ -203,6 +206,7 @@ def encode(
             observation.context.player_hp / 100.0,
             observation.context.player_max_hp / 100.0,
         ),
+        macro_eligibility(observation, actions, avoid_prismatic=avoid_prismatic),
     )
 
 

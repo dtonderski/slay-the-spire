@@ -54,6 +54,31 @@ purchase successors may require process-global libGDX draws absent from run-seed
 inputs. Headbutt run-boundary settlement has a separate simulator fix. These
 simulator-only findings are not dedicated real-game interaction parity.
 
+### Optional restricted Prismatic policy
+
+`--avoid-prismatic` explicitly labels a **restricted-policy experiment**, applied
+in both training and validation. Visible optional Prismatic Shard purchases and
+relic-taking choices receive exactly zero policy probability. Their original
+candidate rows and action indices remain intact; simulator legality, relic pools,
+reward generation and game rules are unchanged. Only public offered identities
+are consulted, never hidden outcomes. The default remains unrestricted.
+
+Random/unknown grants and mandatory single-action grants remain possible. Their
+unsupported successors still fail normally and quarantine batches; this option
+is not a Prismatic implementation or a fix for shop-navigation cycles. If a
+multi-choice decision has no eligible action, collection fails explicitly rather
+than restoring excluded choices or retrying a game action.
+
+Config/source archives and evaluation metrics identify the restriction. Journals
+record its protocol at setup and the complete eligibility vector at macro
+attempts. Collection and learner recomputation use the same masked distribution;
+raw scores must still be finite for **every** actual candidate, including excluded
+ones. Stored effective logits and chosen indices are checked before backward.
+No observation/features, model shapes or frozen-combat ABI change. A restriction
+change rejects exact resume; use a new run identity and explicit macro
+weights-only `--warm-start` with fresh optimizer/RNG. Restricted repeated-validation
+scores must not be presented as unrestricted or independent test performance.
+
 ### Explicit Courier environmental-input profile
 
 `--training-environment-seed UINT64` opts natural runs into the existing native

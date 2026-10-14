@@ -28,6 +28,11 @@ from run_training.contracts import PolicyAction, controller, outcome
 from run_training.environment import journal_environment_seed
 from run_training.metrics import BehaviorStats
 from run_training.model import MacroInput, MacroModel, encode
+from run_training.restrictions import (
+    AVOID_PRISMATIC_PROTOCOL,
+    checked_eligibility,
+    restrict_logits,
+)
 from run_training.rewards import Objective, terminal_parts
 
 
@@ -72,23 +77,33 @@ def simulator_call[T](operation: Callable[[], T]) -> T:
         raise SimulatorFailure(f"{type(error).__name__}: {error}") from error
 
 
-def sample(logits: torch.Tensor, generator: torch.Generator) -> int:
+def sample(
+    logits: torch.Tensor,
+    generator: torch.Generator,
+    *,
+    eligibility: tuple[bool, ...] = (),
+) -> int:
     if logits.ndim != 1 or not len(logits) or not torch.isfinite(logits).all():
         raise ValueError("Expected finite logits for every complete legal candidate")
-    return int(torch.multinomial(logits.softmax(0), 1, generator=generator).item())
+    effective = restrict_logits(logits, eligibility)
+    return int(torch.multinomial(effective.softmax(0), 1, generator=generator).item())
 
 
 def sample_many(
-    logits: list[torch.Tensor], generators: list[torch.Generator]
+    logits: list[torch.Tensor],
+    generators: list[torch.Generator],
+    *,
+    eligibility: list[tuple[bool, ...]] | None = None,
 ) -> list[int]:
     """Keep each run's RNG and true candidate length; synchronize choices once."""
     if not logits or any(row.ndim != 1 or not len(row) for row in logits):
         raise ValueError("Expected nonempty complete candidate rows")
     if not torch.isfinite(torch.cat(logits)).all():
         raise ValueError("Nonfinite policy logits")
+    eligibility = eligibility if eligibility is not None else [()] * len(logits)
     choices = [
-        torch.multinomial(row.softmax(0), 1, generator=rng)
-        for row, rng in zip(logits, generators, strict=True)
+        torch.multinomial(restrict_logits(row, allowed).softmax(0), 1, generator=rng)
+        for row, rng, allowed in zip(logits, generators, eligibility, strict=True)
     ]
     return torch.cat(choices).cpu().tolist()
 
@@ -250,6 +265,7 @@ def _trajectory(
     journal: Path,
     state_factory: Callable[..., State] = State.new,
     training_rng_seed: int | None = None,
+    avoid_prismatic: bool = False,
     stop_requested: Callable[[], bool] | None = None,
     initial_visible_map: Observation | None = None,
     initial_previous: PolicyAction | None = None,
@@ -291,6 +307,10 @@ def _trajectory(
                 "macro_policy_seed": macro_rng.initial_seed(),
                 "combat_policy_seed": combat_rng.initial_seed(),
                 "training_rng_seed": training_rng_seed,
+                "avoid_prismatic": avoid_prismatic,
+                "policy_restriction_protocol": AVOID_PRISMATIC_PROTOCOL
+                if avoid_prismatic
+                else "all_legal_actions",
                 "initial_state": initial_metadata or {"protocol": "natural_start"},
             }
         )
@@ -379,6 +399,7 @@ def _trajectory(
                         descriptors,
                         visible_map=visible_map,
                         previous=previous,
+                        avoid_prismatic=avoid_prismatic,
                     )
                     prediction = yield MacroRequest(
                         inputs, macro_rng, tuple(heal_indices)
@@ -386,6 +407,9 @@ def _trajectory(
                     if not isinstance(prediction, MacroPrediction):
                         raise TypeError("Expected a macro prediction")
                     index = prediction.index
+                    checked_eligibility(
+                        len(decision.actions), inputs.eligibility, choice=index
+                    )
                     heal_probability = prediction.heal_probability
                     step = MacroStep(inputs, index, prediction.logits, prediction.value)
                 action = decision.actions[index]
@@ -398,6 +422,9 @@ def _trajectory(
                         "owner": owner,
                         "index": index,
                         "action": asdict(descriptor),
+                        "policy_eligibility": list(inputs.eligibility)
+                        if owner == "macro"
+                        else None,
                         "rest_pre_hp": observation.context.player_hp
                         if heal_indices
                         else None,
@@ -450,6 +477,7 @@ class CollectionOptions(TypedDict):
     journal: Path
     state_factory: NotRequired[Callable[..., State]]
     training_rng_seed: NotRequired[int | None]
+    avoid_prismatic: NotRequired[bool]
     stop_requested: NotRequired[Callable[[], bool] | None]
     initial_visible_map: NotRequired[Observation | None]
     initial_previous: NotRequired[PolicyAction | None]
@@ -467,14 +495,15 @@ def _predict_one(model: MacroModel, request: MacroRequest) -> MacroPrediction:
     logits, value = model(request.inputs)
     if not torch.isfinite(value):
         raise ValueError("Nonfinite macro value")
-    index = sample(logits, request.generator)
+    index = sample(logits, request.generator, eligibility=request.inputs.eligibility)
+    effective = restrict_logits(logits, request.inputs.eligibility)
     probability = (
-        float(logits.softmax(0)[list(request.heal_indices)].sum())
+        float(effective.softmax(0)[list(request.heal_indices)].sum())
         if request.heal_indices
         else None
     )
     return MacroPrediction(
-        index, tuple(logits.cpu().tolist()), float(value), probability
+        index, tuple(effective.cpu().tolist()), float(value), probability
     )
 
 
@@ -489,9 +518,17 @@ def _predict_many(
     choices = sample_many(
         [logits[i, :n] for i, n in enumerate(batch.lengths)],
         [r.generator for r in requests],
+        eligibility=[r.inputs.eligibility for r in requests],
     )
-    probabilities = logits.softmax(1).cpu().tolist()
-    cpu_logits, cpu_values = logits.cpu().tolist(), values.cpu().tolist()
+    effective = [
+        restrict_logits(logits[i, :n], r.inputs.eligibility)
+        for i, (r, n) in enumerate(zip(requests, batch.lengths, strict=True))
+    ]
+    probabilities = [row.softmax(0).cpu().tolist() for row in effective]
+    cpu_logits, cpu_values = (
+        [row.cpu().tolist() for row in effective],
+        values.cpu().tolist(),
+    )
     return [
         MacroPrediction(
             choice,

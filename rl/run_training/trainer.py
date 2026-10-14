@@ -44,6 +44,12 @@ from run_training.model import (
     HealthMacroModel,
     MacroModel,
 )
+from run_training.restrictions import (
+    AVOID_PRISMATIC_PROTOCOL,
+    checked_eligibility,
+    restrict_batch_logits,
+    restrict_logits,
+)
 from run_training.rewards import (
     ACT1_BOSS_FLOOR,
     ACT1_CLEAR_BONUS,
@@ -114,6 +120,9 @@ def load_warm_start(model: MacroModel, path: Path, settings: dict) -> dict:
         "parent_iteration": source["iteration"],
         "parent_optimizer_updates": source["optimizer_updates"],
         "parent_native_sha256": source["config"]["native_sha256"],
+        "parent_policy_restriction_protocol": config.get(
+            "policy_restriction_protocol", "all_legal_actions"
+        ),
     }
 
 
@@ -152,11 +161,18 @@ def update(
         for episode in episodes:
             for step in episode.steps:
                 logits, value = model(step.inputs)
+                checked_eligibility(
+                    len(logits), step.inputs.eligibility, choice=step.choice
+                )
                 expected = torch.tensor(step.logits, device=logits.device)
-                if not torch.allclose(
-                    logits, expected, atol=1e-6, rtol=1e-5
-                ) or not math.isclose(
-                    float(value), step.value, abs_tol=1e-6, rel_tol=1e-5
+                effective = restrict_logits(logits, step.inputs.eligibility)
+                if (
+                    not torch.isfinite(logits).all()
+                    or not torch.isfinite(value)
+                    or not torch.allclose(effective, expected, atol=1e-6, rtol=1e-5)
+                    or not math.isclose(
+                        float(value), step.value, abs_tol=1e-6, rel_tol=1e-5
+                    )
                 ):
                     raise ValueError(
                         "On-policy recomputation mismatch; refusing optimizer update"
@@ -165,7 +181,9 @@ def update(
     for episode in episodes:
         for step in episode.steps:
             logits, value = model(step.inputs)
-            distribution = Categorical(logits=logits)
+            distribution = Categorical(
+                logits=restrict_logits(logits, step.inputs.eligibility)
+            )
             choice = torch.tensor(step.choice, device=logits.device)
             assert episode.reward is not None
             target = episode.reward
@@ -220,6 +238,10 @@ def _batched_update(
             raise ValueError(
                 "Invalid macro candidate record; refusing optimizer update"
             )
+        for step, _ in part:
+            checked_eligibility(
+                len(step.inputs.candidates), step.inputs.eligibility, choice=step.choice
+            )
         batch = model.pack([step.inputs for step, _ in part])
         reference = model.embedding.weight
         choices = torch.tensor(
@@ -233,11 +255,15 @@ def _batched_update(
     with torch.no_grad():
         for part, batch, _, _, _ in chunks:
             logits, values = model.forward_batch(batch)
-            actual = logits.flatten()[batch.positions]
+            raw_actual = logits.flatten()[batch.positions]
+            effective = restrict_batch_logits(
+                logits, batch.lengths, [step.inputs.eligibility for step, _ in part]
+            )
+            actual = effective.flatten()[batch.positions]
             expected = logits.new_tensor([x for step, _ in part for x in step.logits])
             old_values = values.new_tensor([step.value for step, _ in part])
             if (
-                not torch.isfinite(actual).all()
+                not torch.isfinite(raw_actual).all()
                 or not torch.isfinite(values).all()
                 or not torch.allclose(actual, expected, atol=1e-6, rtol=1e-5)
                 or not torch.allclose(values, old_values, atol=1e-6, rtol=1e-5)
@@ -246,9 +272,12 @@ def _batched_update(
                     "On-policy recomputation mismatch; refusing optimizer update"
                 )
     total = model.embedding.weight.new_zeros(())
-    for _, batch, choices, targets, advantages in chunks:
+    for part, batch, choices, targets, advantages in chunks:
         logits, values = model.forward_batch(batch)
-        distribution = Categorical(logits=logits)
+        effective = restrict_batch_logits(
+            logits, batch.lengths, [step.inputs.eligibility for step, _ in part]
+        )
+        distribution = Categorical(logits=effective)
         loss = (
             -distribution.log_prob(choices) * advantages / len(episodes)
             + (
@@ -415,6 +444,11 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--model-width", type=int, default=64)
     result.add_argument("--seed", type=int, default=123)
     result.add_argument(
+        "--avoid-prismatic",
+        action="store_true",
+        help="Explicit restricted-policy experiment: zero probability for visible optional Prismatic acquisitions; game legality unchanged",
+    )
+    result.add_argument(
         "--training-environment-seed",
         type=int,
         help="Explicit unsigned-64-bit master seed for private simulator-only libGDX inputs; omitted keeps strict replay-style inputs",
@@ -556,6 +590,9 @@ def main(argv: list[str] | None = None) -> None:
         else None,
         protocol=PROTOCOL,
         execution_protocol="ragged_macro_learner_cooperative_collection_v1",
+        policy_restriction_protocol=AVOID_PRISMATIC_PROTOCOL
+        if args.avoid_prismatic
+        else "all_legal_actions",
         initial_state_profile="synthetic_preboss_campfire_hp_only"
         if bank
         else "natural_start",
@@ -704,6 +741,7 @@ def main(argv: list[str] | None = None) -> None:
             {
                 "objective": args.objective,
                 "final_act": args.final_act,
+                "avoid_prismatic": args.avoid_prismatic,
                 "max_actions": args.max_actions,
                 "macro_rng": torch.Generator(device=args.device).manual_seed(
                     policy_seed
@@ -783,6 +821,7 @@ def main(argv: list[str] | None = None) -> None:
         def log(values: dict, step: int) -> None:
             values = {
                 **values,
+                "policy/avoid_prismatic": float(args.avoid_prismatic),
                 "elapsed_seconds": time.monotonic() - started,
                 "optimizer_updates": optimizer_updates,
                 "skipped_batches": skipped_batches,
