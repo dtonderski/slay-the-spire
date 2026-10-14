@@ -101,6 +101,40 @@ class CampaignTests(unittest.TestCase):
         self.assertEqual(result["status"], "probe_profile_mismatch")
         self.assertTrue(output.exists())
 
+    def test_wide_profile_is_explicit_in_child_command(self):
+        _, output = self.run_fake('echo "$4" > "$3/profile"\n',
+                                  profile="cards-relics-potions-endurance-wide")
+        self.assertEqual((output / "profile").read_text().strip(), "--wide")
+
+    def test_wide_profile_rejects_endurance_only_binary(self):
+        result, output = self.run_fake(
+            'echo \'coverage={"encounter":"Cultist","ascension":20,"generation_profile":"cards-relics-potions-endurance","initial_hp":500,"initial_max_hp":500}\'\n'
+            'echo "done start=$1 count=1 terminal=1 failures=0 capped=0"\n',
+            profile="cards-relics-potions-endurance-wide")
+        self.assertEqual(result["status"], "probe_profile_mismatch")
+        self.assertTrue(output.exists())
+
+    def test_wide_profile_with_matching_health_allows_terminal_cleanup(self):
+        result, output = self.run_fake(
+            'echo \'coverage={"encounter":"Cultist","ascension":20,"generation_profile":"cards-relics-potions-endurance-wide","initial_hp":500,"initial_max_hp":500}\'\n'
+            'echo "done start=$1 count=1 terminal=1 failures=0 capped=0"\n',
+            profile="cards-relics-potions-endurance-wide")
+        self.assertEqual(result["status"], "terminal")
+        self.assertFalse(output.exists())
+
+    def test_wide_profile_rejects_missing_or_invalid_health(self):
+        for health in [{}, {"initial_hp": 80, "initial_max_hp": 80},
+                       {"initial_hp": 400, "initial_max_hp": 500}]:
+            with self.subTest(health=health):
+                coverage = {"encounter": "Cultist", "ascension": 20,
+                            "generation_profile": "cards-relics-potions-endurance-wide", **health}
+                result, output = self.run_fake(
+                    f"echo 'coverage={json.dumps(coverage)}'\n"
+                    'echo "done start=$1 count=1 terminal=1 failures=0 capped=0"\n',
+                    profile="cards-relics-potions-endurance-wide")
+                self.assertEqual(result["status"], "probe_profile_mismatch")
+                self.assertTrue(output.exists())
+
     def test_case_uses_campaign_provenance(self):
         result, output = self.run_fake('echo "$COMBAT_FUZZ_REVISION" > "$3/revision"\n'
                                       'cp "$COMBAT_FUZZ_PATCH" "$3/patch"\n', pinned=True)
