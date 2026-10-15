@@ -15,7 +15,9 @@ the existing combat loop. `--task run` dispatches to a separate implementation:
 - `trainer.py`: completed-episode Monte Carlo actor-critic (`gamma=1`), on-policy
   public-input recomputation checks, fixed held-out evaluation, logs/checkpoints.
 - `rewards.py`: declared terminal reward components and outcome-based success.
-- `metrics.py`: accepted healing decisions by HP band and elite share of map entries.
+- `metrics.py`: accepted behavior counts, healing by HP band, elite entries and shop re-entry diagnostics.
+- `progress.py`: monotone public-history act, floor, key and Heart milestones.
+- `diagnostics.py`: opt-in public choice/context audits and descriptive policy statistics.
 - `contracts.py`: explicit schema-8 run outcomes and screen-based ownership.
 - `targets.py`: tested reference GAE for later nonterminal fragment bootstrapping;
   **not used** by the initial completed-episode trainer.
@@ -46,6 +48,78 @@ remains an unconstrained linear output trained against targets in [0, 6].
 are **natural HP, A0**, with Heart profile enabled by default (`--no-final-act`
 disables it for non-Heart objectives). No seeds, revisions, private state or
 simulator futures enter the macro model.
+
+## Full-Heart reward and observability
+
+`--objective heart_progress` opts into the shaped full-run objective:
+
+```text
+3 * min(furthest_observed_floor / 55, 1)
++ 2 * first_three_acts_cleared
++ 30 * explicit_heart_victory
+```
+
+This is a **single terminal return**, not repeated payments for UI actions. Act
+bonuses require observed entry into a later act or an explicit final victory;
+floor numbers alone never establish a clear. The scale of 55 corresponds to the
+native Heart-combat floor; TrueVictory on 56 is clipped (source:
+`run/reward.rs::corrupt_heart_victory_proceeds_to_true_victory_floor`). This is
+source-backed reward accounting, not new real-game parity evidence. Completed
+non-Heart runs score at most 9; a Heart victory scores 39. Errors, cutoffs and
+invalid boundaries still receive **no target**, even when earlier milestones
+were observed. The old `heart` objective remains binary and unchanged.
+
+Shaping can favor reliable progress over risky victory attempts; it is not an
+exact proxy for win probability. The trainer archives `best-validation.pt` using
+success rate first (Heart wins for Heart objectives), unknown counts second,
+shaped reward third. Partial scheduled evaluations cannot select a best model.
+Selection is over this invocation's repeated validation, not an independent test;
+keep fresh final-test seeds separate. Native/source/profile provenance remains
+archived, including any declared Prismatic restriction.
+
+Use explicit `--warm-start-policy-only /path/to/best.pt` when changing objectives:
+actor/shared-encoder weights transfer, critic heads retain their fresh
+initialization with zero outputs, optimizer/RNG/counters start fresh. All model
+shapes, feature/observation and frozen-combat contracts still must match. Ordinary
+`--warm-start` still rejects reward/objective changes; exact resume remains strict.
+This option does not restore, repair or transplant simulator states.
+
+### Metrics: observation versus explanation
+
+- **Outcomes/coverage:** Heart wins, non-Heart Act-3 completions, deaths by act,
+  observed act clears, key collection, Act-4 entry and Heart encounter. Milestones
+  remain visible for incomplete episodes without treating those episodes as wins
+  or losses. Counts carry an observed-progress coverage denominator. Validation
+  also reports success and Heart-win lower bounds over **all scheduled** cases,
+  including unattempted cases; completed-only rates are explicitly conditional.
+- **Efficiency:** collection/update time, episodes and actions per second,
+  optimizer updates per wall-clock hour, episodes actually used for learning,
+  and completed episodes discarded with incomplete batches. Whole-batch
+  quarantine is unchanged. Same-floor shop re-entries are measured, not forbidden.
+- **Behavior:** accepted card-taking/closing, purchases, potion use, rest choices,
+  and elite entries. A closed card menu is **not** necessarily a skipped reward;
+  repeated menus are decision-level observations, not independent opportunities.
+- **Policy health:** entropy, sampled-choice probability, concentration, and
+  reward-target value MSE, plus pre-clip gradient norm and clipping indicators
+  on actual optimizer updates. Policy/value statistics are decision-weighted on retained
+  accepted macro records (errored episodes currently drop their macro records).
+  Critic values predict shaped return, **not calibrated Heart-win probability**.
+
+`--decision-diagnostics evaluation` records all ordered candidates, eligibility,
+probabilities, chosen index/value and public deck/relic/HP/key context inside
+attempt journals during validation. `all` also records training; default `none`
+avoids the extra serialization/storage. Use bounded audits: menu loops can make
+these records large. Rejected attempts remain proposals, not accepted choices;
+the existing acceptance fence is authoritative. Masked logits serialize as null
+with probability zero, never non-standard JSON infinities. No RNG is drawn for
+telemetry, and no diagnostic/milestone counters enter policy inputs or rewards
+apart from the explicitly declared public-progress reward components.
+
+This provides **observability** and evidence for subsequent interpretability
+studies, not proof of strategy or causal explanations. Conditional pick rates
+must account for offered alternatives, affordability, constraints, floor/HP and
+repeated-menu visits. Context ablations and paired continuation experiments are
+separate analysis; no synergy score or claimed explanation is fabricated here.
 
 ## Environment limitations
 
@@ -149,7 +223,8 @@ and source archives include the immutable legacy identity list.
 
 After an intentional simulator/source update, use `--warm-start /path/to/latest.pt`
 for explicit **macro weights-only transfer** into a new run. Architecture, feature,
-observation, reward, objective and frozen-combat contracts must match; native/source
+observation, reward, objective and frozen-combat contracts must match (the explicit
+policy-only option above is the exception for reward/objective changes); native/source
 hash changes are allowed and parent checkpoint/native hashes are recorded. The
 optimizer, sampler and local iteration counters start fresh. This is not exact
 resume and does not restore simulator states or unfinished episodes.

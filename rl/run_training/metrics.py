@@ -9,6 +9,22 @@ from run_training.contracts import PolicyAction
 
 # Half-open intervals except the last: [0,25), [25,50), [50,75), [75,100].
 HP_BANDS = ("hp_00_25", "hp_25_50", "hp_50_75", "hp_75_100")
+TRACKED_ACTIONS = (
+    "take_card_reward",
+    "close_card_reward",
+    "take_singing_bowl_reward",
+    "buy_shop_card",
+    "buy_shop_relic",
+    "buy_shop_potion",
+    "use_potion_slot",
+    "discard_potion_slot",
+    "enter_shop",
+    "leave_shop",
+    "rest_heal",
+    "rest_open_smith",
+    "rest_recall",
+    "choose_boss_relic_reward",
+)
 
 
 @dataclass(frozen=True)
@@ -18,6 +34,9 @@ class BehaviorStats:
     heal_probability_sum: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0)
     map_nodes_visited: int = 0
     elite_nodes_visited: int = 0
+    action_counts: tuple[tuple[str, int], ...] = ()
+    shop_floors_seen: tuple[tuple[int, int], ...] = ()
+    shop_reentries: int = 0
 
     def accepted(
         self,
@@ -69,6 +88,20 @@ class BehaviorStats:
                 map_nodes_visited=result.map_nodes_visited + 1,
                 elite_nodes_visited=result.elite_nodes_visited + int(elite),
             )
+        if action.kind in TRACKED_ACTIONS:
+            counts = dict(result.action_counts)
+            counts[action.kind] = counts.get(action.kind, 0) + 1
+            result = replace(result, action_counts=tuple(counts.items()))
+        if action.kind == "enter_shop":
+            location = (observation.context.act, observation.context.floor)
+            revisited = location in result.shop_floors_seen
+            result = replace(
+                result,
+                shop_reentries=result.shop_reentries + int(revisited),
+                shop_floors_seen=result.shop_floors_seen
+                if revisited
+                else result.shop_floors_seen + (location,),
+            )
         return result
 
 
@@ -80,6 +113,17 @@ def behavior_scores(records: list[BehaviorStats]) -> dict[str, float]:
         "map/nodes_visited": float(nodes),
         "map/elite_nodes_visited": float(elites),
     }
+    result.update(
+        {
+            f"actions/{kind}": float(
+                sum(dict(r.action_counts).get(kind, 0) for r in records)
+            )
+            for kind in TRACKED_ACTIONS
+        }
+    )
+    result["navigation/shop_same_floor_reentries"] = float(
+        sum(r.shop_reentries for r in records)
+    )
     if nodes:
         result["map/elite_percent"] = 100.0 * elites / nodes
     for i, name in enumerate(HP_BANDS):
