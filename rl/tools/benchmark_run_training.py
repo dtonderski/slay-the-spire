@@ -8,6 +8,7 @@ from only a model forward benchmark.
 """
 
 import argparse
+import cProfile
 import gzip
 import hashlib
 import inspect
@@ -15,8 +16,11 @@ import json
 import time
 from pathlib import Path
 
+import numpy as np
+import sts_sim
 import torch
 from run_training import collector, trainer
+from run_training.environment import episode_environment_seed
 from run_training.model import HealthMacroModel, MacroModel
 from run_training.roots import RootBank
 from sts_sim import State, _native
@@ -68,12 +72,32 @@ def main():
     cli.add_argument("--width", type=int, default=1)
     cli.add_argument("--learner-batch-size", type=int, default=0)
     cli.add_argument("--device", choices=["cpu", "cuda"], default="cuda")
+    cli.add_argument(
+        "--objective", choices=["act1", "act1_binary"], default="act1_binary"
+    )
+    cli.add_argument("--max-actions", type=int, default=3000)
+    cli.add_argument("--adapt-legacy-combat-checkpoint", action="store_true")
+    cli.add_argument("--avoid-prismatic", action="store_true")
+    cli.add_argument("--raw-navigation", action="store_true")
+    cli.add_argument("--training-environment-seed", type=int)
+    cli.add_argument(
+        "--cprofile",
+        action="store_true",
+        help="Save per-trial CPU profiles; timings include profiler overhead",
+    )
     cli.add_argument("--out", type=Path, required=True)
     args = cli.parse_args()
-    if min(args.episodes, args.trials, args.width) < 1 or args.learner_batch_size < 0:
+    if (
+        min(args.episodes, args.trials, args.width, args.max_actions) < 1
+        or args.learner_batch_size < 0
+    ):
         cli.error("Counts must be positive and learner batch size nonnegative")
     if args.profile == "campfire" and args.root_manifest is None:
         cli.error("Campfire benchmark requires a root manifest")
+    if args.training_environment_seed is not None:
+        if args.profile == "campfire":
+            cli.error("Root journals own their environmental inputs")
+        episode_environment_seed(args.training_environment_seed, "0")
     args.out.mkdir(parents=True, exist_ok=False)
     torch.set_num_threads(1)
     torch.manual_seed(1234)
@@ -82,7 +106,11 @@ def main():
         HealthMacroModel if saved["config"].get("encoder") == "health" else MacroModel
     )
     model = kind(saved["config"]["model_width"]).to(args.device)
-    frozen = collector.FrozenCombat(args.combat_checkpoint, args.device)
+    frozen = collector.FrozenCombat(
+        args.combat_checkpoint,
+        args.device,
+        adapt_legacy=args.adapt_legacy_combat_checkpoint,
+    )
     bank = (
         RootBank(args.root_manifest, final_act=True)
         if args.profile == "campfire"
@@ -91,13 +119,23 @@ def main():
     seeds = json.loads(args.seeds.read_text())
     if not bank and len(seeds) < args.episodes:
         cli.error("Provide enough distinct natural seeds; do not silently repeat them")
-    sources = sorted(set(Path(trainer.__file__).parent.glob("*.py")))
+    rl_root = Path(trainer.__file__).parent.parent
+    sources = sorted(
+        set(Path(trainer.__file__).parent.glob("*.py"))
+        | set(Path(sts_sim.__file__).parent.rglob("*.py"))
+        | set((rl_root / "encoders").glob("*.py"))
+        | {rl_root / "model.py", rl_root / "observation_encoder.py"}
+    )
     manifest = {
         **vars(args),
         "torch": str(torch.__version__),
+        "numpy": np.__version__,
+        "device_name": torch.cuda.get_device_name() if args.device == "cuda" else "cpu",
+        "torch_threads": torch.get_num_threads(),
         "native_sha256": digest(Path(_native.__file__)),
         "macro_sha256": digest(args.macro_checkpoint),
         "combat_sha256": digest(args.combat_checkpoint),
+        "seeds_sha256": digest(args.seeds),
         "script_sha256": digest(Path(__file__)),
         "source_files": {str(p): digest(p) for p in sources},
     }
@@ -117,16 +155,17 @@ def main():
         if args.device == "cuda":
             torch.cuda.reset_peak_memory_stats()
         paths = []
+        policy_rngs = []
 
-        def jobs(trial=trial, paths=paths):
+        def jobs(trial=trial, paths=paths, policy_rngs=policy_rngs):
             for index in range(args.episodes):
                 seed = (
                     bank.training[index % len(bank.training)] if bank else seeds[index]
                 )
                 factory = State.new
-                visible = previous = metadata = None
+                previous = metadata = None
                 if bank:
-                    state, visible, previous, metadata = bank.initial(
+                    state, _, previous, metadata = bank.initial(
                         seed, [0.15, 0.5, 0.85][index % 3]
                     )
 
@@ -137,9 +176,16 @@ def main():
                 journal = args.out / f"trial-{trial}-{index}.jsonl.gz"
                 paths.append(journal)
                 options: collector.CollectionOptions = {
-                    "objective": "act1_binary",
+                    "objective": args.objective,
+                    "avoid_prismatic": args.avoid_prismatic,
+                    "commit_navigation": not args.raw_navigation,
                     "final_act": True,
-                    "max_actions": 3000,
+                    "max_actions": args.max_actions,
+                    "training_rng_seed": episode_environment_seed(
+                        args.training_environment_seed, seed
+                    )
+                    if args.training_environment_seed is not None
+                    else None,
                     "macro_rng": torch.Generator(device=args.device).manual_seed(
                         100000 + index
                     ),
@@ -148,13 +194,16 @@ def main():
                     ),
                     "journal": journal,
                     "state_factory": factory,
-                    "initial_visible_map": visible,
                     "initial_previous": previous,
                     "initial_metadata": metadata,
                 }
+                policy_rngs.extend((options["macro_rng"], options["combat_rng"]))
                 yield seed, options
 
+        profiler = cProfile.Profile() if args.cprofile else None
         sync()
+        if profiler is not None:
+            profiler.enable()
         start = time.perf_counter()
         if args.width == 1:
             episodes = []
@@ -170,7 +219,7 @@ def main():
                             error.accepted,
                             error.floor,
                             str(error),
-                            objective="act1_binary",
+                            objective=args.objective,
                             furthest_act1_floor=error.furthest_act1_floor,
                             behavior=error.behavior,
                         )
@@ -209,6 +258,9 @@ def main():
         )
         temporary.replace(args.out / f"trial-{trial}.pt")
         checkpoint_seconds = time.perf_counter() - checkpoint_start
+        if profiler is not None:
+            profiler.disable()
+            profiler.dump_stats(str(args.out / f"trial-{trial}.pstats"))
         result = {
             "trial": trial,
             "cold": trial == 0,
@@ -228,12 +280,20 @@ def main():
             else 0,
             "learned": learned,
             "journal_execution_sha256": [journal_fingerprint(p) for p in paths],
+            "policy_rng_sha256": [
+                hashlib.sha256(rng.get_state().numpy().tobytes()).hexdigest()
+                for rng in policy_rngs
+            ],
         }
         all_trials.append(result)
         (args.out / "results.json").write_text(json.dumps(all_trials, indent=2) + "\n")
         print(
             json.dumps(
-                {k: v for k, v in result.items() if k != "journal_execution_sha256"}
+                {
+                    k: v
+                    for k, v in result.items()
+                    if k not in ("journal_execution_sha256", "policy_rng_sha256")
+                }
             ),
             flush=True,
         )

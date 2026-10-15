@@ -24,6 +24,12 @@ while decision := state.decision():
 `legal_actions`, and `step`. `Decision` atomically carries a schema version,
 revision, fair observation, and an immutable tuple of decision-local actions.
 Actions expose only stable kinds and visible slots and are rejected when stale.
+`decision.observation.context.map` contains the public current-act `MapScreen`
+on every screen, including before the initial Neow choice. No separate inspection
+method or navigation is required. It is `None` only when no current-act map exists
+(e.g. a synthetic fixture). Reading it never generates a map, advances RNG, or
+reveals future encounters/rewards. See the [fair boundary](fair_api.md) for source
+provenance and the real-game bridge contract.
 A dismissable completed-room map offers `return_to_room`, which reopens its
 existing room screen without entering a room or reapplying effects. The numeric
 kind vocabulary appends this kind without renumbering existing kinds.
@@ -201,7 +207,12 @@ explicit initial-state curriculum constructor, not an accepted game action,
 in-place setter, or replay repair mechanism. Synthetic-root scores must remain
 separate from natural-start evaluation.
 
-Run-observation schema **8** completes current visible offer metadata:
+Run-observation schema **9** adds the ordinary `context.map` described above.
+The current map refreshes with accepted room entry and public key changes; it is
+not stale map-screen history. Strict decoders reject missing/unknown map fields.
+Combat schema and numeric combat row layouts remain unchanged.
+
+Schema 8 completed current visible offer metadata:
 
 - `RewardScreen.relic_offers` contains immutable `RelicOffer(slot, content_key)`
   entries in exactly the current `take_relic_reward_at.reward_slot` order,
@@ -269,7 +280,14 @@ from sts_sim.observations.common import Relic, RunContext
 ```
 
 Unknown mapping fields are rejected when projecting native records, so Python types fail closed if the
-fair schema grows. Combat piles expose a canonical `cards` multiset and
+fair schema grows. Decoding uses bounded caches of fixed schema metadata and
+immutable card values. Card cache keys snapshot every input field and primitive
+type; malformed fields and bool/int aliases still undergo the ordinary strict
+decoder. Custom mappings and scalar subclasses take the uncached path. Equal public card values
+may share a Python object: object identity is not card-instance identity; use the
+public decision-local slots. No simulator state or native handles are cached.
+
+Combat piles expose a canonical `cards` multiset and
 `known_positions` (position `0` is the next draw). They do not expose `count` or
 `known_order`.
 

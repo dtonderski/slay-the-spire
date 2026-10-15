@@ -542,12 +542,12 @@ class RunTrainerTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, key):
                     load_warm_start(target, path, {**config, key: "changed"})
 
-    def test_warm_start_legacy_hashed_and_explicit_prereview_versions(self):
-        self.assertEqual(FEATURE_VERSION, 2)
-        self.assertEqual(HEALTH_FEATURE_VERSION, 3)
+    def test_warm_start_current_map_versions_and_explicit_legacy_transfer(self):
+        self.assertEqual(FEATURE_VERSION, 4)
+        self.assertEqual(HEALTH_FEATURE_VERSION, 5)
         config = {
             "protocol": "same",
-            "feature_version": 2,
+            "feature_version": FEATURE_VERSION,
             "model_width": 8,
             "reward_protocol": "same",
             "objective": "act1",
@@ -573,10 +573,7 @@ class RunTrainerTests(unittest.TestCase):
                     path,
                 )
 
-            for parent in (
-                config,
-                {**config, "encoder": "hashed", "feature_version": 3},
-            ):
+            for parent in (config, {**config, "encoder": "hashed"}):
                 save(parent, self.model)
                 target = MacroModel(8)
                 metadata = load_warm_start(target, path, settings)
@@ -590,7 +587,7 @@ class RunTrainerTests(unittest.TestCase):
                     )
             for parent in (
                 {**config, "feature_version": 3},  # No known encoder-v3 producer.
-                {**config, "encoder": "hashed", "feature_version": 4},
+                {**config, "encoder": "hashed", "feature_version": 2},
                 {**config, "encoder": "health", "feature_version": 3},
                 {**config, "encoder": None},
             ):
@@ -598,12 +595,29 @@ class RunTrainerTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "feature_version|encoder"):
                     load_warm_start(MacroModel(8), path, settings)
             health = HealthMacroModel(8)
-            health_config = {**config, "encoder": "health", "feature_version": 3}
+            health_config = {
+                **config,
+                "encoder": "health",
+                "feature_version": HEALTH_FEATURE_VERSION,
+            }
             save(health_config, health)
             load_warm_start(HealthMacroModel(8), path, health_config)
             save({**health_config, "feature_version": 2}, health)
             with self.assertRaisesRegex(ValueError, "feature_version"):
                 load_warm_start(HealthMacroModel(8), path, health_config)
+
+            legacy = {**config, "feature_version": 2, "observation_schema": 8}
+            target = {**settings, "observation_schema": 9}
+            save(legacy, self.model)
+            with self.assertRaisesRegex(ValueError, "feature_version"):
+                load_warm_start(MacroModel(8), path, target)
+            metadata = load_warm_start(
+                MacroModel(8), path, target, adapt_legacy_map=True
+            )
+            self.assertIsNotNone(metadata["parent_map_adapter"])
+            save({**legacy, "observation_schema": 7}, self.model)
+            with self.assertRaisesRegex(ValueError, "Legacy map adapter"):
+                load_warm_start(MacroModel(8), path, target, adapt_legacy_map=True)
 
     def test_root_hp_metric_names_must_be_unique(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -694,7 +708,9 @@ class RunTrainerTests(unittest.TestCase):
                 self.assertTrue((output / "failure.json").exists())
                 checkpoint = torch.load(output / "latest.pt", weights_only=True)
                 self.assertEqual(checkpoint["optimizer_updates"], 0)
-                self.assertEqual(checkpoint["config"]["feature_version"], 2)
+                self.assertEqual(
+                    checkpoint["config"]["feature_version"], FEATURE_VERSION
+                )
 
     def test_checkpoint_commits_before_fallible_telemetry(self):
         with tempfile.TemporaryDirectory() as directory:

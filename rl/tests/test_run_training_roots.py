@@ -156,16 +156,16 @@ class RootCurriculumTests(unittest.TestCase):
         self.assertEqual(task_result(completed, "act1_binary"), ("act1_clear", 1))
 
     def test_health_ablation_starts_uniform_and_uses_public_hp(self):
-        source, visible, previous = reconstruct(
+        source, _, previous = reconstruct(
             FIXTURES / self.cases[0]["journal"], self.cases[0]["stop_step"]
         )
         d = source.synthetic_rest_root(10).decision()
         actions = tuple(PolicyAction.from_action(a) for a in d.actions)
-        low = encode(d.observation, actions, visible_map=visible, previous=previous)
+        low = encode(d.observation, actions, previous=previous)
         high_ob = replace(
             d.observation, context=replace(d.observation.context, player_hp=60)
         )
-        high = encode(high_ob, actions, visible_map=visible, previous=previous)
+        high = encode(high_ob, actions, previous=previous)
         self.assertNotEqual(low.health, high.health)
         self.assertEqual(low.candidates, high.candidates)
         model = HealthMacroModel(8)

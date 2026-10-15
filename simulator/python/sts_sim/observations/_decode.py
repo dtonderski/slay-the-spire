@@ -4,9 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from enum import StrEnum
+from functools import lru_cache
+from typing import cast
 
 
-def _field_names(cls: object) -> frozenset[str]:
+@lru_cache(maxsize=128)
+def _field_names(cls: type[object]) -> frozenset[str]:
+    # Public dataclass schemas are fixed at import time. Cache schema metadata,
+    # not observations; every payload still gets full field/type validation.
     raw = getattr(cls, "__dataclass_fields__", None)
     if not isinstance(raw, dict):
         raise TypeError(f"{cls!r} is not a dataclass type")
@@ -16,6 +21,41 @@ def _field_names(cls: object) -> frozenset[str]:
             raise TypeError(f"{cls!r} has a non-string dataclass field name")
         names.append(key)
     return frozenset(names)
+
+
+type _RecordKey = tuple[tuple[str, type[object], object], ...]
+
+
+def _record_key(value: object, depth: int = 1) -> _RecordKey | None:
+    """Snapshot small plain records for memoization without type-equality aliases.
+
+    Unknown/custom objects use the ordinary decoder. In particular bool/int and
+    mutable subclasses cannot alias a previously validated record. Keys retain
+    every field (including unknown ones); only successful decodes are cached.
+    """
+    if type(value) is not dict:
+        return None
+    result = []
+    for key, child in value.items():
+        if type(key) is not str:
+            return None
+        kind = type(child)
+        if kind is dict and depth:
+            child = _record_key(child, depth - 1)
+            if child is None:
+                return None
+        elif kind not in (str, int, bool, type(None)):
+            return None
+        result.append((key, kind, child))
+    return tuple(result)
+
+
+def _record_mapping(key: _RecordKey) -> dict[str, object]:
+    """Recreate a decoder input on a cache miss, never simulator state."""
+    return {
+        name: _record_mapping(cast(_RecordKey, value)) if kind is dict else value
+        for name, kind, value in key
+    }
 
 
 def _exact(value: object, path: str, cls: type[object]) -> dict[str, object]:
@@ -29,14 +69,25 @@ def _mapping(
     required: frozenset[str],
     optional: frozenset[str] = frozenset(),
 ) -> dict[str, object]:
-    if not isinstance(value, Mapping):
-        raise TypeError(f"{path}: expected mapping, got {type(value).__name__}")
-    typed: dict[str, object] = {}
-    for key, child in value.items():
-        if not isinstance(key, str):
-            raise TypeError(f"{path}: expected string keys, got {type(key).__name__}")
-        typed[key] = child
+    if type(value) is dict:
+        # Native projections are plain dicts. Copy in C, but still check every
+        # key: equality with a string schema alone is not a type check.
+        copied = value.copy()
+        for key in copied:
+            if not isinstance(key, str):
+                raise TypeError(f"{path}: expected string keys, got {type(key).__name__}")
+        typed = cast(dict[str, object], copied)
+    else:
+        if not isinstance(value, Mapping):
+            raise TypeError(f"{path}: expected mapping, got {type(value).__name__}")
+        typed: dict[str, object] = {}
+        for key, child in value.items():
+            if not isinstance(key, str):
+                raise TypeError(f"{path}: expected string keys, got {type(key).__name__}")
+            typed[key] = child
     keys = frozenset(typed)
+    if keys == required:
+        return typed
     missing = required - keys
     extra = keys - required - optional
     if missing or extra:

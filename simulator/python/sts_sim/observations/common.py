@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Literal, get_args
 
 from ..content_ids import CardKey, CounterKey, PotionKey, RelicKey
@@ -16,10 +17,14 @@ from ._decode import (
     _mapping,
     _optional_int,
     _optional_present_enum,
+    _record_key,
+    _record_mapping,
+    _RecordKey,
     _seq,
 )
+from .maps import MapScreen, decode_map_screen
 
-FAIR_RUN_OBSERVATION_SCHEMA_VERSION = 8
+FAIR_RUN_OBSERVATION_SCHEMA_VERSION = 9
 
 RunOutcome = Literal["ongoing", "death", "act3_clear", "heart_clear", "unknown_complete"]
 
@@ -110,6 +115,7 @@ class RunContext:
     deck: tuple[Card, ...]
     relics: tuple[Relic, ...]
     potion_slots: tuple[PotionSlot, ...]
+    map: MapScreen | None = None
 
 
 def decode_run_context(value: object, path: str) -> RunContext:
@@ -125,6 +131,7 @@ def decode_run_context(value: object, path: str) -> RunContext:
         ),
         final_act_available=_bool(data["final_act_available"], f"{path}.final_act_available"),
         keys=decode_run_keys(data["keys"], f"{path}.keys"),
+        map=None if data["map"] is None else decode_map_screen(data["map"], f"{path}.map"),
         floor=_int(data["floor"], f"{path}.floor"),
         gold=_int(data["gold"], f"{path}.gold"),
         player_hp=_int(data["player_hp"], f"{path}.player_hp"),
@@ -145,6 +152,19 @@ def decode_run_keys(value: object, path: str) -> RunKeys:
 
 
 def decode_card(value: object, path: str) -> Card:
+    key = _record_key(value)
+    if key is None:
+        return _decode_card(value, path)
+    return _cached_card(key, path)
+
+
+@lru_cache(maxsize=4096)
+def _cached_card(key: _RecordKey, path: str) -> Card:
+    # Only immutable public records are interned; no native handles or revisions.
+    return _decode_card(_record_mapping(key), path)
+
+
+def _decode_card(value: object, path: str) -> Card:
     data = _exact(value, path, Card)
     return Card(
         content_key=_enum(data["content_key"], f"{path}.content_key", CardKey),

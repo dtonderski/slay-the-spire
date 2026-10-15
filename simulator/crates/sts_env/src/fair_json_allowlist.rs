@@ -223,6 +223,7 @@ const RUN_CONTEXT: Schema = Schema::Object(&[
     ("act_boss", Schema::Leaf),
     ("final_act_available", Schema::Leaf),
     ("keys", RUN_KEYS),
+    ("map", Schema::Optional(&MAP_SCREEN)),
     ("floor", Schema::Leaf),
     ("gold", Schema::Leaf),
     ("player_hp", Schema::Leaf),

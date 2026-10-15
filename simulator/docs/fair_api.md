@@ -33,6 +33,18 @@ private instance IDs or content-pool positions.
 Public observations include visible player/monster state, displayed intent,
 hand slots, inspectable piles, visible relic/potion state, selection screens,
 and allowlisted public counters. Run observations also cover noncombat screens.
+Every ordinary observation includes the inspectable current-act map in
+`context.map`, including before Neow's blessing. It uses the same public
+projection as the map screen: topology, room symbols, current position and
+burning-elite markers, not hidden encounters or `?` outcomes. Synthetic/transition
+states without a current-act map report `None`, never a previous/future act's map.
+Reading state neither opens the map nor changes revision, legal actions or RNG.
+
+This is source-backed by CommunicationMod's
+`GameStateConverter.getGameState` → `convertMapToJson`: the bridge publishes the
+public map regardless of active screen. No extra map-open/return command is
+needed to obtain that graph from the real game. This observation addition is
+not a new end-to-end real-game policy adapter or a gameplay parity claim.
 
 They exclude hidden pile order, RNG, private AI state, internal instance IDs,
 action queues, and unrevealed outcomes. Runic Dome intent is hidden. Draw order

@@ -44,6 +44,13 @@ from run_training.model import (
     HealthMacroModel,
     MacroModel,
 )
+from run_training.restrictions import (
+    AVOID_PRISMATIC_PROTOCOL,
+    NAVIGATION_PROTOCOL,
+    checked_eligibility,
+    restrict_batch_logits,
+    restrict_logits,
+)
 from run_training.rewards import (
     ACT1_BOSS_FLOOR,
     ACT1_CLEAR_BONUS,
@@ -74,7 +81,9 @@ def digest(path: Path) -> str:
         return hashlib.file_digest(source, "sha256").hexdigest()
 
 
-def load_warm_start(model: MacroModel, path: Path, settings: dict) -> dict:
+def load_warm_start(
+    model: MacroModel, path: Path, settings: dict, *, adapt_legacy_map: bool = False
+) -> dict:
     """Explicit weights-only transfer across simulator/source revisions, not resume."""
     source = torch.load(path, map_location="cpu", weights_only=True)
     config = source["config"]
@@ -82,15 +91,31 @@ def load_warm_start(model: MacroModel, path: Path, settings: dict) -> dict:
     if config.get("encoder", "hashed") != settings.get("encoder", "hashed"):
         raise ValueError("Run warm-start mismatch: encoder")
     version = config.get("feature_version")
-    # Pre-review #141 checkpoints labeled the unchanged hashed features as v3.
-    # Migrate only that explicit weights-only case; exact resume remains strict.
-    if (
-        config.get("encoder") == "hashed"
-        and version == 3
-        and settings.get("feature_version") == FEATURE_VERSION
-    ):
-        version = FEATURE_VERSION
-    if version != settings.get("feature_version"):
+    encoder = config.get("encoder", "hashed")
+    legacy_map = (
+        adapt_legacy_map
+        and config.get("observation_schema") == 8
+        and settings.get("observation_schema") == 9
+        and (
+            (
+                encoder == "hashed"
+                and (
+                    version == 2 or (version == 3 and config.get("encoder") == "hashed")
+                )
+                and settings.get("feature_version") == FEATURE_VERSION
+            )
+            or (
+                encoder == "health"
+                and version == 3
+                and settings.get("feature_version") == HEALTH_FEATURE_VERSION
+            )
+        )
+    )
+    if adapt_legacy_map and not legacy_map:
+        raise ValueError(
+            "Legacy map adapter requires a supported schema-8 checkpoint and schema-9 target"
+        )
+    if not legacy_map and version != settings.get("feature_version"):
         raise ValueError("Run warm-start mismatch: feature_version")
     for key in (
         "protocol",
@@ -103,17 +128,25 @@ def load_warm_start(model: MacroModel, path: Path, settings: dict) -> dict:
         "gamma",
         "combat_sha256",
     ):
+        if key == "observation_schema" and legacy_map:
+            continue
         if source["config"].get(key) != settings.get(key):
             raise ValueError(f"Run warm-start mismatch: {key}")
     model.load_state_dict(source["model"], strict=True)
     if not all(torch.isfinite(p).all() for p in model.parameters()):
         raise ValueError("Nonfinite macro checkpoint")
     return {
+        "parent_map_adapter": "schema8_map_history_to_schema9_context_weights_only"
+        if legacy_map
+        else None,
         "parent_feature_version": config.get("feature_version"),
         "parent_encoder": config.get("encoder", "hashed"),
         "parent_iteration": source["iteration"],
         "parent_optimizer_updates": source["optimizer_updates"],
         "parent_native_sha256": source["config"]["native_sha256"],
+        "parent_policy_restriction_protocol": config.get(
+            "policy_restriction_protocol", "all_legal_actions"
+        ),
     }
 
 
@@ -152,11 +185,18 @@ def update(
         for episode in episodes:
             for step in episode.steps:
                 logits, value = model(step.inputs)
+                checked_eligibility(
+                    len(logits), step.inputs.eligibility, choice=step.choice
+                )
                 expected = torch.tensor(step.logits, device=logits.device)
-                if not torch.allclose(
-                    logits, expected, atol=1e-6, rtol=1e-5
-                ) or not math.isclose(
-                    float(value), step.value, abs_tol=1e-6, rel_tol=1e-5
+                effective = restrict_logits(logits, step.inputs.eligibility)
+                if (
+                    not torch.isfinite(logits).all()
+                    or not torch.isfinite(value)
+                    or not torch.allclose(effective, expected, atol=1e-6, rtol=1e-5)
+                    or not math.isclose(
+                        float(value), step.value, abs_tol=1e-6, rel_tol=1e-5
+                    )
                 ):
                     raise ValueError(
                         "On-policy recomputation mismatch; refusing optimizer update"
@@ -165,7 +205,9 @@ def update(
     for episode in episodes:
         for step in episode.steps:
             logits, value = model(step.inputs)
-            distribution = Categorical(logits=logits)
+            distribution = Categorical(
+                logits=restrict_logits(logits, step.inputs.eligibility)
+            )
             choice = torch.tensor(step.choice, device=logits.device)
             assert episode.reward is not None
             target = episode.reward
@@ -220,6 +262,10 @@ def _batched_update(
             raise ValueError(
                 "Invalid macro candidate record; refusing optimizer update"
             )
+        for step, _ in part:
+            checked_eligibility(
+                len(step.inputs.candidates), step.inputs.eligibility, choice=step.choice
+            )
         batch = model.pack([step.inputs for step, _ in part])
         reference = model.embedding.weight
         choices = torch.tensor(
@@ -233,11 +279,15 @@ def _batched_update(
     with torch.no_grad():
         for part, batch, _, _, _ in chunks:
             logits, values = model.forward_batch(batch)
-            actual = logits.flatten()[batch.positions]
+            raw_actual = logits.flatten()[batch.positions]
+            effective = restrict_batch_logits(
+                logits, batch.lengths, [step.inputs.eligibility for step, _ in part]
+            )
+            actual = effective.flatten()[batch.positions]
             expected = logits.new_tensor([x for step, _ in part for x in step.logits])
             old_values = values.new_tensor([step.value for step, _ in part])
             if (
-                not torch.isfinite(actual).all()
+                not torch.isfinite(raw_actual).all()
                 or not torch.isfinite(values).all()
                 or not torch.allclose(actual, expected, atol=1e-6, rtol=1e-5)
                 or not torch.allclose(values, old_values, atol=1e-6, rtol=1e-5)
@@ -246,9 +296,12 @@ def _batched_update(
                     "On-policy recomputation mismatch; refusing optimizer update"
                 )
     total = model.embedding.weight.new_zeros(())
-    for _, batch, choices, targets, advantages in chunks:
+    for part, batch, choices, targets, advantages in chunks:
         logits, values = model.forward_batch(batch)
-        distribution = Categorical(logits=logits)
+        effective = restrict_batch_logits(
+            logits, batch.lengths, [step.inputs.eligibility for step, _ in part]
+        )
+        distribution = Categorical(logits=effective)
         loss = (
             -distribution.log_prob(choices) * advantages / len(episodes)
             + (
@@ -413,6 +466,17 @@ def parser() -> argparse.ArgumentParser:
         "--root-eval-hp", type=float, nargs="+", default=[0.15, 0.5, 0.85]
     )
     result.add_argument("--model-width", type=int, default=64)
+    result.add_argument("--avoid-prismatic", action="store_true")
+    result.add_argument(
+        "--adapt-legacy-map-checkpoint",
+        action="store_true",
+        help="Explicit weights-only transfer from the previous map-history input protocol",
+    )
+    result.add_argument(
+        "--raw-navigation",
+        action="store_true",
+        help="Ablation only: allow room returns and merchant re-entry",
+    )
     result.add_argument("--seed", type=int, default=123)
     result.add_argument(
         "--training-environment-seed",
@@ -556,6 +620,13 @@ def main(argv: list[str] | None = None) -> None:
         else None,
         protocol=PROTOCOL,
         execution_protocol="ragged_macro_learner_cooperative_collection_v1",
+        policy_restriction_protocol=AVOID_PRISMATIC_PROTOCOL
+        if args.avoid_prismatic
+        else "all_legal_actions",
+        navigation_protocol="raw_navigation"
+        if args.raw_navigation
+        else NAVIGATION_PROTOCOL,
+        map_input_protocol="context_current_act_map_v1",
         initial_state_profile="synthetic_preboss_campfire_hp_only"
         if bank
         else "natural_start",
@@ -600,8 +671,17 @@ def main(argv: list[str] | None = None) -> None:
     skipped_batches = 0
     consecutive_skips = 0
     committed_iteration = None
+    if args.adapt_legacy_map_checkpoint and not args.warm_start:
+        cli.error("--adapt-legacy-map-checkpoint requires --warm-start")
     if args.warm_start:
-        settings.update(load_warm_start(model, args.warm_start, settings))
+        settings.update(
+            load_warm_start(
+                model,
+                args.warm_start,
+                settings,
+                adapt_legacy_map=args.adapt_legacy_map_checkpoint,
+            )
+        )
     if args.resume_from:
         source = torch.load(args.resume_from, map_location="cpu", weights_only=True)
         ignored = {
@@ -615,6 +695,7 @@ def main(argv: list[str] | None = None) -> None:
             "validation_seeds",
             "max_hours",
             "warm_start",
+            "adapt_legacy_map_checkpoint",
             "initialization",
             "parent_checkpoint_sha256",
         }
@@ -678,7 +759,6 @@ def main(argv: list[str] | None = None) -> None:
         seed: str, directory: Path, policy_seed: int, hp_fraction: float | None = None
     ) -> CollectionJob:
         factory = State.new
-        visible = None
         previous = None
         metadata = None
         environment_seed = (
@@ -692,7 +772,7 @@ def main(argv: list[str] | None = None) -> None:
                 if hp_fraction is None
                 else hp_fraction
             )
-            state, visible, previous, metadata = bank.initial(seed, fraction)
+            state, _, previous, metadata = bank.initial(seed, fraction)
             environment_seed = journal_environment_seed(metadata)
 
             def start_root(*_args, **_kwargs) -> State:
@@ -704,6 +784,8 @@ def main(argv: list[str] | None = None) -> None:
             {
                 "objective": args.objective,
                 "final_act": args.final_act,
+                "avoid_prismatic": args.avoid_prismatic,
+                "commit_navigation": not args.raw_navigation,
                 "max_actions": args.max_actions,
                 "macro_rng": torch.Generator(device=args.device).manual_seed(
                     policy_seed
@@ -714,7 +796,6 @@ def main(argv: list[str] | None = None) -> None:
                 "journal": directory,
                 "stop_requested": stopped,
                 "state_factory": factory,
-                "initial_visible_map": visible,
                 "initial_previous": previous,
                 "initial_metadata": metadata,
                 "training_rng_seed": environment_seed,

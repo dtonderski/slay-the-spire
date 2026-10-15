@@ -13,7 +13,7 @@ use sts_core::adapter_internals::{
     CardInstance, RestAction, RunPhase,
 };
 
-pub const FAIR_RUN_OBSERVATION_SCHEMA_VERSION: u32 = 8;
+pub const FAIR_RUN_OBSERVATION_SCHEMA_VERSION: u32 = 9;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FairRunObservation {
@@ -48,6 +48,9 @@ pub struct FairRunContext {
     /// Whether keys are enabled by this run's pre-run profile configuration.
     pub final_act_available: bool,
     pub keys: FairRunKeys,
+    /// Inspectable current-act map, including during Neow. No hidden encounters.
+    /// Absent for synthetic/transition states without a current-act map.
+    pub map: Option<FairMapObservation>,
     pub floor: i32,
     pub gold: i32,
     pub player_hp: i32,
@@ -330,6 +333,12 @@ fn public_context(run: &RunState) -> Result<FairRunContext, FairObservationError
             emerald: run.has_emerald_key,
             sapphire: run.has_sapphire_key,
         },
+        map: run
+            .map
+            .as_ref()
+            .filter(|map| i32::from(map.act) == run.current_act)
+            .map(|_| map_screen(run))
+            .transpose()?,
         floor: run.current_floor,
         gold: run.gold,
         player_hp: run.hp,
@@ -739,6 +748,49 @@ mod tests {
     use super::*;
     use crate::fair_json_allowlist::{check_schema, FAIR_RUN_OBSERVATION_SCHEMA};
     use sts_core::adapter_internals::{Potion, Relic, ShopPotionSlot, ShopRelicSlot, ShopScreen};
+
+    #[test]
+    fn current_map_is_public_before_neow_and_projection_preserves_the_whole_state() {
+        let mut run = RunState::seeded_ironclad(713, 0);
+        run.set_final_act_available(Some(true)).unwrap();
+        let before = run.clone();
+        let observation = fair_run_observation(&run).unwrap();
+        let map = observation.context.map.as_ref().unwrap();
+        assert_eq!(run.phase, RunPhase::Event);
+        assert_eq!(map.act, 1);
+        assert!(map.nodes.len() > 15);
+        assert!(map.nodes.iter().any(|node| node.room_kind == "event"));
+        assert!(map.nodes.iter().any(|node| node.burning_elite));
+        for _ in 0..3 {
+            assert_eq!(fair_run_observation(&run).unwrap(), observation);
+        }
+        assert_eq!(run, before); // Includes every RNG stream and pending effect.
+        assert_eq!(*map, map_screen(&run).unwrap());
+
+        // Hidden generation inputs and resolved ?-room identity are not map facts.
+        run.merchant_rng_seed ^= 123;
+        run.reward_rng_seed ^= 456;
+        run.current_room_override = Some(sts_core::map::RoomKind::Shop);
+        assert_eq!(
+            fair_run_observation(&run).unwrap().context.map.as_ref(),
+            Some(map)
+        );
+    }
+
+    #[test]
+    fn context_map_matches_map_screen_and_never_returns_another_act() {
+        let mut run = RunState::map_fixture();
+        let observation = fair_run_observation(&run).unwrap();
+        let FairRunScreen::Map(screen) = observation.screen else {
+            panic!("expected map")
+        };
+        assert_eq!(observation.context.map, Some(screen));
+        run.phase = RunPhase::Complete;
+        run.current_act = 2;
+        assert!(fair_run_observation(&run).unwrap().context.map.is_none());
+        run.map = None;
+        assert!(fair_run_observation(&run).unwrap().context.map.is_none());
+    }
 
     #[test]
     fn fair_run_schema_rejects_missing_and_unknown_fields() {

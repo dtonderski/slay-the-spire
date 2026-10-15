@@ -24,17 +24,21 @@ from run_training.collector import (
     collect_many,
     sample_many,
 )
+from run_training.contracts import PolicyAction
 from run_training.model import (
     BUCKETS,
     HealthMacroModel,
     MacroInput,
     MacroModel,
+    _context_features,
+    _feature_columns,
     _map_terms,
+    encode,
     features,
 )
 from run_training.trainer import update
 from sts_sim import State
-from sts_sim.observations.screens import MapNode, MapScreen
+from sts_sim.observations.screens import MapNode, MapObservation, MapScreen
 
 
 def public_inputs():
@@ -164,11 +168,110 @@ class MacroBatchTests(unittest.TestCase):
         for hp in (1.0, 10.0, 80.0):
             value = (tuple(range(100)), hp, screen, screen)
             self.assertEqual(features(value), reference(value))
+        # Many collisions, cancellation, signed zero and touched zero buckets
+        # must agree exactly with sequential double-precision dict accumulation.
+        for value in (
+            (),
+            (0, -0.0, 1.0, -1.0),
+            tuple((i % 13 - 6) / (i + 1) for i in range(5000)),
+        ):
+            self.assertEqual(features(value), reference(value))
         self.assertGreater(_map_terms.cache_info().hits, 0)
         self.assertEqual(_map_terms.cache_info().maxsize, 256)
         self.assertTrue(torch.equal(rng, torch.get_rng_state()))
         with self.assertRaises(ValueError):
             features((float("nan"), screen))
+
+    def test_context_cache_preserves_public_inputs_and_history(self):
+        decision = State.new("713", final_act=True).decision()
+        observation = decision.observation
+        actions = tuple(PolicyAction.from_action(a) for a in decision.actions)
+        screen = MapScreen(
+            act=1,
+            floor=0,
+            current_node=None,
+            reachable_nodes=(0,),
+            nodes=(
+                MapNode(
+                    slot=0, act=1, room_kind="rest", burning_elite=False, children=()
+                ),
+            ),
+        )
+        visible = MapObservation(
+            schema_version=observation.schema_version,
+            phase="map",
+            kind="map",
+            context=observation.context,
+            screen=screen,
+        )
+        _context_features.cache_clear()
+        rng = torch.get_rng_state()
+        for hp in (1, 40, 80):
+            changed = replace(
+                observation, context=replace(observation.context, player_hp=hp)
+            )
+            for history in (
+                None,
+                visible,
+                replace(visible, screen=replace(screen, floor=1)),
+            ):
+                for previous in (None, actions[0]):
+                    with_map = replace(
+                        changed,
+                        context=replace(
+                            changed.context, map=history.screen if history else None
+                        ),
+                    )
+                    expected = features((with_map, None, previous))
+                    for _ in range(2):
+                        result = encode(with_map, actions, previous=previous)
+                        self.assertEqual(result.context, expected)
+        self.assertGreaterEqual(_context_features.cache_info().hits, 18)
+        self.assertEqual(_context_features.cache_info().maxsize, 256)
+        # Neither candidate ordering nor public schema validation may be cached away.
+        original = encode(observation, actions)
+        reversed_row = encode(observation, actions[::-1])
+        self.assertEqual(original.candidates[::-1], reversed_row.candidates)
+        with self.assertRaises(ValueError):
+            encode(replace(observation, schema_version=-1), actions)
+        self.assertTrue(torch.equal(rng, torch.get_rng_state()))
+
+    def test_feature_column_cache_is_exact_and_parameter_independent(self):
+        _feature_columns.cache_clear()
+        inputs = public_inputs() + [MacroInput((), ((), ((2, -0.5),)))]
+        model = MacroModel(8)
+        rng = torch.get_rng_state()
+        batch = model.pack(inputs)
+        rows = [r.context for r in inputs] + [c for r in inputs for c in r.candidates]
+        self.assertEqual(batch.ids.tolist(), [i for row in rows for i, _ in row])
+        torch.testing.assert_close(
+            batch.weights,
+            torch.tensor([w for row in rows for _, w in row]),
+            rtol=0,
+            atol=0,
+        )
+        model.pack(inputs)
+        self.assertGreater(_feature_columns.cache_info().hits, 0)
+        self.assertEqual(_feature_columns.cache_info().maxsize, 512)
+        ids, weights = _feature_columns(inputs[0].context)
+        self.assertFalse(ids.flags.writeable)
+        self.assertFalse(weights.flags.writeable)
+        with self.assertRaises(ValueError):
+            weights[0] = 99
+        # Subsequent packs must neither overwrite earlier packed storage nor
+        # share writable views of the cached columns.
+        kept = batch.weights.clone()
+        model.pack(inputs[::-1])
+        torch.testing.assert_close(batch.weights, kept, rtol=0, atol=0)
+        with torch.no_grad():
+            model.embedding.weight.add_(1)
+        # Cached host scalars must not retain old weights or an autograd graph.
+        for row in inputs:
+            logits, values = model.forward_batch(model.pack([row]))
+            expected, value = model(row)
+            torch.testing.assert_close(logits[0], expected)
+            torch.testing.assert_close(values[0], value)
+        self.assertTrue(torch.equal(rng, torch.get_rng_state()))
 
     def test_cpu_predictions_and_padding(self):
         self.compare("cpu")

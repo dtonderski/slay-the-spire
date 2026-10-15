@@ -7,7 +7,7 @@ the existing combat loop. `--task run` dispatches to a separate implementation:
   combat (including escape potions); forced actions execute without actor loss.
 - `model.py`: small complete-candidate macro scorer with a **new run-value head**.
   It uses deterministic hashed features of typed public observations, public
-  current-act map history, previous noncombat action and revision-free action
+  current-act map in the ordinary context, previous noncombat action and revision-free action
   descriptors plus their resolved visible cards/offers/map destinations. The
   policy starts uniform and the fresh critic starts at zero. This is a correctness
   baseline: hashing has collisions and is
@@ -16,7 +16,9 @@ the existing combat loop. `--task run` dispatches to a separate implementation:
   public-input recomputation checks, fixed held-out evaluation, logs/checkpoints.
 - `rewards.py`: declared terminal reward components and outcome-based success.
 - `metrics.py`: accepted healing decisions by HP band and elite share of map entries.
-- `contracts.py`: explicit schema-8 run outcomes and screen-based ownership.
+- `contracts.py`: explicit schema-9 run outcomes and screen-based ownership.
+- `restrictions.py`: declared policy eligibility for navigation commitments and
+  optional visible Prismatic avoidance; native legal choices remain unchanged.
 - `targets.py`: tested reference GAE for later nonterminal fragment bootstrapping;
   **not used** by the initial completed-episode trainer.
 
@@ -129,13 +131,17 @@ hash changes are allowed and parent checkpoint/native hashes are recorded. The
 optimizer, sampler and local iteration counters start fresh. This is not exact
 resume and does not restore simulator states or unfinished episodes.
 
-The unchanged `hashed` encoder retains feature version **2**. Weights-only warm
-starts from #93 checkpoints interpret a missing `encoder` field as `hashed`.
-Pre-review #141 checkpoints explicitly tagged `encoder=hashed, feature_version=3`
-can also transfer weights to hashed version2; their parent encoder/version are
-recorded. The opt-in `health` encoder remains version3. Unknown feature versions,
-encoder changes and incompatible reward/model contracts still fail. These narrow
-compatibility rules apply only to `--warm-start`; exact resume checks are unchanged.
+The current-map input uses hashed feature version **4** and health version **5**.
+Earlier map-history checkpoints are not exact resumes or automatically compatible
+warm starts. For intentional **weights-only** transfer, use
+`--warm-start OLD.pt --adapt-legacy-map-checkpoint`. This narrowly accepts schema-8
+hashed v2 (including missing legacy encoder), explicitly tagged hashed v3, or
+health v3 into the corresponding schema-9 encoder. It preserves parameter values,
+not predictions, optimizer moments, sampler state or the former policy. All other
+architecture/reward/objective/frozen-combat checks remain enforced. The parent
+schema/feature adapter is recorded; unsupported combinations fail closed. Use a
+new run ID and a fresh training seed for this weights-only transfer so resetting
+the sampler does not repeat the old run's initial training sequence.
 
 Checkpoints commit before telemetry publishing, so a W&B connection failure cannot
 lose an already processed optimizer update. For a manual graceful stop, send
@@ -149,6 +155,35 @@ encoders, recurrent history and PPO remain separate research questions.
 
 Future work and investigation ideas are tracked in the repository-wide
 [`TODO.md`](../../TODO.md).
+
+## Navigation commitments
+
+Default collection uses `commit_room_and_merchant_exit_v1`. The current public
+map is already in every observation, including at Neow, so the actor need not
+navigate UI screens to inspect routes.
+
+- Leaving a room commits to advancing: `return_to_room` remains a native legal
+  candidate but has zero policy probability.
+- An accepted `leave_shop` means **finish shopping** in that room. The policy
+  cannot re-enter that merchant. First entry, purchases, removals and choices
+  inside the merchant remain available before leaving. Actual node entry resets
+  this commitment; a later shop is independent.
+
+These are deliberate strategic commitments, not simulator fixes or a claim that
+all removed UI actions were meaningless. They can forfeit unclaimed rewards or
+remaining purchases when the policy leaves prematurely. Raw candidate indices
+are retained. Eligibility is journaled, stored with learner inputs, and applied
+identically to sampling, recomputation, actor loss and entropy; excluded rows get
+zero probability/gradient. Cutoffs and simulator failures keep their existing
+quarantine semantics. Other possible loops (e.g. grid cancel/reopen or combat)
+are not claimed eliminated.
+
+`--raw-navigation` is an explicit ablation restoring native navigation choices;
+it is not an exact resume of the old observation protocol. `--avoid-prismatic`
+retains the live experiment's separate public-only restriction on optional,
+visible Prismatic acquisitions; it does not reject unknown or mandatory grants.
+Both protocols are archived and checked on exact resume. Neither modifies native
+legality, captured traces, reward targets or action application.
 
 ## Batched execution and throughput
 
@@ -165,9 +200,18 @@ do not increase the learning batch size merely to fill the GPU.
 - Ragged weighted embedding bags and padded candidate scoring retain every legal
   choice, including escape potions. Padding is never sampled. Each run samples
   its true-length row with its own generator, without global policy RNG draws.
-- Public hash paths, immutable public map contributions and candidate facts have
-  bounded caches. Cached entries contain no learned activations or hidden state;
-  feature bucket values and collision accumulation order remain unchanged.
+- Public hash paths, immutable public map contributions, candidate facts, complete
+  public contexts (including map/action history), and host feature columns have
+  bounded caches. Cached entries contain no learned activations, device tensors or
+  hidden state; they remain valid across optimizer updates. Feature buckets use
+  traversal-order FP64 accumulation, retaining touched zero-weight buckets. Cached
+  host columns are read-only NumPy arrays, concatenated before the two pinned
+  uploads rather than repacked through Python scalar lists. Collision accumulation
+  order and packed scalar order remain unchanged.
+- Collection forwards use `inference_mode`; only public inputs and plain behavior
+  predictions survive into learning. The learner recomputes ordinary autograd
+  tensors under current weights. Healing probabilities are exported only for
+  batches with healing opportunities, without changing any policy RNG draws.
 - The learner packs public inputs once, verifies all inference/recomputation
   pairs **before any backward**, then backpropagates chunks. Actor sums are still
   divided by episodes; value/entropy terms are still divided by macro decisions.
@@ -201,7 +245,8 @@ Learner-only gains were about 16× and 21×, **not end-to-end speedups**. A comp
 work took 26.42 s and 14.82 s (1.80–3.20×), including imports, cold root
 reconstruction, validation and local telemetry (W&B disabled). Whole-job timings
 showed more variation; do not extrapolate warm throughput to every job. These are
-workload-specific measurements, not learning-strength claims. All 448 CLI episode
+historical, workload-specific measurements of the earlier observation/navigation
+protocol, not guarantees for the new map inputs and not learning-strength claims. All 448 CLI episode
 setups and execution fingerprints matched. A CUDA split/resume check reproduced
 the uninterrupted 16-update model, optimizer and saved RNG states exactly.
 
@@ -224,11 +269,24 @@ PYTHONPATH=rl uv run --project rl --no-sync python rl/tools/benchmark_run_traini
   --episodes 64 --trials 3 --width 64 --learner-batch-size 128 --out /path/to/new-benchmark
 ```
 
-Both benchmark profiles use binary Act-1 completion targets. For
-`--profile campfire`, also supply `--root-manifest`; initial reconstruction is included in
-cold timing. Run comparisons sequentially on the same hardware, retain every
-journal, and report warm/cold results separately. A serial baseline can be run
-under its own checkout's `PYTHONPATH` with `--width 1 --learner-batch-size 0`.
+Both benchmark profiles default to binary Act-1 completion targets; `--objective act1`
+selects the trainer's shaped objective. Match the experiment's `--max-actions`,
+`--adapt-legacy-combat-checkpoint` and (natural starts only)
+`--training-environment-seed` explicitly. For `--profile campfire`, also supply
+`--root-manifest`; initial reconstruction is included in cold timing.
+
+`--cprofile` writes `trial-N.pstats` for collection, learning and checkpoint output,
+excluding imports/model loading. Inspect with `python -m pstats PATH`. These are
+CPU-call profiles, not CUDA kernel timings, and include profiler overhead: use
+separate **unprofiled** trials for speed comparisons. Manifests pin seed-file,
+RL source, Python observation-decoder, native and checkpoint hashes, plus NumPy,
+PyTorch and device information. Results include terminal per-episode policy RNG
+state hashes as well as execution fingerprints. Run comparisons
+sequentially on the same hardware, retain every journal, and report warm/cold
+results separately. Report whole-batch quarantine separately from successful
+optimizer updates; a faster discarded batch is not higher learning throughput.
+A serial baseline can be run under its own checkout's `PYTHONPATH` with
+`--width 1 --learner-batch-size 0`.
 
 ## Synthetic pre-boss campfire experiment
 

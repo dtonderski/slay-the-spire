@@ -6,21 +6,23 @@ transport. Stable hashes encode public semantic paths/values, never Python hash(
 
 import hashlib
 import math
-from collections.abc import Callable
 from dataclasses import dataclass, fields, is_dataclass
 from functools import lru_cache
 
+import numpy as np
 import torch
+from numpy.typing import NDArray
 from sts_sim import FAIR_RUN_OBSERVATION_SCHEMA_VERSION, OBSERVATION_TYPES, Observation
 from sts_sim.observations.screens import MapScreen
 from torch import Tensor, nn
 
 from run_training.contracts import PolicyAction
+from run_training.restrictions import macro_eligibility
 
-# The hashed representation is unchanged from #93. Only the opt-in health
-# encoder consumes the additional normalized-HP input introduced in version 3.
-FEATURE_VERSION = 2
-HEALTH_FEATURE_VERSION = 3
+# Both encoders now receive the inspectable current-act map before Neow and
+# at every macro decision, rather than only stale map-screen history.
+FEATURE_VERSION = 4
+HEALTH_FEATURE_VERSION = 5
 BUCKETS = 8192
 Features = tuple[tuple[int, float], ...]
 
@@ -44,27 +46,31 @@ def _fields(kind: type):
 def _visit(
     item: object,
     path: str,
-    add: Callable[[int, float], None],
+    ids: list[int],
+    weights: list[float],
     *,
     cache_maps: bool = True,
 ) -> None:
     if item is None or isinstance(item, (str, bool)):
-        add(_bucket(f"{path}={item!r}"), 1.0)
+        ids.append(_bucket(f"{path}={item!r}"))
+        weights.append(1.0)
     elif isinstance(item, (int, float)):
         if not math.isfinite(item):
             raise ValueError("Nonfinite public feature")
-        add(_bucket(path + ":present"), 1.0)
-        add(_bucket(path + ":number"), math.copysign(math.log1p(abs(item)), item))
+        ids.extend((_bucket(path + ":present"), _bucket(path + ":number")))
+        weights.extend((1.0, math.copysign(math.log1p(abs(item)), item)))
     elif cache_maps and isinstance(item, MapScreen):
-        for index, weight in _map_terms(item, path):
-            add(index, weight)
+        map_ids, map_weights = _map_terms(item, path)
+        ids.extend(map_ids)
+        weights.extend(map_weights)
     elif is_dataclass(item) and not isinstance(item, type):
         for name in _fields(type(item)):
-            _visit(getattr(item, name), f"{path}.{name}", add)
+            _visit(getattr(item, name), f"{path}.{name}", ids, weights)
     elif isinstance(item, tuple):
-        add(_bucket(path + ":length"), math.log1p(len(item)))
+        ids.append(_bucket(path + ":length"))
+        weights.append(math.log1p(len(item)))
         for index, child in enumerate(item):
-            _visit(child, f"{path}[{index}]", add)
+            _visit(child, f"{path}[{index}]", ids, weights)
     else:
         raise TypeError(f"Unsupported public feature type: {type(item).__name__}")
 
@@ -75,23 +81,32 @@ def _visit(
 # arbitrary hand-built objects. If a schema admits mixed types or signed-zero
 # floats, use type/bit-sensitive nested keys before caching that schema.
 @lru_cache(maxsize=256)
-def _map_terms(screen: MapScreen, path: str) -> Features:
+def _map_terms(
+    screen: MapScreen,
+    path: str,
+) -> tuple[tuple[int, ...], tuple[float, ...]]:
     # Cache immutable *public* maps only, including their semantic path. Store
     # contributions in traversal order, not pre-summed buckets: collision addition
     # must remain bit-for-bit identical when merged into a different context.
-    terms: list[tuple[int, float]] = []
-    _visit(screen, path, lambda i, w: terms.append((i, w)), cache_maps=False)
-    return tuple(terms)
+    ids: list[int] = []
+    weights: list[float] = []
+    _visit(screen, path, ids, weights, cache_maps=False)
+    return tuple(ids), tuple(weights)
 
 
 def features(value: object) -> Features:
-    result: dict[int, float] = {}
-
-    def add(index: int, weight: float) -> None:
-        result[index] = result.get(index, 0.0) + weight
-
-    _visit(value, "public", add)
-    return tuple(sorted(result.items()))
+    ids: list[int] = []
+    weights: list[float] = []
+    _visit(value, "public", ids, weights)
+    indices = np.asarray(ids, dtype=np.int64)
+    # Weighted bincount adds each double in input traversal order, just like
+    # the reference dict loop. Do not pre-sum/reorder cached map contributions.
+    sums = np.bincount(indices, weights=weights, minlength=BUCKETS)
+    present = np.zeros(BUCKETS, dtype=np.bool_)
+    present[indices] = True
+    unique = np.flatnonzero(present)
+    # Keep touched buckets even when their weights cancel to zero.
+    return tuple(zip(unique.tolist(), sums[unique].tolist(), strict=True))
 
 
 @dataclass(frozen=True)
@@ -99,6 +114,7 @@ class MacroInput:
     context: Features
     candidates: tuple[Features, ...]
     health: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    eligibility: tuple[bool, ...] = ()
 
 
 def candidate_facts(
@@ -169,12 +185,26 @@ def _candidate_features(facts: tuple[object, ...]) -> Features:
     return features(facts)
 
 
+@lru_cache(maxsize=256)
+def _context_features(
+    observation: Observation,
+    map_screen: MapScreen | None,
+    previous: PolicyAction | None,
+) -> Features:
+    # Same strict-schema key contract as _map_terms. Repeated public UI states
+    # need not re-traverse/re-sum thousands of map/deck contributions. Include
+    # all public history in the key; never cache activations or simulator state.
+    return features((observation, map_screen, previous))
+
+
 def encode(
     observation: Observation,
     actions: tuple[PolicyAction, ...],
     *,
-    visible_map: Observation | None = None,
     previous: PolicyAction | None = None,
+    avoid_prismatic: bool = False,
+    commit_navigation: bool = False,
+    shop_finished: bool = False,
 ) -> MacroInput:
     if not isinstance(observation, OBSERVATION_TYPES) or any(
         not isinstance(a, PolicyAction) for a in actions
@@ -186,14 +216,15 @@ def encode(
         raise ValueError("Unsupported run observation schema")
     if observation.kind == "combat" or not actions:
         raise ValueError("Macro encoding requires noncombat legal candidates")
-    # Retain only an actually observed current-act map, not a simulator forecast.
+    # Map is part of the ordinary public context, not a separate history input.
+    if (
+        observation.context.map is not None
+        and observation.context.map.act != observation.context.act
+    ):
+        raise ValueError("Public map must belong to the current act")
     map_screen = None
-    if visible_map is not None and visible_map.context.act == observation.context.act:
-        if visible_map.kind != "map":
-            raise ValueError("Map history must be a public map observation")
-        map_screen = visible_map.screen
     return MacroInput(
-        features((observation, map_screen, previous)),
+        _context_features(observation, map_screen, previous),
         tuple(
             _candidate_features(candidate_facts(observation, action))
             for action in actions
@@ -203,7 +234,24 @@ def encode(
             observation.context.player_hp / 100.0,
             observation.context.player_max_hp / 100.0,
         ),
+        macro_eligibility(
+            observation,
+            actions,
+            avoid_prismatic=avoid_prismatic,
+            commit_navigation=commit_navigation,
+            shop_finished=shop_finished,
+        ),
     )
+
+
+@lru_cache(maxsize=512)
+def _feature_columns(row: Features) -> tuple[NDArray[np.int64], NDArray[np.float64]]:
+    # Public immutable scalars only; never retain device tensors/learned values.
+    ids = np.fromiter((i for i, _ in row), dtype=np.int64, count=len(row))
+    weights = np.fromiter((w for _, w in row), dtype=np.float64, count=len(row))
+    ids.flags.writeable = False
+    weights.flags.writeable = False
+    return ids, weights
 
 
 @dataclass(frozen=True)
@@ -255,11 +303,11 @@ class MacroModel(nn.Module):
         rows = [row.context for row in inputs] + [
             c for row in inputs for c in row.candidates
         ]
-        ids, weights, offsets = [], [], [0]
+        columns = [_feature_columns(row) for row in rows]
+        offsets = [0]
         for row in rows:
-            ids.extend(i for i, _ in row)
-            weights.extend(w for _, w in row)
-            offsets.append(len(ids))
+            offsets.append(offsets[-1] + len(row))
+        feature_count = offsets[-1]
         device = self.embedding.weight.device
         owners = [i for i, n in enumerate(lengths) for _ in range(n)]
         width = max(lengths)
@@ -268,23 +316,28 @@ class MacroModel(nn.Module):
         health = [value for row in inputs for value in row.health]
         # Two allocator-managed pinned uploads, rather than a synchronizing copy
         # per table. No learned activations are cached; views retain packed storage.
-        integer = torch.tensor(
-            ids + offsets + owners + positions,
-            dtype=torch.long,
-            device="cpu",
-            pin_memory=device.type == "cuda",
-        ).to(device, non_blocking=True)
-        floating = torch.tensor(
-            weights + scales + health,
-            dtype=self.embedding.weight.dtype,
-            device="cpu",
-            pin_memory=device.type == "cuda",
-        ).to(device, non_blocking=True)
+        integer = torch.from_numpy(
+            np.concatenate(
+                [ids for ids, _ in columns]
+                + [np.asarray(offsets + owners + positions, dtype=np.int64)]
+            )
+        )
+        floating = torch.from_numpy(
+            np.concatenate(
+                [weights for _, weights in columns]
+                + [np.asarray(scales + health, dtype=np.float64)]
+            )
+        ).to(dtype=self.embedding.weight.dtype)
+        if device.type == "cuda":
+            integer = integer.pin_memory()
+            floating = floating.pin_memory()
+        integer = integer.to(device, non_blocking=True)
+        floating = floating.to(device, non_blocking=True)
         index_rows, offset_rows, owner_rows, position_rows = integer.split(
-            [len(ids), len(offsets), len(owners), len(positions)]
+            [feature_count, len(offsets), len(owners), len(positions)]
         )
         weight_rows, scale_rows, health_rows = floating.split(
-            [len(weights), len(scales), len(health)]
+            [feature_count, len(scales), len(health)]
         )
         return MacroBatch(
             index_rows,

@@ -63,6 +63,7 @@ def _context() -> dict[str, object]:
         "outcome": "ongoing",
         "act": 1,
         "act_boss": "Hexaghost",
+        "map": None,
         "final_act_available": False,
         "keys": {"ruby": False, "emerald": False, "sapphire": False},
         "floor": 1,
