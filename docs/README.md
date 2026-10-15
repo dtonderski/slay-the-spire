@@ -18,6 +18,7 @@ This page routes readers to canonical documents; it does not duplicate them.
 | Experimental fair A0 run training | [Run-training guide](../rl/run_training/README.md) |
 | Queued work and investigation ideas | [Shared backlog](../TODO.md) |
 | Loadout data and sampling tools | [RL tools](../rl/tools/README.md) |
+| Offline run-choice pretraining and historical map audit | [Pretraining pilot](../rl/pretraining/README.md) |
 | Interactive policy inspection | [Combat explorer](../rl/combat_explorer/README.md) |
 
 ## Durable findings and decisions
@@ -35,6 +36,10 @@ evidence. A documentation summary never replaces them or establishes parity.
 [Literature review](literature_review/README.md) separates proposed fair belief
 search from privileged-teacher research. These are reading material and possible
 experiments, not the current training architecture or an approved work queue.
+The [SlayTheData pretraining investigation](literature_review/slaythedata_pretraining.html)
+provides a short standalone HTML summary of measured run-choice and map-audit
+results. The [pretraining README](../rl/pretraining/README.md) owns the implemented
+pilot's workflow and limitations; full run-policy integration remains proposed.
 
 ## Historical handoffs
 

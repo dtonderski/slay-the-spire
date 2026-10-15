@@ -15,6 +15,23 @@ baseline and its reward/behavior metrics are documented in the
 
 ## Ideas and investigations
 
+- [ ] **[RL] Turn historical choice ranking into a valid run-policy warm-start.**
+  The SlayTheData pilot learns conditional card/boss-relic preferences, not exact
+  historical states or an online-compatible checkpoint. Investigate conservative
+  prefix deck reconstruction, boss-choice timing and audited skip/Bowl legality
+  before connecting to the existing fair run actor. Preserve missing-context
+  masks, full online legal sets and fixed run-level holdouts; compare against
+  scratch at matched combat policy, seeds and total compute. Partial logged
+  history did not improve the pilot overall. See the
+  [implemented scope and measurements](rl/pretraining/README.md).
+
+- [ ] **[Simulator/RL] Validate historical full maps before route supervision.**
+  Strong seed/recorded-route association does not identify unvisited topology or
+  disambiguate every coordinate path. Obtain historical full-map evidence and
+  source-backed A20 generation/validation; do not turn research-only inferred
+  paths into observed labels or repair a simulator from run logs. See the
+  [map audit and confidence limits](rl/pretraining/README.md#seed-based-maps).
+
 - [ ] **[Simulator] Close remaining A0 rollout failure classes.** Investigate
   advertised Courier card purchases rejected as invalid, Prismatic Shard purchases
   with unavailable successors, and Headbutt selections that leave won combat with

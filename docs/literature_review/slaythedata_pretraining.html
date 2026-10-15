@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SlayTheData — run-level pretraining results</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f6f5f0;color:#182a31;font:17px/1.65 system-ui,sans-serif}main{max-width:850px;margin:auto;padding:40px 24px}.eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:#006b5e;font-weight:750}h1{font-size:clamp(30px,5vw,43px);line-height:1.15;letter-spacing:-.035em}h2{font-size:23px;margin:28px 0 10px}.verdict{padding:16px 20px;background:#e5f0e9;border-left:4px solid #006b5e;border-radius:0 8px 8px 0}.table-wrap{overflow:auto;background:white;border:1px solid #dce2df;border-radius:8px}table{width:100%;border-collapse:collapse;font-size:15px}th,td{text-align:left;vertical-align:top;padding:12px;border-bottom:1px solid #dce2df}th{background:#edf1eb}tr:last-child td{border-bottom:0}li{margin:8px 0}a{color:#006b5e;text-underline-offset:3px}code{font-size:.85em;overflow-wrap:anywhere}details,footer{font-size:13px;color:#53656b;border-top:1px solid #dce2df;padding-top:15px;margin-top:25px}summary{cursor:pointer;font-weight:650}a:focus-visible,summary:focus-visible{outline:3px solid #285e99;outline-offset:3px}@media print{body{background:white;font-size:11pt}main{padding:0}h1{font-size:26pt}h2{font-size:16pt}table{font-size:10pt}tr,.verdict{break-inside:avoid}}
+</style>
+</head>
+<body><main>
+<div class="eyebrow">Measured pilot · 15 October 2026 · 2-minute read</div>
+<h1>Run-level pretraining: what now works</h1>
+<p class="verdict"><strong>We have working card/boss-relic extraction and supervised training code. Seed-based routing looks promising across all three acts—but full map equality and exact historical decision state remain unproven.</strong></p>
+<h2>The map experiment</h2>
+<p>We generated maps from the logged seeds, without supplying the recorded routes to the generator, then checked whether each route was possible.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>A0 cohort</th><th>Own seed fits</th><th>Unique coordinate path</th><th>Wrong-seed fits</th></tr></thead>
+<tbody><tr><td>Act 1</td><td>200 / 200</td><td>83</td><td>4 / 39,800</td></tr>
+<tr><td>Act 2</td><td>200 / 200</td><td>92</td><td>8 / 39,800</td></tr>
+<tr><td>Act 3</td><td>200 / 200</td><td>81</td><td>9 / 39,800</td></tr></tbody>
+</table></div>
+<p><strong>Strong seed/route association, not 99.9% certainty of exact maps.</strong> The logs don’t reveal unvisited nodes. Most routes also fit multiple coordinate paths, so we cannot simply choose one as the human’s path.</p>
+<p>The code exports <strong>1,494 hypothetical branch decisions</strong> from unique paths. These assume the generated map is correct, are clearly marked research-only, and are rejected by the supervised choice trainer.</p>
+<h2>Cards and relics</h2>
+<ul>
+<li><strong>Cards:</strong> 14,943 usable conditional card-ranking examples extracted from 2,000 sampled runs. Picked/rejected cards are explicit; skip and Singing Bowl remain audited separately until eligibility is established.</li>
+<li><strong>Boss relics:</strong> 1,362 ranking examples. Missing picks are rejected. Historical deck/floor alignment is not invented.</li>
+<li><strong>Elite relics:</strong> acquisition history is retained, but those records don’t establish a mutually exclusive choice slate or declined offers. No fake preference labels.</li>
+<li><strong>Context:</strong> earlier logged choices/edits are available. Exact deck, potion inventory, counters and same-floor ordering are not yet reconstructed.</li>
+</ul>
+<h2>Does the learning pipeline work?</h2>
+<p>Yes. In a small fixed five-epoch pilot, the learned offer-only model matched <strong>50.3%</strong> of validation choices, versus <strong>33.1%</strong> uniform and <strong>39.8%</strong> pick-frequency baselines. Adding partial logged history achieved <strong>45.6%</strong>—it did not improve the overall result.</p>
+<p>This is one optimization seed and 1,590 validation decisions. The test split was not evaluated. It demonstrates a working offline pipeline, <strong>not stronger play or a ready-to-load RL checkpoint</strong>.</p>
+<h2>Next useful work</h2>
+<p>Exact decision-time context and validated historical maps remain the main gaps before a meaningful warm-start of the existing A0 run actor. Follow-up experiments are tracked in the <a href="https://github.com/dtonderski/slay-the-spire/blob/wt/pretraining-worktree-20261015/TODO.md">shared backlog</a>, not a separate training roadmap.</p>
+<details><summary>Evidence, statistics and code</summary>
+<p>Historical build: <code>2020-07-30</code>. Map audits use A0 complete normal 15-row act paths, excluding beta/special runs and logged Wing Boots. Card/relic extraction samples 1,000 ordinary-flag runs each at A0/A20. Inputs are read-only; no simulator mechanics or captured traces were changed.</p>
+<p>Each act’s 9,999 seed-route permutations gave Monte Carlo association p = 0.0001. That is not the probability the map algorithm is wrong. With zero failures in 200 independent representative tests, the one-sided 99.9% upper failure-rate bound is 3.395%, for route compatibility only. Unvisited-map differences remain unidentifiable.</p>
+<p><a href="https://github.com/dtonderski/slay-the-spire/blob/wt/pretraining-worktree-20261015/rl/pretraining/README.md">Implementation, commands, limitations and reproducibility hashes</a> · <a href="https://www.reddit.com/r/slaythespire/comments/jt2fn6/77_million_runs_an_sts_metrics_dump/">Dataset announcement</a>.</p>
+</details>
+<footer>Offline research, not a complete run actor. No full-map parity, A20 Heart improvement or simulator-state reconstruction claim.</footer>
+</main></body></html>

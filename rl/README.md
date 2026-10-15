@@ -1,6 +1,6 @@
 # Training
 
-One training entry point: **`train.py --task combat|run`**. Combat remains the
+One online RL entry point: **`train.py --task combat|run`**. Combat remains the
 default, using public numeric observation batches and the existing training loop.
 Run-level A0 training has a separate collector, macro model and trainer under
 [`run_training/`](run_training/README.md); it is not forced into the combat loop.
@@ -20,6 +20,11 @@ The combat policy/encoder is unchanged and frozen during run training.
 
 The above describes combat training. `train.py::main` dispatches the task;
 `run_training/trainer.py` owns the separate run-learning loop.
+
+The separate [SlayTheData pretraining pilot](pretraining/README.md) extracts
+historical run-level item choices and trains an offline conditional ranker. It
+is not another combat rollout stack, a complete run actor, or a compatible
+`train.py` warm-start checkpoint.
 
 ## Model
 
