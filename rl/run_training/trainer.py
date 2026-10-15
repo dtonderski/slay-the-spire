@@ -32,6 +32,7 @@ from run_training.collector import (
     collect_many,
     failed_episode,
 )
+from run_training.diagnostics import DIAGNOSTIC_PROTOCOL, policy_scores
 from run_training.environment import (
     ENVIRONMENT_PROTOCOL,
     episode_environment_seed,
@@ -44,6 +45,7 @@ from run_training.model import (
     HealthMacroModel,
     MacroModel,
 )
+from run_training.progress import PROGRESS_PROTOCOL, progress_scores
 from run_training.restrictions import (
     AVOID_PRISMATIC_PROTOCOL,
     NAVIGATION_PROTOCOL,
@@ -54,7 +56,11 @@ from run_training.restrictions import (
 from run_training.rewards import (
     ACT1_BOSS_FLOOR,
     ACT1_CLEAR_BONUS,
-    REWARD_PROTOCOL,
+    ACT_CLEAR_BONUS,
+    HEART_CLEAR_BONUS,
+    HEART_PROGRESS_FLOOR,
+    HEART_PROGRESS_SCALE,
+    reward_protocol,
     succeeded,
     terminal_parts,
 )
@@ -82,9 +88,14 @@ def digest(path: Path) -> str:
 
 
 def load_warm_start(
-    model: MacroModel, path: Path, settings: dict, *, adapt_legacy_map: bool = False
+    model: MacroModel,
+    path: Path,
+    settings: dict,
+    *,
+    adapt_legacy_map: bool = False,
+    policy_only: bool = False,
 ) -> dict:
-    """Explicit weights-only transfer across simulator/source revisions, not resume."""
+    """Explicit weights-only transfer, not resume. Policy-only requires a fresh target critic."""
     source = torch.load(path, map_location="cpu", weights_only=True)
     config = source["config"]
     # #93 predates the encoder option and only implements the hashed model.
@@ -119,9 +130,7 @@ def load_warm_start(
         raise ValueError("Run warm-start mismatch: feature_version")
     for key in (
         "protocol",
-        "reward_protocol",
         "model_width",
-        "objective",
         "observation_schema",
         "final_act",
         "ascension",
@@ -132,13 +141,39 @@ def load_warm_start(
             continue
         if source["config"].get(key) != settings.get(key):
             raise ValueError(f"Run warm-start mismatch: {key}")
+    if not policy_only:
+        for key in ("objective", "reward_protocol"):
+            if config.get(key) != settings.get(key):
+                raise ValueError(f"Run warm-start mismatch: {key}")
+    fresh_critic = {
+        key: value.clone()
+        for key, value in model.state_dict().items()
+        if key.startswith(("value.", "health_value."))
+    }
+    if policy_only and any(
+        torch.count_nonzero(value)
+        for key, value in fresh_critic.items()
+        if key.startswith(("value.", "health_value.2."))
+    ):
+        raise ValueError(
+            "Policy-only transfer requires a fresh zero-output target critic"
+        )
     model.load_state_dict(source["model"], strict=True)
     if not all(torch.isfinite(p).all() for p in model.parameters()):
         raise ValueError("Nonfinite macro checkpoint")
+    if policy_only:
+        weights = model.state_dict()
+        weights.update(fresh_critic)
+        model.load_state_dict(weights, strict=True)
     return {
         "parent_map_adapter": "schema8_map_history_to_schema9_context_weights_only"
         if legacy_map
         else None,
+        "parent_objective": config.get("objective"),
+        "parent_reward_protocol": config.get("reward_protocol"),
+        "critic_initialization": "fresh_zero_output"
+        if policy_only
+        else "parent_weights",
         "parent_feature_version": config.get("feature_version"),
         "parent_encoder": config.get("encoder", "hashed"),
         "parent_iteration": source["iteration"],
@@ -166,7 +201,9 @@ def update(
         )
     if any(
         ep.reward
-        != terminal_parts(ep.objective, ep.status, ep.furthest_act1_floor).total
+        != terminal_parts(
+            ep.objective, ep.status, ep.furthest_act1_floor, progress=ep.progress
+        ).total
         for ep in episodes
     ):
         raise ValueError("Terminal returns must match the declared reward protocol")
@@ -231,9 +268,17 @@ def update(
     if not all(torch.isfinite(grad).all() for grad in gradients):
         optimizer.zero_grad(set_to_none=True)
         raise ValueError("Nonfinite run gradient")
-    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0, error_if_nonfinite=True)
+    gradient_norm = torch.nn.utils.clip_grad_norm_(
+        model.parameters(), 1.0, error_if_nonfinite=True
+    )
     optimizer.step()
-    return {"loss": total_loss, "optimizer_step": 1.0, "macro_decisions": float(count)}
+    return {
+        "loss": total_loss,
+        "optimizer_step": 1.0,
+        "macro_decisions": float(count),
+        "gradient_norm": float(gradient_norm),
+        "gradient_clipped": float(gradient_norm > 1),
+    }
 
 
 def _batched_update(
@@ -319,12 +364,16 @@ def _batched_update(
     if not all(torch.isfinite(grad).all() for grad in gradients):
         optimizer.zero_grad(set_to_none=True)
         raise ValueError("Nonfinite run gradient")
-    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0, error_if_nonfinite=True)
+    gradient_norm = torch.nn.utils.clip_grad_norm_(
+        model.parameters(), 1.0, error_if_nonfinite=True
+    )
     optimizer.step()
     return {
         "loss": float(total),
         "optimizer_step": 1.0,
         "macro_decisions": float(len(rows)),
+        "gradient_norm": float(gradient_norm),
+        "gradient_clipped": float(gradient_norm > 1),
     }
 
 
@@ -342,13 +391,24 @@ def scores(episodes: list[RunEpisode]) -> dict[str, float]:
         / max(1, len(episodes)),
         "reward/terminal_samples": float(len(complete)),
         **behavior_scores([ep.behavior for ep in episodes]),
+        **progress_scores([ep.progress for ep in episodes if ep.progress is not None]),
+        **policy_scores(
+            (step.logits, step.choice) for ep in episodes for step in ep.steps
+        ),
+        "outcome/heart_wins": float(sum(ep.status == "heart_clear" for ep in complete)),
+        "outcome/deaths": float(sum(ep.status == "death" for ep in complete)),
+        "outcome/act3_clear_without_heart": float(
+            sum(ep.status == "act3_clear" for ep in complete)
+        ),
     }
     if complete:
         result["completed_success_rate"] = sum(
             succeeded(ep.objective, ep.status) for ep in complete
         ) / len(complete)
         parts = [
-            terminal_parts(ep.objective, ep.status, ep.furthest_act1_floor)
+            terminal_parts(
+                ep.objective, ep.status, ep.furthest_act1_floor, progress=ep.progress
+            )
             for ep in complete
         ]
         result["reward/mean"] = sum(p.total for p in parts) / len(parts)
@@ -356,12 +416,59 @@ def scores(episodes: list[RunEpisode]) -> dict[str, float]:
         result["reward/clear_bonus_mean"] = sum(p.clear_bonus for p in parts) / len(
             parts
         )
+        result["reward/heart_bonus_mean"] = sum(p.heart_bonus for p in parts) / len(
+            parts
+        )
+    targets = [
+        (step.value, ep.reward)
+        for ep in complete
+        if ep.reward is not None
+        for step in ep.steps
+    ]
+    if targets:
+        result["value/reward_target_mse"] = sum(
+            (value - target) ** 2 for value, target in targets
+        ) / len(targets)
+    for act in (1, 2, 3, 4):
+        result[f"outcome/deaths_act_{act}"] = float(
+            sum(
+                ep.status == "death"
+                and ep.progress is not None
+                and ep.progress.furthest_act == act
+                for ep in complete
+            )
+        )
     # Lower bound uses all attempts. Never label cutoff as a true game loss.
     if episodes:
+        result["outcome/heart_win_lower_bound"] = result["outcome/heart_wins"] / len(
+            episodes
+        )
+        result["coverage/completion_rate"] = len(complete) / len(episodes)
+        result["coverage/unknown_rate"] = 1 - len(complete) / len(episodes)
         result["success_lower_bound"] = sum(
             succeeded(ep.objective, ep.status) for ep in complete
         ) / len(episodes)
     return result
+
+
+def validation_selection_key(
+    metrics: dict[str, float],
+) -> tuple[float, float, float] | None:
+    """Success first (Heart wins for Heart objectives), never shaped score first."""
+    scheduled = metrics.get("validation/scheduled", 0)
+    if (
+        not math.isfinite(scheduled)
+        or scheduled <= 0
+        or metrics.get("validation/attempts") != scheduled
+        or metrics.get("validation/unattempted") != 0
+    ):
+        return None
+    values = (
+        metrics["validation/success_scheduled_lower_bound"],
+        -(metrics["validation/errors"] + metrics["validation/cutoffs"]),
+        metrics.get("validation/reward/mean", 0.0),
+    )
+    return values if all(math.isfinite(value) for value in values) else None
 
 
 def validation_seeds(path: Path) -> list[str]:
@@ -400,7 +507,9 @@ def parser() -> argparse.ArgumentParser:
         help="Held-out JSON list of decimal run seeds",
     )
     result.add_argument(
-        "--objective", choices=("act1", "act1_binary", "act3", "heart"), default="act1"
+        "--objective",
+        choices=("act1", "act1_binary", "act3", "heart", "heart_progress"),
+        default="act1",
     )
     result.add_argument(
         "--final-act", action=argparse.BooleanOptionalAction, default=True
@@ -460,13 +569,18 @@ def parser() -> argparse.ArgumentParser:
         type=Path,
         help="Explicit synthetic pre-boss campfire curriculum; requires act1_binary",
     )
+    result.add_argument(
+        "--decision-diagnostics",
+        choices=("none", "evaluation", "all"),
+        default="none",
+        help="Opt-in public context/candidate/probability audit in immutable journals; descriptive, not causal explanations",
+    )
     result.add_argument("--encoder", choices=("hashed", "health"), default="hashed")
     result.add_argument("--root-hp-min", type=float, default=0.1)
     result.add_argument(
         "--root-eval-hp", type=float, nargs="+", default=[0.15, 0.5, 0.85]
     )
     result.add_argument("--model-width", type=int, default=64)
-    result.add_argument("--avoid-prismatic", action="store_true")
     result.add_argument(
         "--adapt-legacy-map-checkpoint",
         action="store_true",
@@ -478,6 +592,11 @@ def parser() -> argparse.ArgumentParser:
         help="Ablation only: allow room returns and merchant re-entry",
     )
     result.add_argument("--seed", type=int, default=123)
+    result.add_argument(
+        "--avoid-prismatic",
+        action="store_true",
+        help="Explicit restricted-policy experiment: zero probability for visible optional Prismatic acquisitions; game legality unchanged",
+    )
     result.add_argument(
         "--training-environment-seed",
         type=int,
@@ -502,6 +621,11 @@ def parser() -> argparse.ArgumentParser:
         "--warm-start",
         type=Path,
         help="Trusted compatible macro weights only; fresh optimizer/RNG and new run identity, allows new simulator/source",
+    )
+    initialization.add_argument(
+        "--warm-start-policy-only",
+        type=Path,
+        help="Explicit actor/shared-encoder transfer across reward/objective changes; reset critic, optimizer and RNG in a new run",
     )
     result.add_argument("--output-root", type=Path, default=Path("wandb"))
     result.add_argument("--wandb-project", default="sts-run-a0-v1")
@@ -547,7 +671,7 @@ def main(argv: list[str] | None = None) -> None:
         not math.isfinite(args.max_hours) or args.max_hours <= 0
     ):
         cli.error("max-hours must be finite and positive")
-    if args.objective == "heart" and not args.final_act:
+    if args.objective in ("heart", "heart_progress") and not args.final_act:
         cli.error("Heart objective requires --final-act")
     if args.device == "cuda" and not torch.cuda.is_available():
         cli.error("CUDA unavailable")
@@ -612,11 +736,15 @@ def main(argv: list[str] | None = None) -> None:
         for p in source_files
     )
     settings.update(
-        initialization="warm_start_weights_only"
+        initialization="policy_only_reset_critic"
+        if args.warm_start_policy_only
+        else "warm_start_weights_only"
         if args.warm_start
         else ("exact_resume" if args.resume_from else "fresh"),
-        parent_checkpoint_sha256=digest(args.warm_start or args.resume_from)
-        if (args.warm_start or args.resume_from)
+        parent_checkpoint_sha256=digest(
+            args.warm_start_policy_only or args.warm_start or args.resume_from
+        )
+        if (args.warm_start_policy_only or args.warm_start or args.resume_from)
         else None,
         protocol=PROTOCOL,
         execution_protocol="ragged_macro_learner_cooperative_collection_v1",
@@ -633,12 +761,20 @@ def main(argv: list[str] | None = None) -> None:
         root_manifest_sha256=file_hash(args.root_manifest) if bank else None,
         root_train_count=len(bank.training) if bank else 0,
         root_validation_count=len(bank.validation) if bank else 0,
-        reward_protocol="act1_binary_v1"
-        if args.objective == "act1_binary"
-        else REWARD_PROTOCOL,
+        reward_protocol=reward_protocol(args.objective),
+        heart_reward_spec={
+            "floor_normalizer": HEART_PROGRESS_FLOOR,
+            "floor_scale": HEART_PROGRESS_SCALE,
+            "act_clear_bonus": ACT_CLEAR_BONUS,
+            "heart_bonus": HEART_CLEAR_BONUS,
+        }
+        if args.objective == "heart_progress"
+        else None,
+        progress_metric_protocol=PROGRESS_PROTOCOL,
+        decision_diagnostic_protocol=DIAGNOSTIC_PROTOCOL,
         act1_progress_floor_normalizer=ACT1_BOSS_FLOOR,
         act1_clear_bonus=ACT1_CLEAR_BONUS,
-        behavior_metric_protocol="accepted_rest_decisions_hp_quartiles_and_map_entries_v1",
+        behavior_metric_protocol="accepted_behavior_counts_hp_map_shop_reentries_v2",
         torch_version=str(torch.__version__),
         cuda_version=torch.version.cuda,
         combat_execution="frozen sampled FP32 weights-only; all legal candidates retained",
@@ -671,15 +807,18 @@ def main(argv: list[str] | None = None) -> None:
     skipped_batches = 0
     consecutive_skips = 0
     committed_iteration = None
-    if args.adapt_legacy_map_checkpoint and not args.warm_start:
-        cli.error("--adapt-legacy-map-checkpoint requires --warm-start")
-    if args.warm_start:
+    if args.adapt_legacy_map_checkpoint and not (
+        args.warm_start or args.warm_start_policy_only
+    ):
+        cli.error("--adapt-legacy-map-checkpoint requires a weights-only warm start")
+    if args.warm_start or args.warm_start_policy_only:
         settings.update(
             load_warm_start(
                 model,
-                args.warm_start,
+                args.warm_start or args.warm_start_policy_only,
                 settings,
                 adapt_legacy_map=args.adapt_legacy_map_checkpoint,
+                policy_only=args.warm_start_policy_only is not None,
             )
         )
     if args.resume_from:
@@ -696,6 +835,7 @@ def main(argv: list[str] | None = None) -> None:
             "max_hours",
             "warm_start",
             "adapt_legacy_map_checkpoint",
+            "warm_start_policy_only",
             "initialization",
             "parent_checkpoint_sha256",
         }
@@ -724,6 +864,7 @@ def main(argv: list[str] | None = None) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, destination)
     started = time.monotonic()
+    initial_optimizer_updates = optimizer_updates
     deadline = (
         started + args.max_hours * 3600 if args.max_hours is not None else math.inf
     )
@@ -756,7 +897,12 @@ def main(argv: list[str] | None = None) -> None:
         return stop_flag.is_set() or time.monotonic() >= deadline
 
     def make_job(
-        seed: str, directory: Path, policy_seed: int, hp_fraction: float | None = None
+        seed: str,
+        directory: Path,
+        policy_seed: int,
+        hp_fraction: float | None = None,
+        *,
+        evaluation: bool = False,
     ) -> CollectionJob:
         factory = State.new
         previous = None
@@ -786,6 +932,8 @@ def main(argv: list[str] | None = None) -> None:
                 "final_act": args.final_act,
                 "avoid_prismatic": args.avoid_prismatic,
                 "commit_navigation": not args.raw_navigation,
+                "decision_diagnostics": args.decision_diagnostics == "all"
+                or (evaluation and args.decision_diagnostics == "evaluation"),
                 "max_actions": args.max_actions,
                 "macro_rng": torch.Generator(device=args.device).manual_seed(
                     policy_seed
@@ -857,6 +1005,8 @@ def main(argv: list[str] | None = None) -> None:
         run.define_metric("iteration")
         run.define_metric("train/*", step_metric="iteration")
         run.define_metric("validation/*", step_metric="iteration")
+        run.define_metric("efficiency/*", step_metric="iteration")
+        run.define_metric("policy/*", step_metric="iteration")
         (output / "tracking.json").write_text(
             json.dumps({"mode": args.wandb_mode, "url": run.url}, indent=2)
         )
@@ -864,9 +1014,13 @@ def main(argv: list[str] | None = None) -> None:
         def log(values: dict, step: int) -> None:
             values = {
                 **values,
+                "policy/avoid_prismatic": float(args.avoid_prismatic),
                 "elapsed_seconds": time.monotonic() - started,
                 "optimizer_updates": optimizer_updates,
                 "skipped_batches": skipped_batches,
+                "efficiency/optimizer_updates_per_hour": 3600
+                * (optimizer_updates - initial_optimizer_updates)
+                / max(time.monotonic() - started, 1e-9),
             }
             metrics.write(json.dumps({"iteration": step, **values}) + "\n")
             metrics.flush()
@@ -875,7 +1029,10 @@ def main(argv: list[str] | None = None) -> None:
             run.log({"iteration": step, **values}, commit=True)
             print(json.dumps({"iteration": step, **values}), flush=True)
 
+        best_key = None
+
         def evaluate(step: int) -> None:
+            nonlocal best_key
             evaluation_started = time.monotonic()
             evaluated = episodes(
                 make_job(
@@ -883,6 +1040,7 @@ def main(argv: list[str] | None = None) -> None:
                     output / "journals" / f"eval-{step}-{i}{suffix}",
                     100000 + (i // len(args.root_eval_hp) if bank else i),
                     hp_fraction,
+                    evaluation=True,
                 )
                 for i, (seed, hp_fraction) in enumerate(evaluation_cases)
             )
@@ -908,18 +1066,52 @@ def main(argv: list[str] | None = None) -> None:
                         root_scores[f"{prefix}/initial_value_mse"] = sum(
                             (v - r) ** 2 for v, r in targets
                         ) / len(targets)
-            log(
-                {
-                    **root_scores,
-                    **{f"validation/{k}": v for k, v in scores(evaluated).items()},
-                    "validation/collection_seconds": time.monotonic()
-                    - evaluation_started,
-                    "validation/scheduled": len(evaluation_cases),
-                    "validation/unattempted": len(evaluation_cases) - len(evaluated),
-                },
-                step,
-            )
-            shutil.copyfile(output / "latest.pt", output / f"checkpoint-{step:08d}.pt")
+            evaluation_metrics = {
+                **root_scores,
+                **{f"validation/{k}": v for k, v in scores(evaluated).items()},
+                "validation/collection_seconds": time.monotonic() - evaluation_started,
+                "validation/success_scheduled_lower_bound": sum(
+                    succeeded(ep.objective, ep.status)
+                    for ep in evaluated
+                    if ep.reward is not None
+                )
+                / len(evaluation_cases),
+                "validation/outcome/heart_win_scheduled_lower_bound": sum(
+                    ep.status == "heart_clear" and ep.reward is not None
+                    for ep in evaluated
+                )
+                / len(evaluation_cases),
+                "validation/scheduled": len(evaluation_cases),
+                "validation/unattempted": len(evaluation_cases) - len(evaluated),
+            }
+            log(evaluation_metrics, step)
+            archive = output / f"checkpoint-{step:08d}.pt"
+            shutil.copyfile(output / "latest.pt", archive)
+            key = validation_selection_key(evaluation_metrics)
+            if key is not None and (best_key is None or key > best_key):
+                temporary = output / "best-validation.tmp"
+                shutil.copyfile(archive, temporary)
+                temporary.replace(output / "best-validation.pt")
+                metadata = output / "best-validation.json.tmp"
+                metadata.write_text(
+                    json.dumps(
+                        {
+                            "iteration": step,
+                            "checkpoint": str(archive),
+                            "selection_key": key,
+                            "objective": args.objective,
+                            "policy_restriction_protocol": settings[
+                                "policy_restriction_protocol"
+                            ],
+                            "meaning": "Best repeated validation in this invocation, not independent final-test performance",
+                            "metrics": evaluation_metrics,
+                        },
+                        indent=2,
+                    )
+                    + "\n"
+                )
+                metadata.replace(output / "best-validation.json")
+                best_key = key
 
         checkpoint()  # Last valid boundary remains recoverable after collection failure.
         try:
@@ -978,6 +1170,15 @@ def main(argv: list[str] | None = None) -> None:
                 learned.update(
                     collection_seconds=collection_seconds,
                     update_seconds=time.monotonic() - update_started,
+                    episodes_per_second=len(batch) / max(collection_seconds, 1e-9),
+                    actions_per_second=sum(ep.accepted for ep in batch)
+                    / max(collection_seconds, 1e-9),
+                    episodes_used_for_learning=float(
+                        len(batch) if learned["optimizer_step"] else 0
+                    ),
+                    completed_episodes_discarded=float(
+                        sum(ep.reward is not None for ep in batch) if incomplete else 0
+                    ),
                 )
                 iteration = next_iteration
                 checkpoint()  # Commit learning before fallible telemetry publishing.

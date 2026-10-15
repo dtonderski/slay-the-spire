@@ -15,7 +15,9 @@ the existing combat loop. `--task run` dispatches to a separate implementation:
 - `trainer.py`: completed-episode Monte Carlo actor-critic (`gamma=1`), on-policy
   public-input recomputation checks, fixed held-out evaluation, logs/checkpoints.
 - `rewards.py`: declared terminal reward components and outcome-based success.
-- `metrics.py`: accepted healing decisions by HP band and elite share of map entries.
+- `metrics.py`: accepted behavior counts, healing by HP band, elite entries and shop re-entry diagnostics.
+- `progress.py`: monotone public-history act, floor, key and Heart milestones.
+- `diagnostics.py`: opt-in public choice/context audits and descriptive policy statistics.
 - `contracts.py`: explicit schema-9 run outcomes and screen-based ownership.
 - `restrictions.py`: declared policy eligibility for navigation commitments and
   optional visible Prismatic avoidance; native legal choices remain unchanged.
@@ -49,12 +51,110 @@ are **natural HP, A0**, with Heart profile enabled by default (`--no-final-act`
 disables it for non-Heart objectives). No seeds, revisions, private state or
 simulator futures enter the macro model.
 
+## Full-Heart reward and observability
+
+`--objective heart_progress` opts into the shaped full-run objective:
+
+```text
+3 * min(furthest_observed_floor / 55, 1)
++ 2 * first_three_acts_cleared
++ 30 * explicit_heart_victory
+```
+
+This is a **single terminal return**, not repeated payments for UI actions. Act
+bonuses require observed entry into a later act or an explicit final victory;
+floor numbers alone never establish a clear. The scale of 55 corresponds to the
+native Heart-combat floor; TrueVictory on 56 is clipped (source:
+`run/reward.rs::corrupt_heart_victory_proceeds_to_true_victory_floor`). This is
+source-backed reward accounting, not new real-game parity evidence. Completed
+non-Heart runs score at most 9; a Heart victory scores 39. Errors, cutoffs and
+invalid boundaries still receive **no target**, even when earlier milestones
+were observed. The old `heart` objective remains binary and unchanged.
+
+Shaping can favor reliable progress over risky victory attempts; it is not an
+exact proxy for win probability. The trainer archives `best-validation.pt` using
+success rate first (Heart wins for Heart objectives), unknown counts second,
+shaped reward third. Partial scheduled evaluations cannot select a best model.
+Selection is over this invocation's repeated validation, not an independent test;
+keep fresh final-test seeds separate. Native/source/profile provenance remains
+archived, including any declared Prismatic restriction.
+
+Use explicit `--warm-start-policy-only /path/to/best.pt` when changing objectives:
+actor/shared-encoder weights transfer, critic heads retain their fresh
+initialization with zero outputs, optimizer/RNG/counters start fresh. All model
+shapes, feature/observation and frozen-combat contracts still must match. Ordinary
+`--warm-start` still rejects reward/objective changes; exact resume remains strict.
+This option does not restore, repair or transplant simulator states.
+
+### Metrics: observation versus explanation
+
+- **Outcomes/coverage:** Heart wins, non-Heart Act-3 completions, deaths by act,
+  observed act clears, key collection, Act-4 entry and Heart encounter. Milestones
+  remain visible for incomplete episodes without treating those episodes as wins
+  or losses. Counts carry an observed-progress coverage denominator. Validation
+  also reports success and Heart-win lower bounds over **all scheduled** cases,
+  including unattempted cases; completed-only rates are explicitly conditional.
+- **Efficiency:** collection/update time, episodes and actions per second,
+  optimizer updates per wall-clock hour, episodes actually used for learning,
+  and completed episodes discarded with incomplete batches. Whole-batch
+  quarantine is unchanged. Same-floor shop re-entries are measured, not forbidden.
+- **Behavior:** accepted card-taking/closing, purchases, potion use, rest choices,
+  and elite entries. A closed card menu is **not** necessarily a skipped reward;
+  repeated menus are decision-level observations, not independent opportunities.
+- **Policy health:** entropy, sampled-choice probability, concentration, and
+  reward-target value MSE, plus pre-clip gradient norm and clipping indicators
+  on actual optimizer updates. Policy/value statistics are decision-weighted on retained
+  accepted macro records (errored episodes currently drop their macro records).
+  Critic values predict shaped return, **not calibrated Heart-win probability**.
+
+`--decision-diagnostics evaluation` records all ordered candidates, eligibility,
+probabilities, chosen index/value and public deck/relic/HP/key context inside
+attempt journals during validation. `all` also records training; default `none`
+avoids the extra serialization/storage. Use bounded audits: menu loops can make
+these records large. Rejected attempts remain proposals, not accepted choices;
+the existing acceptance fence is authoritative. Masked logits serialize as null
+with probability zero, never non-standard JSON infinities. No RNG is drawn for
+telemetry, and no diagnostic/milestone counters enter policy inputs or rewards
+apart from the explicitly declared public-progress reward components.
+
+This provides **observability** and evidence for subsequent interpretability
+studies, not proof of strategy or causal explanations. Conditional pick rates
+must account for offered alternatives, affordability, constraints, floor/HP and
+repeated-menu visits. Context ablations and paired continuation experiments are
+separate analysis; no synergy score or claimed explanation is fabricated here.
+
 ## Environment limitations
 
 Prismatic Shard still exposes unsupported cross-color gameplay. Strict Courier
 purchase successors may require process-global libGDX draws absent from run-seeded
 inputs. Headbutt run-boundary settlement has a separate simulator fix. These
 simulator-only findings are not dedicated real-game interaction parity.
+
+### Optional restricted Prismatic policy
+
+`--avoid-prismatic` explicitly labels a **restricted-policy experiment**, applied
+in both training and validation. Visible optional Prismatic Shard purchases and
+relic-taking choices receive exactly zero policy probability. Their original
+candidate rows and action indices remain intact; simulator legality, relic pools,
+reward generation and game rules are unchanged. Only public offered identities
+are consulted, never hidden outcomes. Prismatic avoidance is off by default;
+navigation commitments below are a separate declared restriction.
+
+Random/unknown grants and mandatory single-action grants remain possible. Their
+unsupported successors still fail normally and quarantine batches; this option
+is not a Prismatic implementation or a fix for shop-navigation cycles. If a
+multi-choice decision has no eligible action, collection fails explicitly rather
+than restoring excluded choices or retrying a game action.
+
+Config/source archives and evaluation metrics identify the restriction. Journals
+record its protocol at setup and the complete eligibility vector at macro
+attempts. Collection and learner recomputation use the same masked distribution;
+raw scores must still be finite for **every** actual candidate, including excluded
+ones. Stored effective logits and chosen indices are checked before backward.
+No observation/features, model shapes or frozen-combat ABI change. A restriction
+change rejects exact resume; use a new run identity and explicit macro
+weights-only `--warm-start` with fresh optimizer/RNG. Restricted repeated-validation
+scores must not be presented as unrestricted or independent test performance.
 
 ### Explicit Courier environmental-input profile
 
@@ -126,7 +226,8 @@ and source archives include the immutable legacy identity list.
 
 After an intentional simulator/source update, use `--warm-start /path/to/latest.pt`
 for explicit **macro weights-only transfer** into a new run. Architecture, feature,
-observation, reward, objective and frozen-combat contracts must match; native/source
+observation, reward, objective and frozen-combat contracts must match (the explicit
+policy-only option above is the exception for reward/objective changes); native/source
 hash changes are allowed and parent checkpoint/native hashes are recorded. The
 optimizer, sampler and local iteration counters start fresh. This is not exact
 resume and does not restore simulator states or unfinished episodes.
@@ -134,7 +235,8 @@ resume and does not restore simulator states or unfinished episodes.
 The current-map input uses hashed feature version **4** and health version **5**.
 Earlier map-history checkpoints are not exact resumes or automatically compatible
 warm starts. For intentional **weights-only** transfer, use
-`--warm-start OLD.pt --adapt-legacy-map-checkpoint`. This narrowly accepts schema-8
+`--warm-start OLD.pt --adapt-legacy-map-checkpoint` (or the explicit
+`--warm-start-policy-only` option when also changing objectives). This narrowly accepts schema-8
 hashed v2 (including missing legacy encoder), explicitly tagged hashed v3, or
 health v3 into the corresponding schema-9 encoder. It preserves parameter values,
 not predictions, optimizer moments, sampler state or the former policy. All other

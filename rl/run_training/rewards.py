@@ -3,20 +3,37 @@
 from dataclasses import dataclass
 from typing import Literal
 
-Objective = Literal["act1", "act1_binary", "act3", "heart"]
+from run_training.progress import RunProgress
+
+Objective = Literal["act1", "act1_binary", "act3", "heart", "heart_progress"]
 ACT1_BOSS_FLOOR = 16
 ACT1_CLEAR_BONUS = 5.0
 REWARD_PROTOCOL = "act1_terminal_floor16_plus_clear5_v1_other_objectives_binary"
+HEART_REWARD_PROTOCOL = "heart_terminal_floor55_scale3_act2_heart30_v1"
+# Declared shaping scale, not an inferred terminal/clear boundary. Native target
+# tests: run/reward.rs::corrupt_heart_victory_proceeds_to_true_victory_floor
+# reaches Heart combat on 55 and explicit completion on 56 (clipped to 3).
+HEART_PROGRESS_FLOOR = 55
+HEART_PROGRESS_SCALE = 3.0
+ACT_CLEAR_BONUS = 2.0
+HEART_CLEAR_BONUS = 30.0
+
+
+def reward_protocol(objective: Objective) -> str:
+    if objective == "heart_progress":
+        return HEART_REWARD_PROTOCOL
+    return "act1_binary_v1" if objective == "act1_binary" else REWARD_PROTOCOL
 
 
 @dataclass(frozen=True)
 class RewardParts:
     progress: float
     clear_bonus: float
+    heart_bonus: float = 0.0
 
     @property
     def total(self) -> float:
-        return self.progress + self.clear_bonus
+        return self.progress + self.clear_bonus + self.heart_bonus
 
 
 def succeeded(objective: Objective, status: str) -> bool:
@@ -24,16 +41,35 @@ def succeeded(objective: Objective, status: str) -> bool:
         return status == "act1_clear"
     if objective == "act3":
         return status in ("act3_clear", "heart_clear")
-    if objective == "heart":
+    if objective in ("heart", "heart_progress"):
         return status == "heart_clear"
     raise ValueError("Unknown run objective")
 
 
 def terminal_parts(
-    objective: Objective, status: str, furthest_act1_floor: int
+    objective: Objective,
+    status: str,
+    furthest_act1_floor: int,
+    *,
+    progress: RunProgress | None = None,
 ) -> RewardParts:
     if furthest_act1_floor < 0:
         raise ValueError("Negative observed floor")
+    if objective == "heart_progress":
+        if status not in ("death", "act3_clear", "heart_clear") or progress is None:
+            raise ValueError(
+                "Shaped Heart reward requires a completed episode and observed progress"
+            )
+        if status in ("act3_clear", "heart_clear") and progress.acts_cleared != 3:
+            raise ValueError("Final victory missing observed act-clear evidence")
+        if status == "heart_clear" and not progress.heart_reached:
+            raise ValueError("Heart victory missing observed Heart boundary")
+        return RewardParts(
+            HEART_PROGRESS_SCALE
+            * min(progress.furthest_floor / HEART_PROGRESS_FLOOR, 1.0),
+            ACT_CLEAR_BONUS * progress.acts_cleared,
+            HEART_CLEAR_BONUS if status == "heart_clear" else 0.0,
+        )
     if objective == "act1_binary":
         if status not in ("death", "act1_clear"):
             raise ValueError("Binary Act-1 reward requires a completed episode")
@@ -44,8 +80,10 @@ def terminal_parts(
         cleared = status == "act1_clear"
         # An accepted transition into Act 2 completes all Act-1 progress. Floor
         # alone never grants the clear bonus. This does not alter simulator state.
-        progress = 1.0 if cleared else min(furthest_act1_floor / ACT1_BOSS_FLOOR, 1.0)
-        return RewardParts(progress, ACT1_CLEAR_BONUS if cleared else 0.0)
+        floor_credit = (
+            1.0 if cleared else min(furthest_act1_floor / ACT1_BOSS_FLOOR, 1.0)
+        )
+        return RewardParts(floor_credit, ACT1_CLEAR_BONUS if cleared else 0.0)
     if objective not in ("act3", "heart") or status not in (
         "death",
         "act3_clear",

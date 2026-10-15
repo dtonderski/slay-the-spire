@@ -25,9 +25,11 @@ from model import CombatValueModel
 from sts_sim import Decision, State
 
 from run_training.contracts import PolicyAction, controller, outcome
+from run_training.diagnostics import decision_diagnostic
 from run_training.environment import journal_environment_seed
 from run_training.metrics import BehaviorStats
 from run_training.model import MacroInput, MacroModel, encode
+from run_training.progress import RunProgress
 from run_training.restrictions import (
     AVOID_PRISMATIC_PROTOCOL,
     NAVIGATION_PROTOCOL,
@@ -35,7 +37,7 @@ from run_training.restrictions import (
     restrict_batch_logits,
     restrict_logits,
 )
-from run_training.rewards import Objective, terminal_parts
+from run_training.rewards import Objective, reward_protocol, terminal_parts
 
 
 @dataclass(frozen=True)
@@ -57,6 +59,7 @@ class RunEpisode:
     objective: Objective = "act1"
     furthest_act1_floor: int = 0
     behavior: BehaviorStats = field(default_factory=BehaviorStats)
+    progress: RunProgress | None = None
 
 
 class CollectionFailure(RuntimeError):
@@ -66,6 +69,7 @@ class CollectionFailure(RuntimeError):
     floor: int = 0
     furthest_act1_floor: int = 0
     behavior: BehaviorStats = BehaviorStats()
+    progress: RunProgress | None = None
 
 
 class SimulatorFailure(CollectionFailure):
@@ -235,7 +239,11 @@ class FrozenCombat:
 
 
 def task_result(
-    decision: Decision, objective: Objective, furthest_act1_floor: int | None = None
+    decision: Decision,
+    objective: Objective,
+    furthest_act1_floor: int | None = None,
+    *,
+    progress: RunProgress | None = None,
 ) -> tuple[str, float | None]:
     if furthest_act1_floor is None:
         furthest_act1_floor = decision.observation.context.floor
@@ -243,7 +251,9 @@ def task_result(
     if status == "invalid":
         raise CollectionFailure("Invalid/unknown run boundary, not a loss")
     if status == "death":
-        return status, terminal_parts(objective, status, furthest_act1_floor).total
+        return status, terminal_parts(
+            objective, status, furthest_act1_floor, progress=progress
+        ).total
     # Act-1 curriculum terminates at the observable transition into Act 2.
     if objective in ("act1", "act1_binary") and decision.observation.context.act >= 2:
         return "act1_clear", terminal_parts(
@@ -252,7 +262,9 @@ def task_result(
     if status != "ongoing":
         if objective in ("act1", "act1_binary"):
             raise CollectionFailure("Unexpected Act-1 terminal boundary")
-        return status, terminal_parts(objective, status, furthest_act1_floor).total
+        return status, terminal_parts(
+            objective, status, furthest_act1_floor, progress=progress
+        ).total
     return status, None
 
 
@@ -269,6 +281,7 @@ def _trajectory(
     training_rng_seed: int | None = None,
     avoid_prismatic: bool = False,
     commit_navigation: bool = True,
+    decision_diagnostics: bool = False,
     stop_requested: Callable[[], bool] | None = None,
     initial_previous: PolicyAction | None = None,
     initial_metadata: dict | None = None,
@@ -278,8 +291,13 @@ def _trajectory(
     A cutoff returns reward=None and trainer rejects the entire update. This
     intentionally avoids selectively training only short/completed trajectories.
     """
-    if objective not in ("act1", "act1_binary", "act3", "heart") or max_actions < 1:
+    if (
+        objective not in ("act1", "act1_binary", "act3", "heart", "heart_progress")
+        or max_actions < 1
+    ):
         raise ValueError("Invalid run collection configuration")
+    if objective == "heart_progress" and not final_act:
+        raise ValueError("Shaped Heart objective requires final_act")
     journal_environment_seed({"training_rng_seed": training_rng_seed})
     steps: list[MacroStep] = []
     accepted = 0
@@ -287,6 +305,7 @@ def _trajectory(
     finished_shop: tuple[int, int] | None = None
     furthest_act1_floor = 0
     behavior = BehaviorStats()
+    progress = RunProgress()
     journal.parent.mkdir(parents=True, exist_ok=True)
     with (
         gzip.open(journal, "xt", compresslevel=1)
@@ -306,6 +325,8 @@ def _trajectory(
                 "final_act": final_act,
                 "objective": objective,
                 "map_input_protocol": "context_current_act_map_v1",
+                "reward_protocol": reward_protocol(objective),
+                "decision_diagnostics": decision_diagnostics,
                 "max_actions": max_actions,
                 "macro_policy_seed": macro_rng.initial_seed(),
                 "combat_policy_seed": combat_rng.initial_seed(),
@@ -331,11 +352,14 @@ def _trajectory(
             )
             decision = simulator_call(state.decision)
             while True:
+                progress = progress.observed(decision.observation)
                 if decision.observation.context.act == 1:
                     furthest_act1_floor = max(
                         furthest_act1_floor, decision.observation.context.floor
                     )
-                status, reward = task_result(decision, objective, furthest_act1_floor)
+                status, reward = task_result(
+                    decision, objective, furthest_act1_floor, progress=progress
+                )
                 if (
                     reward is not None
                     or accepted >= max_actions
@@ -354,11 +378,17 @@ def _trajectory(
                             "macro_decisions": len(steps),
                             "furthest_act1_floor": furthest_act1_floor,
                             "reward_parts": asdict(
-                                terminal_parts(objective, status, furthest_act1_floor)
+                                terminal_parts(
+                                    objective,
+                                    status,
+                                    furthest_act1_floor,
+                                    progress=progress,
+                                )
                             )
                             if reward is not None
                             else None,
                             "behavior": asdict(behavior),
+                            "progress": asdict(progress),
                         }
                     )
                     return RunEpisode(
@@ -370,6 +400,7 @@ def _trajectory(
                         objective=objective,
                         furthest_act1_floor=furthest_act1_floor,
                         behavior=behavior,
+                        progress=progress,
                     )
                 observation = decision.observation
                 owner = controller(decision)
@@ -433,6 +464,11 @@ def _trajectory(
                         if heal_indices
                         else None,
                         "heal_probability": heal_probability,
+                        "policy_diagnostic": decision_diagnostic(
+                            observation, descriptors, step.logits, index, step.value
+                        )
+                        if decision_diagnostics and step is not None
+                        else None,
                     }
                 )
                 decision = simulator_call(lambda action=action: state.step(action))
@@ -457,6 +493,7 @@ def _trajectory(
             if isinstance(error, CollectionFailure):
                 error.accepted = accepted
                 error.behavior = behavior
+                error.progress = progress if "decision" in locals() else None
                 error.furthest_act1_floor = furthest_act1_floor
                 error.floor = (
                     decision.observation.context.floor if "decision" in locals() else 0
@@ -468,6 +505,7 @@ def _trajectory(
                     "error": f"{type(error).__name__}: {error}",
                     "furthest_act1_floor": furthest_act1_floor,
                     "behavior": asdict(behavior),
+                    "progress": asdict(progress) if "decision" in locals() else None,
                 }
             )
             raise
@@ -484,6 +522,7 @@ class CollectionOptions(TypedDict):
     training_rng_seed: NotRequired[int | None]
     avoid_prismatic: NotRequired[bool]
     commit_navigation: NotRequired[bool]
+    decision_diagnostics: NotRequired[bool]
     stop_requested: NotRequired[Callable[[], bool] | None]
     initial_previous: NotRequired[PolicyAction | None]
     initial_metadata: NotRequired[dict | None]
@@ -592,6 +631,7 @@ def failed_episode(error: CollectionFailure, objective: Objective) -> RunEpisode
         objective=objective,
         furthest_act1_floor=error.furthest_act1_floor,
         behavior=error.behavior,
+        progress=error.progress,
     )
 
 
