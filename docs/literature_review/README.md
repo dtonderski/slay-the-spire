@@ -5,6 +5,14 @@ implementation or a committed roadmap. For what runs today, see the
 [RL README](../../rl/README.md); for policy constraints, see the
 [fair API contract](../../simulator/docs/fair_api.md).
 
+## Supervised pretraining
+
+- [SlayTheData investigation](slaythedata_pretraining.html): short standalone
+  HTML summary of the measured card/boss-relic ranking pilot and seed/map audit.
+  The [pretraining README](../../rl/pretraining/README.md) owns the implemented
+  workflow. Full run-policy integration remains proposed; no gameplay-strength
+  improvement or full-map parity is claimed.
+
 ## Fair planning
 
 - [Research tree](research_tree.md): open questions and possible experiment branches.

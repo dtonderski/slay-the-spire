@@ -1,6 +1,6 @@
 # A0 run training
 
-The sole training entry point is **`rl/train.py`**. `--task combat` (default) keeps
+The sole online RL entry point is **`rl/train.py`**. `--task combat` (default) keeps
 the existing combat loop. `--task run` dispatches to a separate implementation:
 
 - `collector.py`: natural A0 runs, public macro decisions and frozen **sampled**
@@ -19,6 +19,10 @@ the existing combat loop. `--task run` dispatches to a separate implementation:
 - `contracts.py`: explicit schema-8 run outcomes and screen-based ownership.
 - `targets.py`: tested reference GAE for later nonterminal fragment bootstrapping;
   **not used** by the initial completed-episode trainer.
+
+The separate [SlayTheData supervised pilot](../pretraining/README.md) trains an
+offline conditional item ranker. Its checkpoints are not compatible with this
+macro model's resume or warm-start paths; no pretrained weights are loaded here.
 
 ## Bounded pilot
 

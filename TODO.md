@@ -15,6 +15,25 @@ baseline and its reward/behavior metrics are documented in the
 
 ## Ideas and investigations
 
+- [ ] **[RL] Turn historical choice ranking into a valid run-policy warm-start.**
+  The SlayTheData pilot learns conditional card/boss-relic preferences, not exact
+  historical states or an online-compatible checkpoint. Investigate conservative
+  prefix deck reconstruction, boss-choice timing and audited skip/Bowl legality
+  before connecting to the existing fair run actor. Preserve missing-context
+  masks, full online legal sets and fixed run-level holdouts; compare against
+  scratch at matched combat policy, seeds and total compute. Partial logged
+  history did not improve the pilot overall. See the
+  [implemented scope and measurements](rl/pretraining/README.md).
+
+- [ ] **[Simulator/RL] Close the historical map-version gap before route supervision.**
+  The 2022 A0 full-graph bytecode differential check passed, but the 2020 dataset
+  still has only seed/recorded-route evidence. Obtain the historical JAR or full
+  map captures, audit that version's initialization, and separately implement
+  and validate A20 generation. Route symbols also leave coordinate ambiguity;
+  do not turn research-only inferred paths into observed labels or repair a
+  simulator from run logs. See the [map evidence](rl/pretraining/README.md#original-game-bytecode-differential-check-2022-a0)
+  and [historical confidence limits](rl/pretraining/README.md#seed-based-maps).
+
 - [ ] **[Simulator] Close remaining A0 rollout failure classes.** Investigate
   advertised Courier card purchases rejected as invalid, Prismatic Shard purchases
   with unavailable successors, and Headbutt selections that leave won combat with
