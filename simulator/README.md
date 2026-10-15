@@ -108,6 +108,16 @@ The 2,000-action bound and 10-second subprocess timeout remain unchanged; hittin
 either is still only a candidate requiring diagnosis. Existing profile recipes
 remain unchanged.
 
+For broader interaction coverage, use `--profile cards-relics-potions-endurance-wide`
+(native `--wide`). This opt-in recipe extends the selectable combat-relic pool
+from 15 to 33, including potion modifiers, damage mitigation/reflection, revival,
+and draw/heal callbacks. It uses `RunState::gain_relic` before combat entry, so
+modeled pickup rules such as Potion Belt capacity apply. It includes potions and
+full 400–800 starting HP, with the same action/time bounds. Existing profiles and
+their seeded recipes are unchanged; wide-profile seeds describe different setups,
+not paired comparisons. Preserve the profile and executable for reproduction.
+These are synthetic robustness inputs, not naturally reachable-run or parity claims.
+
 ## Python binding
 
 ```bash

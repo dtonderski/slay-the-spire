@@ -31,7 +31,9 @@ def run_case(binary: Path, worktree: Path, seed: int, output: Path, timeout: flo
         environment["COMBAT_FUZZ_REVISION"] = manifest["revision"]
         environment["COMBAT_FUZZ_PATCH"] = str(output.parent / "implementation.patch")
     command = [str(binary), str(seed), "1", str(output)]
-    if profile == "cards-relics-potions-endurance":
+    if profile == "cards-relics-potions-endurance-wide":
+        command.append("--wide")
+    elif profile == "cards-relics-potions-endurance":
         command.append("--endurance")
     else:
         if "potions" in profile:
@@ -91,7 +93,8 @@ def run_case(binary: Path, worktree: Path, seed: int, output: Path, timeout: flo
     ):
         status = "probe_profile_mismatch"
         coverage_error = "binary did not confirm requested generation profile"
-    if status == "terminal" and profile == "cards-relics-potions-endurance":
+    if status == "terminal" and profile in ("cards-relics-potions-endurance",
+                                            "cards-relics-potions-endurance-wide"):
         health = coverage.get("initial_max_hp") if coverage else None
         if not isinstance(health, int) or not 400 <= health <= 800 or (
             coverage is None or coverage.get("initial_hp") != health
@@ -124,7 +127,8 @@ def main() -> None:
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--profile", choices=["cards-relics", "cards-relics-potions",
                                              "cards-relics-durable", "cards-relics-potions-durable",
-                                             "cards-relics-potions-endurance"],
+                                             "cards-relics-potions-endurance",
+                                             "cards-relics-potions-endurance-wide"],
                         default="cards-relics")
     args = parser.parse_args()
     if args.start < 0 or args.count <= 0 or args.start + args.count > 2**64 or args.timeout <= 0:
