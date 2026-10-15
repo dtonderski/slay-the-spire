@@ -25,12 +25,14 @@ baseline and its reward/behavior metrics are documented in the
   history did not improve the pilot overall. See the
   [implemented scope and measurements](rl/pretraining/README.md).
 
-- [ ] **[Simulator/RL] Validate historical full maps before route supervision.**
-  Strong seed/recorded-route association does not identify unvisited topology or
-  disambiguate every coordinate path. Obtain historical full-map evidence and
-  source-backed A20 generation/validation; do not turn research-only inferred
-  paths into observed labels or repair a simulator from run logs. See the
-  [map audit and confidence limits](rl/pretraining/README.md#seed-based-maps).
+- [ ] **[Simulator/RL] Close the historical map-version gap before route supervision.**
+  The 2022 A0 full-graph bytecode differential check passed, but the 2020 dataset
+  still has only seed/recorded-route evidence. Obtain the historical JAR or full
+  map captures, audit that version's initialization, and separately implement
+  and validate A20 generation. Route symbols also leave coordinate ambiguity;
+  do not turn research-only inferred paths into observed labels or repair a
+  simulator from run logs. See the [map evidence](rl/pretraining/README.md#original-game-bytecode-differential-check-2022-a0)
+  and [historical confidence limits](rl/pretraining/README.md#seed-based-maps).
 
 - [ ] **[Simulator] Close remaining A0 rollout failure classes.** Investigate
   advertised Courier card purchases rejected as invalid, Prismatic Shard purchases

@@ -134,8 +134,65 @@ is a useful research export, not approved route supervision or real-game parity.
 
 ## Measured pilot
 
-Aggregate results and reproducibility hashes: [`results.json`](results.json).
-These are retained measurements, not a benchmark promise.
+Aggregate results and reproducibility hashes: [`results.json`](results.json)
+and [`game_map_results.json`](game_map_results.json). These are retained
+measurements, not a benchmark promise.
+
+### Original game-bytecode differential check (2022 A0)
+
+A stronger test than route compatibility calls **the original game JAR's
+`AbstractDungeon.generateMap`**, including `MapGenerator` and `RoomTypeAssigner`,
+then compares the complete exported playable graph against Rust. There is no
+copied Java map algorithm, observed-route input or post-generation correction.
+
+- **21,600 / 21,600 maps equal:** 7,000 fresh distinct seeds × all three acts,
+  plus the 600 seed/act cases from the historical route audit.
+- Compared all starts, **1,296,922 connected nodes and their room symbols**, and
+  **1,603,806 directed edges**, including unvisited branches and boss exits.
+- No fresh seed had a mismatch in any act. Treating each fresh seed (not each
+  act) as one trial, the 99.9% one-sided upper mismatch-rate bound is
+  **0.098634%**, assuming representative independent trials. This bounds the
+  fraction of seeds disagreeing with the tested oracle, not the probability
+  that every aspect of the simulator is correct.
+- A separate 50-seed / 150-map check also passed with a different cosmetic RNG
+  seed. No gameplay RNG stream is supplied by the graphics scaffolding.
+
+**Authority and scope:** PC `[V2.3.4] (12-18-2022)`, original JAR SHA-256
+`cfad868ac8d65a88e71a0bf096fb09f78811e553effe0787c5309a655e081673`.
+Normal A0 acts 1–3; signed seeds with non-overflowing act offsets. Boss identity,
+burning-elite markers, A1+, daily/endless variants and other game versions are
+not covered. This is **original-bytecode differential evidence**, not an
+immutable real-game transition trace or an exhaustive proof over every seed.
+The older `2020-07-30` build still has route evidence only.
+
+`GameMapOracle.java` supplies headless graphics, a real fallback font, an inert
+UI texture and in-memory empty preferences so the game's UI static initializers
+can run without OpenGL. Display-config output is sandboxed in the new output
+directory. No game methods/classes are replaced or instrumented. An unconstructed
+dungeon receiver is allocated only to invoke the original
+`initializeLevelSpecificChances` method, audited to assign static starting
+probabilities. Act seed offsets come from the `Exordium`, `TheCity` and
+`TheBeyond` constructors immediately before `generateMap`; the JAR's own RNG,
+room-count rounding, shuffling and placement routines execute unchanged.
+The harness rejects other version strings pending a source audit.
+
+Reproduce from `rl/`, with your own legally supplied game JAR (not distributed
+here), the native exporter, and a Java runtime containing `jdk.compiler` (tested
+on Linux/OpenJDK 25):
+
+```bash
+uv run --no-project python -m pretraining.game_map_audit \
+  --jar /path/to/desktop-1.0.jar \
+  --map-binary ../target/debug/examples/export_research_maps \
+  --output-dir ../tmp/pretraining/game-map-proof --runs 7000 --seed 20261017
+```
+
+This tests 21,000 fresh maps without SlayTheData. To reproduce the retained
+21,600-case measurement, also pass `--route-audit-dir` followed by the three
+previous map-audit output directories. Requests are frozen before either
+implementation runs; complete outputs, mismatches, source/JAR/binary hashes and
+logs are retained. Any graph mismatch makes the CLI exit nonzero. Use
+`--runs 50 --cosmetic-seed -911` in another new directory for the cosmetic control.
 
 ### Seed-based maps
 
@@ -170,8 +227,8 @@ It takes at least 6,905 zero-failure trials to bound that test's failure rate
 below 0.1% at 99.9% confidence. **Even that cannot establish full-map equality:**
 an incorrect unvisited node or edge can leave the recorded route compatible.
 A regression test demonstrates this non-identifiability. Full topology/room
-snapshots from historical-game captures, plus broader source/version coverage,
-are needed for an equality claim. A20 generation needs separate source-backed
+snapshots from historical-game captures or an independently audited historical
+JAR are still needed to close the **2020-versus-2022 version gap**. A20 generation needs separate source-backed
 implementation/validation; this PR does not patch gameplay based on outcomes.
 
 ### Choice extraction and training

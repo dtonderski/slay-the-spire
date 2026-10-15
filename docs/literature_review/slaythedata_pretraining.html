@@ -8,10 +8,14 @@
 </style>
 </head>
 <body><main>
-<div class="eyebrow">Measured pilot · 15 October 2026 · 2-minute read</div>
+<div class="eyebrow">Measured pilot · 15 October 2026 · Map evidence updated</div>
 <h1>Run-level pretraining: what now works</h1>
-<p class="verdict"><strong>We have working card/boss-relic extraction and supervised training code. Seed-based routing looks promising across all three acts—but full map equality and exact historical decision state remain unproven.</strong></p>
-<h2>The map experiment</h2>
+<p class="verdict"><strong>The A0 map generator now matches the original 2022 game code on 21,600 complete maps. The remaining historical gap is whether the dataset’s 2020 build uses the same algorithm. Card/boss-relic ranking works; RL warm-start integration does not yet exist.</strong></p>
+<h2>Stronger evidence: original game code</h2>
+<p>We ran the original game JAR’s map-generation methods—not a second copy of our algorithm—and compared <strong>all connected nodes, room types, starting choices and edges</strong>, including unvisited branches.</p>
+<ul><li><strong>7,000 fresh seeds × 3 acts = 21,000 exact matches.</strong> Another 600 historical seed/act cases also matched the 2022 JAR.</li><li>That covers <strong>1,296,922 nodes and 1,603,806 edges</strong>, with zero mismatches.</li><li>At 99.9% confidence, the upper bound on the fraction of sampled-distribution seeds with any act mismatch is <strong>0.0987%</strong>—assuming representative independent trials. This is not a proof about every seed or every game version.</li></ul>
+<p>Scope: normal <strong>A0, PC 12-18-2022</strong>, playable map topology and room types. Not A20, boss identity or burning-elite markers. Headless graphics scaffolding supports the unchanged game bytecode; this is not a captured live-game trace. <a href="https://github.com/dtonderski/slay-the-spire/blob/wt/pretraining-worktree-20261015/rl/pretraining/game_map_results.json">Pinned results and hashes</a>.</p>
+<h2>Historical 2020 data: route evidence</h2>
 <p>We generated maps from the logged seeds, without supplying the recorded routes to the generator, then checked whether each route was possible.</p>
 <div class="table-wrap"><table>
 <thead><tr><th>A0 cohort</th><th>Own seed fits</th><th>Unique coordinate path</th><th>Wrong-seed fits</th></tr></thead>
@@ -19,7 +23,7 @@
 <tr><td>Act 2</td><td>200 / 200</td><td>92</td><td>8 / 39,800</td></tr>
 <tr><td>Act 3</td><td>200 / 200</td><td>81</td><td>9 / 39,800</td></tr></tbody>
 </table></div>
-<p><strong>Strong seed/route association, not 99.9% certainty of exact maps.</strong> The logs don’t reveal unvisited nodes. Most routes also fit multiple coordinate paths, so we cannot simply choose one as the human’s path.</p>
+<p><strong>The 2020 logs alone still cannot establish historical full-map equality.</strong> They don’t reveal unvisited nodes. Most routes also fit multiple coordinate paths, so we cannot simply choose one as the human’s path.</p>
 <p>The code exports <strong>1,494 hypothetical branch decisions</strong> from unique paths. These assume the generated map is correct, are clearly marked research-only, and are rejected by the supervised choice trainer.</p>
 <h2>Cards and relics</h2>
 <ul>
@@ -38,5 +42,5 @@
 <p>Each act’s 9,999 seed-route permutations gave Monte Carlo association p = 0.0001. That is not the probability the map algorithm is wrong. With zero failures in 200 independent representative tests, the one-sided 99.9% upper failure-rate bound is 3.395%, for route compatibility only. Unvisited-map differences remain unidentifiable.</p>
 <p><a href="https://github.com/dtonderski/slay-the-spire/blob/wt/pretraining-worktree-20261015/rl/pretraining/README.md">Implementation, commands, limitations and reproducibility hashes</a> · <a href="https://www.reddit.com/r/slaythespire/comments/jt2fn6/77_million_runs_an_sts_metrics_dump/">Dataset announcement</a>.</p>
 </details>
-<footer>Offline research, not a complete run actor. No full-map parity, A20 Heart improvement or simulator-state reconstruction claim.</footer>
+<footer>Offline research, not a complete run actor. Original-bytecode agreement is scoped to 2022 A0 maps; no historical-version equivalence, A20 Heart improvement or simulator-state reconstruction claim.</footer>
 </main></body></html>

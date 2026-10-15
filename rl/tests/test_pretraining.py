@@ -229,6 +229,35 @@ class MapAuditTests(unittest.TestCase):
         self.assertLess(permutation_test(matrix, 999, 1)["monte_carlo_p"], 0.01)
 
 
+class GameMapAuditTests(unittest.TestCase):
+    def test_fresh_requests_are_frozen_seed_groups_without_routes(self):
+        from pretraining.game_map_audit import freeze_requests
+
+        requests, manifest = freeze_requests([], 5, 42)
+        self.assertEqual((requests, manifest), freeze_requests([], 5, 42))
+        self.assertEqual(len(requests), 15)
+        self.assertEqual(len({r["seed"] for r in requests}), 5)
+        for i in range(0, len(requests), 3):
+            self.assertEqual([r["act"] for r in requests[i : i + 3]], [1, 2, 3])
+        self.assertTrue(all(set(r) == {"seed", "act", "ascension"} for r in requests))
+        with self.assertRaises(ValueError):
+            freeze_requests([], 0, 42)
+
+    def test_full_graph_difference_is_a_failure_not_just_route_compatibility(self):
+        from pretraining.game_map_audit import compare_maps
+
+        request = {"seed": 42, "act": 1, "ascension": 0}
+        original: dict = {**graph(), **request}
+        altered = copy.deepcopy(original)
+        altered["nodes"][-1]["symbol"] = "$"
+        report = compare_maps([original], [altered], [request], 0)
+        self.assertEqual(report["counts"]["fresh_matches"], 0)
+        self.assertEqual(report["fresh_seeds_with_any_act_mismatch"], 1)
+        self.assertEqual(compare_maps([original], [original], [request], 0)["counts"]["fresh_matches"], 1)
+        with self.assertRaises(ValueError):
+            compare_maps([original], [], [request], 0)
+
+
 class ChoiceTrainingTests(unittest.TestCase):
     def setUp(self):
         import torch
