@@ -106,6 +106,8 @@ pub const CRIPPLING_CLOUD_ANY_COLOR_ID: ContentId = ContentId::new(947_366_816_1
 pub const RIP_AND_TEAR_ANY_COLOR_ID: ContentId = ContentId::new(2_145_526_024_458_497_736);
 /// Prismatic/Silent Quick Slash — id matches `shop_card_content_id("QUICK_SLASH")`.
 pub const QUICK_SLASH_ANY_COLOR_ID: ContentId = ContentId::new(68_701_432_881_508_035);
+/// Watcher Empty Fist, retaining the any-color pool's stable identity.
+pub const EMPTY_FIST_ANY_COLOR_ID: ContentId = ContentId::new(1_892_284_736_295_054);
 /// Prismatic/Watcher Nirvana — id matches `shop_card_content_id("NIRVANA")`.
 pub const NIRVANA_ANY_COLOR_ID: ContentId = ContentId::new(71_393_571_437);
 /// Prismatic/Silent Deadly Poison — id matches `shop_card_content_id("DEADLY_POISON")`.
@@ -5261,6 +5263,7 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
         id,
         CHARGE_BATTERY_ANY_COLOR_ID
             | EMPTY_BODY_ANY_COLOR_ID
+            | EMPTY_FIST_ANY_COLOR_ID
             | JUST_LUCKY_ANY_COLOR_ID
             | GO_FOR_THE_EYES_ANY_COLOR_ID
             | EQUILIBRIUM_ANY_COLOR_ID
@@ -5334,6 +5337,23 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
     ) || (get_card_definition(id).is_none()
         && crate::run::reward::any_color_reward_card_key(id).is_some())
 }
+
+pub static EMPTY_FIST_ANY_COLOR: CardDefinition = CardDefinition {
+    id: EMPTY_FIST_ANY_COLOR_ID,
+    key: "EMPTY_FIST",
+    name: "Empty Fist",
+    cost: 1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(9),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
 
 pub static CHARGE_BATTERY_ANY_COLOR: CardDefinition = CardDefinition {
     id: CHARGE_BATTERY_ANY_COLOR_ID,
@@ -6740,6 +6760,7 @@ pub static EXTRA_PUBLIC_CARD_DEFINITIONS: &[CardDefinition] = &[
     HOLOGRAM_ANY_COLOR,
     JUST_LUCKY_ANY_COLOR,
     EMPTY_BODY_ANY_COLOR,
+    EMPTY_FIST_ANY_COLOR,
     CRUSH_JOINTS_ANY_COLOR,
     EVALUATE_ANY_COLOR,
     BOOT_SEQUENCE_ANY_COLOR,
