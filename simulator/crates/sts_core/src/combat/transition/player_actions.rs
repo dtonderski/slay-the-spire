@@ -449,6 +449,14 @@ pub(super) fn increase_max_orbs(
     Ok(Vec::new())
 }
 
+pub(super) fn apply_blur(state: &mut CombatState, amount: i32) -> SimResult<Vec<InternalAction>> {
+    if amount < 0 {
+        return Err(SimError::InvalidState("Blur application is negative"));
+    }
+    checked_add_combat_value(&mut state.player.powers.blur, amount)?;
+    Ok(Vec::new())
+}
+
 pub(super) fn resolve_tempest(
     state: &mut CombatState,
     energy_on_use: i32,

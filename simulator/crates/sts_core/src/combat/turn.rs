@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod blur_tests;
+
 use std::collections::VecDeque;
 
 use crate::{
@@ -2694,7 +2697,13 @@ fn apply_queued_multi_hit_thorns(
 }
 
 fn apply_turn_transition_block_loss(state: &mut CombatState) {
-    if state.player.powers.barricade > 0 {
+    // GameActionManager checks hasPower(Blur) synchronously before its queued
+    // atEndOfRound ReducePowerAction runs. Retain first, then settle expiry.
+    let retain_block = state.player.powers.barricade > 0 || state.player.powers.blur > 0;
+    if state.player.powers.blur > 0 {
+        state.player.powers.blur -= 1;
+    }
+    if retain_block {
         return;
     }
 

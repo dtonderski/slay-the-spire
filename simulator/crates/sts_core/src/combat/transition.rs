@@ -293,7 +293,8 @@ fn apply_play_card(
 fn is_post_lethal_cancelled_action(action: &InternalAction) -> bool {
     matches!(
         action,
-        InternalAction::ResolveTempest { .. }
+        InternalAction::ApplyBlur { .. }
+            | InternalAction::ResolveTempest { .. }
             // ChannelAction has no DAMAGE type; queued channels are cleared.
             | InternalAction::ChannelLightning
             | InternalAction::ChannelFrost
@@ -350,6 +351,16 @@ fn process_internal_queue_owned(
                 }
                 next.pen_nib_double_active = false;
                 continue;
+            }
+            if content_id == crate::content::cards::BLUR_ANY_COLOR_ID {
+                for action in queue
+                    .iter_mut()
+                    .take_while(|action| !matches!(action, InternalAction::EndCopiedCardEffects))
+                {
+                    if let InternalAction::GainBlurBlock { amount, upgraded } = action {
+                        *amount = super::card_effects::blur_block_amount(&next, *upgraded);
+                    }
+                }
             }
         }
         if let InternalAction::SkipCopiedCardEffectsIfTargetDead { target } = internal_action {
@@ -1566,6 +1577,7 @@ fn apply_internal_action_with_defer(
             defense_actions::gain_precomputed_player_card_block(state, amount)
         }
         InternalAction::GainBlockDirect { amount }
+        | InternalAction::GainBlurBlock { amount, .. }
         | InternalAction::GainBlockFromShuffle { amount } => {
             defense_actions::gain_player_block_direct(state, amount)
         }
@@ -1915,6 +1927,7 @@ fn apply_internal_action_with_defer(
             upgraded,
             free_to_play_once,
         } => player_actions::resolve_tempest(state, energy_on_use, upgraded, free_to_play_once),
+        InternalAction::ApplyBlur { amount } => player_actions::apply_blur(state, amount),
         InternalAction::ChannelLightning => player_actions::channel_lightning(state),
         InternalAction::ChannelFrost => player_actions::channel_frost(state),
         InternalAction::ChannelDark => player_actions::channel_dark(state),

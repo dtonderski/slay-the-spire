@@ -1467,6 +1467,9 @@ impl CombatState {
                 "combat player damage counter is negative",
             ));
         }
+        if self.player.powers.blur < 0 {
+            return Err(SimError::InvalidState("Blur duration is negative"));
+        }
         let combust_stacks = self.player.powers.combust;
         let combust_damage = self.player.powers.combust_damage;
         let Some(base_combust_damage) = combust_stacks.checked_mul(COMBUST_DAMAGE) else {
