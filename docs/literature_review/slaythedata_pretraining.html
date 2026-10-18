@@ -8,9 +8,14 @@
 </style>
 </head>
 <body><main>
-<div class="eyebrow">Measured pilot · 15 October 2026 · Map evidence updated</div>
+<div class="eyebrow">Measured pilot · Actual run-policy integration</div>
 <h1>Run-level pretraining: what now works</h1>
-<p class="verdict"><strong>The A0 map generator now matches the original 2022 game code on 21,600 complete maps. The remaining historical gap is whether the dataset’s 2020 build uses the same algorithm. Card/boss-relic ranking works; RL warm-start integration does not yet exist.</strong></p>
+<p class="verdict"><strong>The actual A0 run agent now loads a pretrained card/boss-relic choice head and supports online fine-tuning. Integration works; stronger play is not established. Historical routing supervision remains blocked by the 2020 map-version gap.</strong></p>
+<h2>Actual agent pretraining</h2>
+<p>The shared choice head reached <strong>51.6% validation agreement</strong>, versus 33.1% uniform and 39.8% pick-frequency baselines. Five fixed epochs; 1,590 validation decisions; test split untouched. Only this head is pretrained—the full-context backbone and run critic start fresh.</p>
+<p>It uses item identities, ascension and known card floor. No historical deck/inventory is invented. It changes preferences <em>within</em> card or boss-relic picks, preserving the total probability of taking versus skipping and retaining every legal action.</p>
+<div class="table-wrap"><table><thead><tr><th>Final A0 validation · 64 paired seeds</th><th>Scratch</th><th>Pretrained head</th></tr></thead><tbody><tr><td>Act-3 clears</td><td>0 / 64</td><td>0 / 64</td></tr><tr><td>Mean reached floor</td><td>13.34</td><td>13.67</td></tr><tr><td>Errors / cutoffs</td><td>0 / 0</td><td>0 / 0</td></tr></tbody></table></div>
+<p>Four updates × 32 training runs per arm, identical initial backbone/critic, frozen combat and seed setups. Across both arms: <strong>512 completed trajectories and 116,929 accepted actions</strong>, including repeated evaluations. Neither arm received a positive training reward; this is an integration check, not a demonstrated learning-strength gain. The descriptive floor difference’s paired 95% bootstrap interval includes zero. <a href="https://github.com/dtonderski/slay-the-spire/blob/wt/pretraining-worktree-20261015/rl/pretraining/run_prior_results.json">Results and hashes</a>.</p>
 <h2>Stronger evidence: original game code</h2>
 <p>We ran the original game JAR’s map-generation methods—not a second copy of our algorithm—and compared <strong>all connected nodes, room types, starting choices and edges</strong>, including unvisited branches.</p>
 <ul><li><strong>7,000 fresh seeds × 3 acts = 21,000 exact matches.</strong> Another 600 historical seed/act cases also matched the 2022 JAR.</li><li>That covers <strong>1,296,922 nodes and 1,603,806 edges</strong>, with zero mismatches.</li><li>At 99.9% confidence, the upper bound on the fraction of sampled-distribution seeds with any act mismatch is <strong>0.0987%</strong>—assuming representative independent trials. This is not a proof about every seed or every game version.</li></ul>
@@ -32,15 +37,13 @@
 <li><strong>Elite relics:</strong> acquisition history is retained, but those records don’t establish a mutually exclusive choice slate or declined offers. No fake preference labels.</li>
 <li><strong>Context:</strong> earlier logged choices/edits are available. Exact deck, potion inventory, counters and same-floor ordering are not yet reconstructed.</li>
 </ul>
-<h2>Does the learning pipeline work?</h2>
-<p>Yes. In a small fixed five-epoch pilot, the learned offer-only model matched <strong>50.3%</strong> of validation choices, versus <strong>33.1%</strong> uniform and <strong>39.8%</strong> pick-frequency baselines. Adding partial logged history achieved <strong>45.6%</strong>—it did not improve the overall result.</p>
-<p>This is one optimization seed and 1,590 validation decisions. The test split was not evaluated. It demonstrates a working offline pipeline, <strong>not stronger play or a ready-to-load RL checkpoint</strong>.</p>
+<details><summary>Earlier standalone ranking baseline</summary><p>The original offer-only ranker reached 50.3% validation agreement; partial logged history reached 45.6% and did not improve the overall result. Those old checkpoints remain incompatible with the run actor. The shared-head implementation above is the online-compatible path, not a claim that exact historical state is reconstructed.</p></details>
 <h2>Next useful work</h2>
-<p>Exact decision-time context and validated historical maps remain the main gaps before a meaningful warm-start of the existing A0 run actor. Follow-up experiments are tracked in the <a href="https://github.com/dtonderski/slay-the-spire/blob/wt/pretraining-worktree-20261015/TODO.md">shared backlog</a>, not a separate training roadmap.</p>
+<p>Run a larger multi-seed comparison with usable reward signal and include offline compute in the budget. Exact decision-time context, Skip/Bowl legality and historical map validation remain separate research gaps. Follow-ups live in the <a href="https://github.com/dtonderski/slay-the-spire/blob/wt/pretraining-worktree-20261015/TODO.md">shared backlog</a>.</p>
 <details><summary>Evidence, statistics and code</summary>
 <p>Historical build: <code>2020-07-30</code>. Map audits use A0 complete normal 15-row act paths, excluding beta/special runs and logged Wing Boots. Card/relic extraction samples 1,000 ordinary-flag runs each at A0/A20. Inputs are read-only; no simulator mechanics or captured traces were changed.</p>
 <p>Each act’s 9,999 seed-route permutations gave Monte Carlo association p = 0.0001. That is not the probability the map algorithm is wrong. With zero failures in 200 independent representative tests, the one-sided 99.9% upper failure-rate bound is 3.395%, for route compatibility only. Unvisited-map differences remain unidentifiable.</p>
 <p><a href="https://github.com/dtonderski/slay-the-spire/blob/wt/pretraining-worktree-20261015/rl/pretraining/README.md">Implementation, commands, limitations and reproducibility hashes</a> · <a href="https://www.reddit.com/r/slaythespire/comments/jt2fn6/77_million_runs_an_sts_metrics_dump/">Dataset announcement</a>.</p>
 </details>
-<footer>Offline research, not a complete run actor. Original-bytecode agreement is scoped to 2022 A0 maps; no historical-version equivalence, A20 Heart improvement or simulator-state reconstruction claim.</footer>
+<footer>Shared-head pretraining, not full-state behavior cloning or proven stronger play. Original-bytecode map agreement is scoped to 2022 A0; no historical-version equivalence, A20 Heart improvement or simulator-state reconstruction claim.</footer>
 </main></body></html>

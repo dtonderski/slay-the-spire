@@ -18,7 +18,7 @@ This page routes readers to canonical documents; it does not duplicate them.
 | Experimental fair A0 run training | [Run-training guide](../rl/run_training/README.md) |
 | Queued work and investigation ideas | [Shared backlog](../TODO.md) |
 | Loadout data and sampling tools | [RL tools](../rl/tools/README.md) |
-| Offline run-choice pretraining and historical map audit | [Pretraining pilot](../rl/pretraining/README.md) |
+| Run-choice head pretraining, online transfer and historical map audit | [Supervision and audits](../rl/pretraining/README.md) |
 | Interactive policy inspection | [Combat explorer](../rl/combat_explorer/README.md) |
 
 ## Durable findings and decisions

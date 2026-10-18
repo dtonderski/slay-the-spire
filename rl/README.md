@@ -21,10 +21,12 @@ The combat policy/encoder is unchanged and frozen during run training.
 The above describes combat training. `train.py::main` dispatches the task;
 `run_training/trainer.py` owns the separate run-learning loop.
 
-The separate [SlayTheData pretraining pilot](pretraining/README.md) extracts
-historical run-level item choices and trains an offline conditional ranker. It
-is not another combat rollout stack, a complete run actor, or a compatible
-`train.py` warm-start checkpoint.
+The [SlayTheData workflow](pretraining/README.md) extracts historical item choices.
+Its shared choice head can initialize the actual run actor via
+[`--encoder choice --item-prior ...`](run_training/README.md#supervised-choice-head).
+Only that head is supervised, not the full-context backbone or critic; stronger
+play is not established. The older standalone ranker remains a separate,
+incompatible baseline, not another online training stack.
 
 ## Model
 

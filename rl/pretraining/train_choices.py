@@ -10,6 +10,7 @@ import json
 import math
 import random
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from pathlib import Path
 
 import torch
@@ -117,7 +118,12 @@ def load_dataset(path: Path) -> tuple[bytes, list[dict]]:
 
 
 @torch.no_grad()
-def evaluate(model: ChoiceModel, examples: list[dict], picked_counts: Counter, batch_size: int) -> dict:
+def evaluate(
+    model: Callable[[list[dict]], tuple[torch.Tensor, torch.Tensor]],
+    examples: list[dict],
+    picked_counts: Counter,
+    batch_size: int,
+) -> dict:
     buckets = defaultdict(list)
     for start in range(0, len(examples), batch_size):
         batch = examples[start : start + batch_size]

@@ -15,15 +15,15 @@ baseline and its reward/behavior metrics are documented in the
 
 ## Ideas and investigations
 
-- [ ] **[RL] Turn historical choice ranking into a valid run-policy warm-start.**
-  The SlayTheData pilot learns conditional card/boss-relic preferences, not exact
-  historical states or an online-compatible checkpoint. Investigate conservative
-  prefix deck reconstruction, boss-choice timing and audited skip/Bowl legality
-  before connecting to the existing fair run actor. Preserve missing-context
-  masks, full online legal sets and fixed run-level holdouts; compare against
-  scratch at matched combat policy, seeds and total compute. Partial logged
-  history did not improve the pilot overall. See the
-  [implemented scope and measurements](rl/pretraining/README.md).
+- [ ] **[RL] Establish whether shared choice-head pretraining improves run strength.**
+  The actual run actor now loads supervised card/boss-relic preferences, but the
+  tiny Act-3 comparison produced no positive rewards in either arm. Test a longer,
+  multi-seed comparison with usable reward signal and account for offline compute;
+  keep full legal sets, fixed held-outs and matched frozen combat. Separately
+  investigate exact prefix decks, boss timing and audited Skip/Bowl legality before
+  supervising richer state or cross-family choices. Partial logged history did not
+  improve the original pilot overall. See the
+  [implemented scope and measurements](rl/pretraining/README.md#shared-head-transfer-into-the-real-run-actor).
 
 - [ ] **[Simulator/RL] Close the historical map-version gap before route supervision.**
   The 2022 A0 full-graph bytecode differential check passed, but the 2020 dataset

@@ -1,9 +1,11 @@
-# SlayTheData run-level pretraining pilot
+# SlayTheData run-level supervision and map audits
 
-Implemented **offline conditional item ranking**, not a complete run actor or
-an RL warm-start. The existing [A0 run actor](../run_training/README.md) uses a
-different feature/model contract; this pilot does not replace or warm-start it.
-The input is immutable run-history data, never simulator state.
+Implemented **conditional card/boss-relic supervision**, including a shared
+choice head that initializes the actual [A0 run actor](../run_training/README.md#supervised-choice-head).
+The original standalone ranker remains a separate baseline; its checkpoint is
+not interchangeable with the shared head. This is **head-only pretraining**, not
+historical full-state reconstruction or supervision of the full-context backbone
+and critic. The input is immutable run-history data, never simulator state.
 The [short HTML overview](../../docs/literature_review/slaythedata_pretraining.html)
 is for reading; this README owns the implementation workflow and limitations.
 
@@ -16,7 +18,8 @@ is for reading; this README owns the implementation workflow and limitations.
 | Elite/other relics | Acquisition records retained; earlier acquisitions can inform history | These are pickups, not boss-style mutually exclusive slates. Logs do not establish all offered-but-declined relics or optional skip decisions. No acquisition is converted into a fake choice. |
 | Public context | Strictly earlier-floor logged card picks/skips, event edits, smith targets, purchases/purges and relic gains/losses | This is **partial history**, not a reconstructed deck/inventory. Same-floor edits are excluded. Parallel log sources are not deduplicated into asserted owned items. |
 | Routing | Native seed-only maps; complete-path compatibility and multiplicity; wrong-seed controls; hypothetical labels for unique paths | A0 only, normal 15-row acts 1–3, historical build `2020-07-30` tested. Unknown historical map equality, ambiguous coordinates, Wing Boots and A20 remain outside the supported label contract. |
-| Learning | Small CPU PyTorch ranker, slate-only/history ablation, uniform/frequency baselines, train-only vocabulary, validation metrics | Checkpoints are `slaythedata_choice_bc_v1`, **not** accepted by `rl/train.py`. No online policy adapter, RL fine-tuning, run-strength or Heart-success result. |
+| Standalone baseline | Small CPU ranker, slate/history ablation, uniform/frequency baselines, train-only vocabulary | Its `slaythedata_choice_bc_v1` checkpoints are still **not** accepted by `rl/train.py`. |
+| Online transfer | `train_run_prior` trains the shared `ItemPrior`; `--encoder choice` loads it into the actual macro actor and supports normal online updates/checkpoints | Only ascension, card floor and item identities are shared inputs. Full-context backbone/critic stay fresh. Conditional labels do not supervise taking versus skipping. The bounded A0 comparison did not establish stronger play. |
 
 Exact deck reconstruction remains substantial work: identity-sensitive Neow
 bonuses, Astrolabe/Pandora/random upgrades, omitted event edits and cross-array
@@ -55,6 +58,12 @@ uv run python -m pretraining.train_choices \
 uv run python -m pretraining.train_choices \
   --dataset ../tmp/pretraining/choices/examples.jsonl \
   --output-dir ../tmp/pretraining/history --context history --epochs 5 --seed 17
+
+# Actual run-policy item head (different architecture/checkpoint from the above).
+uv run python -m pretraining.train_run_prior \
+  --dataset ../tmp/pretraining/choices/examples.jsonl \
+  --output-dir ../tmp/pretraining/run-prior --epochs 5 --seed 17
+# Load and compare using the canonical run-training guide linked above.
 
 # Run separately for --act 1, 2, and 3, with distinct output directories.
 uv run --no-project python -m pretraining.map_audit \
@@ -101,8 +110,8 @@ storage, not Git. No captured trace is changed by these tools.
   or incomplete summaries and verifies the example-file hash before loading.
   Summary also pins the catalog hash.
 
-The model embeds candidate identities and a whitelisted bag of logged-history
-features, and trains candidate-set cross-entropy. Unknown validation identities
+The standalone `train_choices` model embeds candidate identities and a whitelisted
+bag of logged-history features, and trains candidate-set cross-entropy. Unknown validation identities
 use a neutral shared embedding; vocabulary is training-only. The history model
 uses log-scaled edit counts, **not** net card ownership. Training is fixed-epoch,
 CPU, one thread, explicit sampling/model seeds. `--evaluate-test` is opt-in;
@@ -134,9 +143,59 @@ is a useful research export, not approved route supervision or real-game parity.
 
 ## Measured pilot
 
-Aggregate results and reproducibility hashes: [`results.json`](results.json)
-and [`game_map_results.json`](game_map_results.json). These are retained
+Aggregate results and reproducibility hashes: [`results.json`](results.json),
+[`game_map_results.json`](game_map_results.json), and
+[`run_prior_results.json`](run_prior_results.json). These are retained
 measurements, not a benchmark promise.
+
+### Shared-head transfer into the real run actor
+
+`train_run_prior` uses the same completed, hash-checked extraction and play-ID
+splits, but supervises the actual `run_training.item_prior.ItemPrior` module.
+Only explicit ascension, card floor and offered identities enter it. Boss floor
+has a false presence bit both offline and online; deck, inventory and logged
+history are not asserted or zero-filled. Vocabulary is fitted on training slates
+only. Epoch count is fixed, test evaluation opt-in, and no simulator state is
+constructed or reconstructed for supervised training.
+
+Five epochs, width 32, seed 17: **51.6% validation agreement, 0.987 NLL**, versus
+33.1% uniform and 39.8% pick-frequency agreement. All 1,590 validation slates
+were covered by the 229-item training vocabulary. The test split stayed untouched.
+This is a different architecture from the older baselines below, not a controlled
+claim that a particular feature improved performance.
+
+The actual `train.py --task run --encoder choice` comparison used natural A0,
+Act-3 binary reward, the same frozen sampled combat policy, identical initial
+backbone/critic weights, and identical environment/policy seed setups. Each arm
+had four updates × 32 training runs and 64 held-out seeds evaluated before/after.
+Scratch used the same architecture/vocabulary but no supervised weights.
+
+| Final validation, 64 paired seeds | Scratch | Pretrained head |
+|---|---:|---:|
+| Act-3 clears | 0 / 64 | 0 / 64 |
+| Mean reached floor (descriptive) | 13.34 | 13.67 |
+| Errors / cutoffs | 0 / 0 | 0 / 0 |
+
+**No stronger-play result.** The exploratory paired mean-floor difference was
++0.328, with seed-bootstrap 95% interval [-0.266, 0.953]. Neither arm received a
+positive binary reward in training either; these four updates primarily exercise
+entropy regularization and integration, not successful-run credit assignment.
+A longer, positive-signal training comparison remains necessary.
+
+Across both arms: 512 completed trajectories (including repeated evaluations,
+**not** 512 independent validation seeds), 116,929 accepted actions, 1,050 card
+picks and six boss-relic picks. All eight online optimizer updates completed;
+no batches were discarded. Checkpoint inspection verified identical initial
+non-head weights, exact loading of supervised head weights, and subsequent
+online head updates. A separate 4+1-update exact-resume check reproduced five
+uninterrupted updates bit-for-bit in model, optimizer and RNG states; all 96
+final-step training/evaluation journals also matched after decompression.
+Budgets match online episodes, **not total compute**: offline fitting/validation
+added about 0.8 s on one CPU thread, excluding startup.
+Timing was not a controlled throughput experiment. No A20/Heart claim.
+
+The numeric card-ID prerequisite was also fixed without renumbering native rows
+or padding old combat weights; see the [numeric transport contract](../../simulator/docs/python_api.md#numeric-combat-batches).
 
 ### Original game-bytecode differential check (2022 A0)
 
@@ -263,15 +322,17 @@ this as evidence that reconstruction or more data will necessarily pay off.
 ```bash
 # From rl/
 uv run --no-sync python -m unittest discover -s tests -q
-uv run --no-sync ty check pretraining tests/test_pretraining.py
+uv run --no-sync ty check pretraining run_training tests/test_pretraining.py tests/test_run_item_prior.py
 # From repository root
 cargo test -p sts_core --example export_research_maps
 ```
 
 Tests cover causal prefix exclusion, identity/class mapping, malformed records,
 missing special-action legality, split boundaries, read-only repeatability,
-permutation-equivariant logits, finite gradients, seed parsing, literal event
-symbols, path ambiguity, hypothetical-label refusal, and statistical bounds.
+permutation-equivariant logits, finite gradients, shared offline/live identities,
+whole-slate OOV fallback, preservation of take/skip probability mass, actual actor
+checkpoint transfer, seed parsing, literal event symbols, path ambiguity,
+hypothetical-label refusal, and statistical bounds.
 Workspace Rust checks and reviewed corpus replay passed for this PR; no
 simulator mechanics were changed. See the PR for the complete check list.
 
