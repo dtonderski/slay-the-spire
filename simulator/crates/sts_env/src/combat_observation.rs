@@ -638,6 +638,11 @@ fn project_player_powers(combat: &CombatState) -> Result<Vec<FairPower>, FairObs
     let mut result = Vec::new();
     push_player_power_fields(&mut result, powers);
     push_power(&mut result, "energized", combat.player.energy_next_turn);
+    push_power(
+        &mut result,
+        "master_reality",
+        i32::from(combat.player.powers.master_reality),
+    );
     push_power(&mut result, "lose_strength", combat.player.temp_strength);
     push_power(&mut result, "lose_dexterity", combat.player.temp_dexterity);
     push_power(&mut result, "temporary_thorns", combat.player.temp_thorns);
@@ -1291,6 +1296,18 @@ mod tests {
 
     fn reorder_cards(cards: &[CardInstance], order: &[usize]) -> Vec<CardInstance> {
         order.iter().map(|index| cards[*index]).collect()
+    }
+
+    #[test]
+    fn master_reality_is_a_visible_presence_marker_and_projection_is_pure() {
+        let mut state = RunState::combat_fixture();
+        state.combat.as_mut().unwrap().player.powers.master_reality = true;
+        let before = serde_json::to_value(&state).unwrap();
+        let powers = project_player_powers(state.combat.as_ref().unwrap()).unwrap();
+        assert!(powers
+            .iter()
+            .any(|p| p.key == "master_reality" && p.amount == 1));
+        assert_eq!(before, serde_json::to_value(&state).unwrap());
     }
 
     #[test]

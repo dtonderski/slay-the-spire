@@ -340,6 +340,7 @@ pub static CARD_KEYS: &[&str] = &[
     "PIERCING_WAIL",
     "STACK",
     "FOREIGN_INFLUENCE", // Append-only vocabulary v1.
+    "MASTER_REALITY",    // Append-only vocabulary v1.
 ];
 
 pub static MONSTER_KEYS: &[&str] = &[
@@ -679,6 +680,7 @@ pub static POWER_KEYS: &[&str] = &[
     "blur", // Append only: preserve all existing vocabulary v1 power IDs.
     "draw_card",
     "energized",
+    "master_reality", // Append-only vocabulary v1.
 ];
 
 pub static COUNTER_KEYS: &[&str] = &[
@@ -967,6 +969,7 @@ mod catalog_coverage_tests {
     #[test]
     fn foreign_influence_card_id_appends_without_renumbering_v1() {
         assert_eq!(card_id("FOREIGN_INFLUENCE"), Some(331));
+        assert_eq!(card_id("MASTER_REALITY"), Some(332));
         assert_eq!(card_id("STACK"), Some(330));
         assert_eq!(card_id("BLUR"), Some(323));
         assert_eq!(CONTENT_VOCABULARY_VERSION, 1);
@@ -977,6 +980,7 @@ mod catalog_coverage_tests {
         assert_eq!(power_id("blur"), Some(72));
         assert_eq!(power_id("draw_card"), Some(73));
         assert_eq!(power_id("energized"), Some(74));
+        assert_eq!(power_id("master_reality"), Some(75));
         assert_eq!(CONTENT_VOCABULARY_VERSION, 1);
     }
     #[test]

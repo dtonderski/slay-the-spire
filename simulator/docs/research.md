@@ -146,6 +146,27 @@ closed, existing Searing Blow upgrade metadata remains authoritative, and these
 metadata lookups consume no RNG. FIDL01364/1398 witnesses the missing Barrage
 type after an already-modeled Fear No Evil lethal hit, not a Fear No Evil bug.
 
+`MasterReality` costs1 (upgrade0) and queues `MasterRealityPower`, a nonstacking
+presence marker (native amount-1; `AbstractPower.stackPower` ignores it). The
+`ShowCardAndAddToHandEffect`, `ShowCardAndAddToDiscardEffect` and
+`ShowCardAndAddToDrawPileEffect` constructors call upgrade on created cards
+except Status/Curse. Apply this at creation/selected-copy insertion, including
+full-hand discard, generated pile inserts, Anger/Dual Wield copies, start-turn
+generation, Dead Branch and modal retrieval. Do not upgrade displayed offers,
+ordinary moves, draws, virtual replay copies or Exhume's returned original.
+This hook consumes no RNG and precedes the hand effect's Corruption cost write.
+Unlike eggs, these constructors do not guard on already-upgraded; Searing Blow
+copies therefore gain another upgrade while ordinary plus cards stay plus.
+Master Reality's own upgradeBaseCost(0) preserves costForTurn's delta from the
+live written cost, including combat-long and turn-only overrides. Its queued
+BUFF application is cancelled by point-in-time lethal cleanup; later-created
+work is not globally prohibited. FIDL01364/1602 is the native power witness.
+This does not certify every existing upgrade adapter: other synthetic
+cost-changing cards still use a generic upgrade-flag path which does not update
+written cost overrides. A cost-written Creative AI copy is a source-backed
+investigation lead, not a trace-validated fix or capture-defect claim; track the
+independent audit in the shared backlog.
+
 `EmptyDeckShuffleAction` calls relic `onShuffle` hooks in its constructor, even
 when its later shuffle moves no cards. A DrawCardAction that overdraws a nonempty
 but insufficient deck can construct this empty shuffle; a draw starting with both

@@ -638,6 +638,15 @@ fn play_card_queue_with_energy_on_use(
             },
             // The modal continuation owns the source UseCardAction settlement.
         ])),
+        crate::content::cards::MASTER_REALITY_ANY_COLOR_ID => Ok(VecDeque::from([
+            InternalAction::PlayCard { card_id },
+            InternalAction::SpendCardEnergy { card_id },
+            InternalAction::GainMasterReality,
+            InternalAction::RemoveCard {
+                card_id,
+                from: CardPile::Hand,
+            },
+        ])),
         DOPPELGANGER_ANY_COLOR_ID => doppelganger_queue(card_id, *card, energy_on_use),
         EXPERTISE_ANY_COLOR_ID => expertise_queue(card_id, *card, definition),
         BACKFLIP_ANY_COLOR_ID => backflip_queue(card_id, *card, definition),
