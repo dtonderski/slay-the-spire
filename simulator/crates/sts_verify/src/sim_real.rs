@@ -1494,10 +1494,10 @@ fn grid_trace_choice_label(_run: &RunState, card: &CardInstance) -> String {
         if let Some(key) =
             sts_core::adapter_internals::run::reward::any_color_reward_card_key(card.content_id)
         {
-            let mut label = if key == "JUDGEMENT" {
-                "judgment".to_owned()
-            } else {
-                key.replace('_', " ").to_ascii_lowercase()
+            let mut label = match key {
+                "JUDGEMENT" => "judgment".to_owned(),
+                "MULTI_CAST" => "multi-cast".to_owned(),
+                _ => key.replace('_', " ").to_ascii_lowercase(),
             };
             if card.upgrades > 0 {
                 label.push('+');
@@ -3513,10 +3513,11 @@ fn reward_card_choice_display_key(run: &RunState, card: &CardInstance) -> String
         {
             // CommunicationMod's choice_list uses American `judgment`; the
             // cardID / card_reward_ids field is `Judgement`.
-            let mut label = if key == "JUDGEMENT" {
-                "Judgment".to_owned()
-            } else {
-                key.replace('_', " ")
+            let mut label = match key {
+                "JUDGEMENT" => "Judgment".to_owned(),
+                // PC localization/eng/cards.json names this card Multi-Cast.
+                "MULTI_CAST" => "Multi-Cast".to_owned(),
+                _ => key.replace('_', " "),
             };
             // Synthetic Prismatic cards can be upgraded by the matching Egg even
             // though they retain one content identity.
