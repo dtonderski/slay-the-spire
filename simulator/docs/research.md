@@ -74,6 +74,13 @@ callbacks, so it must reserve a new Skill after the original source's exhaust
 callbacks, not reuse original content or roll at later insertion. QLFB00042
 step1425 witnesses unsupported Distraction generating Havoc.
 
+Conclude's DamageAllEnemiesAction precedes PressEndTurnButtonAction. The
+latter has no DAMAGE type and is removed by clearPostCombatActions on lethal
+all-enemy damage. Retain source UseCardAction settlement, not an invented
+post-lethal end-turn hand/power window (QLFB00042 step1450 has Decay in hand).
+This is point-in-time queued-action classification, not an HP/timing correction
+or a perpetual veto on actions appended after that clear.
+
 ## Map and encounter generation
 
 Target bytecode establishes:
