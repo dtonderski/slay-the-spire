@@ -3657,21 +3657,11 @@ impl RunState {
         {
             return Ok(content_id);
         }
-        let definition = get_card_definition(content_id).ok_or_else(|| {
-            if super::reward::any_color_reward_card_key(content_id).is_some() {
-                SimError::UnsupportedMechanic(content_id)
-            } else {
-                SimError::UnknownContent(content_id)
-            }
-        })?;
-        let has_matching_egg = match definition.card_type {
-            CardType::Attack => self.relics.contains(&Relic::MoltenEgg),
-            CardType::Skill => self.relics.contains(&Relic::ToxicEgg),
-            CardType::Power => self.relics.contains(&Relic::FrozenEgg),
-            CardType::Status => false,
-        };
-        Ok(if has_matching_egg {
-            definition.upgrade.unwrap_or(content_id)
+        let card_type = Self::card_type_for_obtain(content_id)?;
+        Ok(if self.has_matching_obtain_egg(card_type) {
+            get_card_definition(content_id)
+                .and_then(|d| d.upgrade)
+                .unwrap_or(content_id)
         } else {
             content_id
         })
@@ -3682,28 +3672,10 @@ impl RunState {
         mut card: CardInstance,
     ) -> SimResult<CardInstance> {
         let content_id = self.content_id_after_card_add_relics(card.content_id)?;
-        // Prismatic synthetic cards have no local CardDefinition; egg relics still
-        // bump upgrades via upgrade_card_instance's unknown-id path when present.
-        let Some(definition) = get_card_definition(card.content_id) else {
-            if super::reward::any_color_reward_card_key(card.content_id).is_some() {
-                if self.relics.iter().any(|relic| {
-                    matches!(relic, Relic::MoltenEgg | Relic::ToxicEgg | Relic::FrozenEgg)
-                }) {
-                    if let Some(upgraded) = upgrade_card_instance(card)? {
-                        return Ok(upgraded);
-                    }
-                }
-                card.content_id = content_id;
-                return Ok(card);
-            }
-            return Err(SimError::UnknownContent(card.content_id));
-        };
-        let has_matching_egg = match definition.card_type {
-            CardType::Attack => self.relics.contains(&Relic::MoltenEgg),
-            CardType::Skill => self.relics.contains(&Relic::ToxicEgg),
-            CardType::Power => self.relics.contains(&Relic::FrozenEgg),
-            CardType::Status => false,
-        };
+        // Public library type metadata is independent of effect support. A
+        // known but unmodeled card must not be upgraded by a nonmatching egg.
+        let has_matching_egg =
+            self.has_matching_obtain_egg(Self::card_type_for_obtain(card.content_id)?);
         // Reward generation may already have upgraded Searing Blow before the
         // obtain-egg preview. Preserve that authoritative instance count instead
         // of turning one natural upgrade into a second one (FIDL01326).
@@ -3715,6 +3687,25 @@ impl RunState {
         }
         card.content_id = content_id;
         Ok(card)
+    }
+
+    fn card_type_for_obtain(content_id: ContentId) -> SimResult<CardType> {
+        if let Some(definition) = get_card_definition(content_id) {
+            return Ok(definition.card_type);
+        }
+        let key = super::reward::any_color_reward_card_key(content_id)
+            .ok_or(SimError::UnknownContent(content_id))?;
+        crate::content::card_library_types::card_type(key)
+            .ok_or(SimError::UnsupportedMechanic(content_id))
+    }
+
+    fn has_matching_obtain_egg(&self, card_type: CardType) -> bool {
+        match card_type {
+            CardType::Attack => self.relics.contains(&Relic::MoltenEgg),
+            CardType::Skill => self.relics.contains(&Relic::ToxicEgg),
+            CardType::Power => self.relics.contains(&Relic::FrozenEgg),
+            CardType::Status => false,
+        }
     }
 
     /// Target egg `onEquip` upgrades matching cards already present on the open

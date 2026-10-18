@@ -134,6 +134,18 @@ its constructor's54..60 super argument, not a generic draw between fights.
 
 ## Rewards, relics, and potions
 
+`MoltenEgg2`, `ToxicEgg2` and `FrozenEgg2.onPreviewObtainCard` delegate to
+`onObtainCard`: check the exact public Attack/Skill/Power type, canUpgrade and
+not already upgraded. This does not require implemented play effects. Keep PC
+library type metadata for all existing any-color reward keys independently of
+those effects; an unmodeled Barrage is still an Attack, not a Frozen Egg target.
+Preview, actual obtain and on-equip pending/queued rewards use the same gate.
+Do not reject only because effect support is absent, or upgrade all unmodeled
+cards merely because some egg is owned. Unknown nonlibrary identities still fail
+closed, existing Searing Blow upgrade metadata remains authoritative, and these
+metadata lookups consume no RNG. FIDL01364/1398 witnesses the missing Barrage
+type after an already-modeled Fear No Evil lethal hit, not a Fear No Evil bug.
+
 `EmptyDeckShuffleAction` calls relic `onShuffle` hooks in its constructor, even
 when its later shuffle moves no cards. A DrawCardAction that overdraws a nonempty
 but insufficient deck can construct this empty shuffle; a draw starting with both
