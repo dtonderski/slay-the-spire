@@ -8,17 +8,6 @@ from unittest.mock import patch
 
 import numpy as np
 import torch
-from numeric_reference import CATEGORICAL, reference_batch, semantic_tables
-from sts_sim import ACTION_KINDS, CounterKey, PowerKey, State
-from sts_sim.observations import (
-    Counter,
-    Power,
-    Selection,
-    SelectionOption,
-    VisibleIntent,
-)
-from test_model import action, combat
-
 from encoders.cards import CARD_TABLES, CARD_TO_INDEX, CardEncoder
 from encoders.numeric import (
     ACTION_KIND,
@@ -30,6 +19,23 @@ from encoders.numeric import (
     upload,
 )
 from model import CombatValueModel
+from numeric_reference import CATEGORICAL, reference_batch, semantic_tables
+from sts_sim import (
+    ACTION_KINDS,
+    NUMERIC_CARD_KEYS,
+    CardKey,
+    CounterKey,
+    PowerKey,
+    State,
+)
+from sts_sim.observations import (
+    Counter,
+    Power,
+    Selection,
+    SelectionOption,
+    VisibleIntent,
+)
+from test_model import action, combat
 from train import play_combats
 
 
@@ -69,6 +75,14 @@ def _candidates_from_batch(batch):
 
 
 class NumericObservationTests(unittest.TestCase):
+    def test_native_numeric_identity_order_is_not_enum_order(self):
+        self.assertEqual(len(NUMERIC_CARD_KEYS), len(set(NUMERIC_CARD_KEYS)))
+        self.assertEqual(tuple(CARD_TO_INDEX), NUMERIC_CARD_KEYS)
+        # Pinned vocabulary-v1 rows, unchanged by inserted public identity enums.
+        self.assertEqual(len(NUMERIC_CARD_KEYS), 322)
+        self.assertEqual(CARD_TO_INDEX[CardKey.STRIKE_R], 284)
+        self.assertNotEqual(list(CardKey).index(CardKey.STRIKE_R), CARD_TO_INDEX[CardKey.STRIKE_R])
+
     def test_partial_native_step_failure_is_not_retried(self) -> None:
         from rollout_errors import SimulatorStepError
 
