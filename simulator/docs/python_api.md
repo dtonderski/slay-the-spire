@@ -115,7 +115,12 @@ piles, dead enemy entries, and actual empty potion slots.
 This is a versioned **subset** of public observations, covering the existing combat
 policy's inputs plus rollout outcomes. It is not a lossless encoding of every fair
 field: e.g. permanent deck, known draw positions, orbs, and unused public counters
-remain available through the full typed API. Noncombat rows carry outcome metadata
+remain available through the full typed API. In particular, the optional public
+`card.dynamic.perseverance_retain_block` reports modeled combat-local retained
+baseBlock growth through the typed API. Numeric v3 retains its existing18-column
+card rows and does not export this newer dynamic value; do not treat it as
+lossless Perseverance features. Vocabulary v1 appends PERSEVERANCE333 without
+renumbering existing identities. Noncombat rows carry outcome metadata
 and actions but no combat feature rows. The exporter accepts only native fair
 projections, not external mappings or observed game state.
 

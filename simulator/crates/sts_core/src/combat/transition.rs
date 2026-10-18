@@ -9,6 +9,8 @@ mod doppelganger_tests;
 mod foreign_influence_tests;
 #[cfg(test)]
 mod master_reality_tests;
+#[cfg(test)]
+mod perseverance_tests;
 mod pile_actions;
 mod player_actions;
 #[cfg(test)]
@@ -367,6 +369,17 @@ fn process_internal_queue_owned(
                 }
                 next.pen_nib_double_active = false;
                 continue;
+            }
+            if content_id == crate::content::cards::PERSEVERANCE_ANY_COLOR_ID {
+                for action in queue
+                    .iter_mut()
+                    .take_while(|a| !matches!(a, InternalAction::EndCopiedCardEffects))
+                {
+                    if let InternalAction::GainPerseveranceBlock { amount, base_block } = action {
+                        *amount =
+                            super::card_effects::perseverance_block_amount(&next, *base_block);
+                    }
+                }
             }
             if content_id == crate::content::cards::BLUR_ANY_COLOR_ID {
                 for action in queue
@@ -1672,6 +1685,7 @@ fn apply_internal_action_with_defer(
         InternalAction::GainBlockDirect { amount }
         | InternalAction::GainStackBlock { amount, .. }
         | InternalAction::GainBlurBlock { amount, .. }
+        | InternalAction::GainPerseveranceBlock { amount, .. }
         | InternalAction::GainBlockFromShuffle { amount } => {
             defense_actions::gain_player_block_direct(state, amount)
         }
