@@ -443,6 +443,7 @@ fn play_card_queue_with_energy_on_use(
         STORM_OF_STEEL_ANY_COLOR_ID => storm_of_steel_queue(state, card_id, *card, definition),
         STEAM_BARRIER_ANY_COLOR_ID => steam_barrier_queue(card_id, *card, definition),
         TEMPEST_ANY_COLOR_ID => tempest_queue(card_id, *card, energy_on_use),
+        id if id == crate::content::cards::BLUR_ANY_COLOR_ID => blur_queue(state, card_id, *card),
         FOLLOW_UP_ANY_COLOR_ID => follow_up_queue(
             state,
             card_id,
@@ -5353,6 +5354,35 @@ fn storm_of_steel_queue(
             source_card_id: card_id,
             upgraded: card.upgrades > 0,
         },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+pub(super) fn blur_block_amount(state: &CombatState, upgraded: bool) -> i32 {
+    if state.player.no_block_turns > 0 {
+        0
+    } else {
+        crate::power::calculate_block(if upgraded { 8 } else { 5 }, state.player.powers)
+    }
+}
+
+fn blur_queue(
+    state: &CombatState,
+    card_id: CardId,
+    card: CardInstance,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendEnergy { amount: 1 },
+        InternalAction::GainBlurBlock {
+            amount: blur_block_amount(state, card.upgrades > 0),
+            upgraded: card.upgrades > 0,
+        },
+        InternalAction::ApplyBlur { amount: 1 },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
