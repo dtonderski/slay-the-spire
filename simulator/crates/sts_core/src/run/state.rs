@@ -1573,6 +1573,9 @@ pub enum CardRewardFlow {
     },
     Active {
         remaining: NonZeroU8,
+        /// Direct CardRewardScreen.open(..., null, ...) has no outer RewardItem.
+        #[serde(default, skip_serializing_if = "is_false")]
+        standalone: bool,
     },
 }
 
@@ -1588,9 +1591,31 @@ impl CardRewardFlow {
     #[must_use]
     pub const fn active(remaining: u8) -> Self {
         match NonZeroU8::new(remaining) {
-            Some(remaining) => Self::Active { remaining },
+            Some(remaining) => Self::Active {
+                remaining,
+                standalone: false,
+            },
             None => panic!("active card reward flow requires a positive count"),
         }
+    }
+
+    #[must_use]
+    pub const fn standalone() -> Self {
+        Self::Active {
+            remaining: NonZeroU8::MIN,
+            standalone: true,
+        }
+    }
+
+    #[must_use]
+    pub const fn is_standalone(self) -> bool {
+        matches!(
+            self,
+            Self::Active {
+                standalone: true,
+                ..
+            }
+        )
     }
 
     #[must_use]
@@ -1607,7 +1632,7 @@ impl CardRewardFlow {
     pub const fn remaining(self) -> u8 {
         match self {
             Self::None => 0,
-            Self::Pending { remaining } | Self::Active { remaining } => remaining.get(),
+            Self::Pending { remaining } | Self::Active { remaining, .. } => remaining.get(),
         }
     }
 }
@@ -1631,6 +1656,12 @@ impl RewardScreen {
     pub(crate) fn set_card_reward_remaining(&mut self, count: u8) {
         self.card_reward_flow = match (self.card_reward_flow, count) {
             (_, 0) => CardRewardFlow::None,
+            (
+                CardRewardFlow::Active {
+                    standalone: true, ..
+                },
+                1,
+            ) => CardRewardFlow::standalone(),
             (CardRewardFlow::Active { .. }, remaining) => CardRewardFlow::active(remaining),
             (_, remaining) => CardRewardFlow::pending(remaining),
         };
@@ -1653,7 +1684,14 @@ impl RewardScreen {
 
     pub fn close_card_reward(&mut self) -> SimResult<()> {
         self.card_reward_flow = match self.card_reward_flow {
-            CardRewardFlow::Active { remaining } => CardRewardFlow::pending(remaining.get()),
+            CardRewardFlow::Active {
+                standalone: true, ..
+            } => {
+                return Err(SimError::InvalidState(
+                    "standalone card reward must close to its owner",
+                ));
+            }
+            CardRewardFlow::Active { remaining, .. } => CardRewardFlow::pending(remaining.get()),
             CardRewardFlow::None | CardRewardFlow::Pending { .. } => {
                 return Err(SimError::InvalidState("card reward flow is not active"));
             }
@@ -1663,8 +1701,12 @@ impl RewardScreen {
 
     pub fn consume_active_card_reward(&mut self) -> SimResult<()> {
         self.card_reward_flow = match self.card_reward_flow {
-            CardRewardFlow::Active { remaining } if remaining.get() == 1 => CardRewardFlow::None,
-            CardRewardFlow::Active { remaining } => CardRewardFlow::pending(remaining.get() - 1),
+            CardRewardFlow::Active { remaining, .. } if remaining.get() == 1 => {
+                CardRewardFlow::None
+            }
+            CardRewardFlow::Active { remaining, .. } => {
+                CardRewardFlow::pending(remaining.get() - 1)
+            }
             CardRewardFlow::None | CardRewardFlow::Pending { .. } => {
                 return Err(SimError::InvalidState("card reward flow is not active"));
             }
@@ -2549,6 +2591,14 @@ impl RunState {
                 {
                     return Err(SimError::InvalidState(
                         "card reward choices exist without a card reward flow",
+                    ));
+                }
+                CardRewardFlow::Active {
+                    remaining,
+                    standalone: true,
+                } if remaining.get() != 1 => {
+                    return Err(SimError::InvalidState(
+                        "standalone card reward requires one screen",
                     ));
                 }
                 CardRewardFlow::Active { .. } if reward.choices.is_empty() => {
