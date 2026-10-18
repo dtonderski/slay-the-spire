@@ -297,6 +297,7 @@ fn is_post_lethal_cancelled_action(action: &InternalAction) -> bool {
             | InternalAction::RandomizeHandCostsForSneckoOil
             | InternalAction::GainEnergy { .. }
             | InternalAction::GainEnergyFromPotion { .. }
+            | InternalAction::ExitCalm
             | InternalAction::OpenPotionCardReward { .. }
             | InternalAction::OpenElixirSelection
             | InternalAction::OpenGamblersBrewSelection

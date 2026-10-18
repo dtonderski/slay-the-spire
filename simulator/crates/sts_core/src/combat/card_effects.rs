@@ -582,6 +582,9 @@ pub(super) fn play_card_queue_in_place(
         CRIPPLING_CLOUD_ANY_COLOR_ID => crippling_cloud_queue(state, card_id, *card, definition),
         RIP_AND_TEAR_ANY_COLOR_ID => rip_and_tear_queue(state, card_id, *card, definition),
         QUICK_SLASH_ANY_COLOR_ID => quick_slash_queue(card_id, target, *card, definition),
+        id if id == crate::content::cards::EMPTY_FIST_ANY_COLOR_ID => {
+            empty_fist_queue(card_id, target, *card, definition)
+        }
         NIRVANA_ANY_COLOR_ID => nirvana_queue(card_id, *card),
         DEADLY_POISON_ANY_COLOR_ID => deadly_poison_queue(card_id, target, *card, definition),
         UNLOAD_ANY_COLOR_ID => unload_queue(card_id, target, *card, definition),
@@ -3048,6 +3051,33 @@ fn nirvana_queue(card_id: CardId, card: CardInstance) -> SimResult<VecDeque<Inte
         InternalAction::RemoveCard {
             card_id,
             from: CardPile::Hand,
+        },
+    ]))
+}
+
+fn empty_fist_queue(
+    card_id: CardId,
+    target: Option<MonsterId>,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let target = target.ok_or(SimError::IllegalAction("Empty Fist requires a target"))?;
+    // EmptyFist.use queues damage in the old stance, then ChangeStance(Neutral).
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: required_damage(definition)? + 5 * i32::from(card.upgrades > 0),
+            },
+        },
+        InternalAction::ExitCalm,
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
         },
     ]))
 }
