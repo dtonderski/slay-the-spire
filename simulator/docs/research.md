@@ -67,6 +67,13 @@ call sites, and retain state/counter across clones and snapshots. This is not a
 model of cosmetic global draws or the real process's RNG position. Strict replay
 never enables it or falls back to it. See [`python_api.md`](python_api.md#supported-surface-limits).
 
+`Stack.applyPowers` computes discard size (+3 upgraded), then card block
+modifiers; `use` queues that prepared amount. Later Ink Bottle reshuffles must
+not change it. A card-queue copy applies powers anew before its own on-use hooks,
+so it can count the original Stack in discard. Keep the prepared amount in its
+serialized action, not an observed block or a pile-size estimate at gain time.
+FIDL01243 step827 witnesses the previously unsupported zero-discard use.
+
 ## Map and encounter generation
 
 Target bytecode establishes:
