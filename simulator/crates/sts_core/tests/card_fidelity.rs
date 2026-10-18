@@ -2941,7 +2941,8 @@ fn sever_soul_plus_exhausts_non_attacks_before_dealing_damage() {
             .iter()
             .map(|card| card.content_id)
             .collect::<Vec<_>>(),
-        vec![cards::DEFEND_R_ID, cards::WOUND_ID]
+        // Forward iteration + addToTop(ExhaustSpecificCardAction) reverses use order.
+        vec![cards::WOUND_ID, cards::DEFEND_R_ID]
     );
     assert_eq!(
         next.piles.discard_pile[0].content_id,

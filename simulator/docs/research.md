@@ -395,6 +395,12 @@ corrupted the dungeon playtime clock. Those cohorts remain non-authoritative.
 Collection acceleration must separate visual timing from gameplay action ticks
 and the raw dungeon clock.
 
+`ExhaustAllNonAttackAction` snapshots hand in forward order but addToTop's each
+`ExhaustSpecificCardAction`, so Sever Soul's physical exhausts resolve in reverse
+hand order. This order survives into later Exhume indices: FIDL00022 step1580
+exhausts Defend/Fire Breathing/Dazed/Offering, then index3 at1586 returns Offering.
+Do not reverse the exhaust pile or bind to observed UUIDs to repair a bad batch.
+
 ## Research discipline
 
 For new parity-sensitive behavior, record the target class/method or immutable
