@@ -30,13 +30,13 @@ use crate::{
         DROPKICK_PLUS_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, EMPTY_MIND_ANY_COLOR_ID,
         ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID, ENTRENCH_PLUS_ID,
         EQUILIBRIUM_ANY_COLOR_ID, EVISCERATE_ANY_COLOR_ID, EVOLVE_ID, EVOLVE_PLUS_ID, EXHUME_ID,
-        EXHUME_PLUS_ID, FASTING_ANY_COLOR_ID, FEED_ID, FEED_PLUS_ID, FEEL_NO_PAIN_ID,
-        FEEL_NO_PAIN_PLUS_ID, FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID, FINESSE_ID, FINESSE_PLUS_ID,
-        FIRE_BREATHING_ID, FIRE_BREATHING_PLUS_ID, FLAME_BARRIER_ID, FLAME_BARRIER_PLUS_ID,
-        FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID, FLEX_ID, FLEX_PLUS_ID, FOLLOW_UP_ANY_COLOR_ID,
-        FORETHOUGHT_ID, FORETHOUGHT_PLUS_ID, GO_FOR_THE_EYES_ANY_COLOR_ID, HAND_OF_GREED_ID,
-        HAND_OF_GREED_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID, HEADBUTT_PLUS_ID,
-        HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID, HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID,
+        EXHUME_PLUS_ID, EXPERTISE_ANY_COLOR_ID, FASTING_ANY_COLOR_ID, FEED_ID, FEED_PLUS_ID,
+        FEEL_NO_PAIN_ID, FEEL_NO_PAIN_PLUS_ID, FIEND_FIRE_ID, FIEND_FIRE_PLUS_ID, FINESSE_ID,
+        FINESSE_PLUS_ID, FIRE_BREATHING_ID, FIRE_BREATHING_PLUS_ID, FLAME_BARRIER_ID,
+        FLAME_BARRIER_PLUS_ID, FLASH_OF_STEEL_ID, FLASH_OF_STEEL_PLUS_ID, FLEX_ID, FLEX_PLUS_ID,
+        FOLLOW_UP_ANY_COLOR_ID, FORETHOUGHT_ID, FORETHOUGHT_PLUS_ID, GO_FOR_THE_EYES_ANY_COLOR_ID,
+        HAND_OF_GREED_ID, HAND_OF_GREED_PLUS_ID, HAVOC_ID, HAVOC_PLUS_ID, HEADBUTT_ID,
+        HEADBUTT_PLUS_ID, HEAVY_BLADE_ID, HEAVY_BLADE_PLUS_ID, HEMOKINESIS_ID, HEMOKINESIS_PLUS_ID,
         HOLOGRAM_ANY_COLOR_ID, IMMOLATE_ID, IMMOLATE_PLUS_ID, IMPATIENCE_ID, IMPATIENCE_PLUS_ID,
         INFERNAL_BLADE_ID, INFERNAL_BLADE_PLUS_ID, INFLAME_ID, INFLAME_PLUS_ID, INTIMIDATE_ID,
         INTIMIDATE_PLUS_ID, IRON_WAVE_ID, IRON_WAVE_PLUS_ID, JACK_OF_ALL_TRADES_ID,
@@ -602,6 +602,7 @@ pub(super) fn play_card_queue_in_place(
         EMPTY_MIND_ANY_COLOR_ID => empty_mind_queue(state, card_id, definition),
         TRANQUILITY_ANY_COLOR_ID => tranquility_queue(card_id, definition),
         DOPPELGANGER_ANY_COLOR_ID => doppelganger_queue(card_id),
+        EXPERTISE_ANY_COLOR_ID => expertise_queue(card_id, *card, definition),
         BACKFLIP_ANY_COLOR_ID => backflip_queue(card_id, *card, definition),
         CLOAK_AND_DAGGER_ANY_COLOR_ID => cloak_and_dagger_queue(card_id, definition),
         SHIV_ANY_COLOR_ID => {
@@ -3116,6 +3117,28 @@ fn protect_queue(
         InternalAction::SpendCardEnergy { card_id },
         InternalAction::GainBlock {
             amount: required_block(definition)? + 4 * i32::from(card.upgrades > 0),
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
+}
+
+fn expertise_queue(
+    card_id: CardId,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    // Expertise.use queues ExpertiseAction(magicNumber), not a fixed draw at
+    // card-use time. No Draw suppresses the eventual DrawCardAction, not use.
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::ResolveExpertise {
+            source_card_id: card_id,
+            hand_size: if card.upgrades > 0 { 7 } else { 6 },
         },
         InternalAction::MoveCard {
             card_id,

@@ -87,6 +87,8 @@ pub const PRESSURE_POINTS_ANY_COLOR_ID: ContentId = ContentId::new(6_032_211_985
 pub const EMPTY_MIND_ANY_COLOR_ID: ContentId = ContentId::new(1_892_284_736_503_420);
 pub const TRANQUILITY_ANY_COLOR_ID: ContentId = ContentId::new(71_074_483_415_927_220);
 pub const SKIM_ANY_COLOR_ID: ContentId = ContentId::new(2_547_668);
+/// Stable shop/reward pool identity for the native Silent skill Expertise.
+pub const EXPERTISE_ANY_COLOR_ID: ContentId = ContentId::new(61_343_645_635_657);
 pub const DOPPELGANGER_ANY_COLOR_ID: ContentId = ContentId::new(1_794_712_432_598_607_498);
 /// Prismatic/Defect Beam Cell — id matches `shop_card_content_id("BEAM_CELL")`.
 pub const BEAM_CELL_ANY_COLOR_ID: ContentId = ContentId::new(58_249_160_828_490);
@@ -5295,6 +5297,7 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | EMPTY_MIND_ANY_COLOR_ID
             | TRANQUILITY_ANY_COLOR_ID
             | SKIM_ANY_COLOR_ID
+            | EXPERTISE_ANY_COLOR_ID
             | DOPPELGANGER_ANY_COLOR_ID
             | BEAM_CELL_ANY_COLOR_ID
             | FASTING_ANY_COLOR_ID
@@ -5373,6 +5376,23 @@ pub static SKIM_ANY_COLOR: CardDefinition = CardDefinition {
         retain: false,
         unplayable: false,
     },
+};
+
+pub static EXPERTISE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: EXPERTISE_ANY_COLOR_ID,
+    key: "EXPERTISE",
+    name: "Expertise",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
 };
 
 pub static DOPPELGANGER_ANY_COLOR: CardDefinition = CardDefinition {
@@ -6721,6 +6741,7 @@ pub static EXTRA_PUBLIC_CARD_DEFINITIONS: &[CardDefinition] = &[
     EMPTY_MIND_ANY_COLOR,
     TRANQUILITY_ANY_COLOR,
     SKIM_ANY_COLOR,
+    EXPERTISE_ANY_COLOR,
     DOPPELGANGER_ANY_COLOR,
     GO_FOR_THE_EYES_ANY_COLOR,
     BEAM_CELL_ANY_COLOR,
