@@ -4541,7 +4541,9 @@ fn open_neow_card_reward_choices(run: &mut RunState, cards: Vec<ContentId>) -> S
         pending_relic_offer: None,
         queued_relic_offers: Vec::new(),
         boss_relic_choices: Vec::new(),
-        card_reward_flow: crate::run::CardRewardFlow::active(1),
+        // NeowReward.activate opens CardRewardScreen with a null RewardItem,
+        // unlike Tiny House's nested CombatRewardScreen in the same Neow room.
+        card_reward_flow: crate::run::CardRewardFlow::standalone(),
     });
     Ok(())
 }
@@ -5713,6 +5715,34 @@ mod tests {
         enter_event_screen(&mut run).expect("event entry succeeds");
 
         assert_eq!(run.event_rng_counter, 9);
+    }
+
+    #[test]
+    fn neow_card_skip_closes_to_leave_without_changing_world() {
+        use crate::content::cards::{BASH_ID, DEFEND_R_ID, STRIKE_R_ID};
+        // Native NeowReward.activate -> CardRewardScreen.open(cards, null, ...).
+        // FIDL00007 step 4 SKIP returns to Neow's Leave dialog, not a reward list.
+        let mut run = RunState::seeded_ironclad(1, 0);
+        open_neow_card_reward_choices(&mut run, vec![BASH_ID, STRIKE_R_ID, DEFEND_R_ID])
+            .expect("standalone Neow cards open");
+        assert!(run
+            .reward
+            .as_ref()
+            .unwrap()
+            .card_reward_flow
+            .is_standalone());
+        let snapshot = serde_json::to_string(&run).unwrap();
+        let restored: RunState = serde_json::from_str(&snapshot).unwrap();
+        let closed = crate::apply_run_action(&restored, crate::RunAction::CloseCardReward)
+            .expect("standalone skip closes to Neow");
+        let mut expected = run;
+        expected.phase = RunPhase::Event;
+        expected.reward = None;
+        assert_eq!(
+            serde_json::to_value(&closed).unwrap(),
+            serde_json::to_value(&expected).unwrap()
+        );
+        closed.validate().expect("Neow leave state is valid");
     }
 
     #[test]
