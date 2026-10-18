@@ -2094,13 +2094,13 @@ mod tests {
     #[test]
     fn unmodeled_prismatic_pool_cards_fail_without_fabricating_cost() {
         let synthetic =
-            sts_core::adapter_internals::content::shop_pool::shop_card_content_id("FLYING_KNEE");
+            sts_core::adapter_internals::content::shop_pool::shop_card_content_id("DODGE_AND_ROLL");
         assert!(
             sts_core::adapter_internals::content::cards::get_card_definition(synthetic).is_none()
         );
         assert_eq!(
             sts_core::adapter_internals::run::reward::any_color_reward_card_key(synthetic),
-            Some("FLYING_KNEE")
+            Some("DODGE_AND_ROLL")
         );
 
         let mut run = RunState::combat_fixture();
@@ -2111,11 +2111,11 @@ mod tests {
             fair_combat_observation(&run).expect_err("unmodeled pool content is not projected");
         assert_eq!(
             error,
-            FairObservationError::UnmodeledPublicContent("FLYING_KNEE")
+            FairObservationError::UnmodeledPublicContent("DODGE_AND_ROLL")
         );
         assert_eq!(
             error.to_string(),
-            "public combat content is unmodeled: FLYING_KNEE"
+            "public combat content is unmodeled: DODGE_AND_ROLL"
         );
     }
 

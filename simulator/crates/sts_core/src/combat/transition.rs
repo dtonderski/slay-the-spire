@@ -298,6 +298,7 @@ fn is_post_lethal_cancelled_action(action: &InternalAction) -> bool {
             | InternalAction::RandomizeHandCostsForSneckoOil
             | InternalAction::GainEnergy { .. }
             | InternalAction::GainEnergyFromPotion { .. }
+            | InternalAction::ApplyEnergized { .. }
             | InternalAction::OpenPotionCardReward { .. }
             | InternalAction::OpenElixirSelection
             | InternalAction::OpenGamblersBrewSelection
@@ -1855,6 +1856,12 @@ fn apply_internal_action_with_defer(
             })
         }
         InternalAction::GainEnergy { amount } => player_actions::gain_energy(state, amount),
+        InternalAction::ApplyEnergized { amount } => {
+            checked_add_combat_value(&mut state.player.energy_next_turn, amount)?;
+            // EnergizedPower constructor/stackPower cap the resulting amount.
+            state.player.energy_next_turn = state.player.energy_next_turn.min(999);
+            Ok(Vec::new())
+        }
         InternalAction::GainEnergyFromPotion { amount } => {
             player_actions::gain_energy_from_potion(state, amount)
         }
