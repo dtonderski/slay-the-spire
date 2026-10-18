@@ -214,6 +214,17 @@ fn queued_reward_generates_after_earlier_snecko_randomization() {
         "queued offer must not consume RNG at use time"
     );
     let mut rng = opened.combat.as_ref().unwrap().rng.card_random_rng.clone();
+    // Source DiscoveryAction finishes its fixed-tick ignored generations first.
+    let delta = 1.0_f32 / 60.0_f32;
+    let mut duration = 0.25_f32 - delta;
+    while duration >= 0.0 {
+        let _ = sts_core::content::shop_pool::discovery_card_choices(
+            &mut rng,
+            sts_core::adapter_internals::CardType::Attack,
+            3,
+        );
+        duration -= delta;
+    }
     // One original, one chosen, five drawn cards are randomized before the offer.
     for _ in 0..7 {
         rng.random_int_range(0, 3);

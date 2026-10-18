@@ -67,6 +67,15 @@ call sites, and retain state/counter across clones and snapshots. This is not a
 model of cosmetic global draws or the real process's RNG position. Strict replay
 never enables it or falls back to it. See [`python_api.md`](python_api.md#supported-surface-limits).
 
+DiscoveryAction generates a fresh local three-card list before every duration
+branch, even on retrieval/tail updates where that list is unused. Under the
+already-supported collection.2 fixed60Hz action profile, ACTION_DUR_FAST=.25f
+requires16 float-subtraction ticks: opening plus15 more generations. Typed and
+colorless potion choices/skips must finish that same source-pool consumption as
+the Discovery card, before queued draws/offers. Do not rebind the visible offer,
+fit a draw count to later RNG outcomes, or claim this count for variable-FPS
+vanilla. QLFD00047 Potion176/CHOOSE177 -> Wild Strike183 exposes the omission.
+
 ## Map and encounter generation
 
 Target bytecode establishes:
