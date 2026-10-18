@@ -330,6 +330,7 @@ pub static CARD_KEYS: &[&str] = &[
     "Whirlwind+",
     "Wound",
     "Writhe",
+    "TEMPEST", // Append only; retain all existing vocabulary v1 card IDs.
 ];
 
 pub static MONSTER_KEYS: &[&str] = &[
@@ -900,4 +901,15 @@ pub fn selection_catalog_id(kind: Option<&str>) -> Option<i64> {
 #[pyfunction]
 pub fn content_vocabulary_version() -> u32 {
     CONTENT_VOCABULARY_VERSION
+}
+
+#[cfg(test)]
+mod tempest_tests {
+    use super::*;
+    #[test]
+    fn tempest_is_appended_without_renumbering_existing_v1_cards() {
+        assert_eq!(card_id("TEMPEST"), Some(322));
+        assert_eq!(card_id("Writhe"), Some(321));
+        assert_eq!(CONTENT_VOCABULARY_VERSION, 1);
+    }
 }
