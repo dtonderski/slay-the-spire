@@ -67,6 +67,13 @@ call sites, and retain state/counter across clones and snapshots. This is not a
 model of cosmetic global draws or the real process's RNG position. Strict replay
 never enables it or falls back to it. See [`python_api.md`](python_api.md#supported-surface-limits).
 
+ExhumeAction's empty/singleton/full-hand shortcuts still exhaust their played
+source through UseCardAction. Route that nonmodal source exhaust through the
+normal typed CardExhausted callback event: Dead Branch reserves its random card
+and queues generation before Dark Embrace draws. Inline power-only settlement
+omitted that relic (FIDL00293 step352, plus four current first boundaries).
+A copied use whose source is already exhausted must not retrigger the callback.
+
 ## Map and encounter generation
 
 Target bytecode establishes:
