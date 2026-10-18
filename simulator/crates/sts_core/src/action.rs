@@ -234,6 +234,13 @@ pub enum InternalAction {
         content_id: crate::ContentId,
         to: CardPile,
     },
+    /// Distraction reserves its typed Skill in use(), before on-use callbacks;
+    /// its queued insertion excludes the original source from hand capacity.
+    /// A purge-on-use copy has no physical source to relocate.
+    AddDistractionSkillToHand {
+        content_id: ContentId,
+        source_card_id: Option<CardId>,
+    },
     AddGeneratedCardsToHandWhileSourceInLimbo {
         content_id: crate::ContentId,
         source_card_id: CardId,

@@ -303,6 +303,7 @@ fn is_post_lethal_cancelled_action(action: &InternalAction) -> bool {
             | InternalAction::OpenPotionCardReward { .. }
             | InternalAction::OpenElixirSelection
             | InternalAction::OpenGamblersBrewSelection
+            | InternalAction::AddDistractionSkillToHand { .. }
     )
 }
 
@@ -355,6 +356,24 @@ fn process_internal_queue_owned(
                 {
                     if let InternalAction::GainStackBlock { amount, upgraded } = action {
                         *amount = super::card_effects::stack_block_amount(&next, *upgraded)?;
+                    }
+                }
+            }
+            if content_id == crate::content::cards::DISTRACTION_ANY_COLOR_ID {
+                // The copy calls use() afresh before its own on-use hooks.
+                // Reserve a new Skill now, not at later insertion and not by
+                // replaying the original's generated content or physical source.
+                for action in queue
+                    .iter_mut()
+                    .take_while(|action| !matches!(action, InternalAction::EndCopiedCardEffects))
+                {
+                    if let InternalAction::AddDistractionSkillToHand {
+                        content_id,
+                        source_card_id,
+                    } = action
+                    {
+                        *content_id = super::card_effects::distraction_generated_skill(&mut next);
+                        *source_card_id = None;
                     }
                 }
             }
@@ -1180,6 +1199,7 @@ fn push_follow_up(
                     to: CardPile::Hand,
                     ..
                 } | InternalAction::AddGeneratedCardsToHandWhileSourceInLimbo { .. }
+                    | InternalAction::AddDistractionSkillToHand { .. }
                     | InternalAction::AddGeneratedCardToDrawPileRandomSpot { .. }
                     | InternalAction::AddGeneratedCardToDrawPileRandomSpotWithCost { .. }
             )
@@ -1749,6 +1769,23 @@ fn apply_internal_action_with_defer(
         }
         InternalAction::AddGeneratedUpgradedCardToPile { content_id, to } => {
             pile_actions::add_generated_upgraded_card(state, content_id, to)
+        }
+        InternalAction::AddDistractionSkillToHand {
+            content_id,
+            source_card_id,
+        } => {
+            if let Some(source_card_id) = source_card_id {
+                pile_actions::add_generated_cards_to_hand_while_source_in_limbo(
+                    state,
+                    content_id,
+                    source_card_id,
+                    1,
+                    Some(0),
+                    true,
+                )
+            } else {
+                pile_actions::add_generated_card(state, content_id, CardPile::Hand, Some(0), true)
+            }
         }
         InternalAction::AddGeneratedCardsToHandWhileSourceInLimbo {
             content_id,

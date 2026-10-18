@@ -25,9 +25,9 @@ use crate::{
         DARK_EMBRACE_PLUS_ID, DARK_SHACKLES_ID, DARK_SHACKLES_PLUS_ID, DAZED_ID,
         DEADLY_POISON_ANY_COLOR_ID, DEEP_BREATH_ID, DEEP_BREATH_PLUS_ID, DEFEND_R_ID,
         DEFEND_R_PLUS_ID, DEMON_FORM_ID, DEMON_FORM_PLUS_ID, DISARM_ID, DISARM_PLUS_ID,
-        DISCOVERY_ID, DISCOVERY_PLUS_ID, DOPPELGANGER_ANY_COLOR_ID, DOUBLE_TAP_ID,
-        DOUBLE_TAP_PLUS_ID, DRAMATIC_ENTRANCE_ID, DRAMATIC_ENTRANCE_PLUS_ID, DROPKICK_ID,
-        DROPKICK_PLUS_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, EMPTY_MIND_ANY_COLOR_ID,
+        DISCOVERY_ID, DISCOVERY_PLUS_ID, DISTRACTION_ANY_COLOR_ID, DOPPELGANGER_ANY_COLOR_ID,
+        DOUBLE_TAP_ID, DOUBLE_TAP_PLUS_ID, DRAMATIC_ENTRANCE_ID, DRAMATIC_ENTRANCE_PLUS_ID,
+        DROPKICK_ID, DROPKICK_PLUS_ID, DUAL_WIELD_ID, DUAL_WIELD_PLUS_ID, EMPTY_MIND_ANY_COLOR_ID,
         ENLIGHTENMENT_ID, ENLIGHTENMENT_PLUS_ID, ENTRENCH_ID, ENTRENCH_PLUS_ID,
         EQUILIBRIUM_ANY_COLOR_ID, EVISCERATE_ANY_COLOR_ID, EVOLVE_ID, EVOLVE_PLUS_ID, EXHUME_ID,
         EXHUME_PLUS_ID, EXPERTISE_ANY_COLOR_ID, FASTING_ANY_COLOR_ID, FEED_ID, FEED_PLUS_ID,
@@ -128,6 +128,7 @@ pub(super) fn play_card_queue_in_place(
         ),
         SLIMED_ID => slimed_queue(card_id),
         SKIM_ANY_COLOR_ID => skim_queue(card_id, definition),
+        DISTRACTION_ANY_COLOR_ID => distraction_queue(state, card_id, definition),
         ANGER_ID | ANGER_PLUS_ID => anger_queue(
             *card,
             card_id,
@@ -2207,6 +2208,38 @@ fn power_through_queue(
         },
     ]);
     Ok(queue)
+}
+
+pub(super) fn distraction_generated_skill(state: &mut CombatState) -> ContentId {
+    // Typed returnTrulyRandomCardInCombat(SKILL): current Ironclad source pools
+    // in rarity order. No extra blanket HEALING exclusion is applied here.
+    let pool = crate::content::shop_pool::ironclad_combat_skill_discovery_pool();
+    let index = state
+        .rng
+        .card_random_rng
+        .random_int((pool.len() - 1) as i32) as usize;
+    pool[index]
+}
+
+fn distraction_queue(
+    state: &mut CombatState,
+    card_id: CardId,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let content_id = distraction_generated_skill(state);
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::AddDistractionSkillToHand {
+            content_id,
+            source_card_id: Some(card_id),
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
 }
 
 fn infernal_blade_queue(

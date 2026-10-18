@@ -81,6 +81,13 @@ so it can count the original Stack in discard. Keep the prepared amount in its
 serialized action, not an observed block or a pile-size estimate at gain time.
 FIDL01243 step827 witnesses the previously unsupported zero-discard use.
 
+`Distraction.use` reserves a typed random Skill immediately with cardRandomRng,
+sets its cost to zero this turn, then queues MakeTempCardInHandAction; source
+exhaust follows. A purge-on-use copy calls use afresh before its own on-use
+callbacks, so it must reserve a new Skill after the original source's exhaust
+callbacks, not reuse original content or roll at later insertion. QLFB00042
+step1425 witnesses unsupported Distraction generating Havoc.
+
 ## Map and encounter generation
 
 Target bytecode establishes:
