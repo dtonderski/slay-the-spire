@@ -255,6 +255,20 @@ target action/effect lifecycle rather than an observed deck snapshot.
   simulator event choice; the encounter has three Fungi Beasts.
 - Random card upgrades seed Java shuffle from `miscRng.randomLong()`; Neow paths
   consume a hidden misc draw before relic equip.
+- `PlayTopCardAction.update` queues its empty-deck shuffle and retry with
+  `addToTop`; `EmptyDeckShuffleAction` constructor relic callbacks instead
+  append with `addToBot`. Its `NewQueueCardAction.update` captures current energy
+  in `CardQueueItem.energyOnUse` before those ordinary callbacks drain, while
+  the card itself is serviced afterward. Preserve that captured value in the
+  parked item, separately from live player energy; do not execute Sundial eagerly
+  or change energy temporarily to prepare X effects. Whirlwind, Skewer, Malaise
+  and Transmutation use this context, as does Necronomicon's X-cost eligibility.
+  A queued X play missing the context fails closed; it is not inferred from an
+  observed energy or the later live amount. Keep Abacus's queued block distinct
+  from promoted on-use Rage block. FIDL01405 step585 witnesses Havoc selecting
+  Whirlwind at2 energy before Sundial gains2; the corrected prefix advances to a
+  separate later boundary. These findings do not claim every X card's own action
+  lifecycle has been audited.
 - Distilled Chaos constructs three PlayTop actions up front. Selected cards stay
   in limbo and are excluded from an intervening empty-deck shuffle. Use the same
   action/card lanes for immediate and screen-delayed use: every ordinary action
