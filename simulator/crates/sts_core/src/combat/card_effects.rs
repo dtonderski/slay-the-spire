@@ -60,15 +60,16 @@ use crate::{
         SEEING_RED_ID, SEEING_RED_PLUS_ID, SEVER_SOUL_ID, SEVER_SOUL_PLUS_ID, SHIV_ANY_COLOR_ID,
         SHOCKWAVE_ID, SHOCKWAVE_PLUS_ID, SHRUG_IT_OFF_ID, SHRUG_IT_OFF_PLUS_ID,
         SKEWER_ANY_COLOR_ID, SKIM_ANY_COLOR_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
-        STEAM_BARRIER_ANY_COLOR_ID, STORM_OF_STEEL_ANY_COLOR_ID, STREAMLINE_ANY_COLOR_ID,
-        STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID,
-        SWORD_BOOMERANG_PLUS_ID, THE_BOMB_ID, THE_BOMB_PLUS_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID,
-        THINKING_AHEAD_PLUS_ID, THIRD_EYE_ANY_COLOR_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID,
-        TRANQUILITY_ANY_COLOR_ID, TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID,
-        TRUE_GRIT_ID, TRUE_GRIT_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UNLOAD_ANY_COLOR_ID,
-        UPPERCUT_ID, UPPERCUT_PLUS_ID, VIOLENCE_ID, VIOLENCE_PLUS_ID, WALLOP_ANY_COLOR_ID,
-        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID,
-        WILD_STRIKE_PLUS_ID, WOUND_ID,
+        STACK_ANY_COLOR_ID, STEAM_BARRIER_ANY_COLOR_ID, STORM_OF_STEEL_ANY_COLOR_ID,
+        STREAMLINE_ANY_COLOR_ID, STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID,
+        SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID, SWORD_BOOMERANG_PLUS_ID, THE_BOMB_ID,
+        THE_BOMB_PLUS_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID, THINKING_AHEAD_PLUS_ID,
+        THIRD_EYE_ANY_COLOR_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID, TRANQUILITY_ANY_COLOR_ID,
+        TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID, TRUE_GRIT_ID,
+        TRUE_GRIT_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UNLOAD_ANY_COLOR_ID, UPPERCUT_ID,
+        UPPERCUT_PLUS_ID, VIOLENCE_ID, VIOLENCE_PLUS_ID, WALLOP_ANY_COLOR_ID, WARCRY_ID,
+        WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID,
+        WOUND_ID,
     },
     content::shop_pool::{
         colorless_discovery_pool, ironclad_combat_attack_discovery_pool,
@@ -429,6 +430,7 @@ pub(super) fn play_card_queue_in_place(
         ),
         STORM_OF_STEEL_ANY_COLOR_ID => storm_of_steel_queue(state, card_id, *card, definition),
         STEAM_BARRIER_ANY_COLOR_ID => steam_barrier_queue(card_id, *card, definition),
+        STACK_ANY_COLOR_ID => stack_queue(state, card_id, *card, definition),
         FOLLOW_UP_ANY_COLOR_ID => follow_up_queue(
             state,
             card_id,
@@ -5187,6 +5189,43 @@ fn skewer_queue(
         to: CardPile::DiscardPile,
     });
     Ok(queue)
+}
+
+pub(super) fn stack_block_amount(state: &CombatState, upgraded: bool) -> SimResult<i32> {
+    let discard = i32::try_from(state.piles.discard_pile.len())
+        .map_err(|_| SimError::InvalidState("Stack discard count overflows i32"))?;
+    let base = discard
+        .checked_add(if upgraded { 3 } else { 0 })
+        .ok_or(SimError::InvalidState("Stack base block overflows i32"))?;
+    // NoBlockPower.modifyBlockLast applies at card.applyPowers, not by
+    // rewriting a block gain after later on-use callbacks change powers.
+    Ok(if state.player.no_block_turns > 0 {
+        0
+    } else {
+        crate::power::calculate_block(base, state.player.powers)
+    })
+}
+
+fn stack_queue(
+    state: &CombatState,
+    card_id: CardId,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let upgraded = card.upgrades > 0;
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainStackBlock {
+            amount: stack_block_amount(state, upgraded)?,
+            upgraded,
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
+        },
+    ]))
 }
 
 fn steam_barrier_queue(

@@ -158,6 +158,12 @@ pub enum InternalAction {
     GainPrecomputedCardBlock {
         amount: i32,
     },
+    /// Stack.use queues block prepared from discard size and powers. Each
+    /// copied use refreshes this value before its on-use callbacks run.
+    GainStackBlock {
+        amount: i32,
+        upgraded: bool,
+    },
     GainBlockDirect {
         amount: i32,
     },

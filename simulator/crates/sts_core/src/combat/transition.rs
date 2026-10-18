@@ -342,6 +342,19 @@ fn process_internal_queue_owned(
                 next.pen_nib_double_active = false;
                 continue;
             }
+            if content_id == crate::content::cards::STACK_ANY_COLOR_ID {
+                // The card-queue copy applies powers before its on-use relics
+                // (Ink Bottle can reshuffle discard). Keep that prepared block
+                // in the queue rather than reading the pile at gain resolution.
+                for action in queue
+                    .iter_mut()
+                    .take_while(|action| !matches!(action, InternalAction::EndCopiedCardEffects))
+                {
+                    if let InternalAction::GainStackBlock { amount, upgraded } = action {
+                        *amount = super::card_effects::stack_block_amount(&next, *upgraded)?;
+                    }
+                }
+            }
         }
         if let InternalAction::SkipCopiedCardEffectsIfTargetDead { target } = internal_action {
             record_event(&mut event_log, internal_action);
@@ -1547,7 +1560,8 @@ fn apply_internal_action_with_defer(
         InternalAction::GainPrecomputedCardBlock { amount } => {
             defense_actions::gain_precomputed_player_card_block(state, amount)
         }
-        InternalAction::GainBlockDirect { amount } => {
+        InternalAction::GainBlockDirect { amount }
+        | InternalAction::GainStackBlock { amount, .. } => {
             defense_actions::gain_player_block_direct(state, amount)
         }
         InternalAction::GainBlockFromPotion { amount } => {
