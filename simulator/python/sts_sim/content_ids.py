@@ -509,6 +509,7 @@ class CardKey(StrEnum):
     SWIFT_STRIKE_PLUS = "Swift Strike+"
     SWORD_BOOMERANG = "Sword Boomerang"
     SWORD_BOOMERANG_PLUS = "Sword Boomerang+"
+    TEMPEST = "TEMPEST"
     THE_BOMB = "THE_BOMB"
     THE_BOMB_PLUS = "THE_BOMB+"
     THINKING_AHEAD = "THINKING_AHEAD"

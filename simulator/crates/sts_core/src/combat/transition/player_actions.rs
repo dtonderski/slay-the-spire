@@ -8,6 +8,7 @@ use crate::{
     combat::{state::BombTimer, CombatState},
     ids::CardId,
     power::DrawTriggerPower,
+    relic::{Relic, CHEMICAL_X_BONUS_X},
     SimError, SimResult,
 };
 
@@ -446,6 +447,37 @@ pub(super) fn increase_max_orbs(
             "max orb slot increase overflows i32",
         ))?;
     Ok(Vec::new())
+}
+
+pub(super) fn resolve_tempest(
+    state: &mut CombatState,
+    energy_on_use: i32,
+    upgraded: bool,
+    free_to_play_once: bool,
+) -> SimResult<Vec<InternalAction>> {
+    if energy_on_use < 0 {
+        return Err(SimError::InvalidState("Tempest energyOnUse is negative"));
+    }
+    let bonus = i32::from(upgraded)
+        + if state.player.authority.relics.contains(&Relic::ChemicalX) {
+            CHEMICAL_X_BONUS_X
+        } else {
+            0
+        };
+    let count = energy_on_use
+        .checked_add(bonus)
+        .ok_or(SimError::InvalidState(
+            "Tempest channel count overflows i32",
+        ))?;
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+    // TempestAction spends EnergyPanel.totalCount, not its reserved effect X.
+    // Its ChannelActions append behind the already-queued source UseCardAction.
+    if !free_to_play_once {
+        state.player.energy = 0;
+    }
+    Ok(vec![InternalAction::ChannelLightning; count as usize])
 }
 
 pub(super) fn channel_lightning(state: &mut CombatState) -> SimResult<Vec<InternalAction>> {
