@@ -694,6 +694,12 @@ pub enum InternalAction {
         source_card_id: CardId,
         purpose: ExhaustSelectPurpose,
     },
+    /// Private UseCardAction boundary in a Foreign Influence continuation.
+    SettleForeignInfluenceSource,
+    OpenForeignInfluenceCardReward {
+        source_card_id: CardId,
+        upgraded: bool,
+    },
     OpenDiscoveryCardReward {
         source_card_id: CardId,
     },

@@ -121,6 +121,11 @@ pub struct CombatState {
     pub ascension: u8,
     #[serde(flatten)]
     pub rng: CombatRngState,
+    /// Owned native cardRng during combat; supplied by the run coordinator,
+    /// never reconstructed from an observed offer. Standalone callers must
+    /// supply it explicitly before resolving a cross-stream card action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_card_rng: Option<StsRng>,
     /// The single active player decision overlay, if combat is waiting on one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decision: Option<CombatDecisionState>,
@@ -487,6 +492,13 @@ pub enum CombatDecisionState {
     },
     ToolboxCardReward {
         choices: Vec<CardInstance>,
+        #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
+        pending_actions: VecDeque<InternalAction>,
+    },
+    ForeignInfluenceCardReward {
+        choices: Vec<CardInstance>,
+        source_card: Option<CardInstance>,
+        upgraded: bool,
         #[serde(default, skip_serializing_if = "VecDeque::is_empty")]
         pending_actions: VecDeque<InternalAction>,
     },
@@ -1011,6 +1023,7 @@ impl CombatState {
             CombatDecisionState::PotionCardReward { choices, .. }
             | CombatDecisionState::ToolboxCardReward { choices, .. }
             | CombatDecisionState::DiscoveryCardReward { choices, .. }
+            | CombatDecisionState::ForeignInfluenceCardReward { choices, .. }
             | CombatDecisionState::NilrysCodexCardReward { choices, .. } => Some(choices),
             _ => None,
         }
@@ -1275,6 +1288,7 @@ impl CombatState {
             relic_counters: RelicCounters::default(),
             ascension,
             rng,
+            run_card_rng: None,
             decision: None,
             queued_decisions: VecDeque::new(),
             duplication_potion_pending: false,
@@ -1420,6 +1434,10 @@ impl CombatState {
         ]
         .into_iter()
         .any(|counter| !rng_counter_is_supported(counter))
+            || self
+                .run_card_rng
+                .as_ref()
+                .is_some_and(|rng| !rng_counter_is_supported(rng.counter()))
         {
             return Err(SimError::InvalidState(
                 "combat RNG counter exceeds the target signed range",
@@ -1664,7 +1682,7 @@ impl CombatState {
         Ok(())
     }
 
-    fn authoritative_cards(&self) -> Vec<&CardInstance> {
+    pub(crate) fn authoritative_cards(&self) -> Vec<&CardInstance> {
         let mut cards = self.piles.all_cards().collect::<Vec<_>>();
         // Skipped-retrieval / deferred exhaust selections park cards here until
         // END. They must reserve instance IDs so generated wounds (Wild Strike)
@@ -1748,6 +1766,7 @@ fn extend_decision_cards<'a>(cards: &mut Vec<&'a CardInstance>, decision: &'a Co
         CombatDecisionState::PotionCardReward { choices, .. }
         | CombatDecisionState::ToolboxCardReward { choices, .. }
         | CombatDecisionState::DiscoveryCardReward { choices, .. }
+        | CombatDecisionState::ForeignInfluenceCardReward { choices, .. }
         | CombatDecisionState::NilrysCodexCardReward { choices, .. } => cards.extend(choices),
         CombatDecisionState::DiscardSelect { state } => cards.extend(state.source_card.iter()),
         CombatDecisionState::ExhaustSelect { state } => cards.extend(state.source_card.iter()),
@@ -1756,7 +1775,9 @@ fn extend_decision_cards<'a>(cards: &mut Vec<&'a CardInstance>, decision: &'a Co
         }
         CombatDecisionState::DrawSelect { .. } => {}
     }
-    if let CombatDecisionState::DiscoveryCardReward { source_card, .. } = decision {
+    if let CombatDecisionState::DiscoveryCardReward { source_card, .. }
+    | CombatDecisionState::ForeignInfluenceCardReward { source_card, .. } = decision
+    {
         cards.extend(source_card.iter());
     }
 }

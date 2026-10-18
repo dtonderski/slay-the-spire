@@ -2870,6 +2870,22 @@ impl RunState {
         StsRng::with_counter_for_stream(state.seed as i64, state.counter, trace_stream)
     }
 
+    /// Foreign Influence is the first modeled combat consumer of native cardRng.
+    /// Transfer its simulator-owned stream into combat lazily, on an accepted
+    /// action. No observed choices/state participate and no RNG is drawn here.
+    pub(crate) fn provision_combat_card_rng(&mut self) {
+        let needed = self.combat.as_ref().is_some_and(|c| {
+            c.run_card_rng.is_none()
+                && c.authoritative_cards().iter().any(|card| {
+                    card.content_id == crate::content::cards::FOREIGN_INFLUENCE_ANY_COLOR_ID
+                })
+        });
+        if needed {
+            let rng = self.rng_for_stream(RunRngStream::CardReward);
+            self.combat.as_mut().expect("checked combat").run_card_rng = Some(rng);
+        }
+    }
+
     pub fn store_rng_counter(&mut self, stream: RunRngStream, rng: &StsRng) {
         self.set_rng_stream_counter(stream, rng.counter());
     }
