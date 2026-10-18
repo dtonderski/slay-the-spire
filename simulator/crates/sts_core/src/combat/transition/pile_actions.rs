@@ -23,10 +23,13 @@ pub(super) fn exhaust_all_non_attack_cards(
     // ExhaustAllNonAttackAction snapshots the hand once. Soulbound
     // replacements created by triggerOnExhaust are not in that snapshot; a
     // Necronomicon / Double Tap copy snapshots them on the second use().
+    // It iterates forward but addToTop's each ExhaustSpecificCardAction, so
+    // physical exhausts (and their subsequent callback order) run right-to-left.
     let targets: Vec<CardId> = state
         .piles
         .hand
         .iter()
+        .rev()
         .filter(|card| card.id != excluded_card_id)
         .filter(|card| {
             get_card_definition(card.content_id)
