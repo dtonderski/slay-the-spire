@@ -3970,8 +3970,10 @@ mod tests {
         let next = apply_combat_action_on_run(&run, CombatAction::EndTurn).expect("turn ends");
         let combat = next.combat.as_ref().expect("combat remains active");
 
-        assert_eq!(next.sundial_shuffles, 3);
-        assert_eq!(combat.sundial_shuffles, 3);
+        // This short deck constructs a real shuffle and then an empty one
+        // while satisfying the five-card draw. Both invoke onShuffle.
+        assert_eq!(next.sundial_shuffles, 4);
+        assert_eq!(combat.sundial_shuffles, 4);
         assert_eq!(combat.player.energy, 5);
     }
 

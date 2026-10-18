@@ -304,7 +304,13 @@ fn draw_cards_batch_in_place(
             }
             if state.piles.discard_pile.is_empty() {
                 if had_cards_at_start {
-                    consume_empty_deck_shuffle_with_combat_rng(state)?;
+                    // The constructor queued relic effects before the existing
+                    // draw segment ran (e.g. before Void's on-draw energy loss).
+                    let mut shuffle_follow_ups = shuffle_follow_ups_from_actions(
+                        consume_empty_deck_shuffle_with_combat_rng(state)?,
+                    )?;
+                    shuffle_follow_ups.append(&mut deferred_follow_ups);
+                    deferred_follow_ups = shuffle_follow_ups;
                 }
             } else {
                 deferred_follow_ups.extend(shuffle_follow_ups_from_actions(
@@ -336,9 +342,15 @@ fn draw_cards_batch_in_place(
     Ok(deferred_follow_ups)
 }
 
-pub(crate) fn consume_empty_deck_shuffle_with_combat_rng(state: &mut CombatState) -> SimResult<()> {
+pub(crate) fn consume_empty_deck_shuffle_with_combat_rng(
+    state: &mut CombatState,
+) -> SimResult<Vec<InternalAction>> {
+    // EmptyDeckShuffleAction's constructor calls every relic's onShuffle,
+    // even when its later discard.shuffle() moves no cards. Preserve those
+    // addToBot callbacks as well as the already-modelled shuffle RNG draw.
+    let follow_ups = crate::relic::apply_shuffle_relics(state)?;
     let _ = state.rng.shuffle_rng.random_long();
-    Ok(())
+    Ok(follow_ups)
 }
 
 fn fire_breathing_triggers_on_draw(state: &CombatState, content_id: ContentId) -> bool {
