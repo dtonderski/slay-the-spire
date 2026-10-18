@@ -464,12 +464,9 @@ pub(super) fn apply_act_two_event_action(
                 enter_event_combat(next, &[&SLAVER_BLUE_A0, &SLAVER_RED_A0])?;
             }
             2 if choice_index == 0 => {
-                // COWARDICE: leave after the first fight. The first-fight end
-                // path parks combat RNG for a possible second Colosseum bout
-                // (`pending_event_combat_rng`). Discard it so a later event
-                // combat (e.g. Mind Bloom) does not inherit that shuffle stream
-                // (FIDL00438).
-                next.pending_event_combat_rng = None;
+                // COWARDICE opens a dismissable map, not a new room. The
+                // native event remains at FIGHT, so RETURN may still choose
+                // VICTORY. Keep its RNG owner until actual map-node entry.
                 crate::run::map_overlay::open_completed_room_map(next);
             }
             2 if choice_index == 1 => {
