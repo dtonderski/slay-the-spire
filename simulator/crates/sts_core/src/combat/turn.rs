@@ -2,6 +2,8 @@
 mod blur_tests;
 #[cfg(test)]
 mod doppelganger_draw_tests;
+#[cfg(test)]
+mod mercury_before_draw_tests;
 
 use std::collections::VecDeque;
 
@@ -912,6 +914,10 @@ fn start_player_turn_in_place(
         state.player.energy =
             checked_turn_add(state.player.energy, -state.player.powers.fasting)?.max(0);
     }
+    let combat_continued_before_start_relics = state
+        .monsters
+        .iter()
+        .any(|m| m.alive || awakened_one_is_half_dead(m));
     let deferred_start_relic_juggernaut = if apply_start_relics {
         crate::relic::apply_start_of_player_turn_relics(state)?
     } else {
@@ -920,6 +926,40 @@ fn start_player_turn_in_place(
     if !draw_hand {
         for block in deferred_start_relic_juggernaut {
             crate::combat::transition::apply_juggernaut_after_direct_block_gain(state, block)?;
+        }
+        finish_player_turn_start(state)?;
+        return Ok(());
+    }
+    let deferred_start_relic_deaths = if apply_post_draw_relics {
+        crate::relic::apply_start_of_player_turn_relic_damage_deferred_deaths(state)?
+    } else {
+        Vec::new()
+    };
+    if combat_continued_before_start_relics
+        && state
+            .monsters
+            .iter()
+            .all(|m| !m.alive && !awakened_one_is_half_dead(m))
+    {
+        // These turn actions were already queued when Mercury's DamageAll
+        // killed the final enemy. Native clearPostCombatActions removes the
+        // opening draw/generators/post-draw buffs, before any shuffle constructor
+        // or RNG draw. Do not advance them and then repair the relic counter.
+        for block in deferred_start_relic_juggernaut {
+            crate::combat::transition::apply_juggernaut_after_direct_block_gain(state, block)?;
+        }
+        // Brutality's already-queued LoseHPAction is DAMAGE and survives that
+        // clear; its paired DrawCardAction does not. This is an explicit rule,
+        // not an unconditional post-lethal HP correction.
+        if state.player.powers.brutality > 0 {
+            let n = crate::combat::transition::process_internal_queue(
+                state,
+                std::collections::VecDeque::from([crate::InternalAction::LoseHp {
+                    amount: state.player.powers.brutality,
+                    source: crate::action::HpLossSource::Other,
+                }]),
+            )?;
+            *state = n.state;
         }
         finish_player_turn_start(state)?;
         return Ok(());
@@ -953,11 +993,9 @@ fn start_player_turn_in_place(
     // (FIDL00381: Mayhem plays Anger+ after Brutality draws Shrug+).
     // Leftover EndTurn STATE can publish mid-DrawCardAction before
     // atTurnStartPostDraw relics (FIDL01807 Warped Tongs still queued).
-    let deferred_start_relic_deaths = if apply_post_draw_relics {
-        crate::relic::apply_start_of_player_turn_post_draw_relics_deferred_deaths(state)?
-    } else {
-        Vec::new()
-    };
+    if apply_post_draw_relics {
+        crate::relic::apply_start_of_player_turn_post_draw_actions(state)?;
+    }
     apply_demon_form_strength_post_draw(state)?;
     let brutality_draw_follow_ups = apply_start_of_turn_brutality_post_draw(state)?;
     if state.player.hp > 0 {

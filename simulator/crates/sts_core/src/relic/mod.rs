@@ -2685,6 +2685,16 @@ pub fn apply_start_of_player_turn_post_draw_relics(state: &mut CombatState) -> S
 pub(crate) fn apply_start_of_player_turn_post_draw_relics_deferred_deaths(
     state: &mut CombatState,
 ) -> SimResult<Vec<crate::combat::transition::DeferredMonsterDeath>> {
+    let deferred_deaths = apply_start_of_player_turn_relic_damage_deferred_deaths(state)?;
+    apply_start_of_player_turn_post_draw_actions(state)?;
+    Ok(deferred_deaths)
+}
+
+/// Mercury's queued DamageAll runs before the opening DrawCardAction. Its
+/// addToBot death callbacks still wait behind draw/post-draw actions.
+pub(crate) fn apply_start_of_player_turn_relic_damage_deferred_deaths(
+    state: &mut CombatState,
+) -> SimResult<Vec<crate::combat::transition::DeferredMonsterDeath>> {
     let mut deferred_deaths = Vec::new();
     if state
         .player
@@ -2711,6 +2721,12 @@ pub(crate) fn apply_start_of_player_turn_post_draw_relics_deferred_deaths(
         }
     }
 
+    Ok(deferred_deaths)
+}
+
+pub(crate) fn apply_start_of_player_turn_post_draw_actions(
+    state: &mut CombatState,
+) -> SimResult<()> {
     // atTurnStartPostDraw walks relics in acquisition order. Pocketwatch draws
     // must not run before an earlier Warped Tongs upgrade (FIDL01534: Rupture
     // in the 5-card hand, not Strike after the extra 3 cards).
@@ -2754,7 +2770,7 @@ pub(crate) fn apply_start_of_player_turn_post_draw_relics_deferred_deaths(
             _ => {}
         }
     }
-    Ok(deferred_deaths)
+    Ok(())
 }
 
 pub(crate) fn upgrade_random_non_status_hand_card(state: &mut CombatState) -> SimResult<()> {
