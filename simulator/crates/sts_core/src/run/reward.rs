@@ -2603,12 +2603,15 @@ fn apply_validated_reward_action_owned(
             }
         }
         RunAction::CloseCardReward => {
-            let return_to_rest = next
-                .reward
-                .as_ref()
-                .is_some_and(|reward| reward.continuation == RewardContinuation::Rest);
+            // SkipCardButton closes the current screen. Direct Neow offers
+            // have no underlying RewardItem to reopen; Tiny House / ordinary
+            // combat rewards do, even if their continuation is also Neow.
+            let return_to_owner = next.reward.as_ref().is_some_and(|reward| {
+                reward.continuation == RewardContinuation::Rest
+                    || reward.card_reward_flow.is_standalone()
+            });
             let reward = next.reward.as_mut().expect("validated reward screen");
-            if return_to_rest {
+            if return_to_owner {
                 reward.choices.clear();
                 reward.consume_active_card_reward()?;
                 return_to_reward_continuation_if_empty(&mut next);
@@ -3793,6 +3796,30 @@ mod tests {
         assert_eq!(reward.remaining_card_reward_count(), 1);
         assert_eq!(reward.queued_card_rewards.len(), 0);
         assert_eq!(reward.choices.len(), reward_card_choice_count(&run));
+    }
+
+    #[test]
+    fn neow_nested_card_skip_preserves_choices_for_reopen() {
+        // A Neow Tiny House reward uses CombatRewardScreen. Its cards are not
+        // a standalone Neow offer, even after gold/potions have been claimed.
+        let mut run = potion_claim_fixture();
+        run.event = Some(crate::run::event::neow_screen_for_stage(&run, 2));
+        let id = run.reserve_card_instance_ids(1).unwrap();
+        let reward = run.reward.as_mut().unwrap();
+        reward.continuation = RewardContinuation::Neow;
+        reward.potion_offer = None;
+        reward.choices = vec![CardInstance::new(CardId::new(id), STRIKE_R_ID)];
+        reward.card_reward_flow = crate::run::CardRewardFlow::active(1);
+        let original = reward_choice_ids(&run);
+        let closed = apply_run_action(&run, RunAction::CloseCardReward).unwrap();
+        assert_eq!(closed.phase, RunPhase::Reward);
+        assert_eq!(reward_choice_ids(&closed), original);
+        assert!(closed.reward.as_ref().unwrap().card_reward_is_pending());
+        let reopened = apply_run_action(&closed, RunAction::OpenCardReward).unwrap();
+        assert_eq!(
+            serde_json::to_value(&reopened).unwrap(),
+            serde_json::to_value(&run).unwrap()
+        );
     }
 
     #[test]

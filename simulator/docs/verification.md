@@ -24,6 +24,10 @@ Observed state is comparison output only and never repairs simulator state.
 `CHOOSE` indices address the simulator's screen-specific choices, not its entire
 legal-action list: merchant picks exclude leave/belt actions, and rest options
 exclude per-card upgrade/removal actions. Binding is read-only and consumes no RNG.
+`SKIP` closes the simulator-owned card screen: a standalone Neow offer returns to
+its Leave dialog, while a card RewardItem (including Neow's Tiny House reward)
+remains available in its outer reward list. Ownership is recorded when the
+simulator opens the offer, not inferred from the observed post-state.
 Schema-6 captures do not contain action-time playtime, so a timer-dependent
 transition can expose that missing input as a divergence; schema 7 records it.
 
