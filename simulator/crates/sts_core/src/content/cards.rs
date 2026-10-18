@@ -174,6 +174,7 @@ pub const TEMPEST_ANY_COLOR_ID: ContentId = ContentId::new(76_599_284_586);
 pub const BLUR_ANY_COLOR_ID: ContentId = ContentId::new(2_042_559);
 pub const FOREIGN_INFLUENCE_ANY_COLOR_ID: ContentId = ContentId::new(12_731_910_713_692_972_898);
 pub const MASTER_REALITY_ANY_COLOR_ID: ContentId = ContentId::new(15_067_411_501_744_210_859);
+pub const PERSEVERANCE_ANY_COLOR_ID: ContentId = ContentId::new(2_091_473_319_236_188_859);
 /// Curse granted by [crate::relic::Relic::Necronomicon] on equip. Unpurgeable.
 pub const NECRONOMICURSE_ID: ContentId = ContentId::new(74);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
@@ -5356,6 +5357,7 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | BLUR_ANY_COLOR_ID
             | FOREIGN_INFLUENCE_ANY_COLOR_ID
             | MASTER_REALITY_ANY_COLOR_ID
+            | PERSEVERANCE_ANY_COLOR_ID
     ) || (get_card_definition(id).is_none()
         && crate::run::reward::any_color_reward_card_key(id).is_some())
 }
@@ -6672,6 +6674,26 @@ pub static STORM_OF_STEEL_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static PERSEVERANCE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: PERSEVERANCE_ANY_COLOR_ID,
+    key: "PERSEVERANCE",
+    name: "Perseverance",
+    cost: 1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: Some(5),
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        retain: true,
+        ..CARD_KEYWORDS_NONE
+    },
+};
+
 pub static MASTER_REALITY_ANY_COLOR: CardDefinition = CardDefinition {
     id: MASTER_REALITY_ANY_COLOR_ID,
     key: "MASTER_REALITY",
@@ -6956,6 +6978,7 @@ pub static EXTRA_PUBLIC_CARD_DEFINITIONS: &[CardDefinition] = &[
     BLUR_ANY_COLOR,
     FOREIGN_INFLUENCE_ANY_COLOR,
     MASTER_REALITY_ANY_COLOR,
+    PERSEVERANCE_ANY_COLOR,
 ];
 
 pub fn public_card_definitions() -> impl Iterator<Item = &'static CardDefinition> {

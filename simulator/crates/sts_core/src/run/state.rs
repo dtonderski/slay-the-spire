@@ -1767,6 +1767,11 @@ fn validate_run_card_metadata(card: &CardInstance) -> SimResult<()> {
             "run card retains a combat-local Rampage damage bonus",
         ));
     }
+    if card.perseverance_retain_block != 0 {
+        return Err(SimError::InvalidState(
+            "run card retains combat-local Perseverance block growth",
+        ));
+    }
     if card.steam_barrier_block_reduction != 0 {
         return Err(SimError::InvalidState(
             "run card retains combat-local Steam Barrier block reduction",

@@ -126,6 +126,8 @@ pub struct FairCardDynamicValues {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub windmill_retain_damage: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub perseverance_retain_block: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub steam_barrier_block_reduction: Option<i32>,
     /// Combat-long cost that will reappear when the displayed turn-only cost
     /// expires (for example Streamline played under a zero-cost override).
@@ -392,6 +394,7 @@ pub(crate) fn project_card(
             rampage_damage_bonus: nonzero(card.rampage_damage_bonus),
             ritual_dagger_damage_bonus: nonzero(card.ritual_dagger_damage_bonus),
             windmill_retain_damage: nonzero(card.windmill_retain_damage),
+            perseverance_retain_block: nonzero(card.perseverance_retain_block),
             steam_barrier_block_reduction: nonzero(card.steam_barrier_block_reduction),
             combat_cost_under_turn_override: card.combat_cost_under_turn_override.map(i32::from),
         },
@@ -1307,6 +1310,21 @@ mod tests {
         assert!(powers
             .iter()
             .any(|p| p.key == "master_reality" && p.amount == 1));
+        assert_eq!(before, serde_json::to_value(&state).unwrap());
+    }
+
+    #[test]
+    fn perseverance_growth_is_public_and_projection_is_rng_pure() {
+        let mut state = RunState::combat_fixture();
+        let c = state.combat.as_mut().unwrap();
+        c.piles.hand = vec![CardInstance::new(
+            CardId::new(1000),
+            sts_core::content::cards::PERSEVERANCE_ANY_COLOR_ID,
+        )];
+        c.piles.hand[0].perseverance_retain_block = 5;
+        let before = serde_json::to_value(&state).unwrap();
+        let obs = observation(&state);
+        assert_eq!(obs.hand[0].card.dynamic.perseverance_retain_block, Some(5));
         assert_eq!(before, serde_json::to_value(&state).unwrap());
     }
 

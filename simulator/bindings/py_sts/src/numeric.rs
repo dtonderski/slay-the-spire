@@ -758,6 +758,8 @@ mod tests {
                 rampage_damage_bonus: Some(17),
                 ritual_dagger_damage_bonus: Some(0),
                 windmill_retain_damage: Some(31),
+                // Numeric v3 is a documented subset; this newer field is typed-only.
+                perseverance_retain_block: Some(17),
                 steam_barrier_block_reduction: Some(5),
                 combat_cost_under_turn_override: Some(0),
             },

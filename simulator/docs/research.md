@@ -167,6 +167,16 @@ written cost overrides. A cost-written Creative AI copy is a source-backed
 investigation lead, not a trace-validated fix or capture-defect claim; track the
 independent audit in the shared backlog.
 
+`Perseverance` is a1-cost self-retaining Skill:5 block, upgrade+2 block and
+magic2->3. `RestoreRetainedCardsAction` invokes onRetained on the actual
+retain/selfRetain cards moved aside before the Pyramid/Equilibrium discard
+check; Perseverance adds current magic to baseBlock. Store cumulative per-instance
+combat growth, not retain-count times current upgrade, and never infer it from
+an observed block. `makeStatEquivalentCopy` copies baseBlock; upgrade/copies keep
+prior growth, fresh combat/deck cards start without it. Prepare each use/copy's
+block before its own on-use callbacks, with normal Dex/Frail/NoBlock modifiers.
+FIDL00213/1390 supplies the native Perseverance+7-block witness.
+
 `EmptyDeckShuffleAction` calls relic `onShuffle` hooks in its constructor, even
 when its later shuffle moves no cards. A DrawCardAction that overdraws a nonempty
 but insufficient deck can construct this empty shuffle; a draw starting with both

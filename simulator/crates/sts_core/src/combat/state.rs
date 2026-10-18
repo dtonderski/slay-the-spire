@@ -1738,6 +1738,18 @@ fn validate_combat_card(card: &CardInstance) -> SimResult<()> {
             "non-Rampage card carries a Rampage damage bonus",
         ));
     }
+    if card.perseverance_retain_block < 0 {
+        return Err(SimError::InvalidState(
+            "Perseverance retain block cannot be negative",
+        ));
+    }
+    if card.perseverance_retain_block != 0
+        && card.content_id != crate::content::cards::PERSEVERANCE_ANY_COLOR_ID
+    {
+        return Err(SimError::InvalidState(
+            "non-Perseverance card carries retain block",
+        ));
+    }
     if card.windmill_retain_damage < 0 {
         return Err(SimError::InvalidState(
             "Windmill Strike retain damage cannot be negative",

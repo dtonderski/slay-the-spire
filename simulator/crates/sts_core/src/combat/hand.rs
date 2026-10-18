@@ -469,6 +469,15 @@ fn discard_non_retain_hand(state: &mut CombatState) -> SimResult<()> {
 fn apply_on_retained_card_effects(state: &mut CombatState) -> SimResult<()> {
     use crate::content::cards::WINDMILL_STRIKE_ANY_COLOR_ID;
     for card in &mut state.piles.hand {
+        if card.content_id == crate::content::cards::PERSEVERANCE_ANY_COLOR_ID {
+            let increment = if card.upgrades > 0 { 3 } else { 2 };
+            card.perseverance_retain_block = card
+                .perseverance_retain_block
+                .checked_add(increment)
+                .ok_or(SimError::InvalidState(
+                    "Perseverance retain block overflows i32",
+                ))?;
+        }
         if card.content_id != WINDMILL_STRIKE_ANY_COLOR_ID {
             continue;
         }

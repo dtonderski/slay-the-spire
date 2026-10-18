@@ -47,6 +47,7 @@ class CardDynamicValues:
     rampage_damage_bonus: int | None = None
     ritual_dagger_damage_bonus: int | None = None
     windmill_retain_damage: int | None = None
+    perseverance_retain_block: int | None = None
     steam_barrier_block_reduction: int | None = None
     combat_cost_under_turn_override: int | None = None
 
@@ -165,6 +166,7 @@ def decode_card_dynamic(value: object, path: str) -> CardDynamicValues:
         rampage_damage_bonus=_optional_int(data, "rampage_damage_bonus", path),
         ritual_dagger_damage_bonus=_optional_int(data, "ritual_dagger_damage_bonus", path),
         windmill_retain_damage=_optional_int(data, "windmill_retain_damage", path),
+        perseverance_retain_block=_optional_int(data, "perseverance_retain_block", path),
         steam_barrier_block_reduction=_optional_int(data, "steam_barrier_block_reduction", path),
         combat_cost_under_turn_override=_optional_int(
             data, "combat_cost_under_turn_override", path
