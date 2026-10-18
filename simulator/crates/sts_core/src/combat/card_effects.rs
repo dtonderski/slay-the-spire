@@ -4617,7 +4617,9 @@ fn second_wind_queue(
             amount: i32::from(definition.cost),
         },
     ]);
-    for exhaust_target in exhaust_targets {
+    // BlockPerNonAttackAction first addToTop's all gains, then forward-iterates
+    // its snapshot to addToTop each exhaust: reverse exhausts precede all gains.
+    for exhaust_target in exhaust_targets.into_iter().rev() {
         queue.push_back(InternalAction::MoveCard {
             card_id: exhaust_target,
             from: CardPile::Hand,

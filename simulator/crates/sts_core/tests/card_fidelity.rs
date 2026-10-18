@@ -2900,7 +2900,7 @@ fn second_wind_plus_gains_block_once_per_exhausted_non_attack_card() {
             .iter()
             .map(|card| card.content_id)
             .collect::<Vec<_>>(),
-        vec![cards::DEFEND_R_ID, cards::WOUND_ID]
+        vec![cards::WOUND_ID, cards::DEFEND_R_ID]
     );
     assert_eq!(
         next.piles.discard_pile[0].content_id,
