@@ -76,6 +76,7 @@ pub(crate) fn printed_card_cost(card: &CardInstance) -> SimResult<i32> {
                     crate::content::cards::RECURSION_ANY_COLOR_ID
                         | crate::content::cards::CRESCENDO_ANY_COLOR_ID
                         | crate::content::cards::RECYCLE_ANY_COLOR_ID
+                        | crate::content::cards::DISTRACTION_ANY_COLOR_ID
                 )
             {
                 0

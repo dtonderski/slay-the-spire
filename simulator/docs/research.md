@@ -67,6 +67,13 @@ call sites, and retain state/counter across clones and snapshots. This is not a
 model of cosmetic global draws or the real process's RNG position. Strict replay
 never enables it or falls back to it. See [`python_api.md`](python_api.md#supported-surface-limits).
 
+`Distraction.use` reserves a typed random Skill immediately with cardRandomRng,
+sets its cost to zero this turn, then queues MakeTempCardInHandAction; source
+exhaust follows. A purge-on-use copy calls use afresh before its own on-use
+callbacks, so it must reserve a new Skill after the original source's exhaust
+callbacks, not reuse original content or roll at later insertion. QLFB00042
+step1425 witnesses unsupported Distraction generating Havoc.
+
 ## Map and encounter generation
 
 Target bytecode establishes:
