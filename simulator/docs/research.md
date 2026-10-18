@@ -88,6 +88,13 @@ Target bytecode establishes:
 Captured `VERIFY01` and `CODEX04` traces pin topology, room assignment, early
 encounters, pile orientation, and floor-offset HP/AI behavior.
 
+Colosseum's COWARDICE opens a dismissable map without ending its FIGHT dialog.
+Keep the chained combat RNG owner through RETURN, then discard it at actual map
+node entry. `Colosseum.reopen` after combat calls preBattlePrep/initializeDeck
+(an unused shuffle); ordinary map RETURN does not call that hook again. FIDL00086
+steps612/613/614 exercise COWARDICE/RETURN/VICTORY. Taskmaster's extra HP draw is
+its constructor's54..60 super argument, not a generic draw between fights.
+
 ## Rewards, relics, and potions
 
 Normal potion rewards use `40 + potionChance`, roll `potionRng.random(99)`,

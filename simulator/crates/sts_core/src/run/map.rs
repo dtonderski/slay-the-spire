@@ -118,8 +118,10 @@ pub(crate) fn apply_validated_map_action_on_run(
     mut next: RunState,
     action: MapAction,
 ) -> SimResult<RunState> {
-    // Actual room entry, unlike opening the map, discards the old room UI.
+    // Actual room entry, unlike opening the map, discards the old room UI
+    // and any chained event-combat continuation (e.g. Colosseum -> Mind Bloom).
     next.map_room_screen = None;
+    next.pending_event_combat_rng = None;
     let map_state = next.map.as_ref().expect("validated map state");
     let last_room_was_shop = next.current_room_kind() == Some(RoomKind::Shop);
     let uses_wing_boots = next.relics.contains(&Relic::WingBoots)
