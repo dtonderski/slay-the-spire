@@ -4781,17 +4781,15 @@ fn enter_event_elite_combat(
 fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) -> SimResult<()> {
     let (mut shuffle_rng, mut monster_rng, mut monster_hp_rng, mut card_random_rng) =
         if let Some(rng) = run.pending_event_combat_rng.take() {
-            // The target's chained Colosseum setup advances these two streams
-            // once between fights. The AI stream continues without an extra
-            // draw, which preserves the second fight's initial intents.
+            // The first fight's Colosseum.reopen preBattlePrep initializes an
+            // unused deck. Map RETURN restores that dialog without another
+            // preBattlePrep/shuffle. AI/HP streams continue unchanged.
             let mut shuffle_rng = rng.shuffle_rng;
             shuffle_rng.random_long();
-            let mut monster_hp_rng = rng.monster_hp_rng;
-            monster_hp_rng.random_long();
             (
                 shuffle_rng,
                 rng.monster_rng,
-                monster_hp_rng,
+                rng.monster_hp_rng,
                 rng.card_random_rng,
             )
         } else {
@@ -4817,6 +4815,12 @@ fn enter_event_combat(run: &mut RunState, definitions: &[&MonsterDefinition]) ->
             if let Some(range) =
                 target_monster_hp_range_for_content_id(definition.content_id, run.ascension)
             {
+                // Taskmaster's super argument rolls54..60 before its later
+                // ascension-dependent setHp; this belongs to construction,
+                // not to a guessed generic draw between chained fights.
+                if definition.content_id == TASKMASTER_A0.content_id {
+                    let _constructor_hp_roll = monster_hp_rng.random_int_range(54, 60);
+                }
                 // OrbWalker constructor burns one monsterHpRng draw before setHp
                 // (see target_orb_walker_hp). Without it both walkers can collapse
                 // to the same roll (FIDL00228: 96/96 vs 96/90).
@@ -5761,7 +5765,7 @@ mod tests {
     }
 
     #[test]
-    fn colosseum_cowardice_clears_pending_event_combat_rng() {
+    fn colosseum_cowardice_preserves_pending_event_combat_rng_for_map_return() {
         use crate::combat::CombatRngState;
         use crate::rng::StsRng;
 
@@ -5782,10 +5786,70 @@ mod tests {
         });
 
         let next = apply_event_action(&run, EventAction::Choose { choice_index: 0 })
-            .expect("COWARDICE leaves Colosseum");
-        assert!(next.pending_event_combat_rng.is_none());
+            .expect("COWARDICE opens the room map");
+        assert_eq!(next.pending_event_combat_rng, run.pending_event_combat_rng);
         assert!(next.event.is_none());
         assert_eq!(next.phase, RunPhase::Idle);
+    }
+
+    fn colosseum_continuation_fixture() -> RunState {
+        let mut run = RunState::map_fixture();
+        run.phase = RunPhase::Event;
+        run.current_room_override = Some(crate::map::RoomKind::Event);
+        run.event = Some(EventScreen {
+            event: Event::Colosseum,
+            choices: colosseum_choices(2),
+            stage: 2,
+            event_data: 0,
+        });
+        run.pending_event_combat_rng = Some(CombatRngState {
+            shuffle_rng: StsRng::new(99),
+            monster_rng: StsRng::new(100),
+            monster_hp_rng: StsRng::new(101),
+            card_random_rng: StsRng::new(102),
+        });
+        run
+    }
+
+    #[test]
+    fn colosseum_map_return_preserves_rng_across_repeated_overlays() {
+        let mut run = colosseum_continuation_fixture();
+        let expected = run.pending_event_combat_rng.clone().unwrap();
+        for _ in 0..2 {
+            let map = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).unwrap();
+            run = crate::run::apply_run_decision_action(&map, crate::RunDecisionAction::MapReturn)
+                .unwrap();
+            assert_eq!(run.pending_event_combat_rng.as_ref(), Some(&expected));
+            assert_eq!(run.event.as_ref().unwrap().stage, 2);
+        }
+    }
+
+    #[test]
+    fn colosseum_suspended_validation_and_legal_actions_do_not_draw_rng() {
+        let run = colosseum_continuation_fixture();
+        let map = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).unwrap();
+        let before = serde_json::to_value(&map).unwrap();
+        map.validate().unwrap();
+        crate::run::legal_run_decision_actions(&map).unwrap();
+        let restored: RunState = serde_json::from_value(before.clone()).unwrap();
+        restored.validate().unwrap();
+        assert_eq!(serde_json::to_value(&map).unwrap(), before);
+        assert_eq!(
+            crate::run::apply_run_decision_action(&map, crate::RunDecisionAction::MapReturn)
+                .unwrap(),
+            crate::run::apply_run_decision_action(&restored, crate::RunDecisionAction::MapReturn)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn actual_map_node_entry_discards_colosseum_rng_owner() {
+        let run = colosseum_continuation_fixture();
+        let map = apply_event_action(&run, EventAction::Choose { choice_index: 0 }).unwrap();
+        let action = crate::run::legal_map_actions_on_run(&map).unwrap()[0];
+        let entered = crate::run::apply_map_action_on_run(&map, action).unwrap();
+        assert!(entered.pending_event_combat_rng.is_none());
+        assert!(entered.map_room_screen.is_none());
     }
 
     #[test]
