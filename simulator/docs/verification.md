@@ -31,6 +31,10 @@ simulator opens the offer, not inferred from the observed post-state.
 Schema-6 captures do not contain action-time playtime, so a timer-dependent
 transition can expose that missing input as a divergence; schema 7 records it.
 
+The combat projection compares the visible `Draw Card` amount and the total
+of native `Energized` / `EnergizedBlue` amounts against modeled next-turn buffs.
+These are output comparisons, never inputs to the transition or its RNG.
+
 A directory is processed with at most 24 workers. Exit status is zero only when
 every trace reaches game termination with no divergence. Nonterminal traces are
 reported as incomplete; malformed traces are invalid. There are no exclusions,

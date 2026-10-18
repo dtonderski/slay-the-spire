@@ -3,6 +3,8 @@ mod card_actions;
 mod damage_actions;
 mod decision_actions;
 mod defense_actions;
+#[cfg(test)]
+mod doppelganger_tests;
 mod pile_actions;
 mod player_actions;
 #[cfg(test)]
@@ -295,6 +297,8 @@ fn is_post_lethal_cancelled_action(action: &InternalAction) -> bool {
         action,
         InternalAction::ApplyBlur { .. }
             | InternalAction::ResolveTempest { .. }
+            | InternalAction::ResolveDoppelganger { .. }
+            | InternalAction::ApplyDrawCardNextTurn { .. }
             // ChannelAction has no DAMAGE type; queued channels are cleared.
             | InternalAction::ChannelLightning
             | InternalAction::ChannelFrost
@@ -915,6 +919,20 @@ fn push_follow_up(
         }
     }
 
+    if matches!(
+        follow_up,
+        InternalAction::ApplyEnergized { .. } | InternalAction::ApplyDrawCardNextTurn { .. }
+    ) {
+        // Ordinary ApplyPowerActions drain before the next copied CardQueueItem.
+        if let Some(index) = queue
+            .iter()
+            .position(|a| matches!(a, InternalAction::PlayCardCopy { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
+    }
+
     if whirlwind_in_use && matches!(follow_up, InternalAction::GainBlockDirect { .. }) {
         // Whirlwind.use() only addToBots WhirlwindAction. UseCardAction then
         // addToBots Ornamental Fan / Rage GainBlock before that wrapper
@@ -1152,7 +1170,9 @@ fn push_follow_up(
         if let Some(index) = queue.iter().position(|action| {
             matches!(
                 action,
-                InternalAction::ResolveExpertise { .. } | InternalAction::ResolveTempest { .. }
+                InternalAction::ResolveExpertise { .. }
+                    | InternalAction::ResolveTempest { .. }
+                    | InternalAction::ResolveDoppelganger { .. }
             )
         }) {
             queue.insert(index, follow_up);
@@ -2015,6 +2035,16 @@ fn apply_internal_action_with_defer(
             upgraded,
             free_to_play_once,
         } => player_actions::resolve_tempest(state, energy_on_use, upgraded, free_to_play_once),
+        InternalAction::ResolveDoppelganger {
+            energy_on_use,
+            upgraded,
+            free_to_play_once,
+        } => {
+            player_actions::resolve_doppelganger(state, energy_on_use, upgraded, free_to_play_once)
+        }
+        InternalAction::ApplyDrawCardNextTurn { amount } => {
+            player_actions::apply_draw_card_next_turn(state, amount)
+        }
         InternalAction::ApplyBlur { amount } => player_actions::apply_blur(state, amount),
         InternalAction::ChannelLightning => player_actions::channel_lightning(state),
         InternalAction::ChannelFrost => player_actions::channel_frost(state),

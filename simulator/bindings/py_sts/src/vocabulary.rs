@@ -676,6 +676,8 @@ pub static POWER_KEYS: &[&str] = &[
     "weak",
     "wrath",
     "blur", // Append only: preserve all existing vocabulary v1 power IDs.
+    "draw_card",
+    "energized",
 ];
 
 pub static COUNTER_KEYS: &[&str] = &[
@@ -959,6 +961,14 @@ mod catalog_coverage_tests {
         assert_eq!(card_id("Writhe"), Some(321));
         assert_eq!(card_id("TEMPEST"), Some(322));
         assert_eq!(card_id("BLUR"), Some(323));
+        assert_eq!(CONTENT_VOCABULARY_VERSION, 1);
+    }
+    #[test]
+    fn next_turn_power_ids_append_without_renumbering_v1() {
+        assert_eq!(power_id("wrath"), Some(71));
+        assert_eq!(power_id("blur"), Some(72));
+        assert_eq!(power_id("draw_card"), Some(73));
+        assert_eq!(power_id("energized"), Some(74));
         assert_eq!(CONTENT_VOCABULARY_VERSION, 1);
     }
     #[test]

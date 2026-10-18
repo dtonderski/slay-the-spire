@@ -520,6 +520,14 @@ pub enum InternalAction {
         upgraded: bool,
         free_to_play_once: bool,
     },
+    ResolveDoppelganger {
+        energy_on_use: i32,
+        upgraded: bool,
+        free_to_play_once: bool,
+    },
+    ApplyDrawCardNextTurn {
+        amount: i32,
+    },
     ChannelLightning,
     /// Coolheaded.use addToBot ChannelAction(Frost).
     ChannelFrost,
