@@ -83,6 +83,7 @@ __all__ = [
     "ACTION_KINDS",
     "FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION",
     "FAIR_RUN_OBSERVATION_SCHEMA_VERSION",
+    "NUMERIC_CARD_KEYS",
     "OBSERVATION_TYPES",
     "Action",
     "BossEncounter",
@@ -158,6 +159,7 @@ __all__ = [
 
 
 ACTION_KINDS = tuple(_native.action_kind_vocabulary())
+NUMERIC_CARD_KEYS = tuple(CardKey(key) for key in _native.numeric_card_keys())
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

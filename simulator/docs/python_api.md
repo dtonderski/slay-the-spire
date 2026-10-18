@@ -77,6 +77,15 @@ passed more than once, or borrowed elsewhere (e.g. by another Python thread), is
 before any state is stepped. The worker cap defaults to half the logical CPUs; set
 `STS_NUMERIC_THREADS` to a positive integer to override it (read once per process).
 
+`NUMERIC_CARD_KEYS` exports the native vocabulary's ordered card identities;
+index it by a numeric card code. Its version-1 row order is independent of the
+generated `CardKey` enum's order and size. New public identities do not silently
+renumber numeric rows or resize trained embeddings. The numeric vocabulary is a
+subset: currently `COLD_SNAP` and `PIERCING_WAIL` have public identities but no
+numeric rows, and their numeric export still fails explicitly. Extending this
+catalogue requires an explicit checkpoint compatibility decision, not padding or
+reindexing old weights by enum ordinal. This accessor consumes no gameplay RNG.
+
 The version-3 payload is `(version, symbols, tables, model_rows)`:
 
 - `symbols`: public strings for header/screen fields that are still batch-local.

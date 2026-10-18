@@ -15,6 +15,25 @@ baseline and its reward/behavior metrics are documented in the
 
 ## Ideas and investigations
 
+- [ ] **[RL] Establish whether shared choice-head pretraining improves run strength.**
+  The actual run actor now loads supervised card/boss-relic preferences, but the
+  tiny Act-3 comparison produced no positive rewards in either arm. Test a longer,
+  multi-seed comparison with usable reward signal and account for offline compute;
+  keep full legal sets, fixed held-outs and matched frozen combat. Separately
+  investigate exact prefix decks, boss timing and audited Skip/Bowl legality before
+  supervising richer state or cross-family choices. Partial logged history did not
+  improve the original pilot overall. See the
+  [implemented scope and measurements](rl/pretraining/README.md#shared-head-transfer-into-the-real-run-actor).
+
+- [ ] **[Simulator/RL] Close the historical map-version gap before route supervision.**
+  The 2022 A0 full-graph bytecode differential check passed, but the 2020 dataset
+  still has only seed/recorded-route evidence. Obtain the historical JAR or full
+  map captures, audit that version's initialization, and separately implement
+  and validate A20 generation. Route symbols also leave coordinate ambiguity;
+  do not turn research-only inferred paths into observed labels or repair a
+  simulator from run logs. See the [map evidence](rl/pretraining/README.md#original-game-bytecode-differential-check-2022-a0)
+  and [historical confidence limits](rl/pretraining/README.md#seed-based-maps).
+
 - [ ] **[Simulator] Close remaining A0 rollout failure classes.** Investigate
   advertised Courier card purchases rejected as invalid, Prismatic Shard purchases
   with unavailable successors, and Headbutt selections that leave won combat with

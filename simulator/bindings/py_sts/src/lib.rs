@@ -341,6 +341,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
         vocabulary::content_vocabulary_version,
         module
     )?)?;
+    module.add_function(wrap_pyfunction!(vocabulary::numeric_card_keys, module)?)?;
     module.add_function(wrap_pyfunction!(numeric::numeric_decisions, module)?)?;
     module.add_function(wrap_pyfunction!(numeric::numeric_steps, module)?)?;
     module.add_class::<PyState>()?;

@@ -16,11 +16,13 @@ from sts_sim.observations.screens import MapScreen
 from torch import Tensor, nn
 
 from run_training.contracts import PolicyAction
+from run_training.item_prior import ItemPrior, RewardPriorInput, live_prior_input
 
 # The hashed representation is unchanged from #93. Only the opt-in health
 # encoder consumes the additional normalized-HP input introduced in version 3.
 FEATURE_VERSION = 2
 HEALTH_FEATURE_VERSION = 3
+CHOICE_FEATURE_VERSION = 4
 BUCKETS = 8192
 Features = tuple[tuple[int, float], ...]
 
@@ -99,6 +101,7 @@ class MacroInput:
     context: Features
     candidates: tuple[Features, ...]
     health: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    reward_prior: RewardPriorInput | None = None
 
 
 def candidate_facts(
@@ -203,6 +206,7 @@ def encode(
             observation.context.player_hp / 100.0,
             observation.context.player_max_hp / 100.0,
         ),
+        live_prior_input(observation, actions),
     )
 
 
@@ -218,6 +222,7 @@ class MacroBatch:
     positions: Tensor
     health: Tensor
     lengths: tuple[int, ...]
+    reward_priors: tuple[RewardPriorInput | None, ...] = ()
 
 
 class MacroModel(nn.Module):
@@ -295,6 +300,7 @@ class MacroModel(nn.Module):
             position_rows,
             health_rows.view(len(inputs), 3),
             lengths,
+            tuple(row.reward_prior for row in inputs),
         )
 
     def _batch_heads(
@@ -333,6 +339,32 @@ class MacroModel(nn.Module):
             torch.cat((context.expand_as(candidates), candidates), dim=1)
         ).squeeze(-1)
         return logits, self.value(context).squeeze(-1)
+
+
+class ChoiceMacroModel(MacroModel):
+    """Full public macro policy plus a transferable conditional reward-item head.
+
+    Offline supervision updates only item_prior; the contextual policy and run
+    critic start fresh. Online actor-critic updates all parameters normally.
+    """
+
+    def __init__(self, width: int = 64, *, items: tuple[str, ...]) -> None:
+        super().__init__(width)
+        self.item_prior = ItemPrior(items)
+
+    def _batch_heads(
+        self, context: Tensor, candidates: Tensor, batch: MacroBatch
+    ) -> tuple[Tensor, Tensor]:
+        logits, values = super()._batch_heads(context, candidates, batch)
+        return self.item_prior.combine(
+            logits, batch.reward_priors, batch.lengths
+        ), values
+
+    def forward(self, inputs: MacroInput) -> tuple[Tensor, Tensor]:
+        logits, value = super().forward(inputs)
+        return self.item_prior.combine(
+            logits, (inputs.reward_prior,), (len(inputs.candidates),)
+        ), value
 
 
 class HealthMacroModel(MacroModel):

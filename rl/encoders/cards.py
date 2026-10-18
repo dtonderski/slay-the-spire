@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from jaxtyping import Float
-from sts_sim import CardKey
+from sts_sim import NUMERIC_CARD_KEYS
 from torch import Tensor, nn
 
 from .numeric import FeatureArrays, NumericBatch, upload_features
@@ -12,8 +12,9 @@ CARD_FEATURE_DIM = CARD_EMBEDDING_DIM + CARD_STATE_DIM
 # Every public card table, encoded together in one pass.
 CARD_TABLES = ("hand", "draw", "discard", "exhaust", "stasis", "selection_cards")
 
-# Current-catalog indices only. Checkpoint compatibility is not implemented yet.
-CARD_TO_INDEX = {key: index for index, key in enumerate(CardKey)}
+# Numeric vocabulary v1 is stable even when the public identity enum grows.
+# Existing checkpoints keep their row meanings; no padding/reindexing is inferred.
+CARD_TO_INDEX = {key: index for index, key in enumerate(NUMERIC_CARD_KEYS)}
 
 
 class CardEncoder(nn.Module):

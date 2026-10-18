@@ -1,6 +1,6 @@
 # A0 run training
 
-The sole training entry point is **`rl/train.py`**. `--task combat` (default) keeps
+The sole online RL entry point is **`rl/train.py`**. `--task combat` (default) keeps
 the existing combat loop. `--task run` dispatches to a separate implementation:
 
 - `collector.py`: natural A0 runs, public macro decisions and frozen **sampled**
@@ -19,6 +19,10 @@ the existing combat loop. `--task run` dispatches to a separate implementation:
 - `contracts.py`: explicit schema-8 run outcomes and screen-based ownership.
 - `targets.py`: tested reference GAE for later nonterminal fragment bootstrapping;
   **not used** by the initial completed-episode trainer.
+
+The [SlayTheData workflow](../pretraining/README.md) now also trains a shared
+conditional item head for the opt-in `choice` encoder. The older standalone
+ranker's checkpoints remain incompatible. See [supervised choice head](#supervised-choice-head).
 
 ## Bounded pilot
 
@@ -46,6 +50,58 @@ remains an unconstrained linear output trained against targets in [0, 6].
 are **natural HP, A0**, with Heart profile enabled by default (`--no-final-act`
 disables it for non-Heart objectives). No seeds, revisions, private state or
 simulator futures enter the macro model.
+
+## Supervised choice head
+
+`--encoder choice` (feature version **4**) adds `item_prior.py` to the unchanged
+hashed macro backbone and fresh run critic. Offline `pretraining.train_run_prior`
+trains **only this shared head**, not the backbone/critic. Its inputs are public
+item identities, ascension and known card-reward floor. Boss floor stays explicitly
+unknown in this head even online; it does not guess historical deck, HP, inventory,
+boss timing or same-floor history. The normal online backbone still receives the
+full fair observation and complete legal candidate list.
+
+From `rl/`, after producing the head checkpoint with the
+[pretraining workflow](../pretraining/README.md#run):
+
+```bash
+uv run --no-sync python train.py --task run --run-id choice-pretrained \
+  --encoder choice --item-prior ../tmp/pretraining/run-prior/model.pt \
+  --combat-checkpoint /path/to/combat/latest.pt \
+  --validation-seeds /path/to/run-validation-seeds.json \
+  --objective act1 --batch-size 32 --updates 4 --eval-every 4 \
+  --max-hours 0.25 --wandb-mode disabled
+```
+
+For a matched scratch control use a new run ID and **`--item-prior-init scratch`**
+with the same artifact: only its train-fitted vocabulary is reused, never its
+weights. Keep initialization/training seeds, frozen combat, held-outs, objective
+and online budget equal; account for supervised compute separately. Default
+`hashed` behavior and old checkpoint paths remain unchanged.
+
+The head adjusts relative preferences **within** card-pick or boss-relic-pick
+families. A log-partition correction preserves each family's total base policy
+probability; other logits stay unchanged. Thus conditional demonstrations cannot
+silently teach taking versus Skip/Bowl. Every online legal action remains present.
+Unknown identities, duplicate identity classes or singleton slates get a neutral
+whole-family residual, not filtered candidates or invented labels. The online
+actor-critic can subsequently update all parameters and learn full-context and
+cross-family preferences from actual returns.
+
+`--item-prior` accepts only the shared-head checkpoint format, not the old
+standalone ranker. Config pins the item order, feature protocol, artifact hash and
+pretrained/scratch initialization. Normal run checkpoints contain the entire
+actor, critic, head, optimizer and RNG states. Continue with `--encoder choice
+--resume-from ...` (or explicit compatible macro `--warm-start ...`) and **omit
+`--item-prior`**: architecture/vocabulary come from the run checkpoint. Exact
+resume retains the existing strict native/source/protocol checks. Vocabularies
+cannot be reordered merely because tensor dimensions happen to match.
+
+The first bounded Act-3 comparison verifies real rollouts and online updates,
+but **does not establish better play**: both arms had zero clears, including no
+positive training reward. See [measured results](../pretraining/README.md#shared-head-transfer-into-the-real-run-actor)
+for scope and reproducibility rather than treating this initialization as a
+recommended strength-improving recipe.
 
 ## Environment limitations
 
@@ -197,7 +253,8 @@ its non-atomic batch failure contract needs trustworthy per-state settlement
 accounting before replacing individually journaled transitions.
 
 The bounded comparison tool is [`benchmark_run_training.py`](../tools/benchmark_run_training.py).
-It is not an alternative training entry point. It resets fixed macro weights per
+It currently loads `hashed`/`health` checkpoints, not the new `choice` encoder;
+use the main trainer for choice-head comparisons. It is not an alternative training entry point. It resets fixed macro weights per
 trial, pins combat/native/source hashes, records complete-case coverage and
 execution fingerprints, and skips the entire optimizer update on any unresolved
 episode. Example (use a new directory):
