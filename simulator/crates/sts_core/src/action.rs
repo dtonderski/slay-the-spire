@@ -171,6 +171,14 @@ pub enum InternalAction {
     GainBlockFromShuffle {
         amount: i32,
     },
+    ApplyBlur {
+        amount: i32,
+    },
+    /// Blur's block is prepared at each use before on-use callbacks.
+    GainBlurBlock {
+        amount: i32,
+        upgraded: bool,
+    },
     /// BlockPotion's GainBlockAction: unmodified block with potion error semantics.
     GainBlockFromPotion {
         amount: i32,

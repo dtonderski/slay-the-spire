@@ -43,6 +43,9 @@ pub struct PlayerPowers {
     pub dark_embrace: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub barricade: i32,
+    /// BlurPower: block retention windows; read before queued round-end expiry.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub blur: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub evolve: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]

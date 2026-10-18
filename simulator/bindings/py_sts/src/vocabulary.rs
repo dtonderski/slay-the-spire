@@ -331,6 +331,7 @@ pub static CARD_KEYS: &[&str] = &[
     "Wound",
     "Writhe",
     "TEMPEST", // Append only; retain all existing vocabulary v1 card IDs.
+    "BLUR",    // Append only: preserve existing vocabulary v1 card IDs.
 ];
 
 pub static MONSTER_KEYS: &[&str] = &[
@@ -667,6 +668,7 @@ pub static POWER_KEYS: &[&str] = &[
     "vulnerable",
     "weak",
     "wrath",
+    "blur", // Append only: preserve all existing vocabulary v1 power IDs.
 ];
 
 pub static COUNTER_KEYS: &[&str] = &[
@@ -911,5 +913,19 @@ mod tempest_tests {
         assert_eq!(card_id("TEMPEST"), Some(322));
         assert_eq!(card_id("Writhe"), Some(321));
         assert_eq!(CONTENT_VOCABULARY_VERSION, 1);
+    }
+}
+
+#[cfg(test)]
+mod blur_tests {
+    use super::*;
+    #[test]
+    fn blur_ids_are_appended_without_renumbering_existing_content() {
+        assert_eq!(CONTENT_VOCABULARY_VERSION, 1);
+        assert_eq!(card_id("BLUR"), Some(323));
+        assert_eq!(card_id("Writhe"), Some(321));
+        assert_eq!(power_id("blur"), Some(72));
+        assert_eq!(power_id("wrath"), Some(71));
+        assert_eq!(power_id("barricade"), Some(3));
     }
 }

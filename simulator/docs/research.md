@@ -314,6 +314,18 @@ target action/effect lifecycle rather than an observed deck snapshot.
   simulator event choice; the encounter has three Fungi Beasts.
 - Random card upgrades seed Java shuffle from `miscRng.randomLong()`; Neow paths
   consume a hidden misc draw before relic equip.
+- `Blur.use` queues card-modified block5 (8 upgraded), then BlurPower1.
+  Prepare block before on-use callbacks; each copied use re-prepares from its
+  live modifiers instead of replaying the original's prepared amount.
+  `GameActionManager.getNextAction` calls MonsterGroup's player atEndOfRound
+  callbacks, which only queue Blur's reduction, then synchronously checks
+  hasPower(Barricade)/hasPower(Blur) before normal block loss or Calipers15.
+  Therefore retention reads active Blur before its queued expiry settles; do
+  not decrement it first and repair lost block afterward. Repeated applications
+  stack duration, not block permanence; expiry still runs under Barricade.
+  QLFH00025 step1936 and the remaining prefix through terminal action2121 replay
+  with this rule. Public Blur is exported as a power; Python card/power numeric
+  vocabulary entries are appended without renumbering existing v1 IDs.
 - `Tempest.use` queues `TempestAction` with captured energyOnUse, upgrade and
   freeToPlayOnce. At resolution it adds Chemical X2 and upgrade1, appends that
   many Lightning ChannelActions with addToBot, and only for a positive effect

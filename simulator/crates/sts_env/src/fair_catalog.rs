@@ -233,6 +233,7 @@ const FAIR_STATIC_POWER_KEYS: &[&str] = &[
     "anger",
     "artifact",
     "barricade",
+    "blur",
     "berserk",
     "brutality",
     "buffer",

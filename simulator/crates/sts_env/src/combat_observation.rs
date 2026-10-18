@@ -679,6 +679,7 @@ fn push_player_power_fields(result: &mut Vec<FairPower>, p: PlayerPowers) {
         ("feel_no_pain", p.feel_no_pain),
         ("dark_embrace", p.dark_embrace),
         ("barricade", p.barricade),
+        ("blur", p.blur),
         ("evolve", p.evolve),
         ("berserk", p.berserk),
         ("fasting", p.fasting),
@@ -1286,6 +1287,16 @@ mod tests {
 
     fn reorder_cards(cards: &[CardInstance], order: &[usize]) -> Vec<CardInstance> {
         order.iter().map(|index| cards[*index]).collect()
+    }
+
+    #[test]
+    fn blur_is_a_visible_power_and_projection_is_rng_pure() {
+        let mut state = RunState::combat_fixture();
+        state.combat.as_mut().unwrap().player.powers.blur = 2;
+        let before = serde_json::to_value(&state).unwrap();
+        let powers = project_player_powers(state.combat.as_ref().unwrap()).unwrap();
+        assert!(powers.iter().any(|p| p.key == "blur" && p.amount == 2));
+        assert_eq!(before, serde_json::to_value(&state).unwrap());
     }
 
     #[test]
