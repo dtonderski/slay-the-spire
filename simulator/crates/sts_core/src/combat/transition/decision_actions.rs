@@ -628,8 +628,7 @@ pub(super) fn await_exhaust_select(
     if purpose == ExhaustSelectPurpose::ExhumeReturnToHand
         && state.piles.hand.len() >= MAX_HAND_SIZE
     {
-        super::settle_exhume_source_after_selection(state, exhaust_select, source_card_id)?;
-        return Ok(Vec::new());
+        return immediate_exhume_source_exhaust_actions(state, exhaust_select, source_card_id);
     }
     if purpose == ExhaustSelectPurpose::ExhumeReturnToHand {
         // ExhumeAction's singleton branch uses the physical pile size before
@@ -643,8 +642,7 @@ pub(super) fn await_exhaust_select(
             if let Some(card) = eligible {
                 super::pile_actions::return_exhaust_card_to_hand(state, card.id)?;
             }
-            super::settle_exhume_source_after_selection(state, exhaust_select, source_card_id)?;
-            return Ok(Vec::new());
+            return immediate_exhume_source_exhaust_actions(state, exhaust_select, source_card_id);
         }
     }
     if matches!(
@@ -677,6 +675,24 @@ pub(super) fn await_exhaust_select(
         state: exhaust_select,
     });
     Ok(Vec::new())
+}
+
+fn immediate_exhume_source_exhaust_actions(
+    state: &mut CombatState,
+    exhaust_select: crate::combat::ExhaustSelectState,
+    source_card_id: CardId,
+) -> SimResult<Vec<crate::action::InternalAction>> {
+    // Nonmodal Exhume still finishes through UseCardAction's exhaust path.
+    // Dispatch the normal callback event: it reserves Dead Branch's card and
+    // queues generation before Dark Embrace, rather than drawing inline and
+    // omitting the relic. The source may already be settled by a copied use.
+    let exhausted = super::move_exhume_source_to_exhaust(state, exhaust_select, source_card_id)?;
+    Ok(exhausted
+        .then_some(crate::action::InternalAction::CardExhausted {
+            card_id: source_card_id,
+        })
+        .into_iter()
+        .collect())
 }
 
 pub(super) fn open_potion_card_reward(

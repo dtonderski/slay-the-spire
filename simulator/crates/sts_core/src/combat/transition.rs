@@ -7428,21 +7428,30 @@ fn settle_exhume_source_after_selection(
     exhaust_select: crate::combat::ExhaustSelectState,
     source_card_id: CardId,
 ) -> SimResult<()> {
-    if let Some(source_card) = exhaust_select.source_card {
-        state.piles.exhaust_pile.push(source_card);
+    if move_exhume_source_to_exhaust(state, exhaust_select, source_card_id)? {
         apply_on_exhaust_effects(state, source_card_id)?;
-    } else {
-        let source_is_already_exhausted = state
-            .piles
-            .exhaust_pile
-            .iter()
-            .any(|card| card.id == source_card_id);
-        if !source_is_already_exhausted {
-            move_card(state, source_card_id, CardPile::Hand, CardPile::ExhaustPile)?;
-            apply_on_exhaust_effects(state, source_card_id)?;
-        }
     }
     Ok(())
+}
+
+fn move_exhume_source_to_exhaust(
+    state: &mut CombatState,
+    exhaust_select: crate::combat::ExhaustSelectState,
+    source_card_id: CardId,
+) -> SimResult<bool> {
+    if let Some(source_card) = exhaust_select.source_card {
+        state.piles.exhaust_pile.push(source_card);
+    } else if state
+        .piles
+        .exhaust_pile
+        .iter()
+        .any(|card| card.id == source_card_id)
+    {
+        return Ok(false);
+    } else {
+        move_card(state, source_card_id, CardPile::Hand, CardPile::ExhaustPile)?;
+    }
+    Ok(true)
 }
 
 fn confirm_gambling_chip_select(state: &mut CombatState, selected: Vec<usize>) -> SimResult<()> {
