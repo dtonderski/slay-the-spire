@@ -638,6 +638,9 @@ fn play_card_queue_with_energy_on_use(
             },
             // The modal continuation owns the source UseCardAction settlement.
         ])),
+        crate::content::cards::PERSEVERANCE_ANY_COLOR_ID => {
+            perseverance_queue(state, card_id, *card)
+        }
         crate::content::cards::MASTER_REALITY_ANY_COLOR_ID => Ok(VecDeque::from([
             InternalAction::PlayCard { card_id },
             InternalAction::SpendCardEnergy { card_id },
@@ -5553,6 +5556,40 @@ fn storm_of_steel_queue(
         InternalAction::ResolveStormOfSteel {
             source_card_id: card_id,
             upgraded: card.upgrades > 0,
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+pub(super) fn perseverance_block_amount(state: &CombatState, base_block: i32) -> i32 {
+    if state.player.no_block_turns > 0 {
+        0
+    } else {
+        crate::power::calculate_block(base_block, state.player.powers)
+    }
+}
+
+fn perseverance_queue(
+    state: &CombatState,
+    card_id: CardId,
+    card: CardInstance,
+) -> SimResult<VecDeque<InternalAction>> {
+    let base_block = card
+        .perseverance_retain_block
+        .checked_add(if card.upgrades > 0 { 7 } else { 5 })
+        .ok_or(SimError::InvalidState(
+            "Perseverance base block overflows i32",
+        ))?;
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::GainPerseveranceBlock {
+            amount: perseverance_block_amount(state, base_block),
+            base_block,
         },
         InternalAction::MoveCard {
             card_id,

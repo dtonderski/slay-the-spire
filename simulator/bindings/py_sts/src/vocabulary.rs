@@ -341,6 +341,7 @@ pub static CARD_KEYS: &[&str] = &[
     "STACK",
     "FOREIGN_INFLUENCE", // Append-only vocabulary v1.
     "MASTER_REALITY",    // Append-only vocabulary v1.
+    "PERSEVERANCE",      // Append-only vocabulary v1.
 ];
 
 pub static MONSTER_KEYS: &[&str] = &[
@@ -970,6 +971,7 @@ mod catalog_coverage_tests {
     fn foreign_influence_card_id_appends_without_renumbering_v1() {
         assert_eq!(card_id("FOREIGN_INFLUENCE"), Some(331));
         assert_eq!(card_id("MASTER_REALITY"), Some(332));
+        assert_eq!(card_id("PERSEVERANCE"), Some(333));
         assert_eq!(card_id("STACK"), Some(330));
         assert_eq!(card_id("BLUR"), Some(323));
         assert_eq!(CONTENT_VOCABULARY_VERSION, 1);

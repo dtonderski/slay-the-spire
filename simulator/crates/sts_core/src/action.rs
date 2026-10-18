@@ -174,6 +174,11 @@ pub enum InternalAction {
     ApplyBlur {
         amount: i32,
     },
+    /// Prepared at each native use, from this card copy's retained baseBlock.
+    GainPerseveranceBlock {
+        amount: i32,
+        base_block: i32,
+    },
     /// Blur's block is prepared at each use before on-use callbacks.
     GainBlurBlock {
         amount: i32,

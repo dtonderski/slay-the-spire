@@ -111,6 +111,9 @@ pub struct CardInstance {
     /// Steam Barrier loses one base Block each time this instance is played.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub steam_barrier_block_reduction: i32,
+    /// Combat-local baseBlock growth from actual Perseverance retention callbacks.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub perseverance_retain_block: i32,
 }
 
 impl CardInstance {
@@ -132,6 +135,7 @@ impl CardInstance {
             searing_blow_upgrades: 0,
             windmill_retain_damage: 0,
             steam_barrier_block_reduction: 0,
+            perseverance_retain_block: 0,
         }
     }
 
@@ -153,6 +157,7 @@ impl CardInstance {
             searing_blow_upgrades: 0,
             windmill_retain_damage: 0,
             steam_barrier_block_reduction: 0,
+            perseverance_retain_block: 0,
         }
     }
 }
