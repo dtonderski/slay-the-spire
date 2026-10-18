@@ -15,6 +15,13 @@ baseline and its reward/behavior metrics are documented in the
 
 ## Ideas and investigations
 
+- [ ] **[Simulator] Audit synthetic upgrade-cost overrides.** Other existing
+  synthetic cost-changing cards use a generic upgrade-flag path without updating
+  written costs (for example a cost-written Creative AI copy). Isolate an
+  immutable natural witness before a separate source-backed correction; do not
+  treat this source lead as capture corruption or broad Master Reality parity.
+  See [generation/upgrade research](simulator/docs/research.md#rewards-relics-and-potions).
+
 - [ ] **[Simulator] Close remaining A0 rollout failure classes.** Investigate
   advertised Courier card purchases rejected as invalid, Prismatic Shard purchases
   with unavailable successors, and Headbutt selections that leave won combat with

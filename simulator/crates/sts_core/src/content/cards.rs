@@ -173,6 +173,7 @@ pub const TEMPEST_ANY_COLOR_ID: ContentId = ContentId::new(76_599_284_586);
 /// Silent Blur; preserves shop_card_content_id("BLUR").
 pub const BLUR_ANY_COLOR_ID: ContentId = ContentId::new(2_042_559);
 pub const FOREIGN_INFLUENCE_ANY_COLOR_ID: ContentId = ContentId::new(12_731_910_713_692_972_898);
+pub const MASTER_REALITY_ANY_COLOR_ID: ContentId = ContentId::new(15_067_411_501_744_210_859);
 /// Curse granted by [crate::relic::Relic::Necronomicon] on equip. Unpurgeable.
 pub const NECRONOMICURSE_ID: ContentId = ContentId::new(74);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
@@ -5354,6 +5355,7 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | TEMPEST_ANY_COLOR_ID
             | BLUR_ANY_COLOR_ID
             | FOREIGN_INFLUENCE_ANY_COLOR_ID
+            | MASTER_REALITY_ANY_COLOR_ID
     ) || (get_card_definition(id).is_none()
         && crate::run::reward::any_color_reward_card_key(id).is_some())
 }
@@ -6670,6 +6672,23 @@ pub static STORM_OF_STEEL_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static MASTER_REALITY_ANY_COLOR: CardDefinition = CardDefinition {
+    id: MASTER_REALITY_ANY_COLOR_ID,
+    key: "MASTER_REALITY",
+    name: "Master Reality",
+    cost: 1,
+    card_type: CardType::Power,
+    rarity: Some(CardRarity::Rare),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
+};
+
 pub static FOREIGN_INFLUENCE_ANY_COLOR: CardDefinition = CardDefinition {
     id: FOREIGN_INFLUENCE_ANY_COLOR_ID,
     key: "FOREIGN_INFLUENCE",
@@ -6936,6 +6955,7 @@ pub static EXTRA_PUBLIC_CARD_DEFINITIONS: &[CardDefinition] = &[
     TEMPEST_ANY_COLOR,
     BLUR_ANY_COLOR,
     FOREIGN_INFLUENCE_ANY_COLOR,
+    MASTER_REALITY_ANY_COLOR,
 ];
 
 pub fn public_card_definitions() -> impl Iterator<Item = &'static CardDefinition> {
@@ -7154,6 +7174,23 @@ pub fn ritual_dagger_card_growth(card: &CardInstance) -> Option<i32> {
 
 pub fn upgrade_card_instance(card: CardInstance) -> SimResult<Option<CardInstance>> {
     validate_searing_blow_metadata(&card)?;
+    if card.content_id == MASTER_REALITY_ANY_COLOR_ID && card.upgrades == 0 {
+        // MasterReality.upgradeBaseCost(0): costForTurn preserves its delta
+        // from the live written cost, not necessarily the printed base1.
+        let old_cost = card
+            .combat_cost_under_turn_override
+            .or_else(|| {
+                (!card.temp_cost_turn_only)
+                    .then_some(card.temp_cost)
+                    .flatten()
+            })
+            .unwrap_or(1);
+        let mut upgraded = card;
+        upgraded.upgrades = 1;
+        upgraded.temp_cost = card.temp_cost.map(|cost| cost.saturating_sub(old_cost));
+        upgraded.combat_cost_under_turn_override = card.combat_cost_under_turn_override.map(|_| 0);
+        return Ok(Some(upgraded));
+    }
     if (card.content_id == RITUAL_DAGGER_ID || card.content_id == INSIGHT_ID) && card.upgrades == 0
     {
         // Insight.upgrade() is upgradeMagicNumber(1); there is no plus ContentId.

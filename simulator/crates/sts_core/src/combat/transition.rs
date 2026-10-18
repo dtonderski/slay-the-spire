@@ -7,6 +7,8 @@ mod defense_actions;
 mod doppelganger_tests;
 #[cfg(test)]
 mod foreign_influence_tests;
+#[cfg(test)]
+mod master_reality_tests;
 mod pile_actions;
 mod player_actions;
 #[cfg(test)]
@@ -298,6 +300,7 @@ fn is_post_lethal_cancelled_action(action: &InternalAction) -> bool {
     matches!(
         action,
         InternalAction::ApplyBlur { .. }
+            | InternalAction::GainMasterReality
             | InternalAction::ResolveTempest { .. }
             | InternalAction::ResolveDoppelganger { .. }
             | InternalAction::ApplyDrawCardNextTurn { .. }
@@ -946,7 +949,9 @@ fn push_follow_up(
 
     if matches!(
         follow_up,
-        InternalAction::ApplyEnergized { .. } | InternalAction::ApplyDrawCardNextTurn { .. }
+        InternalAction::ApplyEnergized { .. }
+            | InternalAction::ApplyDrawCardNextTurn { .. }
+            | InternalAction::GainMasterReality
     ) {
         // Ordinary ApplyPowerActions drain before the next copied CardQueueItem.
         if let Some(index) = queue
@@ -2039,6 +2044,10 @@ fn apply_internal_action_with_defer(
             player_actions::gain_fire_breathing(state, amount)
         }
         InternalAction::GainCorruption { amount } => player_actions::gain_corruption(state, amount),
+        InternalAction::GainMasterReality => {
+            state.player.powers.master_reality = true;
+            Ok(Vec::new())
+        }
         InternalAction::EnterDivinity => player_actions::enter_divinity(state),
         InternalAction::ApplyEndTurnDeath => player_actions::apply_end_turn_death(state),
         InternalAction::GainSadisticNature { amount } => {
@@ -3595,6 +3604,7 @@ fn add_generated_card_to_pile(
     let mut card = make_generated_card(state, content_id)?;
     card.temp_cost = temp_cost;
     card.temp_cost_turn_only = temp_cost_turn_only;
+    card = upgrade_created_card_for_master_reality(state, card)?;
     let destination = if to == CardPile::Hand && state.piles.hand.len() >= MAX_HAND_SIZE {
         CardPile::DiscardPile
     } else {
@@ -3605,6 +3615,29 @@ fn add_generated_card_to_pile(
     }
     push_card_to_pile(state, card, destination);
     Ok(())
+}
+
+/// ShowCardAndAddToHand/Discard/DrawPileEffect constructors call upgrade on
+/// created non-Status/non-Curse cards. This is not a move/draw/offer hook, and
+/// unlike an egg it deliberately calls Searing Blow's repeatable upgrade.
+pub(crate) fn upgrade_created_card_for_master_reality(
+    state: &CombatState,
+    card: CardInstance,
+) -> SimResult<CardInstance> {
+    if !state.player.powers.master_reality {
+        return Ok(card);
+    }
+    let card_type = get_card_definition(card.content_id)
+        .map(|d| d.card_type)
+        .or_else(|| {
+            crate::run::reward::any_color_reward_card_key(card.content_id)
+                .and_then(crate::content::card_library_types::card_type)
+        })
+        .ok_or(SimError::UnknownContent(card.content_id))?;
+    if card_type == CardType::Status {
+        return Ok(card);
+    }
+    Ok(upgrade_card_instance(card)?.unwrap_or(card))
 }
 
 pub(crate) fn make_generated_card(
@@ -3629,7 +3662,7 @@ pub(crate) fn dead_branch_card_for_end_turn(
             let mut card = CardInstance::new(card_id, content_id);
             card.combat_only = true;
             apply_generated_card_metadata(state, &mut card);
-            Ok(card)
+            upgrade_created_card_for_master_reality(state, card)
         })
         .transpose()
 }
@@ -3647,6 +3680,7 @@ fn add_stat_equivalent_copy_to_pile(
     // not copy purgeOnUse. Anger copies therefore keep cycling through combat
     // piles after play even when their source was temporary.
     copy.combat_only = false;
+    copy = upgrade_created_card_for_master_reality(state, copy)?;
     let destination = if to == CardPile::Hand && state.piles.hand.len() >= MAX_HAND_SIZE {
         CardPile::DiscardPile
     } else {
@@ -3678,6 +3712,7 @@ fn add_generated_card_to_draw_pile_random_spot(
     apply_generated_card_metadata(state, &mut card);
     card.temp_cost = temp_cost;
     card.temp_cost_turn_only = temp_cost_turn_only;
+    card = upgrade_created_card_for_master_reality(state, card)?;
     if state.piles.draw_pile.is_empty() {
         state.piles.push_draw_top(card);
         return Ok(());
@@ -4032,6 +4067,7 @@ fn is_play_top_deferred_power_gain(action: &InternalAction) -> bool {
             | InternalAction::GainDoubleTap { .. }
             | InternalAction::GainFireBreathing { .. }
             | InternalAction::GainCorruption { .. }
+            | InternalAction::GainMasterReality
             | InternalAction::GainSadisticNature { .. }
             | InternalAction::GainMagnetism { .. }
             | InternalAction::GainCreativeAI { .. }
@@ -5895,6 +5931,7 @@ pub(super) fn confirm_dual_wield_select(
         let mut copy = selected;
         copy.id = CardId::new(next_id);
         copy.combat_only = true;
+        copy = upgrade_created_card_for_master_reality(state, copy)?;
         // MakeTempCardInHandAction overflows to discard at BaseMod.MAX_HAND_SIZE.
         if state.piles.hand.len() < crate::combat::draw::MAX_HAND_SIZE {
             state.piles.hand.push(copy);

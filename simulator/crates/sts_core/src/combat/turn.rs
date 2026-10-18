@@ -1248,6 +1248,8 @@ fn apply_start_of_turn_magnetism(state: &mut CombatState) -> SimResult<()> {
             combat_only: true,
             ..crate::CardInstance::new(next_id, content_id)
         };
+        generated =
+            crate::combat::transition::upgrade_created_card_for_master_reality(state, generated)?;
         if state.piles.hand.len() >= 10 {
             state.piles.discard_pile.push(generated);
         } else {
@@ -1287,6 +1289,8 @@ fn apply_start_of_turn_creative_ai(state: &mut CombatState) -> SimResult<()> {
             combat_only: true,
             ..crate::CardInstance::new(next_id, content_id)
         };
+        let generated =
+            crate::combat::transition::upgrade_created_card_for_master_reality(state, generated)?;
         if state.piles.hand.len() >= 10 {
             state.piles.discard_pile.push(generated);
         } else {
