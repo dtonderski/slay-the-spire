@@ -299,6 +299,7 @@ fn is_post_lethal_cancelled_action(action: &InternalAction) -> bool {
             | InternalAction::GainEnergy { .. }
             | InternalAction::GainEnergyFromPotion { .. }
             | InternalAction::ApplyEnergized { .. }
+            | InternalAction::ExitCalm
             | InternalAction::OpenPotionCardReward { .. }
             | InternalAction::OpenElixirSelection
             | InternalAction::OpenGamblersBrewSelection
