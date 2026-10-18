@@ -292,8 +292,13 @@ closed content catalog.
 Regenerate the checked-in enums from the repository root after catalog changes:
 
 ```bash
-python simulator/python/tools/generate_content_ids.py
+uv run --no-project python simulator/python/tools/generate_content_ids.py
 ```
+
+The binding's fixed numeric tables must cover the same exported identities.
+Append new entries without renumbering vocabulary-v1 IDs; Rust coverage tests
+check every modeled card, power, relic, potion, monster and public counter.
+Enum generation alone does not update those numeric tables.
 
 The generator exports catalogs from authoritative Rust definitions via
 `cargo run -p sts_env --bin export_fair_catalog` and writes

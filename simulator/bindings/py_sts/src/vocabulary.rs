@@ -332,6 +332,13 @@ pub static CARD_KEYS: &[&str] = &[
     "Writhe",
     "TEMPEST", // Append only; retain all existing vocabulary v1 card IDs.
     "BLUR",    // Append only: preserve existing vocabulary v1 card IDs.
+    "COLD_SNAP",
+    "DISTRACTION",
+    "EMPTY_FIST",
+    "EXPERTISE",
+    "FLYING_KNEE",
+    "PIERCING_WAIL",
+    "STACK",
 ];
 
 pub static MONSTER_KEYS: &[&str] = &[
@@ -927,5 +934,52 @@ mod blur_tests {
         assert_eq!(power_id("blur"), Some(72));
         assert_eq!(power_id("wrath"), Some(71));
         assert_eq!(power_id("barricade"), Some(3));
+    }
+}
+
+#[cfg(test)]
+mod catalog_coverage_tests {
+    use super::*;
+    #[test]
+    fn repaired_entries_are_append_only_v1_ids() {
+        for (index, key) in [
+            "COLD_SNAP",
+            "DISTRACTION",
+            "EMPTY_FIST",
+            "EXPERTISE",
+            "FLYING_KNEE",
+            "PIERCING_WAIL",
+            "STACK",
+        ]
+        .iter()
+        .enumerate()
+        {
+            assert_eq!(card_id(key), Some(324 + index as i64));
+        }
+        assert_eq!(card_id("Writhe"), Some(321));
+        assert_eq!(card_id("TEMPEST"), Some(322));
+        assert_eq!(card_id("BLUR"), Some(323));
+        assert_eq!(CONTENT_VOCABULARY_VERSION, 1);
+    }
+    #[test]
+    fn numeric_tables_cover_the_authoritative_fair_catalog() {
+        let c = sts_env::fair_content_catalog();
+        for (kind, keys, lookup) in [
+            ("cards", c.cards, card_id as fn(&str) -> Option<i64>),
+            ("powers", c.powers, power_id),
+            ("relics", c.relics, relic_id),
+            ("potions", c.potions, potion_id),
+            ("monsters", c.monsters, monster_id),
+            ("counters", c.counters, counter_id),
+        ] {
+            let missing: Vec<_> = keys
+                .into_iter()
+                .filter(|key| lookup(key).is_none())
+                .collect();
+            assert!(
+                missing.is_empty(),
+                "{kind} missing numeric identities: {missing:?}"
+            );
+        }
     }
 }
