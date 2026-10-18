@@ -1,4 +1,5 @@
 pub mod ascension;
+pub(crate) mod card_library_types;
 pub mod cards;
 pub mod character;
 pub mod deck;
