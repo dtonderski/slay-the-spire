@@ -3054,6 +3054,8 @@ pub(crate) fn advance_pending_relic_offer(run: &mut RunState) {
 }
 
 #[cfg(test)]
+mod egg_type_metadata_tests;
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::CardRewardFlow;
