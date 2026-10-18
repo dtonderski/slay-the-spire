@@ -114,6 +114,13 @@ target action/effect lifecycle rather than an observed deck snapshot.
 
 ## Source-backed interaction findings
 
+- `Expertise.use` queues `ExpertiseAction(6/7)`, whose update reads the live
+  hand size and addToTop's its deficit draw; No Draw suppresses the draw, not
+  card legality or cost. The source in cardInUse does not occupy a hand slot.
+  Pain's addToTop loss/Runic Cube draw precedes that read, while Ink Bottle's
+  on-use draw follows it. FIDL01535 step747 witnesses the No Draw use; ordinary,
+  upgraded, copied and callback-order controls are supplemental synthetic tests.
+
 - Negative player Strength applications bound the actual permanent+temporary
   amount, just like positive applications. The permanent bookkeeping component
   may be below -999 while nominal loss is retained on a leftover end-turn frame;

@@ -349,6 +349,11 @@ pub enum InternalAction {
     DrawCardsIfNoAttacksInHand {
         count: usize,
     },
+    /// ExpertiseAction reads the live hand, then addToTop's DrawCardAction.
+    ResolveExpertise {
+        source_card_id: CardId,
+        hand_size: usize,
+    },
     /// Draw `count` cards, then discard those whose costForTurn is not 0
     /// (`ScrapeFollowUpAction` over `DrawCardAction.drawnCards`).
     DrawThenScrapeDiscard {
