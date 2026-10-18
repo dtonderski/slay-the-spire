@@ -134,6 +134,7 @@ pub fn validate_combat_action(state: &CombatState, action: CombatAction) -> SimR
             CombatDecisionState::PotionCardReward { .. }
             | CombatDecisionState::ToolboxCardReward { .. }
             | CombatDecisionState::DiscoveryCardReward { .. }
+            | CombatDecisionState::ForeignInfluenceCardReward { .. }
             | CombatDecisionState::NilrysCodexCardReward { .. } => "combat card reward is open",
         };
         return Err(SimError::IllegalAction(reason));

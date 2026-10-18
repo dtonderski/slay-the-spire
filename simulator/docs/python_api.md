@@ -143,6 +143,11 @@ are still checked individually: modeled cross-color cards can be exported, but
 unmodeled cards fail explicitly rather than receiving invented costs or effects.
 This does **not** establish full Prismatic/cross-color run support; synthetic
 combat-spec construction still rejects the broader Prismatic loadout.
+Foreign Influence's source card has typed/numeric identity, but its complete
+native offer may contain unmodeled cards and make a policy decision unavailable.
+Core/verifier generation never filters or re-rolls that offer to fit the fair
+surface. The Python regression checks the source identity and this fail-closed
+boundary, not general cross-color offer/continuation support.
 
 The Courier's colored-card restock identity uses vanilla process-global
 `MathUtils.random`, not a run-seeded stream. Strict core replay requires a typed

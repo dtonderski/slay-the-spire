@@ -3,6 +3,7 @@ pub mod cards;
 pub mod character;
 pub mod deck;
 pub mod encounters;
+pub(crate) mod foreign_influence;
 pub mod monsters;
 pub mod reward_pool;
 pub mod shop_pool;

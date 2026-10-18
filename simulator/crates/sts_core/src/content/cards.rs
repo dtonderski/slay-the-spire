@@ -172,6 +172,7 @@ pub const DISTRACTION_ANY_COLOR_ID: ContentId = ContentId::new(57_737_991_648_76
 pub const TEMPEST_ANY_COLOR_ID: ContentId = ContentId::new(76_599_284_586);
 /// Silent Blur; preserves shop_card_content_id("BLUR").
 pub const BLUR_ANY_COLOR_ID: ContentId = ContentId::new(2_042_559);
+pub const FOREIGN_INFLUENCE_ANY_COLOR_ID: ContentId = ContentId::new(12_731_910_713_692_972_898);
 /// Curse granted by [crate::relic::Relic::Necronomicon] on equip. Unpurgeable.
 pub const NECRONOMICURSE_ID: ContentId = ContentId::new(74);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
@@ -5352,6 +5353,7 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | DISTRACTION_ANY_COLOR_ID
             | TEMPEST_ANY_COLOR_ID
             | BLUR_ANY_COLOR_ID
+            | FOREIGN_INFLUENCE_ANY_COLOR_ID
     ) || (get_card_definition(id).is_none()
         && crate::run::reward::any_color_reward_card_key(id).is_some())
 }
@@ -6668,6 +6670,26 @@ pub static STORM_OF_STEEL_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static FOREIGN_INFLUENCE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: FOREIGN_INFLUENCE_ANY_COLOR_ID,
+    key: "FOREIGN_INFLUENCE",
+    name: "Foreign Influence",
+    cost: 0,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        exhaust: true,
+        ..CARD_KEYWORDS_NONE
+    },
+};
+
 pub static BLUR_ANY_COLOR: CardDefinition = CardDefinition {
     id: BLUR_ANY_COLOR_ID,
     key: "BLUR",
@@ -6913,6 +6935,7 @@ pub static EXTRA_PUBLIC_CARD_DEFINITIONS: &[CardDefinition] = &[
     DISTRACTION_ANY_COLOR,
     TEMPEST_ANY_COLOR,
     BLUR_ANY_COLOR,
+    FOREIGN_INFLUENCE_ANY_COLOR,
 ];
 
 pub fn public_card_definitions() -> impl Iterator<Item = &'static CardDefinition> {

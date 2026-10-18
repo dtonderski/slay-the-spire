@@ -956,7 +956,9 @@ fn project_selection(
             options: ordered_options(choices, corruption_active)?,
             selected_slots: Vec::new(),
         },
-        CombatDecisionState::DiscoveryCardReward { choices, .. } => FairSelection {
+        // Native customCombatOpen uses the same discovery-style reward overlay.
+        CombatDecisionState::DiscoveryCardReward { choices, .. }
+        | CombatDecisionState::ForeignInfluenceCardReward { choices, .. } => FairSelection {
             kind: FairSelectionKind::DiscoveryReward,
             options: ordered_options(choices, corruption_active)?,
             selected_slots: Vec::new(),
@@ -1506,6 +1508,35 @@ mod tests {
             key: "restore_strength".to_owned(),
             amount: 3,
         }));
+    }
+
+    #[test]
+    fn modeled_foreign_influence_choices_use_public_discovery_transport_without_rng() {
+        let mut run = RunState::combat_fixture();
+        let ids = [
+            sts_core::adapter_internals::content::cards::CONCLUDE_ANY_COLOR_ID,
+            sts_core::adapter_internals::content::cards::SKEWER_ANY_COLOR_ID,
+            sts_core::adapter_internals::content::cards::WHIRLWIND_ID,
+        ];
+        run.combat.as_mut().unwrap().decision =
+            Some(CombatDecisionState::ForeignInfluenceCardReward {
+                choices: ids
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, id)| CardInstance::new(CardId::new(500 + i as u64), id))
+                    .collect(),
+                source_card: None,
+                upgraded: true,
+                pending_actions: std::collections::VecDeque::from([
+                    sts_core::adapter_internals::InternalAction::SettleForeignInfluenceSource,
+                ]),
+            });
+        let before = serde_json::to_value(&run).unwrap();
+        let projected = observation(&run);
+        let selection = projected.selection.unwrap();
+        assert_eq!(selection.kind, FairSelectionKind::DiscoveryReward);
+        assert_eq!(selection.options.len(), 3);
+        assert_eq!(serde_json::to_value(run).unwrap(), before);
     }
 
     #[test]

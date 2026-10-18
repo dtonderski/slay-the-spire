@@ -166,6 +166,22 @@ target action/effect lifecycle rather than an observed deck snapshot.
 
 ## Source-backed interaction findings
 
+- `ForeignInfluenceAction` generates only on its opening update, unlike
+  Discovery's ignored tail generations. Each attempt rolls cardRandomRng99
+  (55/30/15 common/uncommon/rare), then `CardLibrary.getAnyColorCard(ATTACK,
+  rarity)`: exclude HEALING/locked cards, shuffle with one cardRandomRng long,
+  sort by native cardID, select with **cardRng**, reject duplicate IDs.
+  The unlocked pools contain43/48/15 attacks; Searing Blow's delegating
+  constructor must not exclude it from uncommon metadata extraction.
+  Combat receives this separate cardRng from simulator-owned run state on an
+  accepted transition; snapshots preserve it and consumed counters return to
+  the run owner. Missing standalone context fails closed. No observed offers
+  or inferred offsets participate. A serialized UseCardAction boundary keeps
+  source exhaust callbacks before later potion appends and copied card items.
+  Retrieval uses normal cost unless upgraded; `setCostForTurn(0)` ignores X
+  costs. Full hands receive the card in discard, and SKIP still settles source.
+  FIDL01535/1139 opens Conclude/Claw/Skewer and completes1269 unchanged actions.
+
 - `Doppelganger.use` queues `DoppelgangerAction` with captured energyOnUse.
   The wrapper computes X + Chemical X2 + upgrade1; only a positive effect
   addToBots Energized and DrawCardNextTurn applications and spends all live

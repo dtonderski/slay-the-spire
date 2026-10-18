@@ -24,6 +24,8 @@ use sts_core::adapter_internals::{
 #[cfg(test)]
 mod choice_contract_tests;
 #[cfg(test)]
+mod foreign_influence_tests;
+#[cfg(test)]
 mod next_turn_power_tests;
 mod replay;
 
@@ -2256,6 +2258,7 @@ fn seed_start_active_combat_decision(
         CombatDecisionState::PotionCardReward { .. }
         | CombatDecisionState::ToolboxCardReward { .. }
         | CombatDecisionState::DiscoveryCardReward { .. }
+        | CombatDecisionState::ForeignInfluenceCardReward { .. }
         | CombatDecisionState::NilrysCodexCardReward { .. } => SeedStartCombatDecision::CardReward,
         CombatDecisionState::HandSelect { .. } => SeedStartCombatDecision::HandSelect,
         CombatDecisionState::DrawSelect { .. } => SeedStartCombatDecision::DrawSelect,
@@ -2433,7 +2436,7 @@ fn seed_start_simulated_combat_subset(run: &RunState) -> Value {
                 "card_reward_ids".to_owned(),
                 json!(choices
                     .iter()
-                    .map(|card| card.content_id.get())
+                    .map(|card| simulated_card_reward_identity(card.content_id))
                     .collect::<Vec<_>>()),
             );
         }

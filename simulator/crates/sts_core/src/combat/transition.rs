@@ -5,6 +5,8 @@ mod decision_actions;
 mod defense_actions;
 #[cfg(test)]
 mod doppelganger_tests;
+#[cfg(test)]
+mod foreign_influence_tests;
 mod pile_actions;
 mod player_actions;
 #[cfg(test)]
@@ -299,6 +301,7 @@ fn is_post_lethal_cancelled_action(action: &InternalAction) -> bool {
             | InternalAction::ResolveTempest { .. }
             | InternalAction::ResolveDoppelganger { .. }
             | InternalAction::ApplyDrawCardNextTurn { .. }
+            | InternalAction::OpenForeignInfluenceCardReward { .. }
             // ChannelAction has no DAMAGE type; queued channels are cleared.
             | InternalAction::ChannelLightning
             | InternalAction::ChannelFrost
@@ -760,6 +763,28 @@ fn process_internal_queue_owned(
                     pending_actions.extend(queue.drain(..));
                     break;
                 }
+                Some(CombatDecisionState::ForeignInfluenceCardReward {
+                    pending_actions, ..
+                }) => {
+                    // Source UseCardAction is older than later potion appends
+                    // and the copied cardQueue items. Preserve that boundary.
+                    let index = queue
+                        .iter()
+                        .position(|a| {
+                            matches!(
+                                a,
+                                InternalAction::PlayCardCopy { .. }
+                                    | InternalAction::ResolveTopDrawCard { .. }
+                            )
+                        })
+                        .unwrap_or(queue.len());
+                    queue.insert(index, InternalAction::SettleForeignInfluenceSource);
+                    // The opener's empty-queue continuation already has its
+                    // source marker; replace it with the fully ordered queue.
+                    pending_actions.clear();
+                    pending_actions.extend(queue.drain(..));
+                    break;
+                }
                 _ => {}
             }
         }
@@ -1173,6 +1198,7 @@ fn push_follow_up(
                 InternalAction::ResolveExpertise { .. }
                     | InternalAction::ResolveTempest { .. }
                     | InternalAction::ResolveDoppelganger { .. }
+                    | InternalAction::OpenForeignInfluenceCardReward { .. }
             )
         }) {
             queue.insert(index, follow_up);
@@ -1493,6 +1519,7 @@ fn is_player_selection_action(action: &InternalAction) -> bool {
             | InternalAction::OpenGamblersBrewSelection
             | InternalAction::OpenPotionCardReward { .. }
             | InternalAction::OpenDiscoveryCardReward { .. }
+            | InternalAction::OpenForeignInfluenceCardReward { .. }
     )
 }
 
@@ -2220,6 +2247,13 @@ fn apply_internal_action_with_defer(
         InternalAction::OpenPotionCardReward { reward_kind } => {
             decision_actions::open_potion_card_reward(state, reward_kind)
         }
+        InternalAction::SettleForeignInfluenceSource => Err(SimError::InvalidState(
+            "orphaned Foreign Influence source boundary",
+        )),
+        InternalAction::OpenForeignInfluenceCardReward {
+            source_card_id,
+            upgraded,
+        } => decision_actions::open_foreign_influence_card_reward(state, source_card_id, upgraded),
         InternalAction::OpenDiscoveryCardReward { source_card_id } => {
             decision_actions::open_discovery_card_reward(state, source_card_id)
         }
