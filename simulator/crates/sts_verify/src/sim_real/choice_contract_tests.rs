@@ -1,6 +1,30 @@
 use super::*;
 use sts_core::adapter_internals::{CardRewardFlow, ShopPotionSlot, ShopScreen};
 
+#[test]
+fn multi_cast_choice_labels_preserve_native_hyphen_and_upgrade_suffix() {
+    // PC localization/eng/cards.json: Multi-Cast; FIDL01440 step 1195.
+    let run = RunState::seeded_ironclad(1, 0);
+    let content =
+        sts_core::adapter_internals::content::shop_pool::shop_card_content_id("MULTI_CAST");
+    let mut card = CardInstance::new(CardId::new(100), content);
+    for upgraded in [false, true] {
+        card.upgrades = u8::from(upgraded);
+        let before = serde_json::to_value((&run, card)).unwrap();
+        let expected = if upgraded {
+            "multi-cast+"
+        } else {
+            "multi-cast"
+        };
+        assert_eq!(grid_trace_choice_label(&run, &card), expected);
+        assert_eq!(
+            reward_card_choice_display_key(&run, &card).to_ascii_lowercase(),
+            expected
+        );
+        assert_eq!(serde_json::to_value((&run, card)).unwrap(), before);
+    }
+}
+
 fn fixtures() -> Value {
     // Synthetic contract fixtures shared with actual producer and client tests.
     // They do not hydrate replay or establish real-game parity.
