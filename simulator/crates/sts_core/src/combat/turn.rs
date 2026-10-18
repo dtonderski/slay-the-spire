@@ -869,7 +869,10 @@ fn start_player_turn_in_place(
     reset_turn_only_temp_costs(state);
     let energy_next_turn = std::mem::take(&mut state.player.energy_next_turn);
     if crate::relic::preserves_energy_between_turns(&state.player.authority.relics) {
-        state.player.energy = checked_turn_add(state.player.energy, state.player.max_energy)?;
+        // EnergyManager.recharge uses EnergyPanel.addEnergy with Ice Cream;
+        // unlike setEnergy on the ordinary branch, that call caps at999.
+        state.player.energy =
+            checked_turn_add(state.player.energy, state.player.max_energy)?.min(999);
     } else {
         state.player.energy = state.player.max_energy;
     }
