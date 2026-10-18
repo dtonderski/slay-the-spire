@@ -175,6 +175,18 @@ not just the shuffle RNG draw. Their addToBot effects precede callbacks from the
 existing draw segment (for example Void energy loss). FIDL00144 step1278 and seven
 other complete regression captures witness this missing-callback family.
 
+`MercuryHourglass.atTurnStart` queues DamageAllEnemiesAction before the opening
+DrawCardAction. GameActionManager queues post-draw relic/power actions too;
+Mercury's addToBot Stasis/Gremlin Horn callbacks wait behind those actions.
+Apply the damage before drawing, but keep the death callbacks deferred. If it
+newly kills the final enemy, point-in-time clearPostCombatActions cancels the
+already-queued opening draw, generators, upgrades and buffs before any shuffle
+constructor/RNG. An already-queued Brutality LoseHPAction is DAMAGE and survives;
+its paired draw does not. Preserve Awakened One revival and later-created work,
+not a global no-actions-after-victory rule. FIDL00674/300 exposes an extra shuffle
+previously hidden until Sundial energy at313: fix queue ownership, never restore
+an observed counter, burn RNG, or add/subtract a fitted energy/HP offset.
+
 Normal potion rewards use `40 + potionChance`, roll `potionRng.random(99)`,
 change the chance by ±10, then roll rarity and retry pool identities until the
 rarity matches. Lab and Woman in Blue instead draw direct pool indices without
