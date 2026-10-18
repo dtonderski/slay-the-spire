@@ -76,6 +76,44 @@ fn actions_enqueued_after_clear_are_not_repeatedly_cancelled() {
     assert_eq!(n.piles.hand.len(), 1);
 }
 #[test]
+fn lethal_damage_cancels_already_queued_end_press_but_keeps_source_settlement() {
+    let state = setup();
+    let result = process_internal_queue_with_event_recording(
+        &state,
+        VecDeque::from([
+            damage(),
+            InternalAction::ForceEndTurn,
+            InternalAction::MoveCard {
+                card_id: CardId::new(100),
+                from: CardPile::Hand,
+                to: CardPile::DiscardPile,
+            },
+        ]),
+        true,
+    )
+    .unwrap();
+    result.state.validate().unwrap();
+    assert!(!result.event_log.contains(&InternalAction::ForceEndTurn));
+    assert_eq!(result.state.piles.discard_pile.len(), 1);
+}
+#[test]
+fn end_press_enqueued_after_clear_is_not_perpetually_vetoed() {
+    let mut state = setup();
+    state.monsters[0].alive = false;
+    state.monsters[0].hp = 0;
+    let result = process_internal_queue_with_event_recording(
+        &state,
+        VecDeque::from([InternalAction::ForceEndTurn]),
+        true,
+    )
+    .unwrap();
+    result.state.validate().unwrap();
+    // Won settlement later clears the request flag. The dispatch log, not
+    // that settled flag, proves the newly appended press was not vetoed.
+    assert!(result.event_log.contains(&InternalAction::ForceEndTurn));
+}
+
+#[test]
 fn later_thorns_damage_clears_newly_pending_actions_again() {
     // DamageAction with THORNS still updates in a dead room and invokes clear.
     let mut state = setup();

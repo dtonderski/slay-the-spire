@@ -304,6 +304,8 @@ fn is_post_lethal_cancelled_action(action: &InternalAction) -> bool {
             | InternalAction::OpenElixirSelection
             | InternalAction::OpenGamblersBrewSelection
             | InternalAction::AddDistractionSkillToHand { .. }
+            // Conclude queues PressEndTurnButtonAction, not a DAMAGE action.
+            | InternalAction::ForceEndTurn
     )
 }
 
