@@ -629,6 +629,15 @@ fn play_card_queue_with_energy_on_use(
         PRESSURE_POINTS_ANY_COLOR_ID => pressure_points_queue(card_id, target, *card, definition),
         EMPTY_MIND_ANY_COLOR_ID => empty_mind_queue(state, card_id, definition),
         TRANQUILITY_ANY_COLOR_ID => tranquility_queue(card_id, definition),
+        crate::content::cards::FOREIGN_INFLUENCE_ANY_COLOR_ID => Ok(VecDeque::from([
+            InternalAction::PlayCard { card_id },
+            InternalAction::SpendEnergy { amount: 0 },
+            InternalAction::OpenForeignInfluenceCardReward {
+                source_card_id: card_id,
+                upgraded: card.upgrades > 0,
+            },
+            // The modal continuation owns the source UseCardAction settlement.
+        ])),
         DOPPELGANGER_ANY_COLOR_ID => doppelganger_queue(card_id, *card, energy_on_use),
         EXPERTISE_ANY_COLOR_ID => expertise_queue(card_id, *card, definition),
         BACKFLIP_ANY_COLOR_ID => backflip_queue(card_id, *card, definition),
@@ -877,8 +886,10 @@ pub(super) fn play_top_draw_card_queue(
                     } if *source_card_id == card.id
                 )
             }));
-    let discovery_reward_defers_source_settlement =
-        matches!(definition.id, DISCOVERY_ID | DISCOVERY_PLUS_ID);
+    let discovery_reward_defers_source_settlement = matches!(
+        definition.id,
+        DISCOVERY_ID | DISCOVERY_PLUS_ID | crate::content::cards::FOREIGN_INFLUENCE_ANY_COLOR_ID
+    );
     // Discovery's reward screen pauses the queue before this movement. Defer
     // its exhaust/Spoon decision until CHOOSE, after DiscoveryAction's final
     // discarded choice generation, while keeping an exhaust destination for
@@ -902,6 +913,7 @@ pub(super) fn play_top_draw_card_queue(
     // inserts included) instead of deciding the destination while expanding
     // the card-queue item.
     if destination == CardPile::ExhaustPile
+        && definition.id != crate::content::cards::FOREIGN_INFLUENCE_ANY_COLOR_ID
         && definition.card_type != CardType::Power
         && queued_state.relics.contains(&Relic::StrangeSpoon)
         && !queued_state

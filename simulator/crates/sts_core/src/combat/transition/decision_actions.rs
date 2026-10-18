@@ -734,6 +734,50 @@ pub(super) fn open_potion_card_reward(
     Ok(Vec::new())
 }
 
+pub(super) fn open_foreign_influence_card_reward(
+    state: &mut CombatState,
+    source_card_id: CardId,
+    upgraded: bool,
+) -> SimResult<Vec<crate::action::InternalAction>> {
+    if state.decision.is_some() {
+        return Err(SimError::InvalidState(
+            "Foreign Influence opened over another decision",
+        ));
+    }
+    let card_rng = state.run_card_rng.as_mut().ok_or(SimError::InvalidState(
+        "Foreign Influence requires owned run cardRng",
+    ))?;
+    // Labels are nonsemantic and not serialized with StsRng.
+    *card_rng = card_rng
+        .clone()
+        .for_stream(crate::rng::RngTraceStream::CardReward);
+    state.rng.card_random_rng = state
+        .rng
+        .card_random_rng
+        .clone()
+        .for_stream(crate::rng::RngTraceStream::CardRandom);
+    let choices =
+        crate::content::foreign_influence::choices(&mut state.rng.card_random_rng, card_rng);
+    let first = state.reserve_card_instance_ids(3)?;
+    let source_card = state
+        .piles
+        .hand
+        .iter()
+        .position(|c| c.id == source_card_id)
+        .map(|i| state.piles.hand.remove(i));
+    state.decision = Some(CombatDecisionState::ForeignInfluenceCardReward {
+        choices: choices
+            .into_iter()
+            .enumerate()
+            .map(|(i, c)| crate::card::CardInstance::new(CardId::new(first + i as u64), c))
+            .collect(),
+        source_card,
+        upgraded,
+        pending_actions: VecDeque::from([crate::InternalAction::SettleForeignInfluenceSource]),
+    });
+    Ok(Vec::new())
+}
+
 pub(super) fn open_discovery_card_reward(
     state: &mut CombatState,
     source_card_id: CardId,

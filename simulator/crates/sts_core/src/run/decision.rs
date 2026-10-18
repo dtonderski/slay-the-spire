@@ -288,7 +288,10 @@ fn legal_combat_select_actions_on_run(
 ) -> SimResult<Vec<RunAction>> {
     let mut candidates = Vec::new();
     match combat.decision.as_ref() {
-        Some(CombatDecisionState::PotionCardReward { choices, .. }) => {
+        Some(
+            CombatDecisionState::PotionCardReward { choices, .. }
+            | CombatDecisionState::ForeignInfluenceCardReward { choices, .. },
+        ) => {
             candidates.extend(
                 (0..choices.len()).map(|index| RunAction::ChooseCombatCardReward { index }),
             );

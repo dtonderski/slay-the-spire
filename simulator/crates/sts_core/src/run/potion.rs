@@ -146,7 +146,10 @@ pub fn validate_combat_card_reward_skip(run: &RunState) -> SimResult<()> {
     if combat.potion_card_reward_choices().is_some()
         || matches!(
             combat.decision.as_ref(),
-            Some(CombatDecisionState::NilrysCodexCardReward { .. })
+            Some(
+                CombatDecisionState::NilrysCodexCardReward { .. }
+                    | CombatDecisionState::ForeignInfluenceCardReward { .. }
+            )
         )
     {
         Ok(())
@@ -753,6 +756,28 @@ fn settle_discovery_source_without_time_warp_end(
     Ok(())
 }
 
+fn settle_foreign_influence_source(
+    combat: &mut CombatState,
+    source: Option<CardInstance>,
+    mut pending: std::collections::VecDeque<crate::InternalAction>,
+) -> SimResult<()> {
+    let index = pending
+        .iter()
+        .position(|a| matches!(a, crate::InternalAction::SettleForeignInfluenceSource))
+        .ok_or(SimError::InvalidState(
+            "Foreign Influence continuation lacks source boundary",
+        ))?;
+    let later = pending.split_off(index + 1);
+    pending.pop_back();
+    let old_defer = combat.defer_time_warp_end_turn;
+    combat.defer_time_warp_end_turn = true;
+    settle_card_reward_potion_actions(combat, pending)?;
+    close_discovery_source_card_with_force_exhaust(combat, source, false)?;
+    settle_card_reward_potion_actions(combat, later)?;
+    combat.defer_time_warp_end_turn = old_defer;
+    Ok(())
+}
+
 pub fn apply_combat_card_reward_choice(run: &RunState, index: usize) -> SimResult<RunState> {
     validate_combat_card_reward_choice(run, index)?;
     apply_validated_combat_card_reward_choice_owned(run.clone(), index)
@@ -762,6 +787,7 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
     mut next: RunState,
     index: usize,
 ) -> SimResult<RunState> {
+    next.provision_combat_card_rng();
     let mut resumed_nilry_before = None;
     let closing_nilry = matches!(
         next.combat
@@ -800,6 +826,45 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
                 // were already in hand, unlike Toolbox and Discovery rewards.
                 combat.piles.hand.push(card);
                 settle_card_reward_potion_actions(combat, pending_actions)?;
+                next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+            }
+            CombatDecisionState::ForeignInfluenceCardReward {
+                choices,
+                source_card,
+                upgraded,
+                pending_actions,
+            } => {
+                let mut card = CardInstance {
+                    combat_only: true,
+                    ..CardInstance::new(
+                        CardId::new(combat.next_card_instance_id()?),
+                        choices[index].content_id,
+                    )
+                };
+                // setCostForTurn ignores existing negative (X) costs.
+                if upgraded
+                    && crate::content::cards::get_card_definition(card.content_id)
+                        .is_none_or(|d| d.cost >= 0)
+                {
+                    card.temp_cost = Some(0);
+                    card.temp_cost_turn_only = true;
+                }
+                if matches!(
+                    card.content_id,
+                    crate::content::cards::BLOOD_FOR_BLOOD_ID
+                        | crate::content::cards::BLOOD_FOR_BLOOD_PLUS_ID
+                ) {
+                    card.blood_for_blood_cost_reduction = combat.player.damage_events_this_combat;
+                }
+                if combat.piles.hand.len() < crate::combat::draw::MAX_HAND_SIZE {
+                    combat.piles.hand.push(card);
+                } else {
+                    combat.piles.discard_pile.push(card);
+                }
+                // No Discovery tail generations: this native action generated
+                // once, when the modal opened, using two distinct streams.
+                settle_foreign_influence_source(combat, source_card, pending_actions)?;
+                combat.play_top_force_exhaust_active = false;
                 next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             }
             CombatDecisionState::DiscoveryCardReward {
@@ -886,6 +951,11 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
         }
         won
     };
+    if next.phase == RunPhase::Combat {
+        if let Some(rng) = next.combat.as_ref().and_then(|c| c.run_card_rng.as_ref()) {
+            next.card_rng_counter = rng.counter();
+        }
+    }
     if let Some(before) = resumed_nilry_before {
         let mut after = next
             .combat
@@ -927,8 +997,26 @@ pub fn apply_combat_card_reward_skip(run: &RunState) -> SimResult<RunState> {
 pub(crate) fn apply_validated_combat_card_reward_skip_owned(
     mut next: RunState,
 ) -> SimResult<RunState> {
+    next.provision_combat_card_rng();
     let combat = next.combat.as_mut().expect("validated combat");
     match combat.decision.take() {
+        Some(CombatDecisionState::ForeignInfluenceCardReward {
+            source_card,
+            pending_actions,
+            ..
+        }) => {
+            settle_foreign_influence_source(combat, source_card, pending_actions)?;
+            combat.play_top_force_exhaust_active = false;
+            next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+            if let Some(rng) = combat.run_card_rng.as_ref() {
+                next.card_rng_counter = rng.counter();
+            }
+            combat.activate_next_queued_decision_if_idle();
+            if combat.phase == CombatPhase::Won {
+                enter_combat_reward_for_current_room(&mut next)?;
+            }
+            resume_nilry_end_turn_if_idle_owned(next)
+        }
         Some(CombatDecisionState::PotionCardReward {
             reward_kind,
             pending_actions,
@@ -1106,6 +1194,9 @@ fn combat_open_decision_pending_mut(
         | CombatDecisionState::PotionCardReward {
             pending_actions, ..
         }
+        | CombatDecisionState::ForeignInfluenceCardReward {
+            pending_actions, ..
+        }
         | CombatDecisionState::ToolboxCardReward {
             pending_actions, ..
         } => Some(pending_actions),
@@ -1175,6 +1266,7 @@ pub(crate) fn apply_validated_potion_action_owned(
     mut next: RunState,
     action: RunAction,
 ) -> SimResult<RunState> {
+    next.provision_combat_card_rng();
     match action {
         RunAction::UsePotion { slot, target } => {
             let entropic_brew_had_open_slot = next.potion_at_slot(slot)
@@ -1622,6 +1714,11 @@ pub(crate) fn apply_validated_potion_action_owned(
                 let max_hp = next.max_hp;
                 let relics = next.relics.clone();
                 crate::relic::apply_potion_use_relics_to_run_hp(&mut next.hp, max_hp, &relics);
+            }
+            if next.phase == RunPhase::Combat {
+                if let Some(rng) = next.combat.as_ref().and_then(|c| c.run_card_rng.as_ref()) {
+                    next.card_rng_counter = rng.counter();
+                }
             }
             let won = next
                 .combat

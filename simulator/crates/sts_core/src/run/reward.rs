@@ -1972,6 +1972,7 @@ pub(crate) fn apply_validated_combat_action_on_owned_run(
     mut next: RunState,
     action: CombatAction,
 ) -> SimResult<RunState> {
+    next.provision_combat_card_rng();
     // RunState's sole player authority is embedded in the active combat. Keep
     // that owner installed while run-level potion/relic settlement reads it;
     // only the combat working value is cloned here, never the whole run.
@@ -2098,6 +2099,13 @@ pub(crate) fn settle_run_after_combat_transition(
         start_player_turn(&mut after)?;
     }
 
+    // Publish only actual combat consumption; a retained won-combat snapshot
+    // must not overwrite cardRng already advanced by later run reward generation.
+    if let Some(rng) = after.run_card_rng.as_ref() {
+        if before.run_card_rng.as_ref().map(StsRng::counter) != Some(rng.counter()) {
+            run.store_rng_counter(RunRngStream::CardReward, rng);
+        }
+    }
     Ok(after)
 }
 
@@ -2379,9 +2387,10 @@ pub fn apply_run_action(run: &RunState, action: RunAction) -> SimResult<RunState
 }
 
 pub(crate) fn apply_validated_run_action_owned(
-    next: RunState,
+    mut next: RunState,
     action: RunAction,
 ) -> SimResult<RunState> {
+    next.provision_combat_card_rng();
     let selection_action = matches!(
         action,
         RunAction::ChooseCombatCardReward { .. }
@@ -2459,6 +2468,11 @@ pub(crate) fn apply_validated_run_action_owned(
         // counter to the run owner before subsequent potion/event draws.
         if let Some(combat) = next.combat.as_ref() {
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
+            if next.phase == RunPhase::Combat {
+                if let Some(rng) = combat.run_card_rng.as_ref() {
+                    next.card_rng_counter = rng.counter();
+                }
+            }
         }
     }
     Ok(next)

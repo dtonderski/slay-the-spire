@@ -339,6 +339,7 @@ pub static CARD_KEYS: &[&str] = &[
     "FLYING_KNEE",
     "PIERCING_WAIL",
     "STACK",
+    "FOREIGN_INFLUENCE", // Append-only vocabulary v1.
 ];
 
 pub static MONSTER_KEYS: &[&str] = &[
@@ -960,6 +961,13 @@ mod catalog_coverage_tests {
         }
         assert_eq!(card_id("Writhe"), Some(321));
         assert_eq!(card_id("TEMPEST"), Some(322));
+        assert_eq!(card_id("BLUR"), Some(323));
+        assert_eq!(CONTENT_VOCABULARY_VERSION, 1);
+    }
+    #[test]
+    fn foreign_influence_card_id_appends_without_renumbering_v1() {
+        assert_eq!(card_id("FOREIGN_INFLUENCE"), Some(331));
+        assert_eq!(card_id("STACK"), Some(330));
         assert_eq!(card_id("BLUR"), Some(323));
         assert_eq!(CONTENT_VOCABULARY_VERSION, 1);
     }
