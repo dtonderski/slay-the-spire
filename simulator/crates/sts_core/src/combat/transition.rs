@@ -294,6 +294,7 @@ fn is_post_lethal_cancelled_action(action: &InternalAction) -> bool {
             | InternalAction::DrawCardsWhilePlayedCardIsInLimbo { .. }
             | InternalAction::DrawCardsWhilePlayedCardIsInLimboWithoutEvolve { .. }
             | InternalAction::DrawCardsFromInkBottle { .. }
+            | InternalAction::ResolveExpertise { .. }
             | InternalAction::RandomizeHandCostsForSneckoOil
             | InternalAction::GainEnergy { .. }
             | InternalAction::GainEnergyFromPotion { .. }
@@ -519,6 +520,7 @@ fn process_internal_queue_owned(
         if matches!(
             internal_action,
             InternalAction::ResolveStormOfSteel { .. }
+                | InternalAction::ResolveExpertise { .. }
                 | InternalAction::DiscardNonAttackHandCards
                 | InternalAction::ResolveSteamBarrier { .. }
                 | InternalAction::ResolveFollowUpEnergy { .. }
@@ -1089,6 +1091,16 @@ fn push_follow_up(
             ..
         }
     ) {
+        // Expertise.use has already queued ExpertiseAction when Pain's
+        // triggerOnOtherCardPlayed addToTop's its loss. Its HP-loss draws must
+        // finish before ExpertiseAction measures the live hand.
+        if let Some(index) = queue
+            .iter()
+            .position(|action| matches!(action, InternalAction::ResolveExpertise { .. }))
+        {
+            queue.insert(index, follow_up);
+            return;
+        }
         // UseCardAction's constructor queues Pain with addToTop after
         // Havoc.use has queued PlayTopCardAction. Pain therefore preempts top
         // extraction; Runic Cube's resulting draw does too.
@@ -1803,6 +1815,29 @@ fn apply_internal_action_with_defer(
         }
         InternalAction::DrawCardsIfNoAttacksInHand { count } => {
             pile_actions::draw_cards_if_no_attacks_in_hand(state, count)
+        }
+        InternalAction::ResolveExpertise {
+            source_card_id,
+            hand_size,
+        } => {
+            // Native ExpertiseAction.update subtracts the live hand size. The
+            // played source occupies cardInUse, not the target hand; copied
+            // uses need not have that original physical card available.
+            let live_hand = state
+                .piles
+                .hand
+                .iter()
+                .filter(|card| card.id != source_card_id)
+                .count();
+            let count = hand_size.saturating_sub(live_hand);
+            Ok(if count == 0 {
+                Vec::new()
+            } else {
+                vec![InternalAction::DrawCardsWhilePlayedCardIsInLimbo {
+                    card_id: source_card_id,
+                    count,
+                }]
+            })
         }
         InternalAction::DrawThenScrapeDiscard { count } => {
             // Scrape's DrawCardAction runs while UseCardAction still holds the
