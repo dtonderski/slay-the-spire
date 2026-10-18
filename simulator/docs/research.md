@@ -90,6 +90,14 @@ encounters, pile orientation, and floor-offset HP/AI behavior.
 
 ## Rewards, relics, and potions
 
+`EmptyDeckShuffleAction` calls relic `onShuffle` hooks in its constructor, even
+when its later shuffle moves no cards. A DrawCardAction that overdraws a nonempty
+but insufficient deck can construct this empty shuffle; a draw starting with both
+piles empty returns without constructing one. Retain Sundial/Abacus callbacks,
+not just the shuffle RNG draw. Their addToBot effects precede callbacks from the
+existing draw segment (for example Void energy loss). FIDL00144 step1278 and seven
+other complete regression captures witness this missing-callback family.
+
 Normal potion rewards use `40 + potionChance`, roll `potionRng.random(99)`,
 change the chance by ±10, then roll rarity and retry pool identities until the
 rarity matches. Lab and Woman in Blue instead draw direct pool indices without
