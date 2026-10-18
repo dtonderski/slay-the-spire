@@ -255,6 +255,19 @@ target action/effect lifecycle rather than an observed deck snapshot.
   simulator event choice; the encounter has three Fungi Beasts.
 - Random card upgrades seed Java shuffle from `miscRng.randomLong()`; Neow paths
   consume a hidden misc draw before relic equip.
+- `Tempest.use` queues `TempestAction` with captured energyOnUse, upgrade and
+  freeToPlayOnce. At resolution it adds Chemical X2 and upgrade1, appends that
+  many Lightning ChannelActions with addToBot, and only for a positive effect
+  spends the entire live EnergyPanel total unless free. Consequently source
+  UseCardAction/exhaust reservation precedes channels; copies retain X but are
+  autoplay-free and must not reexhaust the original. Do not replace live energy
+  with captured X. ChannelAction has no DAMAGE type and TempestAction is SPECIAL:
+  existing queued instances are removed by clearPostCombatActions, whereas
+  later-created ones remain eligible. Lightning.onEvoke queues its evoke action
+  addToTop before the next channel. QLFH00025 step1802 witnesses Tempest+ at X3
+  with one slot (four channels, three8-damage evokes), advancing to a separate
+  later unsupported card. This prefix does not certify every orb/callback or
+  HP-loss-draw combination; broader Pain queue work remains independent.
 - `PlayTopCardAction.update` queues its empty-deck shuffle and retry with
   `addToTop`; `EmptyDeckShuffleAction` constructor relic callbacks instead
   append with `addToBot`. Its `NewQueueCardAction.update` captures current energy

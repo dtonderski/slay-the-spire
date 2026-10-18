@@ -484,6 +484,12 @@ pub enum InternalAction {
     /// Recursion / RedoAction: evoke the rightmost orb and channel it again.
     RecurseRightmostOrb,
     /// StormPower.onUseCard addToBot ChannelAction(Lightning).
+    /// Native TempestAction: reserve X at use, channel addToBot, spend live energy.
+    ResolveTempest {
+        energy_on_use: i32,
+        upgraded: bool,
+        free_to_play_once: bool,
+    },
     ChannelLightning,
     /// Coolheaded.use addToBot ChannelAction(Frost).
     ChannelFrost,

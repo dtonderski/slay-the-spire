@@ -158,6 +158,8 @@ pub const STREAMLINE_ANY_COLOR_ID: ContentId = ContentId::new(2_268_450_692_935_
 pub const FOLLOW_UP_ANY_COLOR_ID: ContentId = ContentId::new(61_945_570_875_457);
 /// Prismatic/Defect Steam Barrier — id matches `shop_card_content_id("STEAM_BARRIER")`.
 pub const STEAM_BARRIER_ANY_COLOR_ID: ContentId = ContentId::new(12_228_432_166_683_705_824);
+/// Defect Tempest; preserves shop_card_content_id("TEMPEST").
+pub const TEMPEST_ANY_COLOR_ID: ContentId = ContentId::new(76_599_284_586);
 /// Curse granted by [crate::relic::Relic::Necronomicon] on equip. Unpurgeable.
 pub const NECRONOMICURSE_ID: ContentId = ContentId::new(74);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
@@ -5331,6 +5333,7 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | STREAMLINE_ANY_COLOR_ID
             | FOLLOW_UP_ANY_COLOR_ID
             | STEAM_BARRIER_ANY_COLOR_ID
+            | TEMPEST_ANY_COLOR_ID
     ) || (get_card_definition(id).is_none()
         && crate::run::reward::any_color_reward_card_key(id).is_some())
 }
@@ -6596,6 +6599,26 @@ pub static STORM_OF_STEEL_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static TEMPEST_ANY_COLOR: CardDefinition = CardDefinition {
+    id: TEMPEST_ANY_COLOR_ID,
+    key: "TEMPEST",
+    name: "Tempest",
+    cost: -1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        exhaust: true,
+        ..CARD_KEYWORDS_NONE
+    },
+};
+
 pub static STEAM_BARRIER_ANY_COLOR: CardDefinition = CardDefinition {
     id: STEAM_BARRIER_ANY_COLOR_ID,
     key: "STEAM_BARRIER",
@@ -6760,6 +6783,7 @@ pub static EXTRA_PUBLIC_CARD_DEFINITIONS: &[CardDefinition] = &[
     STREAMLINE_ANY_COLOR,
     FOLLOW_UP_ANY_COLOR,
     STEAM_BARRIER_ANY_COLOR,
+    TEMPEST_ANY_COLOR,
 ];
 
 pub fn public_card_definitions() -> impl Iterator<Item = &'static CardDefinition> {

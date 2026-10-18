@@ -62,13 +62,13 @@ use crate::{
         SKEWER_ANY_COLOR_ID, SKIM_ANY_COLOR_ID, SLIMED_ID, SPOT_WEAKNESS_ID, SPOT_WEAKNESS_PLUS_ID,
         STEAM_BARRIER_ANY_COLOR_ID, STORM_OF_STEEL_ANY_COLOR_ID, STREAMLINE_ANY_COLOR_ID,
         STRIKE_R_ID, STRIKE_R_PLUS_ID, SWIFT_STRIKE_ID, SWIFT_STRIKE_PLUS_ID, SWORD_BOOMERANG_ID,
-        SWORD_BOOMERANG_PLUS_ID, THE_BOMB_ID, THE_BOMB_PLUS_ID, THE_BOMB_TURNS, THINKING_AHEAD_ID,
-        THINKING_AHEAD_PLUS_ID, THIRD_EYE_ANY_COLOR_ID, THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID,
-        TRANQUILITY_ANY_COLOR_ID, TRANSMUTATION_ID, TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID,
-        TRUE_GRIT_ID, TRUE_GRIT_PLUS_ID, TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UNLOAD_ANY_COLOR_ID,
-        UPPERCUT_ID, UPPERCUT_PLUS_ID, VIOLENCE_ID, VIOLENCE_PLUS_ID, WALLOP_ANY_COLOR_ID,
-        WARCRY_ID, WARCRY_PLUS_ID, WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID,
-        WILD_STRIKE_PLUS_ID, WOUND_ID,
+        SWORD_BOOMERANG_PLUS_ID, TEMPEST_ANY_COLOR_ID, THE_BOMB_ID, THE_BOMB_PLUS_ID,
+        THE_BOMB_TURNS, THINKING_AHEAD_ID, THINKING_AHEAD_PLUS_ID, THIRD_EYE_ANY_COLOR_ID,
+        THUNDERCLAP_ID, THUNDERCLAP_PLUS_ID, TRANQUILITY_ANY_COLOR_ID, TRANSMUTATION_ID,
+        TRANSMUTATION_PLUS_ID, TRIP_ID, TRIP_PLUS_ID, TRUE_GRIT_ID, TRUE_GRIT_PLUS_ID,
+        TWIN_STRIKE_ID, TWIN_STRIKE_PLUS_ID, UNLOAD_ANY_COLOR_ID, UPPERCUT_ID, UPPERCUT_PLUS_ID,
+        VIOLENCE_ID, VIOLENCE_PLUS_ID, WALLOP_ANY_COLOR_ID, WARCRY_ID, WARCRY_PLUS_ID,
+        WHIRLWIND_ID, WHIRLWIND_PLUS_ID, WILD_STRIKE_ID, WILD_STRIKE_PLUS_ID, WOUND_ID,
     },
     content::shop_pool::{
         colorless_discovery_pool, ironclad_combat_attack_discovery_pool,
@@ -442,6 +442,7 @@ fn play_card_queue_with_energy_on_use(
         ),
         STORM_OF_STEEL_ANY_COLOR_ID => storm_of_steel_queue(state, card_id, *card, definition),
         STEAM_BARRIER_ANY_COLOR_ID => steam_barrier_queue(card_id, *card, definition),
+        TEMPEST_ANY_COLOR_ID => tempest_queue(card_id, *card, energy_on_use),
         FOLLOW_UP_ANY_COLOR_ID => follow_up_queue(
             state,
             card_id,
@@ -715,6 +716,16 @@ pub(super) fn play_top_draw_card_queue(
         .limbo
         .retain(|candidate| candidate.id != card.id);
 
+    // GameActionManager marks autoplay X cards freeToPlayOnce. The Tempest
+    // wrapper owns its live-energy spending, rather than a SpendEnergy action.
+    for action in &mut queue {
+        if let InternalAction::ResolveTempest {
+            free_to_play_once, ..
+        } = action
+        {
+            *free_to_play_once = true;
+        }
+    }
     queue.retain(|action| {
         !matches!(
             action,
@@ -1414,6 +1425,15 @@ fn is_duplicated_card_effect(action: InternalAction, card_id: CardId) -> bool {
 
 fn duplicated_card_effect(action: InternalAction, card_id: CardId) -> Option<InternalAction> {
     match action {
+        InternalAction::ResolveTempest {
+            energy_on_use,
+            upgraded,
+            ..
+        } => Some(InternalAction::ResolveTempest {
+            energy_on_use,
+            upgraded,
+            free_to_play_once: true,
+        }),
         action @ InternalAction::AwaitExhaustSelect {
             source_card_id,
             purpose: crate::combat::ExhaustSelectPurpose::ExhumeReturnToHand,
@@ -5337,6 +5357,26 @@ fn storm_of_steel_queue(
             card_id,
             from: CardPile::Hand,
             to: CardPile::DiscardPile,
+        },
+    ]))
+}
+
+fn tempest_queue(
+    card_id: CardId,
+    card: CardInstance,
+    energy_on_use: i32,
+) -> SimResult<VecDeque<InternalAction>> {
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::ResolveTempest {
+            energy_on_use,
+            upgraded: card.upgrades > 0,
+            free_to_play_once: card.free_to_play_once,
+        },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: CardPile::ExhaustPile,
         },
     ]))
 }
