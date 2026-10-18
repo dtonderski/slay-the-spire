@@ -94,7 +94,9 @@ pub(super) fn prevent_block_gain(
         state.player.powers.artifact -= 1;
         return Ok(Vec::new());
     }
-    state.player.no_block_turns = state.player.no_block_turns.max(turns);
+    // NoBlockPower inherits AbstractPower.stackPower: another application
+    // adds its nominal duration instead of refreshing to the larger amount.
+    checked_add_combat_value(&mut state.player.no_block_turns, turns)?;
     Ok(Vec::new())
 }
 
@@ -222,6 +224,46 @@ mod tests {
 
         assert_eq!(state.player.block, 3);
         assert_eq!(state.player.no_block_turns, 2);
+    }
+
+    #[test]
+    fn panic_button_applications_stack_and_keep_cards_blocked_for_all_rounds() {
+        // FIDL00848: step910 applies2, step913 stacks to4; after END at
+        // 914/919/921 the remaining1 still prevents Iron Wave's block at922.
+        let mut state = CombatState::cultist_fixture();
+        prevent_block_gain(&mut state, 2).unwrap();
+        prevent_block_gain(&mut state, 2).unwrap();
+        assert_eq!(state.player.no_block_turns, 4);
+        for remaining in [3, 2, 1] {
+            state = crate::apply_combat_action(&state, crate::CombatAction::EndTurn).unwrap();
+            assert_eq!(state.player.no_block_turns, remaining);
+            let before = state.player.block;
+            gain_player_block(&mut state, 7).unwrap();
+            assert_eq!(state.player.block, before);
+        }
+        state = crate::apply_combat_action(&state, crate::CombatAction::EndTurn).unwrap();
+        assert_eq!(state.player.no_block_turns, 0);
+        let before = state.player.block;
+        gain_player_block(&mut state, 7).unwrap();
+        assert_eq!(state.player.block, before + 7);
+    }
+
+    #[test]
+    fn artifact_rejects_a_stack_without_changing_existing_no_block() {
+        let mut state = CombatState::initial_fixture();
+        state.player.no_block_turns = 2;
+        state.player.powers.artifact = 1;
+        prevent_block_gain(&mut state, 2).unwrap();
+        assert_eq!(state.player.no_block_turns, 2);
+        assert_eq!(state.player.powers.artifact, 0);
+    }
+
+    #[test]
+    fn no_block_overflow_is_rejected_without_repairing_existing_duration() {
+        let mut state = CombatState::initial_fixture();
+        state.player.no_block_turns = i32::MAX;
+        assert!(prevent_block_gain(&mut state, 2).is_err());
+        assert_eq!(state.player.no_block_turns, i32::MAX);
     }
 
     #[test]

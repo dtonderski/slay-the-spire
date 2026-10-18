@@ -382,6 +382,11 @@ state, not by clearing at start and repairing an observed amount afterward.
 These are source-backed synthetic prefixes, not dedicated interaction-trace parity.
 Other stat/power potions' own action queues remain separate audits.
 
+`NoBlockPower` inherits `AbstractPower.stackPower`: repeated Panic Buttons add
+duration, rather than refreshing with max(existing, 2). Artifact rejects an
+incoming stack before duration arithmetic. FIDL00848 steps910/913 show2->4; after
+three END boundaries the remaining1 still prevents Iron Wave at step922.
+
 ## Collection timing lesson
 
 A historical SuperFastMode fork multiplied gameplay delta and caused frame-rate-
