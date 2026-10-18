@@ -167,6 +167,10 @@ pub enum InternalAction {
     GainBlockDirect {
         amount: i32,
     },
+    /// Relic onShuffle addToBot block; do not promote it like Rage on-use block.
+    GainBlockFromShuffle {
+        amount: i32,
+    },
     /// BlockPotion's GainBlockAction: unmodified block with potion error semantics.
     GainBlockFromPotion {
         amount: i32,
@@ -627,6 +631,10 @@ pub enum InternalAction {
         card_id: CardId,
         target: Option<MonsterId>,
         exhaust_played_card: bool,
+        /// NewQueueCardAction captures energy before the ordinary queue drains.
+        /// Older non-X continuations need no energy; missing X context fails closed.
+        #[serde(default)]
+        energy_on_use: Option<i32>,
     },
     /// Finish one card-queue item after all actions produced by that card have run.
     EndPlayTopCardResolution {

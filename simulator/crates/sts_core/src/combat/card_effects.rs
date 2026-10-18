@@ -81,6 +81,7 @@ use crate::{
 };
 use std::collections::VecDeque;
 
+#[cfg(test)]
 pub(super) fn play_card_queue(
     state: &CombatState,
     card_id: CardId,
@@ -95,6 +96,16 @@ pub(super) fn play_card_queue_in_place(
     state: &mut CombatState,
     card_id: CardId,
     target: Option<MonsterId>,
+) -> SimResult<VecDeque<InternalAction>> {
+    let energy_on_use = state.player.energy;
+    play_card_queue_with_energy_on_use(state, card_id, target, energy_on_use)
+}
+
+fn play_card_queue_with_energy_on_use(
+    state: &mut CombatState,
+    card_id: CardId,
+    target: Option<MonsterId>,
+    energy_on_use: i32,
 ) -> SimResult<VecDeque<InternalAction>> {
     let card = state
         .piles
@@ -249,6 +260,7 @@ pub(super) fn play_card_queue_in_place(
             card_id,
             target.expect("validated Malaise has a target"),
             *card,
+            energy_on_use,
         ),
         id if id == crate::content::cards::FLYING_SLEEVES_ANY_COLOR_ID => flying_sleeves_queue(
             state,
@@ -428,6 +440,7 @@ pub(super) fn play_card_queue_in_place(
             target.expect("validated Skewer has a target"),
             *card,
             definition,
+            energy_on_use,
         ),
         STORM_OF_STEEL_ANY_COLOR_ID => storm_of_steel_queue(state, card_id, *card, definition),
         STEAM_BARRIER_ANY_COLOR_ID => steam_barrier_queue(card_id, *card, definition),
@@ -451,8 +464,12 @@ pub(super) fn play_card_queue_in_place(
             *card,
             definition,
         ),
-        WHIRLWIND_ID | WHIRLWIND_PLUS_ID => whirlwind_queue(state, card_id, definition),
-        TRANSMUTATION_ID | TRANSMUTATION_PLUS_ID => transmutation_queue(state, card_id, definition),
+        WHIRLWIND_ID | WHIRLWIND_PLUS_ID => {
+            whirlwind_queue(state, card_id, definition, energy_on_use)
+        }
+        TRANSMUTATION_ID | TRANSMUTATION_PLUS_ID => {
+            transmutation_queue(state, card_id, definition, energy_on_use)
+        }
         SECRET_TECHNIQUE_ID | SECRET_TECHNIQUE_PLUS_ID => {
             secret_technique_queue(state, card_id, definition)
         }
@@ -653,7 +670,7 @@ pub(super) fn play_card_queue_in_place(
         queue =
             apply_duplication_potion_to_queue(queue, card_id, definition.id, duplication_effects);
     }
-    if should_apply_necronomicon(state, card, definition)? {
+    if should_apply_necronomicon(state, card, definition, energy_on_use)? {
         queue = apply_necronomicon_to_queue(queue, card_id, definition.id, copied_effects.clone());
     }
     if definition.card_type == CardType::Attack && state.double_tap_pending > 0 {
@@ -680,6 +697,7 @@ pub(super) fn play_top_draw_card_queue(
     card: CardInstance,
     target: Option<MonsterId>,
     force_exhaust: bool,
+    energy_on_use: i32,
 ) -> SimResult<(CombatState, VecDeque<InternalAction>)> {
     let definition =
         get_card_definition(card.content_id).ok_or(SimError::UnknownContent(card.content_id))?;
@@ -699,7 +717,9 @@ pub(super) fn play_top_draw_card_queue(
     // cannot redirect effect construction to an unrelated hand card. Validated
     // production states still require globally unique card IDs.
     staged.piles.hand.insert(0, card);
-    let (mut queued_state, mut queue) = play_card_queue(&staged, card.id, target)?;
+    let mut queued_state = staged;
+    let mut queue =
+        play_card_queue_with_energy_on_use(&mut queued_state, card.id, target, energy_on_use)?;
     queued_state
         .piles
         .limbo
@@ -1031,6 +1051,7 @@ fn should_apply_necronomicon(
     state: &CombatState,
     card: &CardInstance,
     definition: &CardDefinition,
+    energy_on_use: i32,
 ) -> SimResult<bool> {
     if definition.card_type != CardType::Attack
         || !state.player.authority.relics.contains(&Relic::Necronomicon)
@@ -1038,12 +1059,12 @@ fn should_apply_necronomicon(
     {
         return Ok(false);
     }
-    // NecronomiconPower.onUseCard requires costForTurn >= 2. X-cost cards keep
+    // Necronomicon.onUseCard requires costForTurn >= 2. X-cost cards keep
     // printed cost -1 (and Infernal Blade may overlay 0-cost-this-turn), so the
     // game uses energyOnUse instead: a 2+ Energy Whirlwind is played twice
     // (FIDL01485 Giant Head 376→340).
     let necronomicon_cost = if definition.cost < 0 {
-        state.player.energy
+        energy_on_use
     } else {
         effective_card_cost(card)?
     };
@@ -5211,10 +5232,11 @@ fn malaise_queue(
     card_id: CardId,
     target: MonsterId,
     card: CardInstance,
+    energy_on_use: i32,
 ) -> SimResult<VecDeque<InternalAction>> {
     // MalaiseAction: X = energyOnUse; +2 Chemical X; +1 if upgraded. If X>0,
     // ApplyPower Strength -X then Weak X; spend energy unless freeToPlayOnce.
-    let mut x = state.player.energy;
+    let mut x = energy_on_use;
     if state.player.authority.relics.contains(&Relic::ChemicalX) {
         x = x.saturating_add(CHEMICAL_X_BONUS_X);
     }
@@ -5227,7 +5249,7 @@ fn malaise_queue(
             amount: if card.free_to_play_once {
                 0
             } else {
-                state.player.energy
+                energy_on_use
             },
         },
     ]);
@@ -5280,8 +5302,9 @@ fn skewer_queue(
     target: MonsterId,
     card: CardInstance,
     definition: &CardDefinition,
+    energy_on_use: i32,
 ) -> SimResult<VecDeque<InternalAction>> {
-    let uses = x_cost_uses_with_chemical_x(state).max(0);
+    let uses = x_cost_uses_with_chemical_x(state, energy_on_use).max(0);
     let damage = required_damage(definition)? + if card.upgrades > 0 { 3 } else { 0 };
     let mut queue = VecDeque::from([
         InternalAction::PlayCard { card_id },
@@ -5289,7 +5312,7 @@ fn skewer_queue(
             amount: if card.free_to_play_once {
                 0
             } else {
-                state.player.energy
+                energy_on_use
             },
         },
     ]);
@@ -5480,8 +5503,9 @@ fn whirlwind_queue(
     state: &CombatState,
     card_id: CardId,
     definition: &CardDefinition,
+    energy_on_use: i32,
 ) -> SimResult<VecDeque<InternalAction>> {
-    let x = state.player.energy;
+    let x = energy_on_use;
     let chemical_x_bonus = if state.player.authority.relics.contains(&Relic::ChemicalX) {
         CHEMICAL_X_BONUS_X
     } else {
@@ -5520,22 +5544,23 @@ fn whirlwind_queue(
     Ok(queue)
 }
 
-fn x_cost_uses_with_chemical_x(state: &CombatState) -> i32 {
+fn x_cost_uses_with_chemical_x(state: &CombatState, energy_on_use: i32) -> i32 {
     let chemical_x_bonus = if state.player.authority.relics.contains(&Relic::ChemicalX) {
         CHEMICAL_X_BONUS_X
     } else {
         0
     };
-    state.player.energy + chemical_x_bonus
+    energy_on_use + chemical_x_bonus
 }
 
 fn transmutation_queue(
     state: &CombatState,
     card_id: CardId,
     definition: &CardDefinition,
+    energy_on_use: i32,
 ) -> SimResult<VecDeque<InternalAction>> {
-    let x = state.player.energy;
-    let uses = x_cost_uses_with_chemical_x(state);
+    let x = energy_on_use;
+    let uses = x_cost_uses_with_chemical_x(state, energy_on_use);
 
     // STS removes the played card from hand before MakeTempCardInHandAction
     // resolves (cardInUse / limbo). Generating while Transmutation still occupies

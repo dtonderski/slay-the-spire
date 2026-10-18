@@ -6,6 +6,8 @@ mod defense_actions;
 mod pile_actions;
 mod player_actions;
 #[cfg(test)]
+mod playtop_energy_tests;
+#[cfg(test)]
 mod post_lethal_queue_tests;
 use crate::{
     action::{CardPile, CombatAction, HpLossSource, InternalAction},
@@ -1597,7 +1599,8 @@ fn apply_internal_action_with_defer(
             defense_actions::gain_precomputed_player_card_block(state, amount)
         }
         InternalAction::GainBlockDirect { amount }
-        | InternalAction::GainStackBlock { amount, .. } => {
+        | InternalAction::GainStackBlock { amount, .. }
+        | InternalAction::GainBlockFromShuffle { amount } => {
             defense_actions::gain_player_block_direct(state, amount)
         }
         InternalAction::GainBlockFromPotion { amount } => {
@@ -2108,7 +2111,8 @@ fn apply_internal_action_with_defer(
             card_id,
             target,
             exhaust_played_card,
-        } => resolve_top_draw_card(state, card_id, target, exhaust_played_card),
+            energy_on_use,
+        } => resolve_top_draw_card(state, card_id, target, exhaust_played_card, energy_on_use),
         InternalAction::EndPlayTopCardResolution {
             card_id,
             deferred_destination,
@@ -3421,31 +3425,6 @@ pub(crate) fn player_draw_cards_without_evolve(
     })
 }
 
-pub(crate) fn player_shuffle_discard_into_draw(state: &mut CombatState) -> SimResult<()> {
-    let follow_ups = crate::combat::draw::shuffle_discard_into_draw_with_combat_rng(state)?;
-    apply_shuffle_relic_follow_ups(state, follow_ups)
-}
-
-fn apply_shuffle_relic_follow_ups(
-    state: &mut CombatState,
-    follow_ups: Vec<InternalAction>,
-) -> SimResult<()> {
-    for follow_up in follow_ups {
-        match follow_up {
-            InternalAction::GainBlockDirect { amount } => {
-                apply_player_direct_block_gain(state, amount)?;
-            }
-            InternalAction::GainEnergy { amount } => {
-                player_actions::gain_energy(state, amount)?;
-            }
-            _ => {
-                return Err(SimError::InvalidState("unexpected shuffle relic follow-up"));
-            }
-        }
-    }
-    Ok(())
-}
-
 fn hand_contains_attack(state: &CombatState) -> bool {
     state.piles.hand.iter().any(|card| {
         get_card_definition(card.content_id)
@@ -4030,11 +4009,23 @@ fn apply_play_top_draw_card(
         let _ = state.piles.pop_draw_top();
         return Ok(Vec::new());
     }
+    let mut follow_ups = Vec::new();
     if state.piles.draw_pile.is_empty() {
         if state.piles.discard_pile.is_empty() {
             return Ok(Vec::new());
         }
-        player_shuffle_discard_into_draw(state)?;
+        // EmptyDeckShuffleAction's constructor queues relic actions addToBot.
+        // Its addToTop PlayTop retry selects/queues the card before they run.
+        follow_ups.extend(
+            super::draw::shuffle_discard_into_draw_with_combat_rng(state)?
+                .into_iter()
+                .map(|action| match action {
+                    InternalAction::GainBlockDirect { amount } => {
+                        InternalAction::GainBlockFromShuffle { amount }
+                    }
+                    action => action,
+                }),
+        );
     }
 
     let card = state
@@ -4060,11 +4051,13 @@ fn apply_play_top_draw_card(
     // that card queue is serviced, so retain the card in limbo until the
     // deterministic ResolveTopDrawCard handoff.
     state.piles.limbo.push(card);
-    Ok(vec![InternalAction::ResolveTopDrawCard {
+    follow_ups.push(InternalAction::ResolveTopDrawCard {
         card_id: selected_card_id,
         target,
         exhaust_played_card,
-    }])
+        energy_on_use: Some(state.player.energy),
+    });
+    Ok(follow_ups)
 }
 
 fn resolve_top_draw_card(
@@ -4072,6 +4065,7 @@ fn resolve_top_draw_card(
     card_id: CardId,
     target: Option<MonsterId>,
     exhaust_played_card: bool,
+    energy_on_use: Option<i32>,
 ) -> SimResult<Vec<InternalAction>> {
     let limbo_index = state
         .piles
@@ -4220,8 +4214,22 @@ fn resolve_top_draw_card(
     let previous_in_use = state.card_in_use;
     let previous_play_top_force_exhaust = state.play_top_force_exhaust_active;
     state.play_top_force_exhaust_active = exhaust_played_card;
-    let (mut queued_state, queue) =
-        card_effects::play_top_draw_card_queue(state, card, target, exhaust_played_card)?;
+    let energy_on_use = match energy_on_use {
+        Some(energy) if energy >= 0 => energy,
+        None if definition.cost >= 0 => state.player.energy,
+        _ => {
+            return Err(SimError::InvalidState(
+                "queued X-cost play lacks valid energyOnUse",
+            ))
+        }
+    };
+    let (mut queued_state, queue) = card_effects::play_top_draw_card_queue(
+        state,
+        card,
+        target,
+        exhaust_played_card,
+        energy_on_use,
+    )?;
     // play_top_draw_card_queue clones CombatState; preserve the force-exhaust
     // marker so nested Dual Wield await can see Havoc's exhaustOnUseOnce.
     queued_state.play_top_force_exhaust_active =
@@ -8140,8 +8148,9 @@ mod tests {
         ];
         let counter_before = state.rng.card_random_rng.counter();
 
-        let (mut queued, queue) = card_effects::play_top_draw_card_queue(&state, card, None, false)
-            .expect("deferred Mayhem Slimed queue");
+        let (mut queued, queue) =
+            card_effects::play_top_draw_card_queue(&state, card, None, false, state.player.energy)
+                .expect("deferred Mayhem Slimed queue");
         assert_eq!(queued.rng.card_random_rng.counter(), counter_before);
         assert_eq!(queued.defer_strange_spoon_until_source_move, vec![card.id]);
         assert!(queue.iter().any(|action| {
