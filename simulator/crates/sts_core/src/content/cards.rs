@@ -108,6 +108,8 @@ pub const CRIPPLING_CLOUD_ANY_COLOR_ID: ContentId = ContentId::new(947_366_816_1
 pub const RIP_AND_TEAR_ANY_COLOR_ID: ContentId = ContentId::new(2_145_526_024_458_497_736);
 /// Prismatic/Silent Quick Slash — id matches `shop_card_content_id("QUICK_SLASH")`.
 pub const QUICK_SLASH_ANY_COLOR_ID: ContentId = ContentId::new(68_701_432_881_508_035);
+/// Silent Flying Knee, retaining the existing any-color pool identity.
+pub const FLYING_KNEE_ANY_COLOR_ID: ContentId = ContentId::new(59_461_378_444_032_843);
 /// Prismatic/Watcher Nirvana — id matches `shop_card_content_id("NIRVANA")`.
 pub const NIRVANA_ANY_COLOR_ID: ContentId = ContentId::new(71_393_571_437);
 /// Prismatic/Silent Deadly Poison — id matches `shop_card_content_id("DEADLY_POISON")`.
@@ -5308,6 +5310,7 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | CRIPPLING_CLOUD_ANY_COLOR_ID
             | RIP_AND_TEAR_ANY_COLOR_ID
             | QUICK_SLASH_ANY_COLOR_ID
+            | FLYING_KNEE_ANY_COLOR_ID
             | NIRVANA_ANY_COLOR_ID
             | DEADLY_POISON_ANY_COLOR_ID
             | UNLOAD_ANY_COLOR_ID
@@ -5376,6 +5379,23 @@ pub static SKIM_ANY_COLOR: CardDefinition = CardDefinition {
         retain: false,
         unplayable: false,
     },
+};
+
+pub static FLYING_KNEE_ANY_COLOR: CardDefinition = CardDefinition {
+    id: FLYING_KNEE_ANY_COLOR_ID,
+    key: "FLYING_KNEE",
+    name: "Flying Knee",
+    cost: 1,
+    card_type: CardType::Attack,
+    rarity: Some(CardRarity::Common),
+    upgrade: None,
+    target: TargetRequirement::Enemy,
+    values: CardValues {
+        damage: Some(8),
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CARD_KEYWORDS_NONE,
 };
 
 pub static EXPERTISE_ANY_COLOR: CardDefinition = CardDefinition {
@@ -6753,6 +6773,7 @@ pub static EXTRA_PUBLIC_CARD_DEFINITIONS: &[CardDefinition] = &[
     CRIPPLING_CLOUD_ANY_COLOR,
     RIP_AND_TEAR_ANY_COLOR,
     QUICK_SLASH_ANY_COLOR,
+    FLYING_KNEE_ANY_COLOR,
     NIRVANA_ANY_COLOR,
     DEADLY_POISON_ANY_COLOR,
     UNLOAD_ANY_COLOR,
@@ -7132,7 +7153,7 @@ mod tests {
     fn upgrade_card_instance_tracks_synthetic_pool_card_upgrades() {
         // Prismatic shard any-color cards use stable synthetic content ids
         // without a CardDefinition / upgrade ContentId pair.
-        let synthetic = crate::content::shop_pool::shop_card_content_id("FLYING_KNEE");
+        let synthetic = crate::content::shop_pool::shop_card_content_id("DODGE_AND_ROLL");
         assert!(get_card_definition(synthetic).is_none());
         let base = CardInstance::new(CardId::new(1), synthetic);
         let upgraded = upgrade_card_instance(base)

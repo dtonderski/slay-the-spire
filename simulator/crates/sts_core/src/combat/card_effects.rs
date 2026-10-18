@@ -582,6 +582,9 @@ pub(super) fn play_card_queue_in_place(
         CRIPPLING_CLOUD_ANY_COLOR_ID => crippling_cloud_queue(state, card_id, *card, definition),
         RIP_AND_TEAR_ANY_COLOR_ID => rip_and_tear_queue(state, card_id, *card, definition),
         QUICK_SLASH_ANY_COLOR_ID => quick_slash_queue(card_id, target, *card, definition),
+        id if id == crate::content::cards::FLYING_KNEE_ANY_COLOR_ID => {
+            flying_knee_queue(card_id, target, *card, definition)
+        }
         NIRVANA_ANY_COLOR_ID => nirvana_queue(card_id, *card),
         DEADLY_POISON_ANY_COLOR_ID => deadly_poison_queue(card_id, target, *card, definition),
         UNLOAD_ANY_COLOR_ID => unload_queue(card_id, target, *card, definition),
@@ -3049,6 +3052,34 @@ fn nirvana_queue(card_id: CardId, card: CardInstance) -> SimResult<VecDeque<Inte
         InternalAction::RemoveCard {
             card_id,
             from: CardPile::Hand,
+        },
+    ]))
+}
+
+fn flying_knee_queue(
+    card_id: CardId,
+    target: Option<MonsterId>,
+    card: CardInstance,
+    definition: &CardDefinition,
+) -> SimResult<VecDeque<InternalAction>> {
+    let target = target.ok_or(SimError::IllegalAction("Flying Knee requires a target"))?;
+    // FlyingKnee.use addToBots damage, then ApplyPowerAction(EnergizedPower).
+    // Do not apply the power eagerly: lethal damage clears that queued action.
+    Ok(VecDeque::from([
+        InternalAction::PlayCard { card_id },
+        InternalAction::SpendCardEnergy { card_id },
+        InternalAction::DealDamage {
+            info: DamageInfo {
+                source: DamageSource::Card(card_id),
+                target,
+                amount: required_damage(definition)? + 3 * i32::from(card.upgrades > 0),
+            },
+        },
+        InternalAction::ApplyEnergized { amount: 1 },
+        InternalAction::MoveCard {
+            card_id,
+            from: CardPile::Hand,
+            to: card_move_destination(definition),
         },
     ]))
 }

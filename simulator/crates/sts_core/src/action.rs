@@ -365,6 +365,10 @@ pub enum InternalAction {
     GainEnergy {
         amount: i32,
     },
+    /// ApplyPowerAction(EnergizedPower): gain this amount at the next turn start.
+    ApplyEnergized {
+        amount: i32,
+    },
     /// GainEnergyAction queued by Energy Potion, retaining its overflow error.
     GainEnergyFromPotion {
         amount: i32,
