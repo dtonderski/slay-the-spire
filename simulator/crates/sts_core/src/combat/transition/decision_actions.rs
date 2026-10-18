@@ -426,9 +426,9 @@ pub(super) fn await_discard_select(
             return Ok(Vec::new());
         }
         if state.monsters.iter().all(|monster| {
-            !monster.alive
-                && !crate::content::monsters::awakened_one_is_half_dead(monster)
-                && !(monster.content_id == crate::content::monsters::DARKLING_ID && monster.escaped)
+            !(monster.alive
+                || crate::content::monsters::awakened_one_is_half_dead(monster)
+                || monster.content_id == crate::content::monsters::DARKLING_ID && monster.escaped)
         }) {
             super::settle_headbutt_source_after_discard_select(state, source_card, force_exhaust)?;
             state.play_top_force_exhaust_active = false;
@@ -539,9 +539,9 @@ pub(super) fn await_copied_discard_select(
     }
     if state.piles.discard_pile.is_empty()
         || state.monsters.iter().all(|monster| {
-            !monster.alive
-                && !crate::content::monsters::awakened_one_is_half_dead(monster)
-                && !(monster.content_id == crate::content::monsters::DARKLING_ID && monster.escaped)
+            !(monster.alive
+                || crate::content::monsters::awakened_one_is_half_dead(monster)
+                || monster.content_id == crate::content::monsters::DARKLING_ID && monster.escaped)
         })
     {
         return Ok(Vec::new());
