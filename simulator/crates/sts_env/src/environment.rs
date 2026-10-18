@@ -614,7 +614,7 @@ mod tests {
         // Retain the content-level guard instead of fabricating a card cost.
         env.state.deck.push(CardInstance::new(
             CardId::new(101),
-            shop_card_content_id("FLYING_KNEE"),
+            shop_card_content_id("DODGE_AND_ROLL"),
         ));
         assert_eq!(env.decision(), Err(FairError::DecisionUnavailable));
     }
