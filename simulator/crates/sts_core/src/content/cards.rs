@@ -168,6 +168,8 @@ pub const STEAM_BARRIER_ANY_COLOR_ID: ContentId = ContentId::new(12_228_432_166_
 pub const STACK_ANY_COLOR_ID: ContentId = ContentId::new(79_219_904);
 /// Silent Distraction; preserves shop_card_content_id("DISTRACTION").
 pub const DISTRACTION_ANY_COLOR_ID: ContentId = ContentId::new(57_737_991_648_764_666);
+/// Defect Tempest; preserves shop_card_content_id("TEMPEST").
+pub const TEMPEST_ANY_COLOR_ID: ContentId = ContentId::new(76_599_284_586);
 /// Curse granted by [crate::relic::Relic::Necronomicon] on equip. Unpurgeable.
 pub const NECRONOMICURSE_ID: ContentId = ContentId::new(74);
 pub const ETHEREAL_STRIKE_ID: ContentId = ContentId::new(8);
@@ -5346,6 +5348,7 @@ pub fn is_synthetic_any_color_content_id(id: ContentId) -> bool {
             | STEAM_BARRIER_ANY_COLOR_ID
             | STACK_ANY_COLOR_ID
             | DISTRACTION_ANY_COLOR_ID
+            | TEMPEST_ANY_COLOR_ID
     ) || (get_card_definition(id).is_none()
         && crate::run::reward::any_color_reward_card_key(id).is_some())
 }
@@ -6662,6 +6665,26 @@ pub static STORM_OF_STEEL_ANY_COLOR: CardDefinition = CardDefinition {
     keywords: CARD_KEYWORDS_NONE,
 };
 
+pub static TEMPEST_ANY_COLOR: CardDefinition = CardDefinition {
+    id: TEMPEST_ANY_COLOR_ID,
+    key: "TEMPEST",
+    name: "Tempest",
+    cost: -1,
+    card_type: CardType::Skill,
+    rarity: Some(CardRarity::Uncommon),
+    upgrade: None,
+    target: TargetRequirement::None,
+    values: CardValues {
+        damage: None,
+        block: None,
+        vulnerable: None,
+    },
+    keywords: CardKeywords {
+        exhaust: true,
+        ..CARD_KEYWORDS_NONE
+    },
+};
+
 pub static STEAM_BARRIER_ANY_COLOR: CardDefinition = CardDefinition {
     id: STEAM_BARRIER_ANY_COLOR_ID,
     key: "STEAM_BARRIER",
@@ -6868,6 +6891,7 @@ pub static EXTRA_PUBLIC_CARD_DEFINITIONS: &[CardDefinition] = &[
     STEAM_BARRIER_ANY_COLOR,
     STACK_ANY_COLOR,
     DISTRACTION_ANY_COLOR,
+    TEMPEST_ANY_COLOR,
 ];
 
 pub fn public_card_definitions() -> impl Iterator<Item = &'static CardDefinition> {

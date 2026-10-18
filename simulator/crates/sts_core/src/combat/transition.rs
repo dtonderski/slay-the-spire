@@ -9,6 +9,8 @@ mod player_actions;
 mod playtop_energy_tests;
 #[cfg(test)]
 mod post_lethal_queue_tests;
+#[cfg(test)]
+mod tempest_tests;
 use crate::{
     action::{CardPile, CombatAction, HpLossSource, InternalAction},
     card::{CardType, TargetRequirement},
@@ -291,7 +293,12 @@ fn apply_play_card(
 fn is_post_lethal_cancelled_action(action: &InternalAction) -> bool {
     matches!(
         action,
-        InternalAction::DrawCards { .. }
+        InternalAction::ResolveTempest { .. }
+            // ChannelAction has no DAMAGE type; queued channels are cleared.
+            | InternalAction::ChannelLightning
+            | InternalAction::ChannelFrost
+            | InternalAction::ChannelDark
+            | InternalAction::DrawCards { .. }
             | InternalAction::DrawCardsWithoutEvolve { .. }
             | InternalAction::DrawCardsWhilePlayedCardIsInLimbo { .. }
             | InternalAction::DrawCardsWhilePlayedCardIsInLimboWithoutEvolve { .. }
@@ -1129,13 +1136,14 @@ fn push_follow_up(
             ..
         }
     ) {
-        // Expertise.use has already queued ExpertiseAction when Pain's
-        // triggerOnOtherCardPlayed addToTop's its loss. Its HP-loss draws must
-        // finish before ExpertiseAction measures the live hand.
-        if let Some(index) = queue
-            .iter()
-            .position(|action| matches!(action, InternalAction::ResolveExpertise { .. }))
-        {
+        // Pain addToTop and its direct HP-loss draws precede the already-queued
+        // Expertise/Tempest wrapper: measure the hand/spend live energy later.
+        if let Some(index) = queue.iter().position(|action| {
+            matches!(
+                action,
+                InternalAction::ResolveExpertise { .. } | InternalAction::ResolveTempest { .. }
+            )
+        }) {
             queue.insert(index, follow_up);
             return;
         }
@@ -1990,6 +1998,11 @@ fn apply_internal_action_with_defer(
             player_actions::increase_max_orbs(state, amount)
         }
         InternalAction::RecurseRightmostOrb => player_actions::recurse_rightmost_orb(state),
+        InternalAction::ResolveTempest {
+            energy_on_use,
+            upgraded,
+            free_to_play_once,
+        } => player_actions::resolve_tempest(state, energy_on_use, upgraded, free_to_play_once),
         InternalAction::ChannelLightning => player_actions::channel_lightning(state),
         InternalAction::ChannelFrost => player_actions::channel_frost(state),
         InternalAction::ChannelDark => player_actions::channel_dark(state),
