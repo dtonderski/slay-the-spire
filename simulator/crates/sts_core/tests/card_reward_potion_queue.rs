@@ -45,6 +45,20 @@ fn drink(run: &RunState) -> RunState {
 fn choose(run: &RunState) -> RunState {
     step(run, RunAction::ChooseCombatCardReward { index: 0 })
 }
+fn counter_after_attack_retrieval(opened: &RunState) -> u32 {
+    let mut rng = opened.combat.as_ref().unwrap().rng.card_random_rng.clone();
+    let delta = 1.0_f32 / 60.0_f32;
+    let mut duration = 0.25_f32 - delta;
+    while duration >= 0.0 {
+        let _ = sts_core::content::shop_pool::discovery_card_choices(
+            &mut rng,
+            sts_core::adapter_internals::CardType::Attack,
+            3,
+        );
+        duration -= delta;
+    }
+    rng.counter()
+}
 fn potion_offer(hand: u64, potion: Potion) -> RunState {
     drink(&setup(vec![], hand, vec![Potion::Attack, potion]))
 }
@@ -85,7 +99,7 @@ fn potion_reward_snecko_waits_and_randomizes_selected_card_too() {
     assert!(c.piles.hand.iter().all(|card| card.temp_cost.is_some()));
     assert_eq!(
         selected.card_random_rng_counter,
-        opened.card_random_rng_counter + 10
+        counter_after_attack_retrieval(&opened) + 10
     );
     assert_eq!(
         selected.card_random_rng_counter,
@@ -139,7 +153,7 @@ fn two_queued_potions_preserve_draw_then_randomization_order() {
     assert!(c.piles.hand.iter().all(|card| card.temp_cost.is_some()));
     assert_eq!(
         selected.card_random_rng_counter,
-        opened.card_random_rng_counter + 10
+        counter_after_attack_retrieval(&opened) + 10
     );
 }
 #[test]

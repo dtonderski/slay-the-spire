@@ -1,5 +1,5 @@
 use crate::{
-    card::{CardInstance, TargetRequirement},
+    card::{CardInstance, CardType, TargetRequirement},
     combat::damage::deal_unmodified_damage_to_monster,
     combat::transition::{
         apply_monster_death_hooks, choose_discard_select, choose_draw_select,
@@ -16,7 +16,10 @@ use crate::{
     },
     content::cards::upgrade_card_instance,
     content::monsters::wake_lagavulin_on_damage,
-    content::shop_pool::burn_all_discovery_card_choice_generations,
+    content::shop_pool::{
+        burn_all_discovery_card_choice_generations,
+        burn_colorless_discovery_card_choice_generations, burn_discovery_card_choice_generations,
+    },
     ids::{CardId, MonsterId},
     map::RoomKind,
     potion::{
@@ -785,9 +788,10 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
         match decision {
             CombatDecisionState::PotionCardReward {
                 choices,
-                reward_kind: _,
+                reward_kind,
                 pending_actions,
             } => {
+                finish_potion_discovery_generations(combat, reward_kind);
                 let card_id = CardId::new(combat.next_card_instance_id()?);
                 let choice = choices[index];
                 let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
@@ -926,8 +930,11 @@ pub(crate) fn apply_validated_combat_card_reward_skip_owned(
     let combat = next.combat.as_mut().expect("validated combat");
     match combat.decision.take() {
         Some(CombatDecisionState::PotionCardReward {
-            pending_actions, ..
+            reward_kind,
+            pending_actions,
+            ..
         }) => {
+            finish_potion_discovery_generations(combat, reward_kind);
             settle_card_reward_potion_actions(combat, pending_actions)?;
             next.card_random_rng_counter = combat.rng.card_random_rng.counter();
             combat.activate_next_queued_decision_if_idle();
@@ -965,6 +972,27 @@ pub(crate) fn apply_validated_combat_card_reward_skip_owned(
             ))
         }
     }
+}
+
+fn finish_potion_discovery_generations(combat: &mut CombatState, kind: PotionCardRewardKind) {
+    // Potions use the same DiscoveryAction update/duration loop as the card.
+    // Extend its existing collection.2 fixed-tick rule to the matching typed
+    // or colorless source pool. Never regenerate/rebind the displayed offer.
+    let rng = &mut combat.rng.card_random_rng;
+    let card_type = match kind {
+        PotionCardRewardKind::Attack => CardType::Attack,
+        PotionCardRewardKind::Skill => CardType::Skill,
+        PotionCardRewardKind::Power => CardType::Power,
+        PotionCardRewardKind::Colorless => {
+            burn_colorless_discovery_card_choice_generations(
+                rng,
+                3,
+                DISCOVERY_POST_SELECT_GENERATIONS,
+            );
+            return;
+        }
+    };
+    burn_discovery_card_choice_generations(rng, card_type, 3, DISCOVERY_POST_SELECT_GENERATIONS);
 }
 
 fn resume_nilry_end_turn_if_idle_owned(mut next: RunState) -> SimResult<RunState> {
@@ -2921,7 +2949,12 @@ mod tests {
             pending_actions: Default::default(),
         });
         combat.rng.card_random_rng = StsRng::new(123);
-        let rng_counter_before = combat.rng.card_random_rng.counter();
+        let mut expected_rng = combat.rng.card_random_rng.clone();
+        burn_colorless_discovery_card_choice_generations(
+            &mut expected_rng,
+            3,
+            DISCOVERY_POST_SELECT_GENERATIONS,
+        );
 
         let next = apply_combat_card_reward_choice(&run, 0).expect("potion card choice");
         let combat = next.combat.expect("combat remains open");
@@ -2936,9 +2969,9 @@ mod tests {
         );
         assert_eq!(hand.last().map(|card| card.id), Some(chosen_id));
         assert_eq!(
-            combat.rng.card_random_rng.counter(),
-            rng_counter_before,
-            "selecting an already-generated potion reward consumes no cardRandomRng"
+            serde_json::to_value(&combat.rng.card_random_rng).unwrap(),
+            serde_json::to_value(&expected_rng).unwrap(),
+            "retrieval keeps the selected offer but completes DiscoveryAction's ignored generations"
         );
     }
 

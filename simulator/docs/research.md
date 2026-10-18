@@ -95,6 +95,15 @@ post-lethal end-turn hand/power window (QLFB00042 step1450 has Decay in hand).
 This is point-in-time queued-action classification, not an HP/timing correction
 or a perpetual veto on actions appended after that clear.
 
+DiscoveryAction generates a fresh local three-card list before every duration
+branch, even on retrieval/tail updates where that list is unused. Under the
+already-supported collection.2 fixed60Hz action profile, ACTION_DUR_FAST=.25f
+requires16 float-subtraction ticks: opening plus15 more generations. Typed and
+colorless potion choices/skips must finish that same source-pool consumption as
+the Discovery card, before queued draws/offers. Do not rebind the visible offer,
+fit a draw count to later RNG outcomes, or claim this count for variable-FPS
+vanilla. QLFD00047 Potion176/CHOOSE177 -> Wild Strike183 exposes the omission.
+
 ## Map and encounter generation
 
 Target bytecode establishes:
