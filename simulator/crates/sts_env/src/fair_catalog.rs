@@ -268,6 +268,7 @@ const FAIR_STATIC_POWER_KEYS: &[&str] = &[
     "lose_dexterity",
     "lose_strength",
     "magnetism",
+    "master_reality",
     "malleable",
     "mantra",
     "mark",

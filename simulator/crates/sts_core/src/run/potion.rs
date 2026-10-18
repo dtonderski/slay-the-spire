@@ -822,6 +822,9 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
                 let choice = choices[index];
                 let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
                 card.temp_cost_turn_only = true;
+                card = crate::combat::transition::upgrade_created_card_for_master_reality(
+                    combat, card,
+                )?;
                 // CommunicationMod exposes potion-generated cards after the cards that
                 // were already in hand, unlike Toolbox and Discovery rewards.
                 combat.piles.hand.push(card);
@@ -856,6 +859,9 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
                 ) {
                     card.blood_for_blood_cost_reduction = combat.player.damage_events_this_combat;
                 }
+                card = crate::combat::transition::upgrade_created_card_for_master_reality(
+                    combat, card,
+                )?;
                 if combat.piles.hand.len() < crate::combat::draw::MAX_HAND_SIZE {
                     combat.piles.hand.push(card);
                 } else {
@@ -893,6 +899,9 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
                 let mut card = CardInstance::combat_generated(card_id, choice.content_id, 0);
                 card.temp_cost_turn_only = true;
                 // DiscoveryAction adds the generated card after the cards already in hand.
+                card = crate::combat::transition::upgrade_created_card_for_master_reality(
+                    combat, card,
+                )?;
                 combat.piles.hand.push(card);
                 // card.use() follow-ups queued behind DiscoveryAction (for example
                 // Hex's Dazed insertion) resolve after the selected card is
@@ -914,13 +923,14 @@ pub(crate) fn apply_validated_combat_card_reward_choice_owned(
             } => {
                 let choice = choices[index];
                 let card_id = CardId::new(combat.next_card_instance_id()?);
-                combat.piles.hand.insert(
-                    0,
-                    CardInstance {
-                        combat_only: true,
-                        ..CardInstance::new(card_id, choice.content_id)
-                    },
-                );
+                let card = CardInstance {
+                    combat_only: true,
+                    ..CardInstance::new(card_id, choice.content_id)
+                };
+                let card = crate::combat::transition::upgrade_created_card_for_master_reality(
+                    combat, card,
+                )?;
+                combat.piles.hand.insert(0, card);
                 next.card_random_rng_counter = combat.rng.card_random_rng.counter();
                 crate::relic::settle_pending_opening_combat_actions(combat)?;
                 crate::relic::settle_pending_start_of_turn_relic_actions(combat)?;

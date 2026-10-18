@@ -49,6 +49,9 @@ pub struct PlayerPowers {
     /// DrawCardNextTurnPower (native ID "Draw Card"), priority20 post-draw.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub draw_card: i32,
+    /// MasterRealityPower is a nonstacking presence marker (native amount -1).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub master_reality: bool,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub evolve: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]

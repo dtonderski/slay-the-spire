@@ -483,6 +483,7 @@ pub enum InternalAction {
     GainCorruption {
         amount: i32,
     },
+    GainMasterReality,
     /// Enter Watcher Divinity stance (triple attack damage).
     EnterDivinity,
     /// Blasphemy EndTurnDeathPower — die at end of this turn.

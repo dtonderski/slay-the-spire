@@ -26,6 +26,8 @@ mod choice_contract_tests;
 #[cfg(test)]
 mod foreign_influence_tests;
 #[cfg(test)]
+mod master_reality_tests;
+#[cfg(test)]
 mod next_turn_power_tests;
 mod replay;
 
@@ -821,6 +823,7 @@ fn seed_start_combat_observed_subset(message: &Value) -> Value {
         "combat_player_vulnerable": power_amount(player.and_then(|p| p.get("powers")), "Vulnerable"),
         "combat_player_artifact": power_amount(player.and_then(|p| p.get("powers")), "Artifact"),
         "combat_player_draw_card": power_amount(player.and_then(|p| p.get("powers")), "Draw Card"),
+        "combat_player_master_reality": power_present(player.and_then(|p| p.get("powers")), "MasterRealityPower"),
         "combat_player_energized": i64::from(power_amount(player.and_then(|p| p.get("powers")), "Energized")) + i64::from(power_amount(player.and_then(|p| p.get("powers")), "EnergizedBlue")),
         "hand_ids": combat_card_ids(combat.and_then(|combat| combat.get("hand"))),
         "draw_ids": combat_card_ids(combat.and_then(|combat| combat.get("draw_pile"))),
@@ -1122,6 +1125,14 @@ fn draw_pile_to_comm_mod_visible_order(cards: &[CardInstance]) -> Vec<String> {
 
 fn discard_pile_to_comm_mod_visible_order(cards: &[CardInstance]) -> Vec<String> {
     cards_to_comm_mod_visible_order(cards.iter())
+}
+
+fn power_present(value: Option<&Value>, id: &str) -> bool {
+    value.and_then(Value::as_array).is_some_and(|powers| {
+        powers
+            .iter()
+            .any(|p| p.get("id").and_then(Value::as_str) == Some(id))
+    })
 }
 
 fn power_amount(value: Option<&Value>, id: &str) -> i32 {
@@ -2344,6 +2355,7 @@ fn seed_start_simulated_combat_subset(run: &RunState) -> Value {
             "combat_player_vulnerable": 0,
             "combat_player_artifact": 0,
             "combat_player_draw_card": 0,
+            "combat_player_master_reality": false,
             "combat_player_energized": 0,
             "hand_ids": Vec::<String>::new(),
             "draw_ids": Vec::<String>::new(),
@@ -2378,6 +2390,7 @@ fn seed_start_simulated_combat_subset(run: &RunState) -> Value {
         "combat_player_vulnerable": combat.player.powers.vulnerable,
         "combat_player_artifact": combat.player.powers.artifact,
         "combat_player_draw_card": combat.player.powers.draw_card,
+        "combat_player_master_reality": combat.player.powers.master_reality,
         "combat_player_energized": combat.player.energy_next_turn,
         "hand_ids": cards_to_comm_mod_visible_order(
             combat

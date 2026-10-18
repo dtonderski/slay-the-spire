@@ -259,6 +259,7 @@ pub(super) fn add_generated_upgraded_card(
 ) -> SimResult<Vec<InternalAction>> {
     let mut card = super::make_generated_card(state, content_id)?;
     card.upgrades = 1;
+    card = super::upgrade_created_card_for_master_reality(state, card)?;
     let destination =
         if to == CardPile::Hand && state.piles.hand.len() >= crate::combat::draw::MAX_HAND_SIZE {
             CardPile::DiscardPile
@@ -320,6 +321,7 @@ pub(super) fn add_card_instance_to_hand_or_discard(
     state: &mut CombatState,
     card: CardInstance,
 ) -> SimResult<Vec<InternalAction>> {
+    let card = super::upgrade_created_card_for_master_reality(state, card)?;
     if state.piles.hand.len() < crate::combat::draw::MAX_HAND_SIZE {
         state.piles.hand.push(card);
     } else {
