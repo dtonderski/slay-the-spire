@@ -637,6 +637,7 @@ fn project_player_powers(combat: &CombatState) -> Result<Vec<FairPower>, FairObs
         .ok_or(FairObservationError::InvalidAuthoritativeState)?;
     let mut result = Vec::new();
     push_player_power_fields(&mut result, powers);
+    push_power(&mut result, "energized", combat.player.energy_next_turn);
     push_power(&mut result, "lose_strength", combat.player.temp_strength);
     push_power(&mut result, "lose_dexterity", combat.player.temp_dexterity);
     push_power(&mut result, "temporary_thorns", combat.player.temp_thorns);
@@ -680,6 +681,7 @@ fn push_player_power_fields(result: &mut Vec<FairPower>, p: PlayerPowers) {
         ("dark_embrace", p.dark_embrace),
         ("barricade", p.barricade),
         ("blur", p.blur),
+        ("draw_card", p.draw_card),
         ("evolve", p.evolve),
         ("berserk", p.berserk),
         ("fasting", p.fasting),
@@ -1504,6 +1506,23 @@ mod tests {
             key: "restore_strength".to_owned(),
             amount: 3,
         }));
+    }
+
+    #[test]
+    fn next_turn_buffs_are_public_powers_without_mutating_rng() {
+        let mut run = RunState::combat_fixture();
+        let combat = run.combat.as_mut().unwrap();
+        combat.player.powers.draw_card = 4;
+        combat.player.energy_next_turn = 3;
+        let before = serde_json::to_value(&run).unwrap();
+        let projected = observation(&run);
+        for (key, amount) in [("draw_card", 4), ("energized", 3)] {
+            assert!(projected.player.powers.contains(&FairPower {
+                key: key.into(),
+                amount
+            }));
+        }
+        assert_eq!(serde_json::to_value(&run).unwrap(), before);
     }
 
     #[test]

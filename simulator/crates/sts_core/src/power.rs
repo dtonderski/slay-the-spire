@@ -46,6 +46,9 @@ pub struct PlayerPowers {
     /// BlurPower: block retention windows; read before queued round-end expiry.
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub blur: i32,
+    /// DrawCardNextTurnPower (native ID "Draw Card"), priority20 post-draw.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub draw_card: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     pub evolve: i32,
     #[serde(default, skip_serializing_if = "is_zero_i32")]

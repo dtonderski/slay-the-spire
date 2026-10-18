@@ -166,6 +166,24 @@ target action/effect lifecycle rather than an observed deck snapshot.
 
 ## Source-backed interaction findings
 
+- `Doppelganger.use` queues `DoppelgangerAction` with captured energyOnUse.
+  The wrapper computes X + Chemical X2 + upgrade1; only a positive effect
+  addToBots Energized and DrawCardNextTurn applications and spends all live
+  energy unless free. Energized caps its amount at999 and its recharge calls
+  capped addEnergy; the draw power retains the full computed amount.
+  Autoplay and copied uses are free, with their original X;
+  original source exhaustion and ordinary power applications precede a copied
+  CardQueueItem. Already-queued wrappers/applications are non-DAMAGE actions
+  removed by point-in-time lethal cleanup, without restoring spent energy.
+  `DrawCardNextTurnPower` (native ID `Draw Card`, priority20) draws after the
+  opening draw and lower-priority post-draw powers, then queues its removal.
+  This is not an increased base draw subject to Draw Reduction. Its on-draw
+  addToBot callbacks follow Mayhem extraction and the base draw callbacks.
+  FIDL01504/1176 is the immutable natural witness; synthetic controls cover
+  copies, Havoc/Sundial, deferred Evolve, No Draw, and snapshots separately.
+  Fair `energized` exposes the existing total next-turn-energy field (native
+  green/blue Energized aggregate); `draw_card` exposes the visible draw buff.
+
 - `Expertise.use` queues `ExpertiseAction(6/7)`, whose update reads the live
   hand size and addToTop's its deficit draw; No Draw suppresses the draw, not
   card legality or cost. The source in cardInUse does not occupy a hand slot.

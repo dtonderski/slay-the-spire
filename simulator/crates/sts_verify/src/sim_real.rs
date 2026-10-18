@@ -23,6 +23,8 @@ use sts_core::adapter_internals::{
 };
 #[cfg(test)]
 mod choice_contract_tests;
+#[cfg(test)]
+mod next_turn_power_tests;
 mod replay;
 
 use replay::{verify_seed_start_transition, SeedStartReplayInputs, StreamingSeedStartReplay};
@@ -816,6 +818,8 @@ fn seed_start_combat_observed_subset(message: &Value) -> Value {
         "combat_player_weak": power_amount(player.and_then(|p| p.get("powers")), "Weakened"),
         "combat_player_vulnerable": power_amount(player.and_then(|p| p.get("powers")), "Vulnerable"),
         "combat_player_artifact": power_amount(player.and_then(|p| p.get("powers")), "Artifact"),
+        "combat_player_draw_card": power_amount(player.and_then(|p| p.get("powers")), "Draw Card"),
+        "combat_player_energized": i64::from(power_amount(player.and_then(|p| p.get("powers")), "Energized")) + i64::from(power_amount(player.and_then(|p| p.get("powers")), "EnergizedBlue")),
         "hand_ids": combat_card_ids(combat.and_then(|combat| combat.get("hand"))),
         "draw_ids": combat_card_ids(combat.and_then(|combat| combat.get("draw_pile"))),
         "discard_ids": combat_card_ids(combat.and_then(|combat| combat.get("discard_pile"))),
@@ -2336,6 +2340,8 @@ fn seed_start_simulated_combat_subset(run: &RunState) -> Value {
             "combat_player_weak": 0,
             "combat_player_vulnerable": 0,
             "combat_player_artifact": 0,
+            "combat_player_draw_card": 0,
+            "combat_player_energized": 0,
             "hand_ids": Vec::<String>::new(),
             "draw_ids": Vec::<String>::new(),
             "discard_ids": Vec::<String>::new(),
@@ -2368,6 +2374,8 @@ fn seed_start_simulated_combat_subset(run: &RunState) -> Value {
         "combat_player_weak": combat.player.powers.weak,
         "combat_player_vulnerable": combat.player.powers.vulnerable,
         "combat_player_artifact": combat.player.powers.artifact,
+        "combat_player_draw_card": combat.player.powers.draw_card,
+        "combat_player_energized": combat.player.energy_next_turn,
         "hand_ids": cards_to_comm_mod_visible_order(
             combat
                 .piles

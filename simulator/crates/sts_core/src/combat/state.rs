@@ -1467,6 +1467,9 @@ impl CombatState {
                 "combat player damage counter is negative",
             ));
         }
+        if self.player.powers.draw_card < 0 {
+            return Err(SimError::InvalidState("next-turn draw power is negative"));
+        }
         if self.player.powers.blur < 0 {
             return Err(SimError::InvalidState("Blur duration is negative"));
         }
