@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod blur_tests;
+#[cfg(test)]
+mod doppelganger_draw_tests;
 
 use std::collections::VecDeque;
 
@@ -880,6 +882,11 @@ fn start_player_turn_in_place(
         state.player.energy = state.player.max_energy;
     }
     state.player.energy = checked_turn_add(state.player.energy, energy_next_turn)?;
+    if energy_next_turn > 0 {
+        // EnergizedPower.onEnergyRecharge -> AbstractPlayer.gainEnergy ->
+        // EnergyPanel.addEnergy; the ordinary no-power setEnergy is uncapped.
+        state.player.energy = state.player.energy.min(999);
+    }
     state.player.cannot_draw = false;
     state.player.no_draw_precedes_combust = false;
     if state.preserve_temp_strength_on_next_start {
@@ -924,7 +931,7 @@ fn start_player_turn_in_place(
     // only then addToBot(PlayTopCardAction). Confusion on the hand draw must
     // see those rolls first (FIDL01474).
     let mayhem_targets = collect_start_of_turn_mayhem_targets(state);
-    let base_draw_follow_ups = draw_next_hand_without_shuffle_deferred(state)?;
+    let mut base_draw_follow_ups = draw_next_hand_without_shuffle_deferred(state)?;
     // Start-of-turn relic GainBlockAction is addToBot before DrawCardAction.
     // Juggernaut onGainedBlock addToBots DamageRandomEnemy behind that draw.
     for block in deferred_start_relic_juggernaut {
@@ -954,10 +961,15 @@ fn start_player_turn_in_place(
     apply_demon_form_strength_post_draw(state)?;
     let brutality_draw_follow_ups = apply_start_of_turn_brutality_post_draw(state)?;
     if state.player.hp > 0 {
+        // DrawCardNextTurnPower has priority20 and atStartOfTurnPostDraw.
+        // Its draw follows Brutality's draw, not that draw's addToBot residuals,
+        // and is not part of the opening draw (or Draw Reduction).
+        let next_turn_draw_follow_ups = apply_draw_card_next_turn_post_draw(state)?;
         crate::combat::transition::resolve_deferred_draw_follow_ups(
             state,
             brutality_draw_follow_ups,
         )?;
+        base_draw_follow_ups.extend(next_turn_draw_follow_ups);
     }
     // Mercury Hourglass was queued before the hand draw. Death callbacks that
     // its DamageAll action appends run behind post-draw relic/power actions but
@@ -1159,6 +1171,25 @@ fn finish_monster_turn_after_player_revival_inner(state: &mut CombatState) -> Si
 
     apply_turn_transition_block_loss(state);
     Ok(())
+}
+
+fn apply_draw_card_next_turn_post_draw(
+    state: &mut CombatState,
+) -> SimResult<Vec<crate::action::InternalAction>> {
+    let amount = usize::try_from(state.player.powers.draw_card)
+        .map_err(|_| SimError::InvalidState("next-turn draw power is negative"))?;
+    if amount == 0 {
+        return Ok(Vec::new());
+    }
+    let follow_ups = if state.player.cannot_draw {
+        Vec::new()
+    } else {
+        crate::combat::transition::player_draw_cards_with_deferred_evolve(state, amount)?
+    };
+    // Native DrawCardAction then RemoveSpecificPowerAction; on-draw addToBot
+    // callbacks remain behind Mayhem extraction and the base draw callbacks.
+    state.player.powers.draw_card = 0;
+    Ok(follow_ups)
 }
 
 fn apply_start_of_turn_brutality_post_draw(

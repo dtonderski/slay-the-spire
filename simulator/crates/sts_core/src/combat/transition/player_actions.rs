@@ -457,6 +457,52 @@ pub(super) fn apply_blur(state: &mut CombatState, amount: i32) -> SimResult<Vec<
     Ok(Vec::new())
 }
 
+pub(super) fn resolve_doppelganger(
+    state: &mut CombatState,
+    energy_on_use: i32,
+    upgraded: bool,
+    free_to_play_once: bool,
+) -> SimResult<Vec<InternalAction>> {
+    if energy_on_use < 0 {
+        return Err(SimError::InvalidState(
+            "Doppelganger energyOnUse is negative",
+        ));
+    }
+    let bonus = i32::from(upgraded)
+        + if state.player.authority.relics.contains(&Relic::ChemicalX) {
+            CHEMICAL_X_BONUS_X
+        } else {
+            0
+        };
+    let amount = energy_on_use
+        .checked_add(bonus)
+        .ok_or(SimError::InvalidState("Doppelganger effect overflows i32"))?;
+    if amount == 0 {
+        return Ok(Vec::new());
+    }
+    if !free_to_play_once {
+        state.player.energy = 0;
+    }
+    // The wrapper addToBots two ApplyPowerActions behind source UseCardAction.
+    Ok(vec![
+        InternalAction::ApplyEnergized { amount },
+        InternalAction::ApplyDrawCardNextTurn { amount },
+    ])
+}
+
+pub(super) fn apply_draw_card_next_turn(
+    state: &mut CombatState,
+    amount: i32,
+) -> SimResult<Vec<InternalAction>> {
+    if amount < 0 {
+        return Err(SimError::InvalidState(
+            "next-turn draw application is negative",
+        ));
+    }
+    checked_add_combat_value(&mut state.player.powers.draw_card, amount)?;
+    Ok(Vec::new())
+}
+
 pub(super) fn resolve_tempest(
     state: &mut CombatState,
     energy_on_use: i32,

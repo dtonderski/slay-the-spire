@@ -245,6 +245,8 @@ const FAIR_STATIC_POWER_KEYS: &[&str] = &[
     "creative_ai",
     "curl_up",
     "dark_embrace",
+    "draw_card",
+    "energized",
     "demon_form",
     "dexterity",
     "double_tap",

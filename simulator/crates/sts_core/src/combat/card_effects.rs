@@ -629,7 +629,7 @@ fn play_card_queue_with_energy_on_use(
         PRESSURE_POINTS_ANY_COLOR_ID => pressure_points_queue(card_id, target, *card, definition),
         EMPTY_MIND_ANY_COLOR_ID => empty_mind_queue(state, card_id, definition),
         TRANQUILITY_ANY_COLOR_ID => tranquility_queue(card_id, definition),
-        DOPPELGANGER_ANY_COLOR_ID => doppelganger_queue(card_id),
+        DOPPELGANGER_ANY_COLOR_ID => doppelganger_queue(card_id, *card, energy_on_use),
         EXPERTISE_ANY_COLOR_ID => expertise_queue(card_id, *card, definition),
         BACKFLIP_ANY_COLOR_ID => backflip_queue(card_id, *card, definition),
         CLOAK_AND_DAGGER_ANY_COLOR_ID => cloak_and_dagger_queue(card_id, definition),
@@ -731,6 +731,9 @@ pub(super) fn play_top_draw_card_queue(
     // wrapper owns its live-energy spending, rather than a SpendEnergy action.
     for action in &mut queue {
         if let InternalAction::ResolveTempest {
+            free_to_play_once, ..
+        }
+        | InternalAction::ResolveDoppelganger {
             free_to_play_once, ..
         } = action
         {
@@ -1436,6 +1439,15 @@ fn is_duplicated_card_effect(action: InternalAction, card_id: CardId) -> bool {
 
 fn duplicated_card_effect(action: InternalAction, card_id: CardId) -> Option<InternalAction> {
     match action {
+        InternalAction::ResolveDoppelganger {
+            energy_on_use,
+            upgraded,
+            ..
+        } => Some(InternalAction::ResolveDoppelganger {
+            energy_on_use,
+            upgraded,
+            free_to_play_once: true,
+        }),
         InternalAction::ResolveTempest {
             energy_on_use,
             upgraded,
@@ -3286,9 +3298,18 @@ fn expertise_queue(
     ]))
 }
 
-fn doppelganger_queue(card_id: CardId) -> SimResult<VecDeque<InternalAction>> {
+fn doppelganger_queue(
+    card_id: CardId,
+    card: CardInstance,
+    energy_on_use: i32,
+) -> SimResult<VecDeque<InternalAction>> {
     Ok(VecDeque::from([
         InternalAction::PlayCard { card_id },
+        InternalAction::ResolveDoppelganger {
+            energy_on_use,
+            upgraded: card.upgrades > 0,
+            free_to_play_once: card.free_to_play_once,
+        },
         InternalAction::MoveCard {
             card_id,
             from: CardPile::Hand,
