@@ -74,6 +74,13 @@ and queues generation before Dark Embrace draws. Inline power-only settlement
 omitted that relic (FIDL00293 step352, plus four current first boundaries).
 A copied use whose source is already exhausted must not retrigger the callback.
 
+`Stack.applyPowers` computes discard size (+3 upgraded), then card block
+modifiers; `use` queues that prepared amount. Later Ink Bottle reshuffles must
+not change it. A card-queue copy applies powers anew before its own on-use hooks,
+so it can count the original Stack in discard. Keep the prepared amount in its
+serialized action, not an observed block or a pile-size estimate at gain time.
+FIDL01243 step827 witnesses the previously unsupported zero-discard use.
+
 ## Map and encounter generation
 
 Target bytecode establishes:
