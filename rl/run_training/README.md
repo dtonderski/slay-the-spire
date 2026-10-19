@@ -86,6 +86,50 @@ shapes, feature/observation and frozen-combat contracts still must match. Ordina
 `--warm-start` still rejects reward/objective changes; exact resume remains strict.
 This option does not restore, repair or transplant simulator states.
 
+### Opt-in key exploration and bounded-action objective
+
+`--objective heart_keys_budget --final-act` keeps the same floor/act/Heart
+components, adds **+0.5 once per first observed key possession**, and subtracts
+**20** if an otherwise valid ongoing run exhausts its declared accepted-action
+budget. Natural starts own no keys; revisiting screens or selecting a burning
+elite route never grants another key bonus. The bonuses accumulate in the single
+MC task return, not as repeated UI payments. Completed non-Heart credit is at most
+10.5, Heart victory with all keys scores 40.5, and an action-limit target is at most
+-9.5. This is a different, explicit bounded-budget training objective, not a claim
+that a truncated game was lost. The legacy objectives above are unchanged.
+
+The collector journals termination reason, actual public game outcome and budget.
+A budget target requires the accepted-action count to exactly equal that budget
+with an ongoing game. A real terminal outcome at the boundary takes precedence.
+Signals, wall-clock stops, invalid boundaries, rejected actions and simulator or
+infrastructure errors never receive this penalty or a partial key target. A stop
+coinciding with budget exhaustion is conservatively recorded as interruption.
+No simulator state is changed, repaired, retried or projected into a made-up death.
+
+Batches of terminal games and genuine budget targets may learn together. A batch
+with any missing target is still quarantined in full. Metrics deliberately
+separate **game completion** from **training-target availability**: action limits
+stay in unknown game outcomes and cutoff counts, not deaths/completed games, even
+when they have a valid task target. Reward means and critic MSE include labelled
+budget returns; `reward/target_samples` exposes their denominator separately from
+`reward/terminal_samples`. Checkpoint selection still prioritizes Heart wins.
+
+`keys.py` measures Ruby recall, Sapphire selection, Emerald pickup, and the
+separate choice of a publicly marked burning-elite destination. It records native
+and policy-eligible opportunities, accepted choices, mean policy probability,
+forced-choice counts and optional-choice rates. No opportunity means an omitted
+rate, not zero preference. Unique `(act, floor)` opportunity/choice counts provide
+a second view less sensitive to menu revisits (not a claim of distinct physical
+rooms). Already-held keys are excluded, proposals count only after acceptance,
+and taking an Emerald route is never reported as acquiring its key. Existing
+observed-possession milestones remain separate. Telemetry draws no RNG and does
+not enter policy features.
+
+Reward changes require a new run identity and explicit policy-only transfer,
+with critic, optimizer and sampler reset. This objective can incentivize early
+death to avoid a timeout or key grabs at the expense of survival; track deaths,
+key-choice rates, Act-4 access and Heart wins, not just shaped return.
+
 ### Metrics: observation versus explanation
 
 - **Outcomes/coverage:** Heart wins, non-Heart Act-3 completions, deaths by act,
@@ -97,7 +141,9 @@ This option does not restore, repair or transplant simulator states.
 - **Efficiency:** collection/update time, episodes and actions per second,
   optimizer updates per wall-clock hour, episodes actually used for learning,
   and completed episodes discarded with incomplete batches. Whole-batch
-  quarantine is unchanged. Same-floor shop re-entries are measured, not forbidden.
+  quarantine is unchanged for episodes lacking a task target. Genuine budget
+  targets are learnable only under the opt-in bounded objective above. Same-floor
+  shop re-entries are measured, not forbidden.
 - **Behavior:** accepted card-taking/closing, purchases, potion use, rest choices,
   and elite entries. A closed card menu is **not** necessarily a skipped reward;
   repeated menus are decision-level observations, not independent opportunities.

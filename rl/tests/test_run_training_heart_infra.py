@@ -247,7 +247,13 @@ class HeartInfraTests(unittest.TestCase):
         self.assertEqual((episode.status, episode.reward), ("heart_clear", 39))
         self.assertEqual(
             rows[-1]["reward_parts"],
-            {"progress": 3, "clear_bonus": 6, "heart_bonus": 30},
+            {
+                "progress": 3,
+                "clear_bonus": 6,
+                "heart_bonus": 30,
+                "key_bonus": 0,
+                "action_limit_penalty": 0,
+            },
         )
         self.assertEqual(rows[0]["reward_protocol"], HEART_REWARD_PROTOCOL)
         cutoff, rows = self.scripted(max_actions=2)

@@ -1,7 +1,8 @@
 """Experimental A0 Monte Carlo actor-critic, invoked only by train.py --task run.
 
-Completed episodes, gamma=1, one on-policy update, fresh run value head. No PPO,
-privileged search, live-state HP mutation, or optimizer step after incomplete collection.
+Settled training-task episodes, gamma=1, one on-policy update, fresh run value head.
+The opt-in keys/budget objective can label an action limit without claiming a game
+loss. No PPO, privileged search, state repair, or updates from interrupted/errors.
 """
 
 import argparse
@@ -38,6 +39,7 @@ from run_training.environment import (
     episode_environment_seed,
     journal_environment_seed,
 )
+from run_training.keys import KEY_CHOICE_PROTOCOL
 from run_training.metrics import behavior_scores
 from run_training.model import (
     FEATURE_VERSION,
@@ -57,12 +59,14 @@ from run_training.rewards import (
     ACT1_BOSS_FLOOR,
     ACT1_CLEAR_BONUS,
     ACT_CLEAR_BONUS,
+    ACTION_LIMIT_PENALTY,
     HEART_CLEAR_BONUS,
     HEART_PROGRESS_FLOOR,
     HEART_PROGRESS_SCALE,
+    KEY_BONUS,
+    game_completed,
     reward_protocol,
     succeeded,
-    terminal_parts,
 )
 from run_training.roots import RootBank, file_hash
 
@@ -197,15 +201,9 @@ def update(
     """Validate a whole batch before backward; recompute from stored public inputs."""
     if not episodes or any(ep.reward is None for ep in episodes):
         raise CollectionFailure(
-            "Incomplete batch: no optimizer update, no cutoff-as-death targets"
+            "Incomplete batch: no optimizer update without settled task targets"
         )
-    if any(
-        ep.reward
-        != terminal_parts(
-            ep.objective, ep.status, ep.furthest_act1_floor, progress=ep.progress
-        ).total
-        for ep in episodes
-    ):
+    if any(ep.reward != ep.reward_parts().total for ep in episodes):
         raise ValueError("Terminal returns must match the declared reward protocol")
     count = sum(len(ep.steps) for ep in episodes)
     optimizer.zero_grad(set_to_none=True)
@@ -378,11 +376,21 @@ def _batched_update(
 
 
 def scores(episodes: list[RunEpisode]) -> dict[str, float]:
-    complete = [ep for ep in episodes if ep.reward is not None]
+    targeted = [ep for ep in episodes if ep.reward is not None]
+    complete = [ep for ep in targeted if game_completed(ep.status)]
     result = {
         "attempts": float(len(episodes)),
         "completed": float(len(complete)),
-        "cutoffs": float(sum(ep.status == "cutoff" for ep in episodes)),
+        "cutoffs": float(
+            sum(ep.status in ("cutoff", "action_limit") for ep in episodes)
+        ),
+        "terminations/action_limit": float(
+            sum(ep.termination_reason == "action_limit" for ep in episodes)
+        ),
+        "terminations/interrupted": float(
+            sum(ep.termination_reason == "interrupted" for ep in episodes)
+        ),
+        "learning_target_episodes": float(len(targeted)),
         "errors": float(sum(ep.status == "error" for ep in episodes)),
         "successes": float(sum(succeeded(ep.objective, ep.status) for ep in complete)),
         "mean_floor": sum(ep.floor for ep in episodes) / max(1, len(episodes)),
@@ -390,6 +398,7 @@ def scores(episodes: list[RunEpisode]) -> dict[str, float]:
         "mean_furthest_act1_floor": sum(ep.furthest_act1_floor for ep in episodes)
         / max(1, len(episodes)),
         "reward/terminal_samples": float(len(complete)),
+        "reward/target_samples": float(len(targeted)),
         **behavior_scores([ep.behavior for ep in episodes]),
         **progress_scores([ep.progress for ep in episodes if ep.progress is not None]),
         **policy_scores(
@@ -405,12 +414,8 @@ def scores(episodes: list[RunEpisode]) -> dict[str, float]:
         result["completed_success_rate"] = sum(
             succeeded(ep.objective, ep.status) for ep in complete
         ) / len(complete)
-        parts = [
-            terminal_parts(
-                ep.objective, ep.status, ep.furthest_act1_floor, progress=ep.progress
-            )
-            for ep in complete
-        ]
+    if targeted:
+        parts = [ep.reward_parts() for ep in targeted]
         result["reward/mean"] = sum(p.total for p in parts) / len(parts)
         result["reward/progress_mean"] = sum(p.progress for p in parts) / len(parts)
         result["reward/clear_bonus_mean"] = sum(p.clear_bonus for p in parts) / len(
@@ -419,9 +424,13 @@ def scores(episodes: list[RunEpisode]) -> dict[str, float]:
         result["reward/heart_bonus_mean"] = sum(p.heart_bonus for p in parts) / len(
             parts
         )
+        result["reward/key_bonus_mean"] = sum(p.key_bonus for p in parts) / len(parts)
+        result["reward/action_limit_penalty_mean"] = sum(
+            p.action_limit_penalty for p in parts
+        ) / len(parts)
     targets = [
         (step.value, ep.reward)
-        for ep in complete
+        for ep in targeted
         if ep.reward is not None
         for step in ep.steps
     ]
@@ -443,6 +452,7 @@ def scores(episodes: list[RunEpisode]) -> dict[str, float]:
         result["outcome/heart_win_lower_bound"] = result["outcome/heart_wins"] / len(
             episodes
         )
+        result["coverage/training_target_rate"] = len(targeted) / len(episodes)
         result["coverage/completion_rate"] = len(complete) / len(episodes)
         result["coverage/unknown_rate"] = 1 - len(complete) / len(episodes)
         result["success_lower_bound"] = sum(
@@ -508,7 +518,14 @@ def parser() -> argparse.ArgumentParser:
     )
     result.add_argument(
         "--objective",
-        choices=("act1", "act1_binary", "act3", "heart", "heart_progress"),
+        choices=(
+            "act1",
+            "act1_binary",
+            "act3",
+            "heart",
+            "heart_progress",
+            "heart_keys_budget",
+        ),
         default="act1",
     )
     result.add_argument(
@@ -671,7 +688,10 @@ def main(argv: list[str] | None = None) -> None:
         not math.isfinite(args.max_hours) or args.max_hours <= 0
     ):
         cli.error("max-hours must be finite and positive")
-    if args.objective in ("heart", "heart_progress") and not args.final_act:
+    if (
+        args.objective in ("heart", "heart_progress", "heart_keys_budget")
+        and not args.final_act
+    ):
         cli.error("Heart objective requires --final-act")
     if args.device == "cuda" and not torch.cuda.is_available():
         cli.error("CUDA unavailable")
@@ -768,13 +788,18 @@ def main(argv: list[str] | None = None) -> None:
             "act_clear_bonus": ACT_CLEAR_BONUS,
             "heart_bonus": HEART_CLEAR_BONUS,
         }
-        if args.objective == "heart_progress"
+        if args.objective in ("heart_progress", "heart_keys_budget")
         else None,
+        key_bonus=KEY_BONUS if args.objective == "heart_keys_budget" else 0.0,
+        action_limit_penalty=ACTION_LIMIT_PENALTY
+        if args.objective == "heart_keys_budget"
+        else None,
+        key_choice_metric_protocol=KEY_CHOICE_PROTOCOL,
         progress_metric_protocol=PROGRESS_PROTOCOL,
         decision_diagnostic_protocol=DIAGNOSTIC_PROTOCOL,
         act1_progress_floor_normalizer=ACT1_BOSS_FLOOR,
         act1_clear_bonus=ACT1_CLEAR_BONUS,
-        behavior_metric_protocol="accepted_behavior_counts_hp_map_shop_reentries_v2",
+        behavior_metric_protocol="accepted_behavior_counts_hp_map_shop_reentries_key_choices_v3",
         torch_version=str(torch.__version__),
         cuda_version=torch.version.cuda,
         combat_execution="frozen sampled FP32 weights-only; all legal candidates retained",
@@ -1177,6 +1202,14 @@ def main(argv: list[str] | None = None) -> None:
                         len(batch) if learned["optimizer_step"] else 0
                     ),
                     completed_episodes_discarded=float(
+                        sum(
+                            ep.reward is not None and game_completed(ep.status)
+                            for ep in batch
+                        )
+                        if incomplete
+                        else 0
+                    ),
+                    target_episodes_discarded=float(
                         sum(ep.reward is not None for ep in batch) if incomplete else 0
                     ),
                 )

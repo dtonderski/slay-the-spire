@@ -1,11 +1,12 @@
 """Public behavior diagnostics only: never model inputs, rewards, or RNG draws."""
 
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from sts_sim import Observation
 
 from run_training.contracts import PolicyAction
+from run_training.keys import KeyChoiceStats, KeyDecision, key_choice_scores
 
 # Half-open intervals except the last: [0,25), [25,50), [50,75), [75,100].
 HP_BANDS = ("hp_00_25", "hp_25_50", "hp_50_75", "hp_75_100")
@@ -37,12 +38,15 @@ class BehaviorStats:
     action_counts: tuple[tuple[str, int], ...] = ()
     shop_floors_seen: tuple[tuple[int, int], ...] = ()
     shop_reentries: int = 0
+    key_choices: KeyChoiceStats = field(default_factory=KeyChoiceStats)
 
     def accepted(
         self,
         observation: Observation,
         action: PolicyAction,
         heal_probability: float | None,
+        *,
+        key_proposal: KeyDecision | None = None,
     ) -> "BehaviorStats":
         """Call only after a successful step, with the PRE-action public observation.
 
@@ -50,7 +54,11 @@ class BehaviorStats:
         Reopening menus can yield multiple rest decisions at one campfire; this is
         deliberately a decision-level rate, not a unique-campfire count.
         """
-        result = self
+        result = (
+            replace(self, key_choices=self.key_choices.accepted(key_proposal))
+            if key_proposal is not None
+            else self
+        )
         if heal_probability is not None:
             if (
                 observation.kind != "rest"
@@ -112,6 +120,7 @@ def behavior_scores(records: list[BehaviorStats]) -> dict[str, float]:
     result = {
         "map/nodes_visited": float(nodes),
         "map/elite_nodes_visited": float(elites),
+        **key_choice_scores([record.key_choices for record in records]),
     }
     result.update(
         {

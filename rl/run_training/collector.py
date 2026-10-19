@@ -27,6 +27,7 @@ from sts_sim import Decision, State
 from run_training.contracts import PolicyAction, controller, outcome
 from run_training.diagnostics import decision_diagnostic
 from run_training.environment import journal_environment_seed
+from run_training.keys import key_decision
 from run_training.metrics import BehaviorStats
 from run_training.model import MacroInput, MacroModel, encode
 from run_training.progress import RunProgress
@@ -37,7 +38,7 @@ from run_training.restrictions import (
     restrict_batch_logits,
     restrict_logits,
 )
-from run_training.rewards import Objective, reward_protocol, terminal_parts
+from run_training.rewards import Objective, RewardParts, reward_protocol, terminal_parts
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,28 @@ class RunEpisode:
     furthest_act1_floor: int = 0
     behavior: BehaviorStats = field(default_factory=BehaviorStats)
     progress: RunProgress | None = None
+    termination_reason: str | None = None
+    game_outcome: str | None = None
+    action_limit: int | None = None
+
+    def reward_parts(self) -> RewardParts:
+        if self.status == "action_limit" and (
+            self.objective != "heart_keys_budget"
+            or self.termination_reason != "action_limit"
+            or self.game_outcome != "ongoing"
+            or self.action_limit is None
+            or self.action_limit < 1
+            or self.accepted != self.action_limit
+        ):
+            raise ValueError(
+                "Action-limit target lacks a genuine exhausted-budget boundary"
+            )
+        return terminal_parts(
+            self.objective,
+            self.status,
+            self.furthest_act1_floor,
+            progress=self.progress,
+        )
 
 
 class CollectionFailure(RuntimeError):
@@ -286,17 +309,26 @@ def _trajectory(
     initial_previous: PolicyAction | None = None,
     initial_metadata: dict | None = None,
 ) -> Generator[MacroRequest | CombatRequest, MacroPrediction | int, RunEpisode]:
-    """Completed-episode MC collector. No bootstrap from arbitrary combat cutoffs.
+    """MC collector with explicit task boundaries, never game-state repair.
 
-    A cutoff returns reward=None and trainer rejects the entire update. This
-    intentionally avoids selectively training only short/completed trajectories.
+    Only heart_keys_budget gives genuine action-budget exhaustion a declared
+    target. Interruptions/errors stay unknown and quarantine the whole batch.
+    Legacy objectives retain reward=None at action limits.
     """
     if (
-        objective not in ("act1", "act1_binary", "act3", "heart", "heart_progress")
+        objective
+        not in (
+            "act1",
+            "act1_binary",
+            "act3",
+            "heart",
+            "heart_progress",
+            "heart_keys_budget",
+        )
         or max_actions < 1
     ):
         raise ValueError("Invalid run collection configuration")
-    if objective == "heart_progress" and not final_act:
+    if objective in ("heart_progress", "heart_keys_budget") and not final_act:
         raise ValueError("Shaped Heart objective requires final_act")
     journal_environment_seed({"training_rng_seed": training_rng_seed})
     steps: list[MacroStep] = []
@@ -360,17 +392,40 @@ def _trajectory(
                 status, reward = task_result(
                     decision, objective, furthest_act1_floor, progress=progress
                 )
-                if (
-                    reward is not None
-                    or accepted >= max_actions
-                    or (stop_requested and stop_requested())
-                ):
+                interrupted = reward is None and bool(
+                    stop_requested and stop_requested()
+                )
+                if reward is not None or accepted >= max_actions or interrupted:
+                    game_status = outcome(decision)
+                    termination_reason = (
+                        "game_terminal"
+                        if game_status != "ongoing"
+                        else "objective_complete"
+                    )
                     if reward is None:
+                        termination_reason = (
+                            "interrupted" if interrupted else "action_limit"
+                        )
                         status = "cutoff"
+                        if (
+                            not interrupted
+                            and accepted >= max_actions
+                            and objective == "heart_keys_budget"
+                        ):
+                            status = "action_limit"
+                            reward = terminal_parts(
+                                objective,
+                                status,
+                                furthest_act1_floor,
+                                progress=progress,
+                            ).total
                     emit(
                         {
                             "type": "result",
                             "status": status,
+                            "termination_reason": termination_reason,
+                            "game_outcome": game_status,
+                            "action_limit": max_actions,
                             "reward": reward,
                             "accepted": accepted,
                             "floor": decision.observation.context.floor,
@@ -401,6 +456,9 @@ def _trajectory(
                         furthest_act1_floor=furthest_act1_floor,
                         behavior=behavior,
                         progress=progress,
+                        termination_reason=termination_reason,
+                        game_outcome=game_status,
+                        action_limit=max_actions,
                     )
                 observation = decision.observation
                 owner = controller(decision)
@@ -446,6 +504,17 @@ def _trajectory(
                     step = MacroStep(inputs, index, prediction.logits, prediction.value)
                 action = decision.actions[index]
                 descriptor = PolicyAction.from_action(action)
+                key_proposal = (
+                    key_decision(
+                        observation,
+                        descriptors if step is not None else (descriptor,),
+                        index if step is not None else 0,
+                        eligibility=step.inputs.eligibility if step is not None else (),
+                        logits=step.logits if step is not None else None,
+                    )
+                    if owner != "combat"
+                    else None
+                )
                 emit(
                     {
                         "type": "attempt",
@@ -464,6 +533,9 @@ def _trajectory(
                         if heal_indices
                         else None,
                         "heal_probability": heal_probability,
+                        "key_choice": asdict(key_proposal)
+                        if key_proposal is not None
+                        else None,
                         "policy_diagnostic": decision_diagnostic(
                             observation, descriptors, step.logits, index, step.value
                         )
@@ -476,7 +548,9 @@ def _trajectory(
                     finished_shop = (observation.context.act, observation.context.floor)
                 elif descriptor.kind == "choose_map_node":
                     finished_shop = None
-                behavior = behavior.accepted(observation, descriptor, heal_probability)
+                behavior = behavior.accepted(
+                    observation, descriptor, heal_probability, key_proposal=key_proposal
+                )
                 if step is not None:
                     steps.append(step)
                 if observation.kind != "combat":
@@ -501,6 +575,9 @@ def _trajectory(
             emit(
                 {
                     "type": "error",
+                    "termination_reason": "simulator_error"
+                    if isinstance(error, CollectionFailure)
+                    else "inference_or_infrastructure_error",
                     "accepted": accepted,
                     "error": f"{type(error).__name__}: {error}",
                     "furthest_act1_floor": furthest_act1_floor,
@@ -632,6 +709,7 @@ def failed_episode(error: CollectionFailure, objective: Objective) -> RunEpisode
         furthest_act1_floor=error.furthest_act1_floor,
         behavior=error.behavior,
         progress=error.progress,
+        termination_reason="simulator_error",
     )
 
 
@@ -649,7 +727,7 @@ def collect_many(
 
     Each generator owns one independent state, action budget, history and journal.
     No optimizer updates occur here. A caller must quarantine the entire learner
-    batch if any episode is incomplete. Results retain input order, not completion
+    batch if any episode lacks a declared task target. Results retain input order, not completion
     order. On a fatal error all open journals are closed with cancellation records.
     """
     if width < 1:
