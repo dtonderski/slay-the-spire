@@ -356,12 +356,21 @@ do not increase the learning batch size merely to fill the GPU.
   host columns are read-only NumPy arrays, concatenated before the two pinned
   uploads rather than repacked through Python scalar lists. Collision accumulation
   order and packed scalar order remain unchanged.
+- Macro dense heads use canonical 128-row FP32 tiles in scalar collection,
+  batched collection and learner recomputation (`macro_fixed_row_tiles128_fp32_v1`).
+  Public feature pooling is shared by both forward entry points. Padding is
+  internal to row-local Linear/Tanh/ReLU heads and contributes no loss/gradient.
+  This prevents cohort-dependent dense-kernel rounding; tile size is not a
+  collection/learner-width tuning knob. Parameters/features/schemas are unchanged.
 - Collection forwards use `inference_mode`; only public inputs and plain behavior
   predictions survive into learning. The learner recomputes ordinary autograd
   tensors under current weights. Healing probabilities are exported only for
   batches with healing opportunities, without changing any policy RNG draws.
 - The learner packs public inputs once, verifies all inference/recomputation
-  pairs **before any backward**, then backpropagates chunks. Actor sums are still
+  pairs **before any backward**, then backpropagates chunks. The existing finite,
+  eligibility, logit and value checks retain `atol=1e-6, rtol=1e-5`; actual
+  mismatches remain fatal and now include bounded numerical details in the
+  failure artifact. Actor sums are still
   divided by episodes; value/entropy terms are still divided by macro decisions.
   There is one gradient clip and one optimizer step per complete episode batch.
 - A failed action is never retried. Explicit continuation mode still quarantines
@@ -371,11 +380,16 @@ do not increase the learning batch size merely to fill the GPU.
   decisions, launch no new episodes, and leave incomplete batches untrained.
 
 For the serial reference path use
-`--collection-width 1 --learner-batch-size 0`. Larger reductions can differ in
-FP32 rounding; bitwise equality with the old serial learner is not promised.
+`--collection-width 1 --learner-batch-size 0`. Gradient/loss reductions can still
+vary with chunking; bitwise optimizer equivalence with historical serial learning
+is not promised. Forward head arithmetic is now cohort-shape independent within
+one backend; this is not cross-device/PyTorch-version bitwise equivalence.
 Execution settings and source hashes are part of strict resume validation.
 Changing execution mode requires a new identity; use compatible weights-only
-warm start rather than bypassing resume checks. Default combat-task training is
+warm start rather than bypassing resume checks. The fixed-tile forward protocol is
+archived separately. Historical cohort-shaped FP32 weights transfer without a
+parameter adapter, but logits can change slightly: preserve the parent checkpoint,
+start fresh optimizer/RNG, and do not claim an exact continuation. Default combat-task training is
 unchanged, and this does **not** change macro rewards or fix weak learning.
 
 An October 2026 fixed-weight benchmark on one RTX 5080 included collection,

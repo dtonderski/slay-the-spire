@@ -27,6 +27,7 @@ from run_training.collector import (
 from run_training.contracts import PolicyAction
 from run_training.model import (
     BUCKETS,
+    FORWARD_TILE_ROWS,
     HealthMacroModel,
     MacroInput,
     MacroModel,
@@ -279,6 +280,89 @@ class MacroBatchTests(unittest.TestCase):
     @unittest.skipUnless(torch.cuda.is_available(), "CUDA unavailable")
     def test_cuda_predictions_and_padding(self):
         self.compare("cuda")
+
+    def fixed_shape_compare(self, device):
+        rows = public_inputs()
+        for kind in (MacroModel, HealthMacroModel):
+            model = learned_model(kind, device)
+            # Center a nontrivial score near zero: an absolute comparison is most
+            # sensitive here. Do not relax the learner's existing tolerances.
+            with torch.no_grad():
+                logits, _ = model(rows[0])
+                model.policy[-1].bias.sub_(logits[0] + 0.001955)
+            with torch.inference_mode():
+                expected = [model(row) for row in rows]
+                expected = [
+                    (logits.clone(), value.clone()) for logits, value in expected
+                ]
+            for count in (
+                1,
+                3,
+                17,
+                64,
+                FORWARD_TILE_ROWS - 1,
+                FORWARD_TILE_ROWS,
+                FORWARD_TILE_ROWS + 1,
+                257,
+            ):
+                cohort = [rows[i % len(rows)] for i in range(count)]
+                # Different positions, padding and inference/autograd modes must
+                # all produce the same scores for the same public row/weights.
+                for inference in (True, False):
+                    with torch.inference_mode(inference):
+                        logits, values = model.forward_batch(model.pack(cohort))
+                        for i in sorted({0, count // 2, count - 1}):
+                            ref, value = expected[i % len(rows)]
+                            self.assertTrue(
+                                torch.equal(
+                                    logits[i, : len(cohort[i].candidates)], ref
+                                ),
+                                (kind, device, count, i),
+                            )
+                            self.assertTrue(
+                                torch.equal(values[i], value), (kind, device, count, i)
+                            )
+                del logits, values
+
+    def test_cpu_fixed_shape_predictions(self):
+        self.fixed_shape_compare("cpu")
+
+    @unittest.skipUnless(torch.cuda.is_available(), "CUDA unavailable")
+    def test_cuda_fixed_shape_predictions(self):
+        self.fixed_shape_compare("cuda")
+
+    def test_original_guard_tolerance_is_not_relaxed(self):
+        from run_training.trainer import RecomputationMismatch
+
+        model = MacroModel(16)
+        public = public_inputs()[0]
+        with torch.no_grad():
+            logits, value = model(public)
+        self.assertTrue(torch.equal(logits, torch.zeros_like(logits)))
+        bad = (2e-6,) + tuple(logits.tolist()[1:])
+        step = MacroStep(public, 0, bad, float(value))
+        episode = RunEpisode("death", 0.0, (step,), 1, 1, objective="act1_binary")
+        for width in (0, 128):
+            target = copy.deepcopy(model)
+            optimizer = torch.optim.Adam(target.parameters())
+            with self.assertRaises(RecomputationMismatch) as caught:
+                update(
+                    [episode],
+                    target,
+                    optimizer,
+                    entropy_coef=0.01,
+                    value_coef=0.1,
+                    batch_steps=width,
+                )
+            error = caught.exception.details["max_logit_absolute_error"]
+            assert isinstance(error, float)
+            self.assertGreater(error, 1e-6)
+            self.assertFalse(optimizer.state)
+            self.assertTrue(
+                all(parameter.grad is None for parameter in target.parameters())
+            )
+            for a, b in zip(model.parameters(), target.parameters(), strict=True):
+                torch.testing.assert_close(a, b, atol=0, rtol=0)
 
     def test_empty_bags_and_candidates(self):
         model = MacroModel(8)

@@ -43,6 +43,7 @@ from run_training.keys import KEY_CHOICE_PROTOCOL
 from run_training.metrics import behavior_scores
 from run_training.model import (
     FEATURE_VERSION,
+    FORWARD_PROTOCOL,
     HEALTH_FEATURE_VERSION,
     HealthMacroModel,
     MacroModel,
@@ -71,6 +72,56 @@ from run_training.rewards import (
 from run_training.roots import RootBank, file_hash
 
 PROTOCOL = "a0_macro_mc_frozen_sampled_combat_v3"
+
+
+class RecomputationMismatch(ValueError):
+    """Fatal pre-backward mismatch, with bounded diagnostics for preserved artifacts."""
+
+    def __init__(
+        self,
+        actual: torch.Tensor,
+        expected: torch.Tensor,
+        values: torch.Tensor,
+        old_values: torch.Tensor,
+        *,
+        macro_row_offset: int = 0,
+        raw_logits: torch.Tensor | None = None,
+    ) -> None:
+        details: dict[str, int | float | str | None] = {
+            "macro_row_offset": macro_row_offset,
+            "nonfinite_raw_logits": int((~torch.isfinite(raw_logits)).sum())
+            if raw_logits is not None
+            else None,
+            "nonfinite_values": int((~torch.isfinite(values)).sum()),
+        }
+        for name, current, previous in (
+            ("logit", actual, expected),
+            ("value", values.reshape(-1), old_values.reshape(-1)),
+        ):
+            finite = torch.isfinite(current) & torch.isfinite(previous)
+            details[f"max_{name}_absolute_error"] = (
+                float((current[finite] - previous[finite]).abs().max())
+                if finite.any()
+                else None
+            )
+            indices = (
+                (~torch.isclose(current, previous, atol=1e-6, rtol=1e-5))
+                .nonzero()
+                .flatten()
+            )
+            if len(indices):
+                index = int(indices[0])
+                details[f"first_{name}_index"] = index
+                for label, tensor in (("actual", current), ("expected", previous)):
+                    value = float(tensor[index])
+                    details[f"{name}_{label}"] = (
+                        value if math.isfinite(value) else str(value)
+                    )
+        self.details = details
+        super().__init__(
+            "On-policy recomputation mismatch; refusing optimizer update: "
+            + json.dumps(details)
+        )
 
 
 @contextmanager
@@ -173,6 +224,9 @@ def load_warm_start(
         "parent_map_adapter": "schema8_map_history_to_schema9_context_weights_only"
         if legacy_map
         else None,
+        "parent_macro_forward_protocol": config.get(
+            "macro_forward_protocol", "legacy_cohort_shaped_fp32"
+        ),
         "parent_objective": config.get("objective"),
         "parent_reward_protocol": config.get("reward_protocol"),
         "critic_initialization": "fresh_zero_output"
@@ -233,8 +287,12 @@ def update(
                         float(value), step.value, abs_tol=1e-6, rel_tol=1e-5
                     )
                 ):
-                    raise ValueError(
-                        "On-policy recomputation mismatch; refusing optimizer update"
+                    raise RecomputationMismatch(
+                        effective,
+                        expected,
+                        value,
+                        value.new_tensor(step.value),
+                        raw_logits=logits,
                     )
     total_loss = 0.0
     for episode in episodes:
@@ -320,6 +378,7 @@ def _batched_update(
         )
         chunks.append((part, batch, choices, targets, advantages))
     with torch.no_grad():
+        row_offset = 0
         for part, batch, _, _, _ in chunks:
             logits, values = model.forward_batch(batch)
             raw_actual = logits.flatten()[batch.positions]
@@ -335,9 +394,15 @@ def _batched_update(
                 or not torch.allclose(actual, expected, atol=1e-6, rtol=1e-5)
                 or not torch.allclose(values, old_values, atol=1e-6, rtol=1e-5)
             ):
-                raise ValueError(
-                    "On-policy recomputation mismatch; refusing optimizer update"
+                raise RecomputationMismatch(
+                    actual,
+                    expected,
+                    values,
+                    old_values,
+                    macro_row_offset=row_offset,
+                    raw_logits=raw_actual,
                 )
+            row_offset += len(part)
     total = model.embedding.weight.new_zeros(())
     for part, batch, choices, targets, advantages in chunks:
         logits, values = model.forward_batch(batch)
@@ -768,6 +833,7 @@ def main(argv: list[str] | None = None) -> None:
         else None,
         protocol=PROTOCOL,
         execution_protocol="ragged_macro_learner_cooperative_collection_v1",
+        macro_forward_protocol=FORWARD_PROTOCOL,
         policy_restriction_protocol=AVOID_PRISMATIC_PROTOCOL
         if args.avoid_prismatic
         else "all_legal_actions",
@@ -1253,6 +1319,9 @@ def main(argv: list[str] | None = None) -> None:
                     {
                         "iteration": iteration,
                         "error": f"{type(error).__name__}: {error}",
+                        "recomputation_details": error.details
+                        if isinstance(error, RecomputationMismatch)
+                        else None,
                         "last_committed_iteration": committed_iteration,
                         "resume": "latest.pt is the last committed update; journals retain attempted actions",
                     },

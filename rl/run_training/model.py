@@ -24,7 +24,28 @@ from run_training.restrictions import macro_eligibility
 FEATURE_VERSION = 4
 HEALTH_FEATURE_VERSION = 5
 BUCKETS = 8192
+# Every macro dense head uses this shape in collection, verification and backward.
+# Cohort-dependent GEMM shapes can otherwise change FP32 rounding near zero.
+FORWARD_TILE_ROWS = 128
+FORWARD_PROTOCOL = "macro_fixed_row_tiles128_fp32_v1"
 Features = tuple[tuple[int, float], ...]
+
+
+def _fixed_rows(module: nn.Module, rows: Tensor) -> Tensor:
+    """Evaluate independent rows with canonical dense-kernel shapes.
+
+    Only these Linear/Tanh/ReLU heads are row-local; no batch-normalization or
+    cross-row attention is supported here. Padding contributes no loss/gradient.
+    Parameters, dtype and public features are unchanged. Do not vary the tile
+    size with collection/learner width or switch back to cohort-sized GEMMs.
+    """
+    if rows.ndim != 2 or not len(rows):
+        raise ValueError("Macro heads require a nonempty matrix of public rows")
+    outputs = []
+    for part in rows.split(FORWARD_TILE_ROWS):
+        padded = torch.nn.functional.pad(part, (0, 0, 0, FORWARD_TILE_ROWS - len(part)))
+        outputs.append(module(padded)[: len(part)])
+    return torch.cat(outputs)
 
 
 @lru_cache(maxsize=65536)
@@ -353,10 +374,10 @@ class MacroModel(nn.Module):
     def _batch_heads(
         self, context: Tensor, candidates: Tensor, batch: MacroBatch
     ) -> tuple[Tensor, Tensor]:
-        logits = self.policy(
-            torch.cat((context[batch.owners], candidates), dim=1)
+        logits = _fixed_rows(
+            self.policy, torch.cat((context[batch.owners], candidates), dim=1)
         ).squeeze(-1)
-        return logits, self.value(context).squeeze(-1)
+        return logits, _fixed_rows(self.value, context).squeeze(-1)
 
     def forward_batch(self, batch: MacroBatch) -> tuple[Tensor, Tensor]:
         # Fused weighted segment reduction avoids one embedding/gather per candidate
@@ -373,19 +394,17 @@ class MacroModel(nn.Module):
             / batch.scales[:, None]
         )
         count = len(batch.lengths)
-        context = self.context(pooled[:count])
+        context = _fixed_rows(self.context, pooled[:count])
         logits, values = self._batch_heads(context, pooled[count:], batch)
         padded = logits.new_full((count * max(batch.lengths),), -torch.inf)
         padded = padded.scatter(0, batch.positions, logits)
         return padded.view(count, max(batch.lengths)), values
 
     def forward(self, inputs: MacroInput) -> tuple[Tensor, Tensor]:
-        context = self.context(self.pool(inputs.context))
-        candidates = torch.stack([self.pool(row) for row in inputs.candidates])
-        logits = self.policy(
-            torch.cat((context.expand_as(candidates), candidates), dim=1)
-        ).squeeze(-1)
-        return logits, self.value(context).squeeze(-1)
+        # The single-row path must use the same pooling and dense arithmetic as
+        # collection and ragged learning, not a second reduction implementation.
+        logits, values = self.forward_batch(self.pack([inputs]))
+        return logits[0, : len(inputs.candidates)], values[0]
 
 
 class HealthMacroModel(MacroModel):
@@ -414,16 +433,10 @@ class HealthMacroModel(MacroModel):
         self, context: Tensor, candidates: Tensor, batch: MacroBatch
     ) -> tuple[Tensor, Tensor]:
         logits, values = super()._batch_heads(context, candidates, batch)
-        residual = self.health_policy(
-            torch.cat((candidates, batch.health[batch.owners]), dim=1)
+        residual = _fixed_rows(
+            self.health_policy,
+            torch.cat((candidates, batch.health[batch.owners]), dim=1),
         ).squeeze(-1)
-        return logits + residual, values + self.health_value(batch.health).squeeze(-1)
-
-    def forward(self, inputs: MacroInput) -> tuple[Tensor, Tensor]:
-        logits, value = super().forward(inputs)
-        hp = self.embedding.weight.new_tensor(inputs.health)
-        candidates = torch.stack([self.pool(row) for row in inputs.candidates])
-        residual = self.health_policy(
-            torch.cat((candidates, hp.expand(len(candidates), -1)), dim=1)
+        return logits + residual, values + _fixed_rows(
+            self.health_value, batch.health
         ).squeeze(-1)
-        return logits + residual, value + self.health_value(hp).squeeze(-1)
