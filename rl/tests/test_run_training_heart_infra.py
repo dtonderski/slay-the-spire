@@ -253,6 +253,7 @@ class HeartInfraTests(unittest.TestCase):
                 "heart_bonus": 30,
                 "key_bonus": 0,
                 "action_limit_penalty": 0,
+                "act4_entry_bonus": 0,
             },
         )
         self.assertEqual(rows[0]["reward_protocol"], HEART_REWARD_PROTOCOL)

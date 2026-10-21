@@ -89,14 +89,20 @@ This option does not restore, repair or transplant simulator states.
 ### Opt-in key exploration and bounded-action objective
 
 `--objective heart_keys_budget --final-act` keeps the same floor/act/Heart
-components, adds **+0.5 once per first observed key possession**, and subtracts
-**20** if an otherwise valid ongoing run exhausts its declared accepted-action
-budget. Natural starts own no keys; revisiting screens or selecting a burning
-elite route never grants another key bonus. The bonuses accumulate in the single
-MC task return, not as repeated UI payments. Completed non-Heart credit is at most
-10.5, Heart victory with all keys scores 40.5, and an action-limit target is at most
--9.5. This is a different, explicit bounded-budget training objective, not a claim
-that a truncated game was lost. The legacy objectives above are unchanged.
+components, adds **+0.5 once per first observed key possession**, **+3 once for
+observed Act-4 entry**, and subtracts **20** if an otherwise valid ongoing run
+exhausts its declared accepted-action budget. Natural starts own no keys;
+revisiting screens or selecting a burning elite route never grants another key
+bonus. Entry credit requires accepted public history actually reaching act 4:
+keys, a high floor or an Act-3 clear alone do not imply entry. It does not require
+surviving the Act-4 elite; encountering the Heart grants no additional entry
+bonus. The bonuses accumulate in the single MC task return, not as repeated UI
+payments. Completed non-Heart credit is at most 13.5, Heart victory with all keys
+scores 43.5, and an action-limit target is at most -6.5. The version-2 reward
+protocol distinguishes this task from the previous key/budget protocol (which had
+no entry bonus); old experiments retain their original pinned sources and labels.
+This is an explicit bounded-budget training objective, not a claim that a
+truncated game was lost. The legacy objectives above are unchanged.
 
 The collector journals termination reason, actual public game outcome and budget.
 A budget target requires the accepted-action count to exactly equal that budget
@@ -112,7 +118,9 @@ separate **game completion** from **training-target availability**: action limit
 stay in unknown game outcomes and cutoff counts, not deaths/completed games, even
 when they have a valid task target. Reward means and critic MSE include labelled
 budget returns; `reward/target_samples` exposes their denominator separately from
-`reward/terminal_samples`. Checkpoint selection still prioritizes Heart wins.
+`reward/terminal_samples`. `reward/act4_entry_bonus_mean` exposes the new component;
+`progress/act_4_entries_observed` counts entries even for unlabelled episodes.
+Checkpoint selection still prioritizes Heart wins.
 
 `keys.py` measures Ruby recall, Sapphire selection, Emerald pickup, and the
 separate choice of a publicly marked burning-elite destination. It records native

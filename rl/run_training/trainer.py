@@ -59,6 +59,7 @@ from run_training.restrictions import (
 from run_training.rewards import (
     ACT1_BOSS_FLOOR,
     ACT1_CLEAR_BONUS,
+    ACT4_ENTRY_BONUS,
     ACT_CLEAR_BONUS,
     ACTION_LIMIT_PENALTY,
     HEART_CLEAR_BONUS,
@@ -490,6 +491,9 @@ def scores(episodes: list[RunEpisode]) -> dict[str, float]:
             parts
         )
         result["reward/key_bonus_mean"] = sum(p.key_bonus for p in parts) / len(parts)
+        result["reward/act4_entry_bonus_mean"] = sum(
+            p.act4_entry_bonus for p in parts
+        ) / len(parts)
         result["reward/action_limit_penalty_mean"] = sum(
             p.action_limit_penalty for p in parts
         ) / len(parts)
@@ -857,6 +861,9 @@ def main(argv: list[str] | None = None) -> None:
         if args.objective in ("heart_progress", "heart_keys_budget")
         else None,
         key_bonus=KEY_BONUS if args.objective == "heart_keys_budget" else 0.0,
+        act4_entry_bonus=ACT4_ENTRY_BONUS
+        if args.objective == "heart_keys_budget"
+        else 0.0,
         action_limit_penalty=ACTION_LIMIT_PENALTY
         if args.objective == "heart_keys_budget"
         else None,

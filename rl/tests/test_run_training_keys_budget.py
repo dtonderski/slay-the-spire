@@ -139,14 +139,14 @@ class KeyBudgetTests(unittest.TestCase):
         win = RunProgress(56, 4, 3, True, True, True, True)
         self.assertEqual(
             terminal_parts("heart_keys_budget", "heart_clear", 16, progress=win).total,
-            40.5,
+            43.5,
         )
         self.assertEqual(
             terminal_parts("heart_progress", "heart_clear", 16, progress=win).total, 39
         )
         self.assertEqual(
             terminal_parts("heart_keys_budget", "action_limit", 16, progress=win).total,
-            -9.5,
+            -6.5,
         )
         self.assertEqual(reward_protocol("heart_keys_budget"), KEYS_BUDGET_PROTOCOL)
         for objective, status in (
@@ -486,6 +486,7 @@ class KeyBudgetTests(unittest.TestCase):
                 self.assertEqual(cp["optimizer_updates"], 1)
                 self.assertEqual(cp["skipped_batches"], 0)
                 self.assertEqual(cp["config"]["key_bonus"], 0.5)
+                self.assertEqual(cp["config"]["act4_entry_bonus"], 3)
                 self.assertEqual(cp["config"]["action_limit_penalty"], -20)
                 rows = [
                     json.loads(x)

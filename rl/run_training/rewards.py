@@ -19,9 +19,12 @@ HEART_PROGRESS_FLOOR = 55
 HEART_PROGRESS_SCALE = 3.0
 ACT_CLEAR_BONUS = 2.0
 HEART_CLEAR_BONUS = 30.0
+ACT4_ENTRY_BONUS = 3.0
 KEY_BONUS = 0.5
 ACTION_LIMIT_PENALTY = -20.0
-KEYS_BUDGET_PROTOCOL = "heart_floor55x3_act2_key0p5_win30_actionlimit_minus20_v1"
+KEYS_BUDGET_PROTOCOL = (
+    "heart_floor55x3_act2_key0p5_act4entry3_win30_actionlimit_minus20_v2"
+)
 
 
 def game_completed(status: str) -> bool:
@@ -43,6 +46,7 @@ class RewardParts:
     heart_bonus: float = 0.0
     key_bonus: float = 0.0
     action_limit_penalty: float = 0.0
+    act4_entry_bonus: float = 0.0
 
     @property
     def total(self) -> float:
@@ -52,6 +56,7 @@ class RewardParts:
             + self.heart_bonus
             + self.key_bonus
             + self.action_limit_penalty
+            + self.act4_entry_bonus
         )
 
 
@@ -97,6 +102,11 @@ def terminal_parts(
             else 0.0,
             ACTION_LIMIT_PENALTY
             if objective == "heart_keys_budget" and status == "action_limit"
+            else 0.0,
+            # Actual observed Act-4 entry, not floor/key guesses or Heart-combat
+            # access. One Boolean contribution to the settled task return.
+            ACT4_ENTRY_BONUS
+            if objective == "heart_keys_budget" and progress.furthest_act == 4
             else 0.0,
         )
     if objective == "act1_binary":
