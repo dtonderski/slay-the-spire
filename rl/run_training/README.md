@@ -138,6 +138,32 @@ with critic, optimizer and sampler reset. This objective can incentivize early
 death to avoid a timeout or key grabs at the expense of survival; track deaths,
 key-choice rates, Act-4 access and Heart wins, not just shaped return.
 
+### Opt-in campfire/key exploration trials
+
+`--macro-exploration none|fullhp|rest_keys_t4|rest_keys_t8` declares an
+experimental policy-distribution change. `none` preserves the original scores.
+All other profiles exclude `rest_heal` at exactly full public HP only when an
+already eligible smith/recall alternative exists and Dream Catcher is absent.
+This is a restriction, not a universal claim that rest has no possible side effect;
+native actions, candidate indices and simulator legality stay unchanged.
+
+The `t4`/`t8` profiles additionally divide macro logits by 4/8 at rest screens and
+visible optional Sapphire-choice screens. Other decisions remain untempered.
+Temperature does not favor a particular candidate, force/grant keys or peek at
+future offers. It can increase harmful low-HP nonhealing and room-exit choices:
+monitor survival, skipped campfires, actual key acquisitions and Act-4 access.
+
+Temperature is stored in each public-derived macro input and applied in model
+forward for collection, audits, pre-backward recomputation, actor gradients and
+entropy alike. Existing finite/mask checks and recomputation tolerances remain
+fatal. No sampling-only/off-policy exploration is used. All native candidate rows
+remain represented. Profile/protocol are archived in config; journals identify
+profile and per-decision temperature. Exact resume rejects profile changes;
+weights-only transfer records the parent profile and resets optimizer/RNG/counters.
+No parameter shapes or reward accounting change. These experiments do not fix or
+prove the cause of weak HP conditioning; temperature and masking are separate
+from the explicit-health architecture ablation below.
+
 ### Metrics: observation versus explanation
 
 - **Outcomes/coverage:** Heart wins, non-Heart Act-3 completions, deaths by act,

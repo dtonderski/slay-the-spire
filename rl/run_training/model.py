@@ -17,6 +17,7 @@ from sts_sim.observations.screens import MapScreen
 from torch import Tensor, nn
 
 from run_training.contracts import PolicyAction
+from run_training.exploration import exploration_controls
 from run_training.restrictions import macro_eligibility
 
 # Both encoders now receive the inspectable current-act map before Neow and
@@ -136,6 +137,7 @@ class MacroInput:
     candidates: tuple[Features, ...]
     health: tuple[float, float, float] = (0.0, 0.0, 0.0)
     eligibility: tuple[bool, ...] = ()
+    temperature: float = 1.0
 
 
 def candidate_facts(
@@ -226,6 +228,7 @@ def encode(
     avoid_prismatic: bool = False,
     commit_navigation: bool = False,
     shop_finished: bool = False,
+    exploration_profile: str = "none",
 ) -> MacroInput:
     if not isinstance(observation, OBSERVATION_TYPES) or any(
         not isinstance(a, PolicyAction) for a in actions
@@ -244,6 +247,18 @@ def encode(
     ):
         raise ValueError("Public map must belong to the current act")
     map_screen = None
+    eligibility, temperature = exploration_controls(
+        observation,
+        actions,
+        macro_eligibility(
+            observation,
+            actions,
+            avoid_prismatic=avoid_prismatic,
+            commit_navigation=commit_navigation,
+            shop_finished=shop_finished,
+        ),
+        exploration_profile,
+    )
     return MacroInput(
         _context_features(observation, map_screen, previous),
         tuple(
@@ -255,13 +270,8 @@ def encode(
             observation.context.player_hp / 100.0,
             observation.context.player_max_hp / 100.0,
         ),
-        macro_eligibility(
-            observation,
-            actions,
-            avoid_prismatic=avoid_prismatic,
-            commit_navigation=commit_navigation,
-            shop_finished=shop_finished,
-        ),
+        eligibility,
+        temperature,
     )
 
 
@@ -287,6 +297,7 @@ class MacroBatch:
     positions: Tensor
     health: Tensor
     lengths: tuple[int, ...]
+    temperatures: Tensor
 
 
 class MacroModel(nn.Module):
@@ -320,6 +331,10 @@ class MacroModel(nn.Module):
     def pack(self, inputs: list[MacroInput]) -> MacroBatch:
         if not inputs or any(not row.candidates for row in inputs):
             raise ValueError("A macro batch requires nonempty complete candidate sets")
+        if any(
+            not math.isfinite(row.temperature) or row.temperature < 1 for row in inputs
+        ):
+            raise ValueError("Invalid macro policy temperature")
         lengths = tuple(len(row.candidates) for row in inputs)
         rows = [row.context for row in inputs] + [
             c for row in inputs for c in row.candidates
@@ -346,7 +361,12 @@ class MacroModel(nn.Module):
         floating = torch.from_numpy(
             np.concatenate(
                 [weights for _, weights in columns]
-                + [np.asarray(scales + health, dtype=np.float64)]
+                + [
+                    np.asarray(
+                        scales + health + [row.temperature for row in inputs],
+                        dtype=np.float64,
+                    )
+                ]
             )
         ).to(dtype=self.embedding.weight.dtype)
         if device.type == "cuda":
@@ -357,8 +377,8 @@ class MacroModel(nn.Module):
         index_rows, offset_rows, owner_rows, position_rows = integer.split(
             [feature_count, len(offsets), len(owners), len(positions)]
         )
-        weight_rows, scale_rows, health_rows = floating.split(
-            [feature_count, len(scales), len(health)]
+        weight_rows, scale_rows, health_rows, temperatures = floating.split(
+            [feature_count, len(scales), len(health), len(inputs)]
         )
         return MacroBatch(
             index_rows,
@@ -369,6 +389,7 @@ class MacroModel(nn.Module):
             position_rows,
             health_rows.view(len(inputs), 3),
             lengths,
+            temperatures,
         )
 
     def _batch_heads(
@@ -396,6 +417,9 @@ class MacroModel(nn.Module):
         count = len(batch.lengths)
         context = _fixed_rows(self.context, pooled[:count])
         logits, values = self._batch_heads(context, pooled[count:], batch)
+        # Applied in forward, not sampling-only: collection, diagnostics, gradients
+        # and on-policy recomputation all see the same tempered distribution.
+        logits = logits / batch.temperatures[batch.owners]
         padded = logits.new_full((count * max(batch.lengths),), -torch.inf)
         padded = padded.scatter(0, batch.positions, logits)
         return padded.view(count, max(batch.lengths)), values

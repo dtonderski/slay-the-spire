@@ -39,6 +39,7 @@ from run_training.environment import (
     episode_environment_seed,
     journal_environment_seed,
 )
+from run_training.exploration import EXPLORATION_PROFILES, EXPLORATION_PROTOCOL
 from run_training.keys import KEY_CHOICE_PROTOCOL
 from run_training.metrics import behavior_scores
 from run_training.model import (
@@ -228,6 +229,7 @@ def load_warm_start(
         "parent_macro_forward_protocol": config.get(
             "macro_forward_protocol", "legacy_cohort_shaped_fp32"
         ),
+        "parent_exploration_profile": config.get("exploration_profile", "none"),
         "parent_objective": config.get("objective"),
         "parent_reward_protocol": config.get("reward_protocol"),
         "critic_initialization": "fresh_zero_output"
@@ -662,6 +664,12 @@ def parser() -> argparse.ArgumentParser:
         help="Opt-in public context/candidate/probability audit in immutable journals; descriptive, not causal explanations",
     )
     result.add_argument("--encoder", choices=("hashed", "health"), default="hashed")
+    result.add_argument(
+        "--macro-exploration",
+        choices=EXPLORATION_PROFILES,
+        default="none",
+        help="Declared public full-HP healing restriction and rest/key exploration; not simulator legality",
+    )
     result.add_argument("--root-hp-min", type=float, default=0.1)
     result.add_argument(
         "--root-eval-hp", type=float, nargs="+", default=[0.15, 0.5, 0.85]
@@ -860,6 +868,8 @@ def main(argv: list[str] | None = None) -> None:
         }
         if args.objective in ("heart_progress", "heart_keys_budget")
         else None,
+        exploration_profile=args.macro_exploration,
+        exploration_protocol=EXPLORATION_PROTOCOL,
         key_bonus=KEY_BONUS if args.objective == "heart_keys_budget" else 0.0,
         act4_entry_bonus=ACT4_ENTRY_BONUS
         if args.objective == "heart_keys_budget"
@@ -1030,6 +1040,7 @@ def main(argv: list[str] | None = None) -> None:
                 "final_act": args.final_act,
                 "avoid_prismatic": args.avoid_prismatic,
                 "commit_navigation": not args.raw_navigation,
+                "exploration_profile": args.macro_exploration,
                 "decision_diagnostics": args.decision_diagnostics == "all"
                 or (evaluation and args.decision_diagnostics == "evaluation"),
                 "max_actions": args.max_actions,

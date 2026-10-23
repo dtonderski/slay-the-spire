@@ -304,6 +304,7 @@ def _trajectory(
     training_rng_seed: int | None = None,
     avoid_prismatic: bool = False,
     commit_navigation: bool = True,
+    exploration_profile: str = "none",
     decision_diagnostics: bool = False,
     stop_requested: Callable[[], bool] | None = None,
     initial_previous: PolicyAction | None = None,
@@ -359,6 +360,7 @@ def _trajectory(
                 "map_input_protocol": "context_current_act_map_v1",
                 "reward_protocol": reward_protocol(objective),
                 "decision_diagnostics": decision_diagnostics,
+                "exploration_profile": exploration_profile,
                 "max_actions": max_actions,
                 "macro_policy_seed": macro_rng.initial_seed(),
                 "combat_policy_seed": combat_rng.initial_seed(),
@@ -488,6 +490,7 @@ def _trajectory(
                         previous=previous,
                         avoid_prismatic=avoid_prismatic,
                         commit_navigation=commit_navigation,
+                        exploration_profile=exploration_profile,
                         shop_finished=finished_shop
                         == (observation.context.act, observation.context.floor),
                     )
@@ -523,6 +526,9 @@ def _trajectory(
                         "owner": owner,
                         "index": index,
                         "action": asdict(descriptor),
+                        "policy_temperature": inputs.temperature
+                        if owner == "macro"
+                        else 1.0,
                         "policy_eligibility": list(inputs.eligibility)
                         if owner == "macro"
                         else None,
@@ -599,6 +605,7 @@ class CollectionOptions(TypedDict):
     training_rng_seed: NotRequired[int | None]
     avoid_prismatic: NotRequired[bool]
     commit_navigation: NotRequired[bool]
+    exploration_profile: NotRequired[str]
     decision_diagnostics: NotRequired[bool]
     stop_requested: NotRequired[Callable[[], bool] | None]
     initial_previous: NotRequired[PolicyAction | None]
