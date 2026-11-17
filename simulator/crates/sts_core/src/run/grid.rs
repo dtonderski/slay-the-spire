@@ -178,10 +178,9 @@ fn validate_pandoras_box_grid_payload(run: &RunState, grid: &CardGridScreen) -> 
     let expected = (0..grid.cards.len())
         .map(|index| -> SimResult<CardInstance> {
             let pick = rng.random_int((pool.len() - 1) as i32) as usize;
-            let content_id = run.content_id_after_card_add_relics(pool[pick])?;
-            Ok(CardInstance::new(
+            run.card_after_card_add_relics(CardInstance::new(
                 crate::ids::CardId::new(first_id + index as u64),
-                content_id,
+                pool[pick],
             ))
         })
         .collect::<SimResult<Vec<_>>>()?;
@@ -857,10 +856,13 @@ fn open_pandoras_box_grid_inner(run: &mut RunState) -> SimResult<()> {
     let cards = (0..starter_count)
         .map(|index| -> SimResult<CardInstance> {
             let pick = rng.random_int((pool.len() - 1) as i32) as usize;
-            let content_id = run.content_id_after_card_add_relics(pool[pick])?;
-            Ok(CardInstance::new(
+            // PandorasBox.onEquip calls every relic's onPreviewObtainCard on each
+            // generated card, so egg relics upgrade the whole instance here
+            // (including Searing Blow's upgrade count). The obtain at confirm
+            // repeats onObtainCard, which the eggs skip for upgraded cards.
+            run.card_after_card_add_relics(CardInstance::new(
                 crate::ids::CardId::new(next_card_id + index as u64),
-                content_id,
+                pool[pick],
             ))
         })
         .collect::<SimResult<Vec<_>>>()?;
@@ -1761,7 +1763,8 @@ mod tests {
     use crate::{
         content::cards::{
             upgrade_content_id, ASCENDERS_BANE_ID, BASH_ID, BITE_ID, BITE_PLUS_ID,
-            CURSE_OF_THE_BELL_ID, RITUAL_DAGGER_ID, STRIKE_R_ID,
+            CURSE_OF_THE_BELL_ID, RITUAL_DAGGER_ID, SEARING_BLOW_ID, SEARING_BLOW_PLUS_ID,
+            STRIKE_R_ID,
         },
         run::shop,
         RunState,
@@ -2225,6 +2228,40 @@ mod tests {
                 "Pandora's Box grid has no preceding card RNG draws"
             ))
         );
+    }
+
+    #[test]
+    fn pandoras_box_egg_preview_upgrades_searing_blow_instances() {
+        // PandorasBox.onEquip previews every generated card through the eggs;
+        // Searing Blow must carry its upgrade count so the confirm can obtain it.
+        let mut searing_blows = 0;
+        for seed in 1..=200 {
+            let mut run = RunState::seeded_ironclad(seed, 0);
+            run.phase = RunPhase::Event;
+            run.event = Some(crate::run::event::event_screen_for_run(&run, Event::Neow));
+            run.relics.push(crate::Relic::MoltenEgg);
+            run.gain_relic(crate::Relic::PandorasBox)
+                .expect("Pandora's Box opens its generated grid");
+            run.validate().expect("Pandora's Box payload replays");
+            let grid = run.card_grid.as_ref().expect("Pandora's Box grid");
+            assert!(!grid
+                .cards
+                .iter()
+                .any(|card| card.content_id == SEARING_BLOW_ID));
+            searing_blows += grid
+                .cards
+                .iter()
+                .filter(|card| card.content_id == SEARING_BLOW_PLUS_ID)
+                .inspect(|card| assert_eq!(card.searing_blow_upgrades, 1))
+                .count();
+            let confirmed = confirm_grid(&run).expect("Pandora's Box confirm obtains every card");
+            assert!(confirmed
+                .deck
+                .iter()
+                .filter(|card| card.content_id == SEARING_BLOW_PLUS_ID)
+                .all(|card| card.searing_blow_upgrades == 1));
+        }
+        assert!(searing_blows > 0, "no generated Searing Blow exercised");
     }
 
     #[test]
