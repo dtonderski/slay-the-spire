@@ -1410,6 +1410,10 @@ def main(argv: list[str] | None = None) -> None:
                     )
                     optimizer_updates += int(learned["optimizer_step"])
                     consecutive_skips = 0
+                if pool is not None:
+                    learned["collection_worker_idle_fraction"] = pool.idle_fraction(
+                        collection_seconds
+                    )
                 learned.update(
                     collection_seconds=collection_seconds,
                     update_seconds=time.monotonic() - update_started,

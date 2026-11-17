@@ -11,6 +11,7 @@ import io
 import json
 import multiprocessing
 import signal
+import time
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, wait
 from dataclasses import dataclass
@@ -184,14 +185,18 @@ def _start_worker(
     tune_worker_runtime()
 
 
-def _collect_shard(weights: bytes, specs: list[JobSpec]) -> list[RunEpisode]:
+def _collect_shard(
+    weights: bytes, specs: list[JobSpec]
+) -> tuple[list[RunEpisode], float]:
+    """One shard's episodes and the seconds this worker spent on it."""
+    started = time.perf_counter()
     worker = _WORKER
     assert worker is not None
     worker.macro.load_state_dict(
         torch.load(io.BytesIO(weights), map_location=worker.device, weights_only=True),
         strict=True,
     )
-    return collect_sharded(
+    episodes = collect_sharded(
         [collection_job(spec, worker.device) for spec in specs],
         worker.macro,
         worker.combat,
@@ -202,10 +207,14 @@ def _collect_shard(weights: bytes, specs: list[JobSpec]) -> list[RunEpisode]:
         stop_requested=worker.stop,
         overlap_inference=worker.overlap_inference,
     )
+    return episodes, time.perf_counter() - started
 
 
 class ParallelCollector:
-    """Persistent spawned workers, each a full collector copy running whole shards."""
+    """Persistent spawned workers, each a full collector copy running whole shards.
+
+    `last_busy_seconds` holds each shard's in-worker seconds from the last batch.
+    """
 
     def __init__(
         self,
@@ -226,8 +235,10 @@ class ParallelCollector:
         # spawn: forking a process that has initialized CUDA is unsafe.
         context = multiprocessing.get_context("spawn")
         self.stop = context.Value("b", 0, lock=False)
+        self.workers = workers
         self.shards = shards
         self.stop_requested = stop_requested
+        self.last_busy_seconds: list[float] = []
         self.executor = ProcessPoolExecutor(
             workers,
             mp_context=context,
@@ -257,7 +268,17 @@ class ParallelCollector:
             if self.stop_requested() or any(f.exception() for f in done):
                 self.stop.value = 1
         # The first failed shard in shard order, after every shard has stopped.
-        return [episode for future in futures for episode in future.result()]
+        results = [future.result() for future in futures]
+        self.last_busy_seconds = [seconds for _, seconds in results]
+        return [episode for episodes, _ in results for episode in episodes]
+
+    def idle_fraction(self, wall_seconds: float) -> float:
+        """Share of the workers' wall time with no shard running in the last batch.
+
+        Includes start-up, weight loading, transfer and the uneven shard tail.
+        """
+        busy = sum(self.last_busy_seconds)
+        return max(0.0, 1 - busy / (self.workers * max(wall_seconds, 1e-9)))
 
     def close(self) -> None:
         self.executor.shutdown(cancel_futures=True)

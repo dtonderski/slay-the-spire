@@ -3,6 +3,7 @@
 import json
 import multiprocessing
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -116,9 +117,16 @@ def run(directory: Path, shards: int, workers: int, device="cpu") -> list[RunEpi
         )
     collector = pool(workers, shards, directory, device)
     try:
-        return collector.collect(state_bytes(macro), specs(directory))
+        started = time.perf_counter()
+        episodes = collector.collect(state_bytes(macro), specs(directory))
+        wall = time.perf_counter() - started
     finally:
         collector.close()
+    # One in-worker duration per shard, each within the batch's wall time.
+    assert len(collector.last_busy_seconds) == shards
+    assert all(0 < seconds <= wall for seconds in collector.last_busy_seconds)
+    assert 0 <= collector.idle_fraction(wall) < 1
+    return episodes
 
 
 class ParallelCollectionTests(unittest.TestCase):
@@ -308,6 +316,9 @@ class ParallelTrainerTests(unittest.TestCase):
                 for line in (root / "first/metrics.jsonl").read_text().splitlines()
             ]
             self.assertEqual(metrics[1]["train/optimizer_step"], 1.0)
+            self.assertLessEqual(
+                0, metrics[1]["train/collection_worker_idle_fraction"]
+            )
             self.assertEqual(metrics[2]["validation/attempts"], 2.0)
             resume = ["--resume-from", str(root / "first/latest.pt")]
             main(

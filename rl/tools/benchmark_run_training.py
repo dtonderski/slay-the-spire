@@ -380,11 +380,28 @@ def main():
             "cutoffs": sum(ep.status == "cutoff" for ep in episodes),
             "successes": sum(ep.status == "act1_clear" for ep in episodes),
             "accepted_actions": sum(ep.accepted for ep in episodes),
+            "worker_busy_seconds": pool.last_busy_seconds if pool is not None else [],
+            "worker_idle_fraction": pool.idle_fraction(collection_seconds)
+            if pool is not None
+            else None,
             "macro_decisions": sum(len(ep.steps) for ep in episodes),
             "max_allocated_cuda_bytes": torch.cuda.max_memory_allocated()
             if args.device == "cuda"
             else 0,
             "learned": learned,
+            # Per-episode public outcomes, for behaviour comparisons across modes.
+            "episodes": [
+                {
+                    "status": ep.status,
+                    "floor": ep.floor,
+                    "accepted": ep.accepted,
+                    "macro_decisions": len(ep.steps),
+                    "reward": ep.reward,
+                    "acts_cleared": ep.progress.acts_cleared if ep.progress else None,
+                    "heart_reached": ep.progress.heart_reached if ep.progress else None,
+                }
+                for ep in episodes
+            ],
             "journal_execution_sha256": [journal_fingerprint(p) for p in paths],
             "journal_sha256": [
                 hashlib.sha256(gzip.decompress(p.read_bytes())).hexdigest()

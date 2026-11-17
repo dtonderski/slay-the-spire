@@ -560,9 +560,9 @@ successor observation to records: the pure transition is ~15 µs of ~60 µs.
 Native `State.advance` now reads an ongoing combat successor's run-level fields
 from the fair projection without record conversion, and returns other successors
 as one observation mapping; unchanged map nodes reuse their previous decode.
-Uneven shards leave 13–19% of worker time idle at the batch tail; work stealing
-would change which runs share a forward and therefore rounding, so it is not
-done. Result pickling and transfer to the trainer take ~0.2 s per 256-run batch.
+Uneven shards leave 13–19% of worker time idle at the batch tail; a measured
+shared job queue did not recover it (below). Result pickling and transfer to the
+trainer take ~0.2 s per 256-run batch.
 
 256 runs, `S=N=8`, CPU workers, same settings, warm collection seconds (trials
 3–8 of 9, run back to back while two 8-worker training runs shared the machine,
@@ -574,6 +574,47 @@ so expect ±20% noise; every trial fingerprint-identical):
 | after | 8.9 s | 7.4–9.8 s |
 | after, `--collection-overlap-inference` | 8.1 s | 6.9–9.6 s |
 
+`train/collection_worker_idle_fraction` (worker processes only) is the share of
+the workers' collection wall time with no shard running: start-up, weight
+loading, result transfer and the uneven tail. Each shard reports its in-worker
+seconds (`ParallelCollector.last_busy_seconds`); the benchmark records both.
+
+A follow-up pass (same machine and settings, 256 runs, `S=N=8`, overlap on,
+two 8-worker trainings sharing it) found no further large win; none of these
+were kept:
+
+- **Forwards are compute-bound, so batching buys little.** One thread, real
+  inputs: a token macro forward costs ~0.1 ms + ~0.3 ms per row up to 16 rows
+  (0.38/1.24/2.35/5.2 ms at 1/4/8/16 rows; per row it rises beyond that as
+  padding grows), and its linear layers run near the core's FP32 peak. The
+  combat forward costs ~0.8 ms fixed + ~0.2 ms per row, flat from ~16 rows.
+  About 21% (combat) and 24% (macro) of forwarded tokens are padding.
+  `collect_many` already sends every active episode's request to one forward
+  per wave.
+- **A shared job queue** (workers pull single episodes as slots free; widths
+  8/16/24 per worker) cut idle from 16–19% to 6–23% but not wall time
+  (warm 9.6–12.0 s at width 16 against 8.7–11.2 s static). Smaller widths make
+  more forwards and raised total worker time 10–30%, and per-worker time follows
+  its total actions: episode lengths are heavy-tailed (mean 424, max 1,664
+  actions on the screening seeds), so the work still in flight when the queue
+  empties is as uneven as static shards. An offline model of other refill
+  policies gained at most ~5%. Batch membership was timing dependent; executed
+  commands still matched static shards on all 256 runs, stored logits did not.
+- Two intra-op threads per worker: 10.8–14.0 s against 9.6–11.1 s.
+- Halving each wave so a helper thread runs one half's forwards while the
+  other half's games advance: no gain on one shard (the GIL serializes the
+  Python parts; CPU time ≈ wall time).
+- `torch.compile` of the macro encoder (CPU, dynamic shapes) was slower than
+  eager; the math attention backend and the eval-mode fast path were slower
+  for the macro model, and the non-fast path was no faster for combat.
+- A shared GPU inference server was not built: measured CUDA latency on the
+  shared GPU was ~2–4 ms per model call, while a batch needs ~1,500 sequential
+  waves (the longest episode's request chain), so a synchronous server would
+  take longer than collection does now (inferred, not measured end to end).
+
+A worker spends ~0.6–0.7 ms per accepted action; the two forwards are about
+60% of it, the rest native steps, typed decoding, token encoding and journals.
+
 The bounded comparison tool is [`benchmark_run_training.py`](../tools/benchmark_run_training.py).
 It is not an alternative training entry point. It resets fixed macro weights per
 trial, pins combat/native/source hashes, records complete-case coverage and
@@ -583,7 +624,10 @@ episode. The macro checkpoint's `encoder`, `direct_smith` and
 trainer; `--final-card-skip` turns the last one on for any checkpoint.
 `--shards` and `--workers` (natural starts only) use the same sharded
 collection, with `--worker-device` (default `--device`) as the worker inference
-device; results then include exact per-episode and full-journal hashes. Example (use a new directory):
+device; results then include exact per-episode and full-journal hashes, worker
+busy seconds and idle fraction. Every trial also records each episode's status,
+floor, accepted actions, macro decisions, reward, act clears and Heart reach.
+Example (use a new directory):
 
 ```bash
 PYTHONPATH=rl uv run --project rl --no-sync python rl/tools/benchmark_run_training.py \
