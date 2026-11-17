@@ -250,11 +250,18 @@ class ParallelTrainerTests(unittest.TestCase):
                     "2",
                     "--collection-shards",
                     "2",
+                    "--collection-worker-device",
+                    "cpu",
                 ]
             )
             config = json.loads((root / "first/config.json").read_text())
             self.assertEqual(
-                (config["collection_workers"], config["collection_shards"]), (2, 2)
+                (
+                    config["collection_workers"],
+                    config["collection_shards"],
+                    config["collection_worker_device"],
+                ),
+                (2, 2, "cpu"),
             )
             metrics = [
                 json.loads(line)
@@ -273,6 +280,8 @@ class ParallelTrainerTests(unittest.TestCase):
                     "1",
                     "--collection-shards",
                     "2",
+                    "--collection-worker-device",
+                    "cpu",
                 ]
             )
             self.assertTrue((root / "second/finished.json").exists())

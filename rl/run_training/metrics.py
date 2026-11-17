@@ -96,10 +96,7 @@ class BehaviorStats:
                 map_nodes_visited=result.map_nodes_visited + 1,
                 elite_nodes_visited=result.elite_nodes_visited + int(elite),
             )
-        if action.kind in TRACKED_ACTIONS:
-            counts = dict(result.action_counts)
-            counts[action.kind] = counts.get(action.kind, 0) + 1
-            result = replace(result, action_counts=tuple(counts.items()))
+        result = result._counted(action)
         if action.kind == "enter_shop":
             location = (observation.context.act, observation.context.floor)
             revisited = location in result.shop_floors_seen
@@ -111,6 +108,19 @@ class BehaviorStats:
                 else result.shop_floors_seen + (location,),
             )
         return result
+
+    def accepted_in_combat(self, action: PolicyAction) -> "BehaviorStats":
+        """`accepted` for a combat step, which has no typed observation."""
+        if action.kind in ("choose_map_node", "enter_shop"):
+            raise ValueError(f"Unexpected combat action {action.kind}")
+        return self._counted(action)
+
+    def _counted(self, action: PolicyAction) -> "BehaviorStats":
+        if action.kind not in TRACKED_ACTIONS:
+            return self
+        counts = dict(self.action_counts)
+        counts[action.kind] = counts.get(action.kind, 0) + 1
+        return replace(self, action_counts=tuple(counts.items()))
 
 
 def behavior_scores(records: list[BehaviorStats]) -> dict[str, float]:

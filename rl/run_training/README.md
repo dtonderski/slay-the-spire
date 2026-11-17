@@ -452,10 +452,17 @@ setups and execution fingerprints matched. A CUDA split/resume check reproduced
 the uninterrupted 16-update model, optimizer and saved RNG states exactly.
 
 `train/collection_seconds`, `train/update_seconds` and
-`validation/collection_seconds` expose phase timings. Typed projection and public
-feature assembly remain CPU costs. Native `numeric_steps` is deliberately not used:
-its non-atomic batch failure contract needs trustworthy per-state settlement
-accounting before replacing individually journaled transitions.
+`validation/collection_seconds` expose phase timings. Combat steps use
+`State.advance`, which returns an ongoing combat successor as a `CombatStep`
+(run-level fields only) instead of a typed observation: the combat policy reads
+`numeric_decisions` tables and the loop reads only act, floor, HP, keys and
+monster keys, so journals and episodes are byte-identical while each combat step
+skips the typed projection (~200 → ~80 µs per combat step in isolation). Typed
+projection of non-combat screens and public feature assembly remain CPU costs.
+Native `numeric_steps` is deliberately not used: its non-atomic batch failure
+contract needs trustworthy per-state settlement accounting before replacing
+individually journaled transitions, and it only uses threads for chunks of at
+least 64 states.
 
 ### Sharded collection across processes
 
@@ -466,38 +473,55 @@ results are concatenated in job order. `--collection-workers N` (default 0)
 only decides where shards run: `0` runs them one after another in the trainer,
 `N > 0` in `N` persistent spawned processes (`parallel.py`), each a full
 collector copy with its own macro model (same train mode as the trainer),
-frozen combat model and `--device`. Weights travel with every shard; workers
+frozen combat model and inference device: `--collection-worker-device`
+(`cpu` or `cuda`, default `--device`; requires `N > 0`). The learner stays on
+`--device`. Weights travel with every shard; workers
 ignore SIGINT/SIGTERM and stop through a flag only the trainer sets. Sharding
 requires natural starts and `--collection-width > 1`; `S=1, N=0` is the
 unchanged collector.
 
-For fixed source, device, weights, jobs, width and `S`, every episode (choices,
+For fixed source, worker device, weights, jobs, width and `S`, every episode (choices,
 stored logits/values, public inputs, statuses, rewards) and every journal is
 bit-identical for every `N`, including `S=1, N=1` against the in-process path
 on CUDA. Changing `S` changes which episodes share batched forwards, so
 logits can round differently (accepted commands matched in the measurement
-below, but that is not promised). Exact resume therefore checks
-`collection_shards` but ignores `collection_workers`. Failures keep the abort
+below, but that is not promised). CPU and CUDA inference round differently too,
+so trajectories differ between worker devices. Exact resume therefore checks
+`collection_shards` and `collection_worker_device` but ignores
+`collection_workers`. Failures keep the abort
 and whole-batch quarantine semantics; a failed shard stops its peers and its
 exception is re-raised in shard order; a dead worker is fatal.
 
-November 2026, RTX 5080, token macro model, 64 natural `act1` starts, width 64,
-median of four warm trials (collection only; the update took ~0.2 s):
+November 2026, RTX 5080 / Ryzen 9 7900X (12 cores), token macro model, natural
+`act1` starts, width 64, warm collection seconds (range over warm trials), measured
+while another training run used ~5 cores; the update adds ~0.5 s (64 runs) to
+~2.5–3 s (256 runs). "Before" is the code without `State.advance`:
 
-| Setting | Collection | Runs/s | RSS per worker | GPU per worker |
-| --- | ---: | ---: | ---: | ---: |
-| S=1, in-process | 8.02 s | 8.0 | — | — |
-| S=N=4 | 3.68 s | 17.4 | 1.5 GiB | 386 MiB |
-| S=N=8 | 3.77 s | 17.0 | 1.5 GiB | 384 MiB |
-| S=N=12 | 3.95 s | 16.2 | 1.5 GiB | 384 MiB |
-| 128 runs, S=1 in-process | 15.51 s | 8.3 | — | — |
-| 128 runs, S=N=8 | 4.31–7.29 s | 18–30 | 1.5 GiB | 386 MiB |
+| Runs | S=N | Worker device | Before | After | PSS (all processes) |
+| ---: | ---: | --- | ---: | ---: | ---: |
+| 64 | in-process | CUDA | 13.7–14.6 s | 11.2–12.4 s | 2.2 GB |
+| 64 | in-process | CPU | 11.5–12.4 s | 9.5–10.2 s | — |
+| 64 | 4 | CUDA | 8.0–9.6 s | — | 7.0 GB |
+| 64 | 8 | CPU | 3.6–3.9 s | 3.8–4.1 s | 4.9 GB |
+| 128 | 8 | CPU | 4.8–8.4 s | 4.5–9.3 s | 5.7 GB |
+| 256 | 4 | CUDA | 16.7–17.4 s | — | ~7 GB |
+| 256 | 4 | CPU | 13.8–14.5 s | 11.6–12.1 s | 4.6 GB |
+| 256 | 8 | CPU | 7.6–19.0 s | 6.7–11.3 s | 6.2 GB |
 
-Beyond four shards the time stops falling: it is bounded by the longest run
-(354 accepted actions, one inference round per action) times the fixed latency
-of a small batched forward, not by total work. CPU-device workers hit the same
-~3.4 s floor with 0.6 GiB RSS each. Larger batches per update amortise it.
-The first batch after start-up also pays process spawn and warm-up.
+Journal and episode fingerprints were identical before and after wherever both
+were measured.
+Per-step work is linear in steps (~0.65 ms per accepted action per process on CPU
+for 16–64 runs per shard), so throughput scales with processes, not batch size.
+CUDA workers scale badly because concurrent processes time-slice one GPU: with
+the same 16 runs in each process, per-process time rose 1.4× at 6 and 2× at 12
+CUDA processes but stayed flat (≤1.2×) on CPU, and CPU inference is also faster
+for these tiny models. A CPU worker uses ~0.45 GB instead of ~1.25 GB. Use
+`S=N` (more shards than workers ran slower: 16 shards on 8 workers took 9.0 s
+against 7.7 s) and at most one worker per free physical core; the longest run
+(up to ~1,700 actions) bounds small batches. Recommended on this machine:
+`--batch-size 256 --collection-width 64 --collection-shards 8
+--collection-workers 8 --collection-worker-device cpu`. The first batch after
+start-up also pays process spawn and warm-up.
 
 The bounded comparison tool is [`benchmark_run_training.py`](../tools/benchmark_run_training.py).
 It is not an alternative training entry point. It resets fixed macro weights per
@@ -505,7 +529,8 @@ trial, pins combat/native/source hashes, records complete-case coverage and
 execution fingerprints, and skips the entire optimizer update on any unresolved
 episode. The macro checkpoint's `encoder` and `direct_smith` settings are used
 for collection, in train mode like the trainer. `--shards` and `--workers`
-(natural starts only) use the same sharded collection; results then include
+(natural starts only) use the same sharded collection, with `--worker-device`
+(default `--device`) as the worker inference device; results then include
 exact per-episode and full-journal hashes. Example (use a new directory):
 
 ```bash

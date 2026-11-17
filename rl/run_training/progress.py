@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from sts_sim import MonsterKey, Observation
+from sts_sim import CombatStep, MonsterKey, Observation
 
 PROGRESS_PROTOCOL = "accepted_public_run_milestones_v1"
 
@@ -38,26 +38,29 @@ class RunProgress:
         ):
             raise ValueError("Invalid observed run progress")
 
-    def observed(self, observation: Observation) -> "RunProgress":
+    def observed(self, observation: Observation | CombatStep) -> "RunProgress":
         """Call at initialization and accepted successors only, not attempted steps.
 
         Act entry proves earlier acts cleared; explicit final outcomes also prove
         Act 3 cleared. Floors alone never grant an act-clear bonus. Keys are ever
         observed flags, not an assertion that they remain held after Act-4 entry.
         """
-        context = observation.context
+        if isinstance(observation, CombatStep):
+            context = observation
+            monsters = observation.monsters
+        else:
+            context = observation.context
+            monsters = (
+                tuple(monster.content_key for monster in observation.screen.monsters)
+                if observation.kind == "combat"
+                else ()
+            )
         if not 1 <= context.act <= 4 or context.floor < 0:
             raise ValueError("Invalid public run milestone context")
         cleared = min(3, context.act - 1)
         if context.outcome in ("act3_clear", "heart_clear"):
             cleared = 3
-        heart = context.outcome == "heart_clear" or (
-            observation.kind == "combat"
-            and any(
-                monster.content_key == MonsterKey.CORRUPT_HEART
-                for monster in observation.screen.monsters
-            )
-        )
+        heart = context.outcome == "heart_clear" or MonsterKey.CORRUPT_HEART in monsters
         return RunProgress(
             max(self.furthest_floor, context.floor),
             max(self.furthest_act, context.act),

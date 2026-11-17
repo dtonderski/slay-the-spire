@@ -205,6 +205,9 @@ class RunMetricsTests(unittest.TestCase):
             def decision(self):
                 return decisions
 
+            def advance(self, action):
+                return self.step(action)
+
             def step(self, selected):
                 self.calls += 1
                 if self.fail and self.calls == 2:

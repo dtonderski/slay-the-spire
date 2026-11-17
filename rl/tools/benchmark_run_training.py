@@ -101,6 +101,9 @@ def main():
     cli.add_argument("--learner-batch-size", type=int, default=0)
     cli.add_argument("--device", choices=["cpu", "cuda"], default="cuda")
     cli.add_argument(
+        "--worker-device", choices=["cpu", "cuda"], help="Defaults to --device"
+    )
+    cli.add_argument(
         "--objective", choices=["act1", "act1_binary"], default="act1_binary"
     )
     cli.add_argument("--max-actions", type=int, default=3000)
@@ -185,7 +188,7 @@ def main():
             args.shards,
             model_type=kind,
             model_width=saved["config"]["model_width"],
-            device=args.device,
+            device=args.worker_device or args.device,
             combat=args.combat_checkpoint.read_bytes(),
             adapt_legacy=args.adapt_legacy_combat_checkpoint,
             width=args.width,

@@ -7,7 +7,7 @@ Terminal rewards depend on the declared objective, not merely positive HP.
 from dataclasses import dataclass
 from typing import Literal
 
-from sts_sim import Action, Decision
+from sts_sim import Action, CombatStep, Decision, RunContext
 
 Controller = Literal["combat", "macro", "forced", "terminal"]
 Outcome = Literal["ongoing", "death", "act3_clear", "heart_clear", "invalid"]
@@ -43,9 +43,16 @@ class PolicyAction:
         )
 
 
-def outcome(decision: Decision) -> Outcome:
+def run_context(decision: Decision | CombatStep) -> RunContext | CombatStep:
+    """Public act, floor, HP and keys; a `CombatStep` carries them itself."""
+    return (
+        decision if isinstance(decision, CombatStep) else decision.observation.context
+    )
+
+
+def outcome(decision: Decision | CombatStep) -> Outcome:
     """Use the explicit public result; never guess victory from HP/act/screen."""
-    status = decision.observation.context.outcome
+    status = run_context(decision).outcome
     if status in ("death", "act3_clear", "heart_clear"):
         return status
     if status != "ongoing" or not decision.actions:
@@ -53,14 +60,20 @@ def outcome(decision: Decision) -> Outcome:
     return "ongoing"
 
 
-def controller(decision: Decision) -> Controller:
+def kind(decision: Decision | CombatStep) -> str:
+    return (
+        decision.kind if isinstance(decision, CombatStep) else decision.observation.kind
+    )
+
+
+def controller(decision: Decision | CombatStep) -> Controller:
     status = outcome(decision)
     if status != "ongoing":
         return "terminal"
     if len(decision.actions) == 1:
         return "forced"
     # Potion and selection actions have family='run' even during combat.
-    return "combat" if decision.observation.kind == "combat" else "macro"
+    return "combat" if kind(decision) == "combat" else "macro"
 
 
 def terminal_reward(status: Outcome, objective: Objective) -> float:

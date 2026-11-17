@@ -680,6 +680,11 @@ def parser() -> argparse.ArgumentParser:
         help="Spawned processes running the shards; 0 runs them in-process. Results do not depend on it",
     )
     result.add_argument(
+        "--collection-worker-device",
+        choices=("cpu", "cuda"),
+        help="Inference device of worker processes; defaults to --device. Results depend on it",
+    )
+    result.add_argument(
         "--learner-batch-size",
         type=int,
         default=128,
@@ -815,7 +820,9 @@ def main(argv: list[str] | None = None) -> None:
         and not args.final_act
     ):
         cli.error("Heart objective requires --final-act")
-    if args.device == "cuda" and not torch.cuda.is_available():
+    if "cuda" in (args.device, args.collection_worker_device) and (
+        not torch.cuda.is_available()
+    ):
         cli.error("CUDA unavailable")
     if args.learner_batch_size < 0:
         cli.error("learner-batch-size must be nonnegative")
@@ -844,6 +851,8 @@ def main(argv: list[str] | None = None) -> None:
         cli.error(
             "Sharded collection requires natural starts and --collection-width > 1"
         )
+    if args.collection_worker_device and not args.collection_workers:
+        cli.error("--collection-worker-device requires --collection-workers")
     if bank:
         if args.objective != "act1_binary":
             cli.error("Root curriculum requires the declared binary Act-1 objective")
@@ -1011,6 +1020,7 @@ def main(argv: list[str] | None = None) -> None:
             "direct_smith": False,
             "smith_protocol": "all_legal_actions",
             "collection_shards": 1,
+            "collection_worker_device": None,
         }
         for key, value in settings.items():
             if (
@@ -1295,7 +1305,7 @@ def main(argv: list[str] | None = None) -> None:
                     args.collection_shards,
                     model_type=model_type,
                     model_width=args.model_width,
-                    device=args.device,
+                    device=args.collection_worker_device or args.device,
                     combat=combat_bytes,
                     adapt_legacy=args.adapt_legacy_combat_checkpoint,
                     width=args.collection_width,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal, cast
 
 from . import _native, observations
 from ._native import Action
@@ -78,6 +79,7 @@ from .observations import (
     VisibleIntent,
     decode_observation,
 )
+from .observations._decode import _bool, _enum, _int
 
 __all__ = [
     "ACTION_KINDS",
@@ -92,6 +94,7 @@ __all__ = [
     "CardSlot",
     "CombatObservation",
     "CombatScreen",
+    "CombatStep",
     "CompleteObservation",
     "Counter",
     "CounterKey",
@@ -166,6 +169,28 @@ class Decision:
     revision: int
     observation: Observation
     actions: tuple[Action, ...]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CombatStep:
+    """Run-level public fields of an ongoing combat decision, from `State.advance`.
+
+    It omits the typed combat screen and the deck, relics, potions and map of the
+    run context, for drivers whose combat policy reads `numeric_decisions` tables.
+    Values come from the same fair projection as `Decision`; `monsters` lists the
+    public content key of every monster slot.
+    """
+
+    schema_version: int
+    revision: int
+    actions: tuple[Action, ...]
+    act: int
+    floor: int
+    player_hp: int
+    keys: RunKeys
+    monsters: tuple[MonsterKey, ...]
+    kind: Literal["combat"] = "combat"
+    outcome: Literal["ongoing"] = "ongoing"
 
 
 class State:
@@ -266,6 +291,45 @@ class State:
 
     def step(self, action: Action) -> Decision:
         return self._project(self._native.step(action))
+
+    def advance(self, action: Action) -> Decision | CombatStep:
+        """`step`, except that an ongoing combat successor is a `CombatStep`.
+
+        Skips typed projection where a driver only needs run-level fields; every
+        other successor (including combat that ended the run) is a full `Decision`.
+        """
+        native = self._native.step(action)
+        observation = native.observation
+        if observation.kind != "combat":
+            return self._project(native)
+        context = observation.context
+        actions = tuple(native.actions)
+        if context.outcome != "ongoing" or not actions:
+            return self._project(native)
+        if observation.schema_version != FAIR_RUN_OBSERVATION_SCHEMA_VERSION:
+            raise ValueError(f"unsupported fair run schema {observation.schema_version}")
+        keys = cast(_native.Record, context.keys)
+        screen = observation.screen
+        if screen is None:
+            raise ValueError("combat observation without a screen")
+        monsters = cast(list[_native.Record], screen.monsters)
+        return CombatStep(
+            schema_version=native.schema_version,
+            revision=native.revision,
+            actions=actions,
+            act=_int(context.act, "context.act"),
+            floor=_int(context.floor, "context.floor"),
+            player_hp=_int(context.player_hp, "context.player_hp"),
+            keys=RunKeys(
+                ruby=_bool(keys.ruby, "context.keys.ruby"),
+                emerald=_bool(keys.emerald, "context.keys.emerald"),
+                sapphire=_bool(keys.sapphire, "context.keys.sapphire"),
+            ),
+            monsters=tuple(
+                _enum(monster.content_key, "screen.monsters.content_key", MonsterKey)
+                for monster in monsters
+            ),
+        )
 
     def __repr__(self) -> str:
         return f"State(revision={self.revision})"

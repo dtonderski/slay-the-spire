@@ -214,6 +214,9 @@ class HeartInfraTests(unittest.TestCase):
             def decision(self):
                 return decisions[self.index]
 
+            def advance(self, action):
+                return self.step(action)
+
             def step(self, action):
                 if fail and self.index == 1:
                     raise ValueError("unsupported fixture transition")

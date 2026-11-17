@@ -24,6 +24,13 @@ while decision := state.decision():
 `legal_actions`, and `step`. `Decision` atomically carries a schema version,
 revision, fair observation, and an immutable tuple of decision-local actions.
 Actions expose only stable kinds and visible slots and are rejected when stale.
+`State.advance(action)` applies the same transition as `step` but returns an
+ongoing combat successor as a `CombatStep`: revision, actions, act, floor, player
+HP, keys and monster content keys, decoded strictly, without projecting the typed
+combat screen or the deck/relic/potion/map context. Every other successor,
+including a combat that ended the run, is the full `Decision`. It is for drivers
+whose combat policy reads the numeric tables below (the run collector); the typed
+contract of `step` is unchanged.
 `decision.observation.context.map` contains the public current-act `MapScreen`
 on every screen, including before the initial Neow choice. No separate inspection
 method or navigation is required. It is `None` only when no current-act map exists

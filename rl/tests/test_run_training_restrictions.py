@@ -364,6 +364,9 @@ class RestrictionTests(unittest.TestCase):
             def decision(self):
                 return initial
 
+            def advance(self, action):
+                return self.step(action)
+
             def step(self, chosen):
                 selected.append(actions.index(chosen))
                 return terminal

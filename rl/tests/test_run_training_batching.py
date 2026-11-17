@@ -533,6 +533,9 @@ class CooperativeCollectorTests(unittest.TestCase):
                 def decision(self):
                     return initial
 
+                def advance(self, action):
+                    return self.step(action)
+
                 def step(self, action):
                     self.calls += 1
                     if self.error:

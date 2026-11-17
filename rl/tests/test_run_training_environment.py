@@ -75,7 +75,7 @@ class TrainingEnvironmentTests(unittest.TestCase):
         for seed in (None, 0, 2**64 - 1):
             native = Mock()
             native.decision.return_value = initial
-            native.step.return_value = terminal
+            native.advance.return_value = terminal
             factory = Mock(return_value=native)
             with tempfile.TemporaryDirectory() as directory:
                 path = Path(directory) / "episode.jsonl"

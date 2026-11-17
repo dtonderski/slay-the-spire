@@ -136,6 +136,9 @@ class Act4EntryTests(unittest.TestCase):
             def decision(self):
                 return views[self.index]
 
+            def advance(self, action):
+                return self.step(action)
+
             def step(self, chosen):
                 self.index += 1
                 return views[self.index]

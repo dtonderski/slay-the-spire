@@ -22,9 +22,15 @@ from encoders.numeric import (
     NumericBatch,
 )
 from model import CombatValueModel
-from sts_sim import Decision, State
+from sts_sim import CombatStep, Decision, State
 
-from run_training.contracts import PolicyAction, controller, outcome
+from run_training.contracts import (
+    PolicyAction,
+    controller,
+    kind,
+    outcome,
+    run_context,
+)
 from run_training.diagnostics import decision_diagnostic
 from run_training.environment import journal_environment_seed
 from run_training.keys import key_decision
@@ -149,7 +155,7 @@ class MacroRequest:
 @dataclass(frozen=True)
 class CombatRequest:
     state: State
-    decision: Decision
+    decision: Decision | CombatStep
     generator: torch.Generator
 
 
@@ -189,7 +195,7 @@ class FrozenCombat:
 
     @torch.inference_mode()
     def choose(
-        self, state: State, decision: Decision, generator: torch.Generator
+        self, state: State, decision: Decision | CombatStep, generator: torch.Generator
     ) -> int:
         batch = NumericBatch(simulator_call(lambda: State.numeric_decisions([state])))
         rows = batch.action_rows
@@ -264,14 +270,15 @@ class FrozenCombat:
 
 
 def task_result(
-    decision: Decision,
+    decision: Decision | CombatStep,
     objective: Objective,
     furthest_act1_floor: int | None = None,
     *,
     progress: RunProgress | None = None,
 ) -> tuple[str, float | None]:
+    context = run_context(decision)
     if furthest_act1_floor is None:
-        furthest_act1_floor = decision.observation.context.floor
+        furthest_act1_floor = context.floor
     status = outcome(decision)
     if status == "invalid":
         raise CollectionFailure("Invalid/unknown run boundary, not a loss")
@@ -280,7 +287,7 @@ def task_result(
             objective, status, furthest_act1_floor, progress=progress
         ).total
     # Act-1 curriculum terminates at the observable transition into Act 2.
-    if objective in ("act1", "act1_binary") and decision.observation.context.act >= 2:
+    if objective in ("act1", "act1_binary") and context.act >= 2:
         return "act1_clear", terminal_parts(
             objective, "act1_clear", furthest_act1_floor
         ).total
@@ -391,13 +398,16 @@ def _trajectory(
             state = simulator_call(
                 lambda: state_factory(seed, ascension=0, final_act=final_act, **profile)
             )
-            decision = simulator_call(state.decision)
+            decision: Decision | CombatStep = simulator_call(state.decision)
             while True:
-                progress = progress.observed(decision.observation)
-                if decision.observation.context.act == 1:
-                    furthest_act1_floor = max(
-                        furthest_act1_floor, decision.observation.context.floor
-                    )
+                context = run_context(decision)
+                progress = progress.observed(
+                    decision
+                    if isinstance(decision, CombatStep)
+                    else decision.observation
+                )
+                if context.act == 1:
+                    furthest_act1_floor = max(furthest_act1_floor, context.floor)
                 status, reward = task_result(
                     decision, objective, furthest_act1_floor, progress=progress
                 )
@@ -437,8 +447,8 @@ def _trajectory(
                             "action_limit": max_actions,
                             "reward": reward,
                             "accepted": accepted,
-                            "floor": decision.observation.context.floor,
-                            "hp": decision.observation.context.player_hp,
+                            "floor": context.floor,
+                            "hp": context.player_hp,
                             "macro_decisions": len(steps),
                             "furthest_act1_floor": furthest_act1_floor,
                             "reward_parts": asdict(
@@ -460,7 +470,7 @@ def _trajectory(
                         reward,
                         tuple(steps),
                         accepted,
-                        decision.observation.context.floor,
+                        context.floor,
                         objective=objective,
                         furthest_act1_floor=furthest_act1_floor,
                         behavior=behavior,
@@ -469,13 +479,18 @@ def _trajectory(
                         game_outcome=game_status,
                         action_limit=max_actions,
                     )
-                observation = decision.observation
+                # Combat steps come from `State.advance` without a typed observation;
+                # neither the combat policy nor this loop reads its screen.
+                observation = (
+                    None if isinstance(decision, CombatStep) else decision.observation
+                )
+                screen_kind = kind(decision)
                 owner = controller(decision)
                 step = None
                 heal_probability = None
                 heal_indices = (
                     [i for i, a in enumerate(decision.actions) if a.kind == "rest_heal"]
-                    if observation.kind == "rest"
+                    if screen_kind == "rest"
                     else []
                 )
                 if owner == "combat":
@@ -488,6 +503,7 @@ def _trajectory(
                     if heal_indices:
                         heal_probability = 1.0
                 else:
+                    assert observation is not None, "macro decisions are typed"
                     descriptors = tuple(
                         PolicyAction.from_action(a) for a in decision.actions
                     )
@@ -523,7 +539,7 @@ def _trajectory(
                         eligibility=step.inputs.eligibility if step is not None else (),
                         logits=step.logits if step is not None else None,
                     )
-                    if owner != "combat"
+                    if observation is not None and owner != "combat"
                     else None
                 )
                 emit(
@@ -540,11 +556,9 @@ def _trajectory(
                         "policy_eligibility": list(inputs.eligibility)
                         if owner == "macro"
                         else None,
-                        "rest_pre_hp": observation.context.player_hp
-                        if heal_indices
-                        else None,
+                        "rest_pre_hp": context.player_hp if heal_indices else None,
                         "rest_pre_max_hp": observation.context.player_max_hp
-                        if heal_indices
+                        if heal_indices and observation is not None
                         else None,
                         "heal_probability": heal_probability,
                         "key_choice": asdict(key_proposal)
@@ -553,21 +567,29 @@ def _trajectory(
                         "policy_diagnostic": decision_diagnostic(
                             observation, descriptors, step.logits, index, step.value
                         )
-                        if decision_diagnostics and step is not None
+                        if decision_diagnostics
+                        and step is not None
+                        and observation is not None
                         else None,
                     }
                 )
-                decision = simulator_call(lambda action=action: state.step(action))
+                decision = simulator_call(lambda action=action: state.advance(action))
                 if descriptor.kind == "leave_shop":
-                    finished_shop = (observation.context.act, observation.context.floor)
+                    finished_shop = (context.act, context.floor)
                 elif descriptor.kind == "choose_map_node":
                     finished_shop = None
-                behavior = behavior.accepted(
-                    observation, descriptor, heal_probability, key_proposal=key_proposal
-                )
+                if observation is not None:
+                    behavior = behavior.accepted(
+                        observation,
+                        descriptor,
+                        heal_probability,
+                        key_proposal=key_proposal,
+                    )
+                else:
+                    behavior = behavior.accepted_in_combat(descriptor)
                 if step is not None:
                     steps.append(step)
-                if observation.kind != "combat":
+                if screen_kind != "combat":
                     previous = descriptor
                 accepted += 1
                 emit(
@@ -584,7 +606,7 @@ def _trajectory(
                 error.progress = progress if "decision" in locals() else None
                 error.furthest_act1_floor = furthest_act1_floor
                 error.floor = (
-                    decision.observation.context.floor if "decision" in locals() else 0
+                    run_context(decision).floor if "decision" in locals() else 0
                 )
             emit(
                 {

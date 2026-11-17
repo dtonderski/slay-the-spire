@@ -187,6 +187,9 @@ class KeyBudgetTests(unittest.TestCase):
                     observation=replace(initial.observation, context=context),
                 )
 
+            def advance(self, chosen):
+                return self.step(chosen)
+
             def step(self, chosen):
                 if self.index == error_at:
                     raise ValueError("unsupported scripted transition")
@@ -396,7 +399,7 @@ class KeyBudgetTests(unittest.TestCase):
             def decision(self):
                 return initial
 
-            def step(self, chosen):
+            def advance(self, chosen):
                 raise ValueError("rejected fixture key action")
 
         with (

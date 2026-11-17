@@ -93,6 +93,9 @@ class NavigationTests(unittest.TestCase):
                 ob, actions = states[self.i]
                 return SimpleNamespace(observation=ob, actions=actions, revision=self.i)
 
+            def advance(self, action):
+                return self.step(action)
+
             def step(self, action):
                 accepted.append(action.kind)
                 self.i += 1

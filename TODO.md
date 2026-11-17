@@ -34,8 +34,9 @@ baseline and its reward/behavior metrics are documented in the
   [settled experiment](docs/project_history.md#run-level-health-conditioning-and-campfire-pilot-october-2026)
   and [curriculum workflow](rl/run_training/README.md#synthetic-pre-boss-campfire-experiment).
 
-- [ ] **[RL] Reduce remaining run-collection CPU work.** Profile typed observation
-  projection and public feature assembly under the batched collector. Before
+- [ ] **[RL] Reduce remaining run-collection CPU work.** Combat steps already skip
+  typed projection (`State.advance`); the rest is mostly small batched model
+  forwards, the native step/projection and typed decode of non-combat screens. Before
   adopting native numeric batch stepping, require per-state settlement/error
   attribution: the current multi-state transition API is not atomic. Preserve
   immutable journals, complete candidates, independent RNGs and whole-batch
