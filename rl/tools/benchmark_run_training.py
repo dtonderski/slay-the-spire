@@ -23,6 +23,7 @@ from run_training import collector, trainer
 from run_training.environment import episode_environment_seed
 from run_training.model import HealthMacroModel, MacroModel
 from run_training.roots import RootBank
+from run_training.token_model import TokenMacroModel
 from sts_sim import State, _native
 
 
@@ -102,8 +103,8 @@ def main():
     torch.set_num_threads(1)
     torch.manual_seed(1234)
     saved = torch.load(args.macro_checkpoint, weights_only=True, map_location="cpu")
-    kind = (
-        HealthMacroModel if saved["config"].get("encoder") == "health" else MacroModel
+    kind = {"health": HealthMacroModel, "tokens": TokenMacroModel}.get(
+        saved["config"].get("encoder"), MacroModel
     )
     model = kind(saved["config"]["model_width"]).to(args.device)
     frozen = collector.FrozenCombat(

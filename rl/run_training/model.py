@@ -8,6 +8,7 @@ import hashlib
 import math
 from dataclasses import dataclass, fields, is_dataclass
 from functools import lru_cache
+from typing import Any
 
 import numpy as np
 import torch
@@ -220,6 +221,32 @@ def _context_features(
     return features((observation, map_screen, previous))
 
 
+def policy_controls(
+    observation: Observation,
+    actions: tuple[PolicyAction, ...],
+    *,
+    avoid_prismatic: bool,
+    commit_navigation: bool,
+    shop_finished: bool,
+    exploration_profile: str,
+    direct_smith: bool,
+) -> tuple[tuple[bool, ...], float]:
+    """Declared eligibility and temperature, shared by every macro encoder."""
+    return exploration_controls(
+        observation,
+        actions,
+        macro_eligibility(
+            observation,
+            actions,
+            avoid_prismatic=avoid_prismatic,
+            commit_navigation=commit_navigation,
+            shop_finished=shop_finished,
+            direct_smith=direct_smith,
+        ),
+        exploration_profile,
+    )
+
+
 def encode(
     observation: Observation,
     actions: tuple[PolicyAction, ...],
@@ -229,6 +256,7 @@ def encode(
     commit_navigation: bool = False,
     shop_finished: bool = False,
     exploration_profile: str = "none",
+    direct_smith: bool = False,
 ) -> MacroInput:
     if not isinstance(observation, OBSERVATION_TYPES) or any(
         not isinstance(a, PolicyAction) for a in actions
@@ -247,17 +275,14 @@ def encode(
     ):
         raise ValueError("Public map must belong to the current act")
     map_screen = None
-    eligibility, temperature = exploration_controls(
+    eligibility, temperature = policy_controls(
         observation,
         actions,
-        macro_eligibility(
-            observation,
-            actions,
-            avoid_prismatic=avoid_prismatic,
-            commit_navigation=commit_navigation,
-            shop_finished=shop_finished,
-        ),
-        exploration_profile,
+        avoid_prismatic=avoid_prismatic,
+        commit_navigation=commit_navigation,
+        shop_finished=shop_finished,
+        exploration_profile=exploration_profile,
+        direct_smith=direct_smith,
     )
     return MacroInput(
         _context_features(observation, map_screen, previous),
@@ -300,7 +325,23 @@ class MacroBatch:
     temperatures: Tensor
 
 
-class MacroModel(nn.Module):
+class MacroPolicy(nn.Module):
+    """What collection and learning need from any macro model.
+
+    `pack` turns that model's own input records into one device batch with
+    `lengths` and `positions`; `forward_batch` returns padded logits and values.
+    """
+
+    embedding: nn.Embedding
+
+    def pack(self, inputs: list) -> Any:
+        raise NotImplementedError
+
+    def forward_batch(self, batch: Any) -> tuple[Tensor, Tensor]:
+        raise NotImplementedError
+
+
+class MacroModel(MacroPolicy):
     """One score per complete legal action and a fresh run-value head."""
 
     def __init__(self, width: int = 64) -> None:

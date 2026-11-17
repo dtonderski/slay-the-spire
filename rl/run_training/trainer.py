@@ -48,10 +48,12 @@ from run_training.model import (
     HEALTH_FEATURE_VERSION,
     HealthMacroModel,
     MacroModel,
+    MacroPolicy,
 )
 from run_training.progress import PROGRESS_PROTOCOL, progress_scores
 from run_training.restrictions import (
     AVOID_PRISMATIC_PROTOCOL,
+    DIRECT_SMITH_PROTOCOL,
     NAVIGATION_PROTOCOL,
     checked_eligibility,
     restrict_batch_logits,
@@ -72,6 +74,7 @@ from run_training.rewards import (
     succeeded,
 )
 from run_training.roots import RootBank, file_hash
+from run_training.token_model import TOKEN_FEATURE_VERSION, TokenMacroModel
 
 PROTOCOL = "a0_macro_mc_frozen_sampled_combat_v3"
 
@@ -139,13 +142,20 @@ def graceful_stop():
             signal.signal(sig, handler)
 
 
+def recompute_tolerance(model: torch.nn.Module) -> tuple[float, float]:
+    """Hashed heads use canonical shapes; attention over padded batches only bounds rounding."""
+    return getattr(model, "recompute_atol", 1e-6), getattr(
+        model, "recompute_rtol", 1e-5
+    )
+
+
 def digest(path: Path) -> str:
     with path.open("rb") as source:
         return hashlib.file_digest(source, "sha256").hexdigest()
 
 
 def load_warm_start(
-    model: MacroModel,
+    model: MacroPolicy,
     path: Path,
     settings: dict,
     *,
@@ -248,7 +258,7 @@ def load_warm_start(
 
 def update(
     episodes: list[RunEpisode],
-    model: MacroModel,
+    model: MacroPolicy,
     optimizer: torch.optim.Optimizer,
     *,
     entropy_coef: float,
@@ -272,6 +282,7 @@ def update(
         return _batched_update(
             episodes, model, optimizer, entropy_coef, value_coef, batch_steps
         )
+    atol, rtol = recompute_tolerance(model)
     # Check all inference/recomputation pairs before accumulating any gradients.
     with torch.no_grad():
         for episode in episodes:
@@ -285,9 +296,9 @@ def update(
                 if (
                     not torch.isfinite(logits).all()
                     or not torch.isfinite(value)
-                    or not torch.allclose(effective, expected, atol=1e-6, rtol=1e-5)
+                    or not torch.allclose(effective, expected, atol=atol, rtol=rtol)
                     or not math.isclose(
-                        float(value), step.value, abs_tol=1e-6, rel_tol=1e-5
+                        float(value), step.value, abs_tol=atol, rel_tol=rtol
                     )
                 ):
                     raise RecomputationMismatch(
@@ -342,7 +353,7 @@ def update(
 
 def _batched_update(
     episodes: list[RunEpisode],
-    model: MacroModel,
+    model: MacroPolicy,
     optimizer: torch.optim.Optimizer,
     entropy_coef: float,
     value_coef: float,
@@ -380,6 +391,7 @@ def _batched_update(
             [target - step.value for step, target in part]
         )
         chunks.append((part, batch, choices, targets, advantages))
+    atol, rtol = recompute_tolerance(model)
     with torch.no_grad():
         row_offset = 0
         for part, batch, _, _, _ in chunks:
@@ -394,8 +406,8 @@ def _batched_update(
             if (
                 not torch.isfinite(raw_actual).all()
                 or not torch.isfinite(values).all()
-                or not torch.allclose(actual, expected, atol=1e-6, rtol=1e-5)
-                or not torch.allclose(values, old_values, atol=1e-6, rtol=1e-5)
+                or not torch.allclose(actual, expected, atol=atol, rtol=rtol)
+                or not torch.allclose(values, old_values, atol=atol, rtol=rtol)
             ):
                 raise RecomputationMismatch(
                     actual,
@@ -663,7 +675,17 @@ def parser() -> argparse.ArgumentParser:
         default="none",
         help="Opt-in public context/candidate/probability audit in immutable journals; descriptive, not causal explanations",
     )
-    result.add_argument("--encoder", choices=("hashed", "health"), default="hashed")
+    result.add_argument(
+        "--encoder",
+        choices=("hashed", "health", "tokens"),
+        default="hashed",
+        help="tokens: position-free card/relic/potion/map/candidate tokens through a small transformer",
+    )
+    result.add_argument(
+        "--direct-smith",
+        action="store_true",
+        help="Explicit restricted-policy option: exclude the campfire upgrade-screen detour when direct upgrades are offered",
+    )
     result.add_argument(
         "--macro-exploration",
         choices=EXPLORATION_PROFILES,
@@ -809,7 +831,9 @@ def main(argv: list[str] | None = None) -> None:
     torch.set_num_threads(1)
     torch.manual_seed(args.seed)
     rng = random.Random(args.seed)
-    model_type = HealthMacroModel if args.encoder == "health" else MacroModel
+    model_type = {"health": HealthMacroModel, "tokens": TokenMacroModel}.get(
+        args.encoder, MacroModel
+    )
     model = model_type(args.model_width).to(args.device)
     combat = FrozenCombat(
         args.combat_checkpoint,
@@ -892,9 +916,14 @@ def main(argv: list[str] | None = None) -> None:
         failure_policy="quarantine whole batches; conditional supported training"
         if args.continue_on_collection_failure
         else "abort",
-        feature_version=HEALTH_FEATURE_VERSION
+        feature_version=TOKEN_FEATURE_VERSION
+        if args.encoder == "tokens"
+        else HEALTH_FEATURE_VERSION
         if args.encoder == "health"
         else FEATURE_VERSION,
+        smith_protocol=DIRECT_SMITH_PROTOCOL
+        if args.direct_smith
+        else "all_legal_actions",
         ascension=0,
         environment_protocol=(
             "root_journal_inherited_environment"
@@ -947,8 +976,13 @@ def main(argv: list[str] | None = None) -> None:
             "initialization",
             "parent_checkpoint_sha256",
         }
+        # Options added after a checkpoint was written continue at their off value.
+        added = {"direct_smith": False, "smith_protocol": "all_legal_actions"}
         for key, value in settings.items():
-            if key not in ignored and source["config"].get(key) != value:
+            if (
+                key not in ignored
+                and source["config"].get(key, added.get(key)) != value
+            ):
                 raise ValueError(f"Run checkpoint continuation mismatch: {key}")
         model.load_state_dict(source["model"], strict=True)
         if not all(torch.isfinite(p).all() for p in model.parameters()):
@@ -1041,6 +1075,8 @@ def main(argv: list[str] | None = None) -> None:
                 "avoid_prismatic": args.avoid_prismatic,
                 "commit_navigation": not args.raw_navigation,
                 "exploration_profile": args.macro_exploration,
+                "encoder": args.encoder,
+                "direct_smith": args.direct_smith,
                 "decision_diagnostics": args.decision_diagnostics == "all"
                 or (evaluation and args.decision_diagnostics == "evaluation"),
                 "max_actions": args.max_actions,

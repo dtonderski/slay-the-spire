@@ -12,6 +12,9 @@ the existing combat loop. `--task run` dispatches to a separate implementation:
   policy starts uniform and the fresh critic starts at zero. This is a correctness
   baseline: hashing has collisions and is
   **not** the planned lossless numeric run encoder / set-graph architecture.
+- `token_model.py`: opt-in `--encoder tokens` macro model. One position-free
+  token per deck card, relic, potion, reachable map node and legal candidate
+  through a small transformer. See [Token encoder](#token-encoder).
 - `trainer.py`: completed-episode Monte Carlo actor-critic (`gamma=1`), on-policy
   public-input recomputation checks, fixed held-out evaluation, logs/checkpoints.
 - `rewards.py`: declared terminal reward components and outcome-based success.
@@ -540,6 +543,44 @@ ignores the extra health tuple and retains the original
 mathematical encoder. Feature version changes make old checkpoints incompatible
 with strict continuation. Existing natural-run checkpoints remain preserved;
 exact resume requires restoring their original source and matching native build.
+
+### Token encoder
+
+`--encoder tokens` selects `token_model.py`. The hashed encoder keys every deck
+card by its tuple index and sums the whole context, map included, into one
+vector, so it cannot count cards or relate an offer to the deck. The token model
+instead builds one sequence per decision:
+
+```text
+[summary] [deck card]... [relic]... [potion slot]... [map node ahead]... [candidate]...
+     │                                                                        │
+   value                                                          one logit per candidate
+```
+
+- A card token is its base identity plus an upgraded flag; deck order is not an
+  input (`test_run_training_token_model.py` checks this).
+- The summary token carries HP, gold, floor, keys, act, boss and screen tags.
+- Map tokens are the nodes reachable from the current position with their
+  distance; a map candidate also carries the room mix that lies beyond it.
+- Candidates sit in the same sequence, so an offered card attends to held cards.
+- Identities use exact embedding rows; free text (action kinds, event choice
+  labels) is hashed into a separate range. `feature_version` includes a hash of
+  the public card/relic/potion catalog, so a catalog change refuses old weights.
+
+Not encoded: relic counters, card cost and dynamic card values, and map edges
+beyond distance. Weights are not interchangeable with `hashed`/`health`; start
+fresh. Attention over differently padded batches is not bit-identical, so the
+on-policy recomputation check uses `1e-4` tolerances for this encoder instead of
+the hashed model's canonical-shape `1e-6`/`1e-5`.
+
+`--direct-smith` is a separate declared restriction (`campfire_direct_smith_v1`):
+when direct `rest_smith` actions are offered, `rest_open_smith` gets zero
+probability. The upgrade screen offers the same upgrades, and the previous
+policy learned to open and cancel it about 36 times per run. Game legality is
+unchanged and old checkpoints continue with it off.
+
+Why this exists and what was measured:
+[project history](../../docs/project_history.md#macro-encoder-diagnosis-november-2026).
 
 `act1_binary` gives **1 only on accepted entry into Act 2, 0 on death**, with no
 pre-earned floor reward. Errors/cutoffs still have no targets. HP fractions are

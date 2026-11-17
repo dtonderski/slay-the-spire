@@ -29,21 +29,23 @@ from run_training.diagnostics import decision_diagnostic
 from run_training.environment import journal_environment_seed
 from run_training.keys import key_decision
 from run_training.metrics import BehaviorStats
-from run_training.model import MacroInput, MacroModel, encode
+from run_training.model import MacroInput, MacroPolicy, encode
 from run_training.progress import RunProgress
 from run_training.restrictions import (
     AVOID_PRISMATIC_PROTOCOL,
+    DIRECT_SMITH_PROTOCOL,
     NAVIGATION_PROTOCOL,
     checked_eligibility,
     restrict_batch_logits,
     restrict_logits,
 )
 from run_training.rewards import Objective, RewardParts, reward_protocol, terminal_parts
+from run_training.token_model import TokenInput, encode_tokens
 
 
 @dataclass(frozen=True)
 class MacroStep:
-    inputs: MacroInput
+    inputs: MacroInput | TokenInput
     choice: int
     logits: tuple[float, ...]
     value: float
@@ -139,7 +141,7 @@ def sample_many(
 
 @dataclass(frozen=True)
 class MacroRequest:
-    inputs: MacroInput
+    inputs: MacroInput | TokenInput
     generator: torch.Generator
     heal_indices: tuple[int, ...]
 
@@ -305,6 +307,8 @@ def _trajectory(
     avoid_prismatic: bool = False,
     commit_navigation: bool = True,
     exploration_profile: str = "none",
+    encoder: str = "hashed",
+    direct_smith: bool = False,
     decision_diagnostics: bool = False,
     stop_requested: Callable[[], bool] | None = None,
     initial_previous: PolicyAction | None = None,
@@ -372,6 +376,9 @@ def _trajectory(
                 "navigation_protocol": NAVIGATION_PROTOCOL
                 if commit_navigation
                 else "raw_navigation",
+                "smith_protocol": DIRECT_SMITH_PROTOCOL
+                if direct_smith
+                else "all_legal_actions",
                 "initial_state": initial_metadata or {"protocol": "natural_start"},
             }
         )
@@ -484,13 +491,14 @@ def _trajectory(
                     descriptors = tuple(
                         PolicyAction.from_action(a) for a in decision.actions
                     )
-                    inputs = encode(
+                    inputs = (encode_tokens if encoder == "tokens" else encode)(
                         observation,
                         descriptors,
                         previous=previous,
                         avoid_prismatic=avoid_prismatic,
                         commit_navigation=commit_navigation,
                         exploration_profile=exploration_profile,
+                        direct_smith=direct_smith,
                         shop_finished=finished_shop
                         == (observation.context.act, observation.context.floor),
                     )
@@ -606,6 +614,8 @@ class CollectionOptions(TypedDict):
     avoid_prismatic: NotRequired[bool]
     commit_navigation: NotRequired[bool]
     exploration_profile: NotRequired[str]
+    encoder: NotRequired[str]
+    direct_smith: NotRequired[bool]
     decision_diagnostics: NotRequired[bool]
     stop_requested: NotRequired[Callable[[], bool] | None]
     initial_previous: NotRequired[PolicyAction | None]
@@ -619,7 +629,7 @@ class CollectionJob:
 
 
 @torch.inference_mode()
-def _predict_one(model: MacroModel, request: MacroRequest) -> MacroPrediction:
+def _predict_one(model: MacroPolicy, request: MacroRequest) -> MacroPrediction:
     logits, value = model(request.inputs)
     if not torch.isfinite(value):
         raise ValueError("Nonfinite macro value")
@@ -637,7 +647,7 @@ def _predict_one(model: MacroModel, request: MacroRequest) -> MacroPrediction:
 
 @torch.inference_mode()
 def _predict_many(
-    model: MacroModel, requests: list[MacroRequest]
+    model: MacroPolicy, requests: list[MacroRequest]
 ) -> list[MacroPrediction]:
     batch = model.pack([r.inputs for r in requests])
     logits, values = model.forward_batch(batch)
@@ -674,7 +684,7 @@ def _predict_many(
 
 def collect(
     seed: str,
-    macro: MacroModel,
+    macro: MacroPolicy,
     combat: FrozenCombat,
     **options: Unpack[CollectionOptions],
 ) -> RunEpisode:
@@ -722,7 +732,7 @@ def failed_episode(error: CollectionFailure, objective: Objective) -> RunEpisode
 
 def collect_many(
     jobs: Iterable[CollectionJob],
-    macro: MacroModel,
+    macro: MacroPolicy,
     combat: FrozenCombat,
     *,
     width: int,

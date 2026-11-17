@@ -10,6 +10,7 @@ from run_training.contracts import PolicyAction
 
 AVOID_PRISMATIC_PROTOCOL = "avoid_visible_prismatic_v1"
 NAVIGATION_PROTOCOL = "commit_room_and_merchant_exit_v1"
+DIRECT_SMITH_PROTOCOL = "campfire_direct_smith_v1"
 
 
 def macro_eligibility(
@@ -19,13 +20,21 @@ def macro_eligibility(
     avoid_prismatic: bool,
     commit_navigation: bool = False,
     shop_finished: bool = False,
+    direct_smith: bool = False,
 ) -> tuple[bool, ...]:
     """Explicit policy commitments; native legality and candidate indices stay intact.
 
     Leaving a room commits to advancing. Leaving the merchant commits to finishing
     shopping in this room, even if purchases remain. Public map is already in context.
+    Direct smith removes the campfire's upgrade-screen detour whenever the same
+    upgrades are offered as direct campfire actions; no upgrade becomes unavailable.
     """
-    if not commit_navigation and (not avoid_prismatic or len(actions) == 1):
+    direct_smith = direct_smith and any(a.kind == "rest_smith" for a in actions)
+    if (
+        not direct_smith
+        and not commit_navigation
+        and (not avoid_prismatic or len(actions) == 1)
+    ):
         return ()
 
     def at(items: tuple, slot: int | None):
@@ -59,7 +68,8 @@ def macro_eligibility(
             action.kind == "return_to_room"
             or (shop_finished and action.kind == "enter_shop")
         )
-        result.append(not (blocked_shard or blocked_navigation))
+        blocked_smith = direct_smith and action.kind == "rest_open_smith"
+        result.append(not (blocked_shard or blocked_navigation or blocked_smith))
     eligibility = tuple(result)
     checked_eligibility(len(actions), eligibility)
     return eligibility

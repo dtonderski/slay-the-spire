@@ -177,6 +177,36 @@ context/action-family interactions, and exploration remain investigations; the
 broader curriculum idea is not ruled out. See the [current experimental
 workflow](../rl/run_training/README.md#synthetic-pre-boss-campfire-experiment).
 
+## Macro encoder diagnosis (November 2026)
+
+Replaying journals of the `overnight-exploration-20261023` campaign (1.78M
+natural A0 attempts, hashed encoder, frozen combat) showed that the macro policy
+did not condition on its deck. Over about 5,500 late training runs:
+
+- Pick rate of a card was the same with 0, 1 or 2+ copies already held
+  (Shrug It Off 45/49/51%, Pommel Strike 60/58/59%).
+- A card was taken on 96% of reward screens at every deck size.
+- 38% of campfire upgrades went to Strike or Defend, about their deck share.
+- Card pick rates at iteration 100 and iteration 27,800 were nearly identical;
+  only mean floor moved (28.7 to 34.2).
+
+An offline comparison trained fresh predictors of "clears the current act's
+boss" on 419,178 mid-run states from 19,985 of those runs, scored by AUC on
+held-out runs:
+
+| Predictor | All | Act 2 | Act 3 | Campfire before boss, acts 1/2/3 |
+|---|---|---|---|---|
+| 15 scalars (HP, floor, gold, sizes) | 0.794 | 0.634 | 0.655 | 0.72 / 0.71 / 0.71 |
+| Hashed encoder | 0.785 | 0.604 | 0.587 | 0.52 / 0.56 / 0.53 |
+| Position-free card counts | 0.809 | 0.686 | 0.711 | 0.73 / 0.76 / 0.73 |
+| Tokens with a small transformer | 0.808 | 0.705 | 0.711 | 0.76 / 0.76 / 0.74 |
+
+The hashed encoder was worse than plain scalars. This motivated the opt-in
+[token encoder](../rl/run_training/README.md#token-encoder). Limits: all states
+come from one policy with similar decks, the test is supervised prediction and
+not RL, and the token predictors there had no map input. No online training
+result exists for the token encoder yet.
+
 ## Open questions
 
 - What trace coverage is sufficient before large simulator-only training runs?
