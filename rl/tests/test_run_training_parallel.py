@@ -338,6 +338,29 @@ class ParallelTrainerTests(unittest.TestCase):
                         "1",
                     ]
                 )
+            # A checkpoint from another build resumes only with the explicit flag.
+            other = torch.load(root / "first/latest.pt", weights_only=True)
+            other["config"]["native_sha256"] = "0" * 64
+            torch.save(other, root / "other-build.pt")
+            rebuilt = [
+                *common,
+                "--resume-from",
+                str(root / "other-build.pt"),
+                "--collection-workers",
+                "1",
+                "--collection-shards",
+                "2",
+                "--collection-worker-device",
+                "cpu",
+            ]
+            with self.assertRaisesRegex(ValueError, "mismatch: native_sha256"):
+                main([*rebuilt, "--run-id", "fourth"])
+            main([*rebuilt, "--run-id", "fifth", "--resume-across-builds"])
+            config = json.loads((root / "fifth/config.json").read_text())
+            self.assertEqual(
+                config["resumed_from_builds"],
+                [{"optimizer_updates": 1, "native_sha256": "0" * 64}],
+            )
         self.assertEqual(multiprocessing.active_children(), [])
 
 

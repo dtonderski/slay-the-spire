@@ -300,6 +300,10 @@ completion and `failure.json` records a fatal stop. Source files are copied to
 `--updates` bounds additional batch attempts; `optimizer_updates` counts actual
 learning steps. The wall-clock limit can be changed on resume. Changes to simulator, source, features,
 objective, seeds, controller, device or loss protocol reject exact continuation.
+`--resume-across-builds` is the one exception: it accepts a different simulator
+binary and source tree (for example a speed-only change), records the previous
+hashes under `resumed_from_builds` in the config, and still checks every protocol
+and feature version. The operator vouches that the new build plays the same game.
 The combat checkpoint is a weight-only FP32 integration, not continuation of its
 original training job. It is never optimized by this trainer. Public card vocabulary
 v2 preserves all 322 v1 indices and appends Cold Snap and Piercing Wail. An old

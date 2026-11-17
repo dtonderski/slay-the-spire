@@ -771,6 +771,12 @@ def parser() -> argparse.ArgumentParser:
         type=Path,
         help="Trusted same-protocol checkpoint; always use a new run ID",
     )
+    result.add_argument(
+        "--resume-across-builds",
+        action="store_true",
+        help="With --resume-from, accept a different simulator binary and source "
+        "tree; protocol and feature versions are still checked",
+    )
     initialization.add_argument(
         "--warm-start",
         type=Path,
@@ -1030,7 +1036,24 @@ def main(argv: list[str] | None = None) -> None:
             "warm_start_policy_only",
             "initialization",
             "parent_checkpoint_sha256",
+            "resume_across_builds",
+            "resumed_from_builds",
         }
+        if args.resume_across_builds:
+            # The operator vouches that the new build plays the same game.
+            ignored |= {"native_sha256", "source_sha256"}
+            changed = {
+                key: source["config"][key]
+                for key in ("native_sha256", "source_sha256")
+                if source["config"][key] != settings[key]
+            }
+            if changed:
+                settings["resumed_from_builds"] = [
+                    *source["config"].get("resumed_from_builds", []),
+                    {"optimizer_updates": source["optimizer_updates"], **changed},
+                ]
+            elif "resumed_from_builds" in source["config"]:
+                settings["resumed_from_builds"] = source["config"]["resumed_from_builds"]
         # Options added after a checkpoint was written continue at their off value.
         added = {
             "direct_smith": False,
