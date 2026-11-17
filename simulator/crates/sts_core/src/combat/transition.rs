@@ -5727,8 +5727,11 @@ pub(super) fn confirm_dual_wield_select(
             .piles
             .exhaust_pile
             .iter()
+            .chain(&state.piles.discard_pile)
             .any(|card| card.id == source_card_id)
         {
+            // Singleton force-play already settled the source. UseCardAction's
+            // Strange Spoon roll can send an exhaustOnUseOnce card to discard.
             return Err(SimError::UnknownCard(source_card_id));
         }
     } else {
@@ -8960,6 +8963,58 @@ mod tests {
                 .iter()
                 .any(|card| card.content_id == DUAL_WIELD_ID),
             "force-played Dual Wield exhausts"
+        );
+    }
+
+    #[test]
+    fn havoc_dual_wield_singleton_accepts_strange_spoon_saved_source() {
+        // UseCardAction rolls Strange Spoon for exhaustOnUseOnce cards; a
+        // saved force-played Dual Wield lands in discard, and DualWieldAction
+        // never touches its source. Both outcomes must resolve.
+        let mut saved = false;
+        let mut exhausted = false;
+        for seed in 0..32 {
+            let mut state = CombatState::initial_fixture();
+            state.player.energy = 0;
+            state.player.authority.relics = vec![Relic::StrangeSpoon];
+            let mut havoc = CardInstance::new(CardId::new(2), HAVOC_ID);
+            havoc.temp_cost = Some(0);
+            state.piles.hand = vec![CardInstance::new(CardId::new(1), STRIKE_R_ID), havoc];
+            state.piles.draw_pile = vec![CardInstance::new(CardId::new(3), DUAL_WIELD_ID)];
+            state.piles.discard_pile.clear();
+            state.piles.exhaust_pile.clear();
+            state.monsters = vec![monster_state(&JAW_WORM_A0, MonsterId::new(1))];
+            state.rng.card_random_rng = crate::rng::StsRng::new(seed);
+
+            let next = apply_combat_action(
+                &state,
+                CombatAction::PlayCard {
+                    card_id: CardId::new(2),
+                    target: None,
+                },
+            )
+            .expect("Havoc Dual Wield singleton resolves with Strange Spoon");
+
+            assert!(next.decision.is_none());
+            let hand: Vec<_> = next.piles.hand.iter().map(|card| card.content_id).collect();
+            assert_eq!(hand, vec![STRIKE_R_ID, STRIKE_R_ID]);
+            let in_discard = next
+                .piles
+                .discard_pile
+                .iter()
+                .any(|card| card.id == CardId::new(3));
+            let in_exhaust = next
+                .piles
+                .exhaust_pile
+                .iter()
+                .any(|card| card.id == CardId::new(3));
+            assert_ne!(in_discard, in_exhaust, "Dual Wield settles exactly once");
+            saved |= in_discard;
+            exhausted |= in_exhaust;
+        }
+        assert!(
+            saved && exhausted,
+            "seeds cover both Strange Spoon outcomes"
         );
     }
 
