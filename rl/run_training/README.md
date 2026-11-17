@@ -626,24 +626,54 @@ vector, so it cannot count cards or relate an offer to the deck. The token model
 instead builds one sequence per decision:
 
 ```text
-[summary] [deck card]... [relic]... [potion slot]... [map node ahead]... [candidate]...
-     │                                                                        │
-   value                                                          one logit per candidate
+[summary] [deck card]... [reward card | shop offer]... [relic]... [potion slot]... [map node ahead]... [candidate]...
+     │                                                                                                    │
+   value                                                                                      one logit per candidate
 ```
 
-- A card token is its base identity plus an upgraded flag; deck order is not an
-  input (`test_run_training_token_model.py` checks this).
-- The summary token carries HP, gold, floor, keys, act, boss and screen tags.
+- A card token (deck, reward card, shop offer or candidate) is its base identity
+  plus upgraded/bottled flags, with upgrade level, cost, cost-modified,
+  temporary and its persistent dynamic value (Rampage, Ritual Dagger, Windmill
+  Strike, Steam Barrier) as numbers. Deck order is not an input
+  (`test_run_training_token_model.py` checks this).
+- A relic token carries its public counters as numbers, sorted by counter key;
+  the relic identity fixes which keys exist (at most three, Orange Pellets in
+  combat).
+- The summary token carries HP, gold, floor, keys, act, boss and screen tags,
+  including the reward screen's `card_reward_flow`.
 - Map tokens are the nodes reachable from the current position with their
   distance; a map candidate also carries the room mix that lies beyond it.
 - Candidates sit in the same sequence, so an offered card attends to held cards.
+  Buy candidates and `open_shop_remove` carry price and affordability;
+  `toggle_grid_card` carries whether that card is selected.
+- Reward cards: whenever a reward screen shows `screen.cards` (an ordinary card
+  reward is public before it is opened), each card is a context token with its
+  own role tag. `open_card_reward` can therefore score the offer it would open,
+  and while the card screen is open each `take_card_reward` candidate also sees
+  its alternatives. Queued rewards (Prayer Wheel etc.) expose only a count.
+- Shop offers: every unsold card, relic and potion of an open merchant is a
+  context token with price and affordability, so items the player cannot afford
+  (which are not candidates) are still visible.
 - Identities use exact embedding rows; free text (action kinds, event choice
   labels) is hashed into a separate range. `feature_version` includes a hash of
   the public card/relic/potion catalog, so a catalog change refuses old weights.
 
-Not encoded: relic counters, card cost and dynamic card values, and map edges
-beyond distance. Weights are not interchangeable with `hashed`/`health`; start
-fresh. Attention over differently padded batches is not bit-identical, so the
+Not encoded: card type and rarity (only the Rust catalog in
+`sts_core/src/content/cards.rs` has them; neither the observation nor the
+Python package does), Match and Keep cards (choice labels map to grid positions
+through a reordering, so a position-free token cannot be tied to its option),
+and map edges beyond distance. Event options are a hash of event and label text,
+so numbers inside a label are not features. Weights are not interchangeable with
+`hashed`/`health`; start fresh.
+
+`tokens-v2` added everything above beyond identities, upgrades, map and
+candidates. Its numeric input is wider than `tokens-v1`, so v1 checkpoints
+neither pass the exact `feature_version` check nor load; v2 training starts from
+scratch. On 2,953 random-policy macro decisions the mean sequence grew from 57.0
+to 58.1 tokens (max 97 both; a shop adds at most 13 offer tokens), the per-token
+id width stays 6, and encoding costs about 55 instead of 47 µs per decision.
+
+Attention over differently padded batches is not bit-identical, so the
 on-policy recomputation check uses `1e-4` tolerances for this encoder instead of
 the hashed model's canonical-shape `1e-6`/`1e-5`.
 

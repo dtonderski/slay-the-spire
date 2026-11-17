@@ -4,11 +4,13 @@ import random
 import unittest
 from dataclasses import replace
 
+import numpy as np
 import torch
 from run_training.contracts import PolicyAction, controller
 from run_training.restrictions import macro_eligibility
-from run_training.token_model import TokenMacroModel, encode_tokens
-from sts_sim import State
+from run_training.token_model import TokenInput, TokenMacroModel, encode_tokens
+from sts_sim import CounterKey, State
+from sts_sim.observations.common import Counter
 
 
 def macro_decisions(seed: str, limit: int):
@@ -27,6 +29,22 @@ def macro_decisions(seed: str, limit: int):
             )
         decision = state.step(rng.choice(decision.actions))
     return found
+
+
+def first_decision(predicate):
+    """The first random-policy macro decision, over a few seeds, that matches."""
+    for i in range(30):
+        for observation, actions in macro_decisions(f"FIND{i}", 10_000):
+            if predicate(observation, actions):
+                return observation, actions
+    raise AssertionError("No matching decision")
+
+
+def changes(before: TokenInput, after: TokenInput) -> bool:
+    return before.ids.shape != after.ids.shape or not (
+        np.array_equal(before.ids, after.ids)
+        and np.array_equal(before.numbers, after.numbers)
+    )
 
 
 def trained_like_model() -> TokenMacroModel:
@@ -106,6 +124,160 @@ class TokenModelTest(unittest.TestCase):
                         values[i], single_value, atol=self.model.recompute_atol
                     )
                 )
+
+    def test_unopened_reward_cards_inform_the_open_candidate(self) -> None:
+        observation, actions = next(
+            (o, a)
+            for o, a in self.decisions
+            if o.kind == "reward"
+            and o.screen.cards
+            and any(x.kind == "open_card_reward" for x in a)
+        )
+        opened = next(i for i, a in enumerate(actions) if a.kind == "open_card_reward")
+        cards = observation.screen.cards
+        other = next(
+            c
+            for c in observation.context.deck
+            if c.content_key != cards[0].card.content_key
+        )
+        changed = replace(
+            observation,
+            screen=replace(
+                observation.screen,
+                cards=(replace(cards[0], card=other), *cards[1:]),
+            ),
+        )
+        with torch.no_grad():
+            logits, _ = self.model(encode_tokens(observation, actions))
+            other_logits, _ = self.model(encode_tokens(changed, actions))
+            # Deck order still does not matter with reward cards in the sequence.
+            shuffled = replace(
+                observation,
+                context=replace(
+                    observation.context, deck=observation.context.deck[::-1]
+                ),
+            )
+            shuffled_logits, _ = self.model(encode_tokens(shuffled, actions))
+        self.assertNotAlmostEqual(
+            float(logits[opened]), float(other_logits[opened]), places=4
+        )
+        self.assertTrue(torch.allclose(logits, shuffled_logits, atol=1e-5))
+
+    def test_card_cost_and_flags_are_encoded(self) -> None:
+        observation, actions = self.decisions[0]
+        deck = observation.context.deck
+        row = encode_tokens(observation, actions)
+        for change in (
+            {"cost": deck[0].cost + 1},
+            {"cost_is_modified": not deck[0].cost_is_modified},
+            {"temporary": not deck[0].temporary},
+            {"dynamic": replace(deck[0].dynamic, rampage_damage_bonus=5)},
+        ):
+            other = replace(
+                observation,
+                context=replace(
+                    observation.context,
+                    deck=(replace(deck[0], **change), *deck[1:]),
+                ),
+            )
+            self.assertTrue(changes(row, encode_tokens(other, actions)), change)
+
+    def test_relic_counters_are_encoded(self) -> None:
+        observation, actions = self.decisions[0]
+        relics = observation.context.relics
+        counted = replace(relics[0], state=(Counter(key=CounterKey.LIFTS, value=2),))
+        rows = [
+            encode_tokens(
+                replace(
+                    observation,
+                    context=replace(observation.context, relics=(relic, *relics[1:])),
+                ),
+                actions,
+            )
+            for relic in (
+                counted,
+                replace(counted, state=(replace(counted.state[0], value=3),)),
+            )
+        ]
+        self.assertTrue(changes(encode_tokens(observation, actions), rows[0]))
+        self.assertTrue(changes(rows[0], rows[1]))
+
+    def test_every_unsold_shop_offer_is_visible(self) -> None:
+        observation, actions = first_decision(
+            lambda o, a: (
+                o.kind == "shop"
+                and o.screen.merchant_open
+                and any(x.kind == "open_shop_remove" for x in a)
+                and any(c.price > o.context.gold for c in o.screen.cards)
+            )
+        )
+        screen = observation.screen
+        offers = [
+            o for o in (*screen.cards, *screen.relics, *screen.potions) if not o.sold
+        ]
+        row = encode_tokens(observation, actions)
+        # One context token per unsold offer, affordable or not.
+        sold = replace(
+            screen,
+            cards=tuple(replace(o, sold=True) for o in screen.cards),
+            relics=tuple(replace(o, sold=True) for o in screen.relics),
+            potions=tuple(replace(o, sold=True) for o in screen.potions),
+        )
+        all_sold = encode_tokens(replace(observation, screen=sold), actions)
+        self.assertEqual(len(row.ids) - len(all_sold.ids), len(offers))
+        richer = replace(observation, context=replace(observation.context, gold=10_000))
+        self.assertTrue(changes(row, encode_tokens(richer, actions)))
+        cheaper = replace(screen, remove_cost=screen.remove_cost - 1)
+        remove = next(i for i, a in enumerate(actions) if a.kind == "open_shop_remove")
+        other = encode_tokens(replace(observation, screen=cheaper), actions)
+        self.assertFalse(
+            np.array_equal(
+                row.numbers[len(row.ids) - row.count + remove],
+                other.numbers[len(other.ids) - other.count + remove],
+            )
+        )
+
+    def test_summary_carries_card_reward_flow(self) -> None:
+        observation, actions = next(
+            (o, a) for o, a in self.decisions if o.kind == "reward"
+        )
+        flows = [
+            encode_tokens(
+                replace(
+                    observation,
+                    screen=replace(observation.screen, card_reward_flow=flow),
+                ),
+                actions,
+            ).ids[0]
+            for flow in ("none", "pending", "active")
+        ]
+        self.assertEqual(len({tuple(ids) for ids in flows}), 3)
+
+    def test_grid_toggle_candidates_carry_selection(self) -> None:
+        observation, actions = first_decision(
+            lambda o, a: (
+                o.kind == "grid" and any(x.kind == "toggle_grid_card" for x in a)
+            )
+        )
+        toggle = next(i for i, a in enumerate(actions) if a.kind == "toggle_grid_card")
+        slot = actions[toggle].card_slot
+        screen = observation.screen
+        selected = replace(
+            screen,
+            selected_indices=tuple(i for i in screen.selected_indices if i != slot)
+            + (slot,),
+        )
+        unselected = replace(
+            screen,
+            selected=None,
+            selected_indices=tuple(i for i in screen.selected_indices if i != slot),
+        )
+        self.assertTrue(
+            changes(
+                encode_tokens(replace(observation, screen=selected), actions),
+                encode_tokens(replace(observation, screen=unselected), actions),
+            )
+        )
 
     def test_temperature_divides_logits(self) -> None:
         observation, actions = next((o, a) for o, a in self.decisions if len(a) > 1)

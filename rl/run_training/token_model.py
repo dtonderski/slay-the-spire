@@ -4,9 +4,13 @@ Public typed observations only. Deck order never enters the model: a card token
 is its identity plus upgrade state, so two decks with the same cards in a
 different order encode identically. Legal candidates are tokens in the same
 sequence and attend to the deck, so an offer can be scored against what is held.
+Cards a reward screen shows and unsold shop offers are context tokens too, so
+`open_card_reward` sees the offer before it is opened and unaffordable shop
+items are visible.
 
-Not encoded: relic counters, card costs and dynamic card values, and map edges
-beyond distance from the current position. See README "Token encoder".
+Not encoded: card type and rarity, numbers inside event labels, Match and Keep
+cards, and map edges beyond distance from the current position. See README
+"Token encoder".
 """
 
 import hashlib
@@ -25,7 +29,7 @@ from sts_sim import (
     PotionKey,
     RelicKey,
 )
-from sts_sim.observations.common import Card, CardSlot, PotionSlot
+from sts_sim.observations.common import Card, CardSlot, PotionSlot, Relic
 from sts_sim.observations.screens import (
     EventChoice,
     EventScreen,
@@ -34,8 +38,10 @@ from sts_sim.observations.screens import (
     MapScreen,
     QueuedCardReward,
     RelicOffer,
+    RewardScreen,
     ShopCardOffer,
     ShopOffer,
+    ShopScreen,
     TreasureScreen,
 )
 from torch import Tensor, nn
@@ -61,7 +67,7 @@ _POTION = {name: _POTION0 + i for i, name in enumerate(_POTIONS)}
 # Changes whenever the public content catalog or this layout changes, so a
 # checkpoint is never loaded against different embedding rows.
 TOKEN_FEATURE_VERSION = (
-    "tokens-v1-"
+    "tokens-v2-"
     + hashlib.sha256(
         "\0".join(_CARDS + ["|"] + _RELICS + ["|"] + _POTIONS).encode()
     ).hexdigest()[:12]
@@ -75,7 +81,13 @@ HP_FRACTION, HP, MAX_HP, GOLD, FLOOR, DECK_SIZE, RUBY, EMERALD, SAPPHIRE, FINAL_
 )
 PRICE, AFFORDABLE, AMOUNT, DISTANCE, BURNING, UPGRADES = range(10, 16)
 AHEAD = 16  # then one column per ROOMS entry: share of rooms ahead of a map choice
-NUMBERS = AHEAD + len(ROOMS)
+COST, COST_MODIFIED, TEMPORARY, DYNAMIC, SELECTED = range(
+    AHEAD + len(ROOMS), AHEAD + len(ROOMS) + 5
+)
+# Relic counter values in key order; the relic identity fixes which keys exist.
+COUNTERS = SELECTED + 1
+COUNTER_SLOTS = 3
+NUMBERS = COUNTERS + COUNTER_SLOTS
 # Attention over different padded shapes is not bit-identical between collection
 # and learner batches; this bounds rounding, while a wrong input is far larger.
 RECOMPUTE_ATOL = RECOMPUTE_RTOL = 1e-4
@@ -96,7 +108,48 @@ def _card(card: Card) -> Token:
         ids.append(_text("upgraded"))
     if card.bottled:
         ids.append(_text("bottled"))
-    return ids, {UPGRADES: card.upgrade_level / 5}
+    # Each value belongs to one card, so its identity says which; the combat-only
+    # cost override is already in `cost`.
+    values = card.dynamic
+    dynamic = sum(
+        value or 0
+        for value in (
+            values.rampage_damage_bonus,
+            values.ritual_dagger_damage_bonus,
+            values.windmill_retain_damage,
+            values.steam_barrier_block_reduction,
+        )
+    )
+    return ids, {
+        UPGRADES: card.upgrade_level / 5,
+        COST: card.cost / 3,
+        COST_MODIFIED: float(card.cost_is_modified),
+        TEMPORARY: float(card.temporary),
+        DYNAMIC: dynamic / 10,
+    }
+
+
+def _relic(relic: Relic) -> Token:
+    if len(relic.state) > COUNTER_SLOTS:
+        raise ValueError(f"Too many public counters on {relic.content_key.value}")
+    counters = sorted(relic.state, key=lambda counter: counter.key.value)
+    return [_text("type=relic"), _RELIC[relic.content_key.value]], {
+        COUNTERS + i: counter.value / 10 for i, counter in enumerate(counters)
+    }
+
+
+def _price(gold: int, value: int) -> dict[int, float]:
+    return {PRICE: value / 100, AFFORDABLE: float(gold >= value)}
+
+
+def _shop_offer(gold: int, offer: ShopOffer) -> Token:
+    if isinstance(offer, ShopCardOffer):
+        ids, numbers = _card(offer.card)
+    else:
+        key = offer.content_key
+        ids = [_RELIC[key.value] if isinstance(key, RelicKey) else _POTION[key.value]]
+        numbers = {}
+    return [_text("type=shop_offer"), *ids], numbers | _price(gold, offer.price)
 
 
 def _ahead(nodes: tuple[MapNode, ...], start: tuple[int, ...]) -> dict[int, int]:
@@ -135,9 +188,11 @@ def _candidate(observation: Observation, action: PolicyAction) -> Token:
     screen = observation.screen
 
     def price(value: int) -> None:
-        numbers[PRICE] = value / 100
-        numbers[AFFORDABLE] = float(gold >= value)
+        numbers.update(_price(gold, value))
 
+    if action.kind == "open_shop_remove":
+        assert isinstance(screen, ShopScreen) and screen.remove_cost is not None
+        price(screen.remove_cost)
     for fact in candidate_facts(observation, action)[1:]:
         if isinstance(fact, CardSlot):
             fact = fact.card
@@ -145,6 +200,12 @@ def _candidate(observation: Observation, action: PolicyAction) -> Token:
             card_ids, card_numbers = _card(fact)
             ids += card_ids
             numbers |= card_numbers
+            if action.kind == "toggle_grid_card":
+                assert isinstance(screen, GridScreen)
+                numbers[SELECTED] = float(
+                    action.card_slot == screen.selected
+                    or action.card_slot in screen.selected_indices
+                )
         elif isinstance(fact, ShopCardOffer):
             card_ids, card_numbers = _card(fact.card)
             ids += card_ids
@@ -243,6 +304,8 @@ def encode_tokens(
         if isinstance(screen, GridScreen)
         else screen.chest_size
         if isinstance(screen, TreasureScreen)
+        else screen.card_reward_flow
+        if isinstance(screen, RewardScreen)
         else ""
     )
     tokens: list[Token] = [
@@ -272,10 +335,17 @@ def encode_tokens(
     for card in context.deck:
         ids, numbers = _card(card)
         tokens.append(([_text("type=deck"), *ids], numbers))
-    tokens += [
-        ([_text("type=relic"), _RELIC[relic.content_key.value]], {})
-        for relic in context.relics
-    ]
+    if isinstance(screen, RewardScreen):
+        for slot in screen.cards:
+            ids, numbers = _card(slot.card)
+            tokens.append(([_text("type=reward_card"), *ids], numbers))
+    if isinstance(screen, ShopScreen):
+        tokens += [
+            _shop_offer(context.gold, offer)
+            for offer in (*screen.cards, *screen.relics, *screen.potions)
+            if not offer.sold
+        ]
+    tokens += [_relic(relic) for relic in context.relics]
     tokens += [
         (
             [
