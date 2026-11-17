@@ -36,10 +36,18 @@ from run_training.environment import (
     episode_environment_seed,
     journal_environment_seed,
 )
+from run_training.item_prior import (
+    ITEM_PRIOR_FORMAT,
+    ITEM_PRIOR_PROTOCOL,
+    ITEM_PRIOR_WIDTH,
+    validate_items,
+)
 from run_training.metrics import behavior_scores
 from run_training.model import (
+    CHOICE_FEATURE_VERSION,
     FEATURE_VERSION,
     HEALTH_FEATURE_VERSION,
+    ChoiceMacroModel,
     HealthMacroModel,
     MacroModel,
 )
@@ -73,6 +81,57 @@ def digest(path: Path) -> str:
         return hashlib.file_digest(source, "sha256").hexdigest()
 
 
+def make_model(args: argparse.Namespace) -> tuple[MacroModel, dict]:
+    """Construct matching architectures before any optimizer or RNG restoration."""
+    if args.encoder != "choice":
+        if args.item_prior:
+            raise ValueError("--item-prior requires --encoder choice")
+        model_type = HealthMacroModel if args.encoder == "health" else MacroModel
+        return model_type(args.model_width), {}
+    continuation = args.resume_from or args.warm_start
+    if continuation and args.item_prior:
+        raise ValueError("Continuation restores its own item head; omit --item-prior")
+    if continuation:
+        source = torch.load(continuation, map_location="cpu", weights_only=True)
+        metadata = {
+            key: source["config"][key]
+            for key in (
+                "choice_protocol",
+                "choice_items",
+                "choice_initialization",
+                "choice_artifact_sha256",
+            )
+        }
+    else:
+        if not args.item_prior:
+            raise ValueError(
+                "Fresh choice encoder requires --item-prior (use --item-prior-init scratch for vocabulary only)"
+            )
+        source = torch.load(args.item_prior, map_location="cpu", weights_only=True)
+        config = source["config"]
+        if (
+            source.get("format") != ITEM_PRIOR_FORMAT
+            or config.get("width") != ITEM_PRIOR_WIDTH
+        ):
+            raise ValueError("Unsupported supervised item checkpoint")
+        metadata = {
+            "choice_protocol": config["protocol"],
+            "choice_items": config["items"],
+            "choice_initialization": args.item_prior_init,
+            "choice_artifact_sha256": digest(args.item_prior),
+        }
+    if metadata["choice_protocol"] != ITEM_PRIOR_PROTOCOL:
+        raise ValueError("Unsupported item prior protocol")
+    items = tuple(metadata["choice_items"])
+    validate_items(items)
+    model = ChoiceMacroModel(args.model_width, items=items)
+    if not continuation and args.item_prior_init == "pretrained":
+        model.item_prior.load_state_dict(source["model"], strict=True)
+        if not all(torch.isfinite(p).all() for p in model.parameters()):
+            raise ValueError("Nonfinite supervised item checkpoint")
+    return model, metadata
+
+
 def load_warm_start(model: MacroModel, path: Path, settings: dict) -> dict:
     """Explicit weights-only transfer across simulator/source revisions, not resume."""
     source = torch.load(path, map_location="cpu", weights_only=True)
@@ -101,6 +160,8 @@ def load_warm_start(model: MacroModel, path: Path, settings: dict) -> dict:
         "ascension",
         "gamma",
         "combat_sha256",
+        "choice_protocol",
+        "choice_items",
     ):
         if source["config"].get(key) != settings.get(key):
             raise ValueError(f"Run warm-start mismatch: {key}")
@@ -396,7 +457,20 @@ def parser() -> argparse.ArgumentParser:
         type=Path,
         help="Explicit synthetic pre-boss campfire curriculum; requires act1_binary",
     )
-    result.add_argument("--encoder", choices=("hashed", "health"), default="hashed")
+    result.add_argument(
+        "--encoder", choices=("hashed", "health", "choice"), default="hashed"
+    )
+    result.add_argument(
+        "--item-prior",
+        type=Path,
+        help="Trusted train_run_prior checkpoint; fresh choice encoder only",
+    )
+    result.add_argument(
+        "--item-prior-init",
+        choices=("pretrained", "scratch"),
+        default="pretrained",
+        help="Load supervised head weights, or only its train-fitted vocabulary for a matched scratch control",
+    )
     result.add_argument("--root-hp-min", type=float, default=0.1)
     result.add_argument(
         "--root-eval-hp", type=float, nargs="+", default=[0.15, 0.5, 0.85]
@@ -513,8 +587,8 @@ def main(argv: list[str] | None = None) -> None:
     torch.set_num_threads(1)
     torch.manual_seed(args.seed)
     rng = random.Random(args.seed)
-    model_type = HealthMacroModel if args.encoder == "health" else MacroModel
-    model = model_type(args.model_width).to(args.device)
+    model, choice_metadata = make_model(args)
+    model = model.to(args.device)
     combat = FrozenCombat(args.combat_checkpoint, args.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     settings = {
@@ -534,7 +608,13 @@ def main(argv: list[str] | None = None) -> None:
     settings.update(
         initialization="warm_start_weights_only"
         if args.warm_start
-        else ("exact_resume" if args.resume_from else "fresh"),
+        else (
+            "exact_resume"
+            if args.resume_from
+            else "supervised_item_head"
+            if args.item_prior and args.item_prior_init == "pretrained"
+            else "fresh"
+        ),
         parent_checkpoint_sha256=digest(args.warm_start or args.resume_from)
         if (args.warm_start or args.resume_from)
         else None,
@@ -558,9 +638,11 @@ def main(argv: list[str] | None = None) -> None:
         failure_policy="quarantine whole batches; conditional supported training"
         if args.continue_on_collection_failure
         else "abort",
-        feature_version=HEALTH_FEATURE_VERSION
-        if args.encoder == "health"
-        else FEATURE_VERSION,
+        feature_version={
+            "hashed": FEATURE_VERSION,
+            "health": HEALTH_FEATURE_VERSION,
+            "choice": CHOICE_FEATURE_VERSION,
+        }[args.encoder],
         ascension=0,
         environment_protocol=(
             "root_journal_inherited_environment"
@@ -576,6 +658,7 @@ def main(argv: list[str] | None = None) -> None:
         validation_sha256=digest(args.validation_seeds),
         source_sha256=hashlib.sha256(source_bytes).hexdigest(),
     )
+    settings.update(choice_metadata)
     iteration = 0
     optimizer_updates = 0
     skipped_batches = 0
@@ -598,6 +681,8 @@ def main(argv: list[str] | None = None) -> None:
             "warm_start",
             "initialization",
             "parent_checkpoint_sha256",
+            "item_prior",
+            "item_prior_init",
         }
         for key, value in settings.items():
             if key not in ignored and source["config"].get(key) != value:

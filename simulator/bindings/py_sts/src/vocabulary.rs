@@ -1,4 +1,4 @@
-//! Version 1 public content ids. Order matches the current Python catalogs.
+//! Version 1 public content ids. Independent of growing public identity enums.
 //! Do not reorder without bumping CONTENT_VOCABULARY_VERSION.
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -895,6 +895,12 @@ pub fn selection_catalog_id(kind: Option<&str>) -> Option<i64> {
         None => Some(0),
         Some(value) => selection_kind_id(value).map(|index| index + 1),
     }
+}
+
+/// Stable numeric card rows, not ordinals in the independently generated fair enum.
+#[pyfunction]
+pub fn numeric_card_keys() -> Vec<&'static str> {
+    CARD_KEYS.to_vec()
 }
 
 #[pyfunction]

@@ -1,0 +1,63 @@
+{
+  "audit_sha256": "98a2d7fca13938f0c28f7de88d0711c9c354334229efce8f015da24bb5134825",
+  "authority": "Authority: [V2.3.4] (12-18-2022) file:/home/davton/dev/desktop-1.0.jar",
+  "cosmetic_control": {
+    "cosmetic_seed": -911,
+    "counts": {
+      "edges_compared": 11182,
+      "fresh_maps": 150,
+      "fresh_matches": 150,
+      "historical_maps": 0,
+      "historical_matches": 0,
+      "nodes_compared": 9041
+    },
+    "fresh_distinct_seeds": 50,
+    "fresh_maps": 150,
+    "fresh_seeds_with_any_act_mismatch": 0,
+    "game-maps.jsonl_sha256": "ca586e0690cc157645590685793ed9fc943aa351150d633b1da6decf8beff0c1",
+    "requests_sha256": "4fb582918d8e2aad571bbd4683f1130f1d1b34c144b6e0b9610baabb96e7bb91",
+    "rust-maps.jsonl_sha256": "ddf6cc14a4b16b650a23024f158abee8ee67657a3b0b8fc71016dd2d9fb86d76"
+  },
+  "cosmetic_seed": 1776,
+  "counts": {
+    "edges_compared": 1603806,
+    "fresh_maps": 21000,
+    "fresh_matches": 21000,
+    "historical_maps": 600,
+    "historical_matches": 600,
+    "nodes_compared": 1296922
+  },
+  "fresh_distinct_seeds": 7000,
+  "fresh_maps": 21000,
+  "fresh_seeds_with_any_act_mismatch": 0,
+  "game-maps.jsonl_sha256": "f551bc17b23ce167eed4a94f137f9aa85c5d23d759b255bda8667164d1af1274",
+  "historical_requests": 600,
+  "historical_selections": [
+    {
+      "act": 1,
+      "build": "2020-07-30",
+      "selection_sha256": "8a333e948800f4788d16a24145acabbbf8e1dfdaed24fddd81f437e7ba0b1f48"
+    },
+    {
+      "act": 2,
+      "build": "2020-07-30",
+      "selection_sha256": "639fc08caebba56cf5760c5350ee478cb66baca07725136643aad5fbf5ab7edf"
+    },
+    {
+      "act": 3,
+      "build": "2020-07-30",
+      "selection_sha256": "19732215d20ad522d9a513a4f936cf46c4ed3802fc4daa5e1cad9343ee7ebea0"
+    }
+  ],
+  "if_zero_failures_99_9_upper_seed_failure_rate": 0.0009863354338262864,
+  "jar_sha256": "cfad868ac8d65a88e71a0bf096fb09f78811e553effe0787c5309a655e081673",
+  "limit": "Bytecode differential evidence under a headless A0 setup, not a captured real-game trace, all-seed proof, historical-version equivalence, A1+ validation or full-run parity.",
+  "mismatches": [],
+  "oracle_sha256": "af5e8cf853412409ba1c35fdec9c5d0d397d7f67cc917eb54f514819c1035bd4",
+  "requests_sha256": "8750dc90d683c56bb7833c2c4253bb0ee157e23e8cce90e5f330eef838c058b0",
+  "rust-maps.jsonl_sha256": "4778cad7646867111261d82561b5ffa04c9655d19eb088fc10104978eadb4ea1",
+  "rust_binary_sha256": "b88857ef7e6fe2b7d2ffa7a67cd2bb98ebdf2cd35f1d4e96f2d1da8334cfedd6",
+  "sampling_seed": 20261017,
+  "scope": "normal A0, acts 1..3, no burning-elite marker or boss identity",
+  "status": "complete"
+}

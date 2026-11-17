@@ -5,6 +5,11 @@ specifications**, not real-game traces or reconstructed historical states. Root
 generation uses an explicit fresh-state simulator constructor. This integration
 does not rewrite captured traces, modify existing runs, or change the trainers.
 
+For supervised **run-level choices** and the seed/map compatibility audit, see
+[`rl/pretraining`](../pretraining/README.md). That separate pilot uses partial
+logged public history; it does not turn these final-loadout marginals into
+historical states or change this sampler.
+
 ## Current fitted artifact
 
 Use `data/slaythedata/loadout-a0-v3/fit.json` from the repository root.
