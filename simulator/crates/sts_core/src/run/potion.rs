@@ -502,8 +502,7 @@ pub(crate) fn apply_validated_draw_select_choice_owned(
             exhaust_count.saturating_sub(handled_dead_branch_count),
         )?;
     }
-    next.combat = Some(combat);
-    Ok(next)
+    settle_run_after_select_confirm(next, combat)
 }
 
 pub fn apply_draw_select_confirm(run: &RunState) -> SimResult<RunState> {
@@ -525,8 +524,7 @@ pub(crate) fn apply_validated_draw_select_confirm_owned(mut next: RunState) -> S
         &mut combat,
         exhaust_count.saturating_sub(handled_dead_branch_count),
     )?;
-    next.combat = Some(combat);
-    Ok(next)
+    settle_run_after_select_confirm(next, combat)
 }
 
 pub fn apply_discard_select_choice(run: &RunState, index: usize) -> SimResult<RunState> {
@@ -628,7 +626,9 @@ pub(crate) fn apply_validated_exhaust_select_choice_owned(
             &mut combat,
             exhaust_count.saturating_sub(handled_dead_branch_count),
         )?;
-        next.combat = Some(combat);
+        // Exhume closes on its single pick; UseCardAction then exhausts Exhume,
+        // and Charon's Ashes/Feel No Pain-Juggernaut damage can win combat.
+        return settle_run_after_select_confirm(next, combat);
     }
     Ok(next)
 }
@@ -1638,8 +1638,8 @@ mod tests {
         combat::DiscardSelectState,
         content::cards::{
             BASH_ID, BURNING_PACT_ID, BURN_ID, CLASH_ID, CLEAVE_ID, DARK_EMBRACE_ID, DAZED_ID,
-            DEFEND_R_ID, DOUBLE_TAP_ID, HEADBUTT_ID, HEADBUTT_PLUS_ID, PARASITE_ID, PURITY_ID,
-            STRIKE_R_ID, WARCRY_ID,
+            DEFEND_R_ID, DOUBLE_TAP_ID, EXHUME_ID, HEADBUTT_ID, HEADBUTT_PLUS_ID, PARASITE_ID,
+            PURITY_ID, STRIKE_R_ID, WARCRY_ID,
         },
         content::monsters::{monster_state, WRITHING_MASS_A0},
         content::shop_pool::ironclad_combat_discovery_pool,
@@ -1772,6 +1772,51 @@ mod tests {
                 apply_discard_select_choice(&selecting, 1).expect("direct selection API"),
             );
         }
+    }
+
+    #[test]
+    fn exhume_pick_whose_source_exhaust_wins_combat_opens_rewards() {
+        // Exhume.use queues ExhumeAction; its UseCardAction then exhausts
+        // Exhume, and CharonsAshes.onExhaust's DamageAllEnemiesAction can kill
+        // the last monster after the single grid pick closes the selection.
+        use crate::relic::CHARONS_ASHES_DAMAGE;
+        let mut run = RunState::combat_fixture_with_relics(vec![Relic::CharonsAshes]);
+        {
+            let combat = run.combat.as_mut().expect("combat");
+            combat.player.energy = 1;
+            combat.piles.hand = vec![CardInstance::new(CardId::new(1), EXHUME_ID)];
+            combat.piles.draw_pile.clear();
+            combat.piles.discard_pile.clear();
+            combat.piles.exhaust_pile = vec![
+                CardInstance::new(CardId::new(2), STRIKE_R_ID),
+                CardInstance::new(CardId::new(3), DEFEND_R_ID),
+            ];
+            combat.monsters.truncate(1);
+            combat.monsters[0].hp = CHARONS_ASHES_DAMAGE;
+            combat.monsters[0].alive = true;
+        }
+        let selecting = apply_combat_action_on_run(
+            &run,
+            CombatAction::PlayCard {
+                card_id: CardId::new(1),
+                target: None,
+            },
+        )
+        .expect("Exhume opens its exhaust-pile grid");
+        assert!(selecting
+            .combat
+            .as_ref()
+            .and_then(CombatState::exhaust_select)
+            .is_some());
+
+        let next = apply_run_action(&selecting, RunAction::ChooseExhaustSelect { index: 0 })
+            .expect("pick a card to exhume");
+        assert_eq!(next.phase, RunPhase::Reward);
+        assert!(next.combat.is_none());
+        assert!(!legal_run_decision_actions(&next)
+            .expect("reward actions")
+            .is_empty());
+        next.validate().expect("valid reward state");
     }
 
     #[test]
