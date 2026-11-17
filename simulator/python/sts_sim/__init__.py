@@ -171,10 +171,12 @@ class Decision:
 class State:
     """State-owning fair environment. Observations are concrete typed projections."""
 
-    __slots__ = ("_native",)
+    __slots__ = ("_native", "_previous")
 
     def __init__(self, native: _native.State) -> None:
         self._native = native
+        # Last (payload, observation) decoded here; unchanged parts are shared.
+        self._previous: tuple[object, Observation] | None = None
 
     @staticmethod
     def new(
@@ -250,7 +252,7 @@ class State:
         return self._native.revision
 
     def observation(self) -> Observation:
-        return decode_observation(self._native.observation()._to_mapping())
+        return self._decode(self._native.observation())
 
     def player_hp(self) -> int:
         """Public context HP, identical to ``observation().context.player_hp``."""
@@ -260,19 +262,24 @@ class State:
         return self._native.legal_actions()
 
     def decision(self) -> Decision:
-        return _project_decision(self._native.decision())
+        return self._project(self._native.decision())
 
     def step(self, action: Action) -> Decision:
-        return _project_decision(self._native.step(action))
+        return self._project(self._native.step(action))
 
     def __repr__(self) -> str:
         return f"State(revision={self.revision})"
 
+    def _decode(self, native: _native.Observation) -> Observation:
+        mapping = native._to_mapping()
+        observation = decode_observation(mapping, previous=self._previous)
+        self._previous = (mapping, observation)
+        return observation
 
-def _project_decision(native: _native.Decision) -> Decision:
-    return Decision(
-        schema_version=native.schema_version,
-        revision=native.revision,
-        observation=decode_observation(native.observation._to_mapping()),
-        actions=tuple(native.actions),
-    )
+    def _project(self, native: _native.Decision) -> Decision:
+        return Decision(
+            schema_version=native.schema_version,
+            revision=native.revision,
+            observation=self._decode(native.observation),
+            actions=tuple(native.actions),
+        )

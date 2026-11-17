@@ -15,6 +15,8 @@ from ._decode import (
     _mapping,
     _optional,
     _optional_int,
+    _Previous,
+    _reused,
     _seq,
     _str,
 )
@@ -213,7 +215,8 @@ ORB_TYPES: tuple[type[Orb], ...] = (LightningOrb, FrostOrb, DarkOrb)
 INTENT_TYPES: tuple[type[MonsterIntent], ...] = (HiddenIntent, NoneIntent, VisibleIntent)
 
 
-def decode_combat_screen(value: object, path: str) -> CombatScreen:
+def decode_combat_screen(value: object, path: str, previous: _Previous = None) -> CombatScreen:
+    """``previous`` (payload, screen) lets unchanged hand and piles be shared."""
     data = _exact(value, path, CombatScreen)
     schema_version = _int(data["schema_version"], f"{path}.schema_version")
     if schema_version != FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION:
@@ -223,10 +226,10 @@ def decode_combat_screen(value: object, path: str) -> CombatScreen:
         phase=_literal(data["phase"], f"{path}.phase", get_args(CombatPhase)),
         player=decode_player(data["player"], f"{path}.player"),
         orb_slots=_seq(data["orb_slots"], f"{path}.orb_slots", decode_orb_slot),
-        hand=_seq(data["hand"], f"{path}.hand", decode_card_slot),
-        draw_pile=decode_pile(data["draw_pile"], f"{path}.draw_pile"),
-        discard_pile=decode_pile(data["discard_pile"], f"{path}.discard_pile"),
-        exhaust_pile=decode_pile(data["exhaust_pile"], f"{path}.exhaust_pile"),
+        hand=_reused(data, "hand", path, lambda v, p: _seq(v, p, decode_card_slot), previous),
+        draw_pile=_reused(data, "draw_pile", path, decode_pile, previous),
+        discard_pile=_reused(data, "discard_pile", path, decode_pile, previous),
+        exhaust_pile=_reused(data, "exhaust_pile", path, decode_pile, previous),
         monsters=_seq(data["monsters"], f"{path}.monsters", decode_monster),
         selection=_optional(data["selection"], f"{path}.selection", decode_selection),
         public_counters=_seq(data["public_counters"], f"{path}.public_counters", decode_counter),

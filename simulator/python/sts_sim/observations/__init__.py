@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import get_args
+from typing import cast, get_args
 
 from ..content_ids import (
     CardKey,
@@ -13,7 +13,7 @@ from ..content_ids import (
     PowerKey,
     RelicKey,
 )
-from ._decode import _int, _literal, _mapping, _none
+from ._decode import _child, _int, _literal, _mapping, _none
 from .combat import (
     FAIR_COMBAT_OBSERVATION_SCHEMA_VERSION,
     INTENT_TYPES,
@@ -133,8 +133,18 @@ OBSERVATION_TYPES: tuple[type[Observation], ...] = (
 )
 
 
-def decode_observation(value: object, path: str = "observation") -> Observation:
-    """Strictly decode a native fair-run mapping into concrete observation types."""
+def decode_observation(
+    value: object,
+    path: str = "observation",
+    *,
+    previous: tuple[object, Observation] | None = None,
+) -> Observation:
+    """Strictly decode a native fair-run mapping into concrete observation types.
+
+    ``previous`` is the (payload, observation) pair last decoded from the same
+    native source. Parts whose payload is unchanged (act map, deck, relics,
+    potions, hand and piles) share its frozen decode instead of being re-decoded.
+    """
     data = _mapping(
         value,
         path,
@@ -145,8 +155,9 @@ def decode_observation(value: object, path: str = "observation") -> Observation:
         raise ValueError(f"{path}.schema_version: unsupported fair run schema {schema_version}")
     phase = _literal(data["phase"], f"{path}.phase", get_args(Phase))
     kind = _literal(data["kind"], f"{path}.kind", get_args(ObservationKind))
-    context = decode_run_context(data["context"], f"{path}.context")
+    context = decode_run_context(data["context"], f"{path}.context", _child(previous, "context"))
     screen_value = data["screen"]
+    same_kind = None if previous is None or previous[1].kind != kind else previous
     if kind == "idle":
         _none(screen_value, f"{path}.screen")
         return IdleObservation(
@@ -171,15 +182,21 @@ def decode_observation(value: object, path: str = "observation") -> Observation:
             phase=phase,
             kind="combat",
             context=context,
-            screen=decode_combat_screen(screen_value, f"{path}.screen"),
+            screen=decode_combat_screen(
+                screen_value, f"{path}.screen", _child(same_kind, "screen")
+            ),
         )
     if kind == "map":
+        # The map screen carries the same payload as the context map.
+        screen = context.map
+        if screen is None or screen_value != cast(dict[str, object], data["context"])["map"]:
+            screen = decode_map_screen(screen_value, f"{path}.screen")
         return MapObservation(
             schema_version=schema_version,
             phase=phase,
             kind="map",
             context=context,
-            screen=decode_map_screen(screen_value, f"{path}.screen"),
+            screen=screen,
         )
     if kind == "event":
         return EventObservation(

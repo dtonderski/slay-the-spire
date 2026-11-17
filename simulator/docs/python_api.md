@@ -286,6 +286,12 @@ type; malformed fields and bool/int aliases still undergo the ordinary strict
 decoder. Custom mappings and scalar subclasses take the uncached path. Equal public card values
 may share a Python object: object identity is not card-instance identity; use the
 public decision-local slots. No simulator state or native handles are cached.
+Each `State` keeps its last decoded public payload and observation; when the next
+payload's act map, deck, relics, potions, hand or a combat pile is equal to the
+previous one, the frozen decoded part is shared instead of decoded again (the map
+screen likewise shares the context map). Any changed payload is fully decoded.
+`decode_observation(previous=...)` exposes the same reuse and must only receive a
+pair previously decoded from the same native source.
 
 Combat piles expose a canonical `cards` multiset and
 `known_positions` (position `0` is the next draw). They do not expose `count` or

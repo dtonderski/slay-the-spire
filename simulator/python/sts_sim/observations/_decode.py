@@ -58,6 +58,34 @@ def _record_mapping(key: _RecordKey) -> dict[str, object]:
     }
 
 
+type _Previous = tuple[object, object] | None
+
+
+def _reused[T](
+    data: dict[str, object],
+    name: str,
+    path: str,
+    decoder: Callable[[object, str], T],
+    previous: _Previous,
+) -> T:
+    """Decode ``data[name]``, or share the previous decode of an equal payload.
+
+    ``previous`` is an earlier (payload, decoded record) pair of the same record
+    type from the same native source. Decoded records are frozen, so sharing them
+    is safe; any change in the payload is decoded afresh.
+    """
+    value = data[name]
+    if previous is not None and value == cast(dict[str, object], previous[0])[name]:
+        return cast(T, getattr(previous[1], name))
+    return decoder(value, f"{path}.{name}")
+
+
+def _child(previous: _Previous, name: str) -> _Previous:
+    if previous is None:
+        return None
+    return cast(dict[str, object], previous[0])[name], getattr(previous[1], name)
+
+
 def _exact(value: object, path: str, cls: type[object]) -> dict[str, object]:
     return _mapping(value, path, required=_field_names(cls))
 

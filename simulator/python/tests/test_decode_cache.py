@@ -6,6 +6,7 @@ from collections import UserDict
 from dataclasses import FrozenInstanceError, asdict, dataclass
 
 from sts_sim import State
+from sts_sim.observations import decode_observation
 from sts_sim.observations._decode import _exact, _field_names, _mapping
 from sts_sim.observations.common import (
     RunKeys,
@@ -126,6 +127,42 @@ class DecodeCacheTests(unittest.TestCase):
         for mapping in ({StringAlias(): 1}, UserDict({StringAlias(): 1})):
             with self.assertRaises(TypeError):
                 _mapping(mapping, "public", required=frozenset({"key"}))
+
+    def test_unchanged_map_is_reused_and_changed_map_is_decoded(self) -> None:
+        raw = State.new("713")._native.observation()._to_mapping()
+        first = decode_observation(raw)
+        assert first.context.map is not None
+        same = decode_observation(copy.deepcopy(raw), previous=(raw, first))
+        self.assertIs(same.context.map, first.context.map)
+        changed = copy.deepcopy(raw)
+        changed["context"]["map"]["current_node"] = first.context.map.current_node + 1
+        decoded = decode_observation(changed, previous=(raw, first))
+        assert decoded.context.map is not None
+        self.assertIsNot(decoded.context.map, first.context.map)
+        self.assertEqual(decoded, decode_observation(changed))
+        self.assertEqual(decoded.context.map.current_node, first.context.map.current_node + 1)
+
+    def test_state_reuse_matches_fresh_decode_through_combat(self) -> None:
+        state = State.new("713", training_rng_seed=7)
+        decision = state.decision()
+        previous = decision.observation
+        shared = {"map": 0, "draw_pile": 0}
+        combat_steps = 0
+        for step in range(300):
+            fresh = decode_observation(state._native.observation()._to_mapping())
+            self.assertEqual(decision.observation, fresh)
+            current = decision.observation
+            shared["map"] += current.context.map is previous.context.map is not None
+            if current.kind == "combat" and previous.kind == "combat":
+                combat_steps += 1
+                shared["draw_pile"] += current.screen.draw_pile is previous.screen.draw_pile
+            if not decision.actions:
+                break
+            previous = current
+            decision = state.step(decision.actions[step % len(decision.actions)])
+        self.assertGreater(combat_steps, 0)
+        self.assertGreater(shared["map"], 0)
+        self.assertGreater(shared["draw_pile"], 0)
 
     def test_schema_cache_is_bounded_and_class_specific(self) -> None:
         @dataclass

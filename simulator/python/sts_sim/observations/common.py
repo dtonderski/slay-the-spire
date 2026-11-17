@@ -15,11 +15,14 @@ from ._decode import (
     _int,
     _literal,
     _mapping,
+    _optional,
     _optional_int,
     _optional_present_enum,
+    _Previous,
     _record_key,
     _record_mapping,
     _RecordKey,
+    _reused,
     _seq,
 )
 from .maps import MapScreen, decode_map_screen
@@ -118,7 +121,8 @@ class RunContext:
     map: MapScreen | None = None
 
 
-def decode_run_context(value: object, path: str) -> RunContext:
+def decode_run_context(value: object, path: str, previous: _Previous = None) -> RunContext:
+    """``previous`` (payload, context) lets unchanged map/deck/relics/potions be shared."""
     data = _exact(value, path, RunContext)
     return RunContext(
         ascension=_int(data["ascension"], f"{path}.ascension"),
@@ -131,14 +135,16 @@ def decode_run_context(value: object, path: str) -> RunContext:
         ),
         final_act_available=_bool(data["final_act_available"], f"{path}.final_act_available"),
         keys=decode_run_keys(data["keys"], f"{path}.keys"),
-        map=None if data["map"] is None else decode_map_screen(data["map"], f"{path}.map"),
+        map=_reused(data, "map", path, lambda v, p: _optional(v, p, decode_map_screen), previous),
         floor=_int(data["floor"], f"{path}.floor"),
         gold=_int(data["gold"], f"{path}.gold"),
         player_hp=_int(data["player_hp"], f"{path}.player_hp"),
         player_max_hp=_int(data["player_max_hp"], f"{path}.player_max_hp"),
-        deck=_seq(data["deck"], f"{path}.deck", decode_card),
-        relics=_seq(data["relics"], f"{path}.relics", decode_relic),
-        potion_slots=_seq(data["potion_slots"], f"{path}.potion_slots", decode_potion_slot),
+        deck=_reused(data, "deck", path, lambda v, p: _seq(v, p, decode_card), previous),
+        relics=_reused(data, "relics", path, lambda v, p: _seq(v, p, decode_relic), previous),
+        potion_slots=_reused(
+            data, "potion_slots", path, lambda v, p: _seq(v, p, decode_potion_slot), previous
+        ),
     )
 
 
