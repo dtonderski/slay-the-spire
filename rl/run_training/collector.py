@@ -39,8 +39,10 @@ from run_training.model import MacroInput, MacroPolicy, encode
 from run_training.progress import RunProgress
 from run_training.restrictions import (
     AVOID_PRISMATIC_PROTOCOL,
+    CARD_REWARD_PROTOCOL,
     DIRECT_SMITH_PROTOCOL,
     NAVIGATION_PROTOCOL,
+    ClosedCardRewards,
     checked_eligibility,
     restrict_batch_logits,
     restrict_logits,
@@ -316,6 +318,7 @@ def _trajectory(
     exploration_profile: str = "none",
     encoder: str = "hashed",
     direct_smith: bool = False,
+    final_card_skip: bool = False,
     decision_diagnostics: bool = False,
     stop_requested: Callable[[], bool] | None = None,
     initial_previous: PolicyAction | None = None,
@@ -347,6 +350,7 @@ def _trajectory(
     accepted = 0
     previous = initial_previous
     finished_shop: tuple[int, int] | None = None
+    closed_cards = ClosedCardRewards() if final_card_skip else None
     furthest_act1_floor = 0
     behavior = BehaviorStats()
     progress = RunProgress()
@@ -386,6 +390,12 @@ def _trajectory(
                 "smith_protocol": DIRECT_SMITH_PROTOCOL
                 if direct_smith
                 else "all_legal_actions",
+                # Recorded only when on, so default journals stay byte-identical.
+                **(
+                    {"card_reward_protocol": CARD_REWARD_PROTOCOL}
+                    if final_card_skip
+                    else {}
+                ),
                 "initial_state": initial_metadata or {"protocol": "natural_start"},
             }
         )
@@ -515,6 +525,7 @@ def _trajectory(
                         commit_navigation=commit_navigation,
                         exploration_profile=exploration_profile,
                         direct_smith=direct_smith,
+                        closed_card_rewards=closed_cards,
                         shop_finished=finished_shop
                         == (observation.context.act, observation.context.floor),
                     )
@@ -578,6 +589,14 @@ def _trajectory(
                     finished_shop = (context.act, context.floor)
                 elif descriptor.kind == "choose_map_node":
                     finished_shop = None
+                if closed_cards is not None:
+                    closed_cards = closed_cards.advanced(
+                        observation,
+                        descriptor,
+                        None
+                        if isinstance(decision, CombatStep)
+                        else decision.observation,
+                    )
                 if observation is not None:
                     behavior = behavior.accepted(
                         observation,
@@ -638,6 +657,7 @@ class CollectionOptions(TypedDict):
     exploration_profile: NotRequired[str]
     encoder: NotRequired[str]
     direct_smith: NotRequired[bool]
+    final_card_skip: NotRequired[bool]
     decision_diagnostics: NotRequired[bool]
     stop_requested: NotRequired[Callable[[], bool] | None]
     initial_previous: NotRequired[PolicyAction | None]

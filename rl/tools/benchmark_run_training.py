@@ -110,6 +110,11 @@ def main():
     cli.add_argument("--adapt-legacy-combat-checkpoint", action="store_true")
     cli.add_argument("--avoid-prismatic", action="store_true")
     cli.add_argument("--raw-navigation", action="store_true")
+    cli.add_argument(
+        "--final-card-skip",
+        action="store_true",
+        help="Make closing a card reward final; also on if the checkpoint used it",
+    )
     cli.add_argument("--training-environment-seed", type=int)
     cli.add_argument(
         "--cprofile",
@@ -141,6 +146,9 @@ def main():
         saved["config"].get("encoder"), MacroModel
     )
     model = kind(saved["config"]["model_width"]).to(args.device)
+    final_card_skip = args.final_card_skip or saved["config"].get(
+        "final_card_skip", False
+    )
     frozen = collector.FrozenCombat(
         args.combat_checkpoint,
         args.device,
@@ -163,6 +171,7 @@ def main():
     )
     manifest = {
         **vars(args),
+        "final_card_skip": final_card_skip,
         "torch": str(torch.__version__),
         "numpy": np.__version__,
         "device_name": torch.cuda.get_device_name() if args.device == "cuda" else "cpu",
@@ -230,6 +239,7 @@ def main():
                         exploration_profile="none",
                         encoder=saved["config"].get("encoder", "hashed"),
                         direct_smith=saved["config"].get("direct_smith", False),
+                        final_card_skip=final_card_skip,
                         decision_diagnostics=False,
                         max_actions=args.max_actions,
                         training_rng_seed=episode_environment_seed(
@@ -253,6 +263,7 @@ def main():
                     "commit_navigation": not args.raw_navigation,
                     "encoder": saved["config"].get("encoder", "hashed"),
                     "direct_smith": saved["config"].get("direct_smith", False),
+                    "final_card_skip": final_card_skip,
                     "final_act": True,
                     "max_actions": args.max_actions,
                     "macro_rng": torch.Generator(device=args.device).manual_seed(

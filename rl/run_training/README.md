@@ -24,8 +24,9 @@ the existing combat loop. `--task run` dispatches to a separate implementation:
 - `progress.py`: monotone public-history act, floor, key and Heart milestones.
 - `diagnostics.py`: opt-in public choice/context audits and descriptive policy statistics.
 - `contracts.py`: explicit schema-9 run outcomes and screen-based ownership.
-- `restrictions.py`: declared policy eligibility for navigation commitments and
-  optional visible Prismatic avoidance; native legal choices remain unchanged.
+- `restrictions.py`: declared policy eligibility for navigation commitments,
+  optional visible Prismatic avoidance, direct smith and final card-reward
+  closes; native legal choices remain unchanged.
 - `targets.py`: tested reference GAE for later nonterminal fragment bootstrapping;
   **not used** by the initial completed-episode trainer.
 
@@ -527,11 +528,12 @@ The bounded comparison tool is [`benchmark_run_training.py`](../tools/benchmark_
 It is not an alternative training entry point. It resets fixed macro weights per
 trial, pins combat/native/source hashes, records complete-case coverage and
 execution fingerprints, and skips the entire optimizer update on any unresolved
-episode. The macro checkpoint's `encoder` and `direct_smith` settings are used
-for collection, in train mode like the trainer. `--shards` and `--workers`
-(natural starts only) use the same sharded collection, with `--worker-device`
-(default `--device`) as the worker inference device; results then include
-exact per-episode and full-journal hashes. Example (use a new directory):
+episode. The macro checkpoint's `encoder`, `direct_smith` and
+`final_card_skip` settings are used for collection, in train mode like the
+trainer; `--final-card-skip` turns the last one on for any checkpoint.
+`--shards` and `--workers` (natural starts only) use the same sharded
+collection, with `--worker-device` (default `--device`) as the worker inference
+device; results then include exact per-episode and full-journal hashes. Example (use a new directory):
 
 ```bash
 PYTHONPATH=rl uv run --project rl --no-sync python rl/tools/benchmark_run_training.py \
@@ -650,6 +652,32 @@ when direct `rest_smith` actions are offered, `rest_open_smith` gets zero
 probability. The upgrade screen offers the same upgrades, and the previous
 policy learned to open and cancel it about 36 times per run. Game legality is
 unchanged and old checkpoints continue with it off.
+
+`--final-card-skip` is another declared restriction
+(`card_reward_close_is_final_v1`): closing a card reward without taking a card
+is final, and `open_card_reward`/`open_queued_card_reward` get zero probability
+for that reward afterwards. Reopening was free, and in November 2026 training
+journals (train iterations 100–149, 12,032 runs) 66% of macro decisions and 34%
+of all accepted actions were open/close of the same card reward; after at least
+one close a card was still taken 89% of the time. Taking, Singing Bowl, other
+rewards and other card rewards on the same screen (Prayer Wheel, Tiny House,
+Orrery, events) stay available. The bookkeeping (`ClosedCardRewards`) uses only
+public reward screens and accepted actions: `open_card_reward` reopens the shown
+`screen.cards` if any, else queued slot 0; queued rewards are tracked by public
+slot, which shifts down when an earlier queued reward is used. The record lasts
+while the run stays on rewards, the map overlay (`idle`/`map`) or a grid opened
+from the rewards; any other screen starts afresh. A reward screen always offers
+`skip_reward`, and opens are only masked when some other action exists. The
+simulator also offers `skip_reward` on an open card screen, which consumes that
+reward; it is not used here because real-game replay maps `SKIP` on an open
+card screen to `close_card_reward`. Journals record the protocol in the setup
+row only when enabled, so default journals are unchanged. Old checkpoints
+resume with it off; weights transfer with `--warm-start`. On a checkpoint
+trained with reopening available (benchmark, 64 natural `act1` runs), macro
+decisions fell from 12,571 to 4,188 and the longest run from 1,563 to 86, but
+cards taken fell from 455 to 225 and clears from 32 to 19: that policy used
+reopening to resample its take-or-close choice, so turning the flag on changes
+the policy and is not a free speedup.
 
 Why this exists and what was measured:
 [project history](../../docs/project_history.md#macro-encoder-diagnosis-november-2026).

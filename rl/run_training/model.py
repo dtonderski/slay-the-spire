@@ -19,7 +19,7 @@ from torch import Tensor, nn
 
 from run_training.contracts import PolicyAction
 from run_training.exploration import exploration_controls
-from run_training.restrictions import macro_eligibility
+from run_training.restrictions import ClosedCardRewards, macro_eligibility
 
 # Both encoders now receive the inspectable current-act map before Neow and
 # at every macro decision, rather than only stale map-screen history.
@@ -230,6 +230,7 @@ def policy_controls(
     shop_finished: bool,
     exploration_profile: str,
     direct_smith: bool,
+    closed_card_rewards: ClosedCardRewards | None = None,
 ) -> tuple[tuple[bool, ...], float]:
     """Declared eligibility and temperature, shared by every macro encoder."""
     return exploration_controls(
@@ -242,6 +243,7 @@ def policy_controls(
             commit_navigation=commit_navigation,
             shop_finished=shop_finished,
             direct_smith=direct_smith,
+            closed_card_rewards=closed_card_rewards,
         ),
         exploration_profile,
     )
@@ -257,6 +259,7 @@ def encode(
     shop_finished: bool = False,
     exploration_profile: str = "none",
     direct_smith: bool = False,
+    closed_card_rewards: ClosedCardRewards | None = None,
 ) -> MacroInput:
     if not isinstance(observation, OBSERVATION_TYPES) or any(
         not isinstance(a, PolicyAction) for a in actions
@@ -283,6 +286,7 @@ def encode(
         shop_finished=shop_finished,
         exploration_profile=exploration_profile,
         direct_smith=direct_smith,
+        closed_card_rewards=closed_card_rewards,
     )
     return MacroInput(
         _context_features(observation, map_screen, previous),

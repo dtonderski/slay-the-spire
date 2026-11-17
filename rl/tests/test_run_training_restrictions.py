@@ -25,10 +25,13 @@ from run_training.contracts import PolicyAction
 from run_training.model import MacroModel, encode
 from run_training.restrictions import (
     AVOID_PRISMATIC_PROTOCOL,
+    CARD_REWARD_PROTOCOL,
+    ClosedCardRewards,
     checked_eligibility,
     macro_eligibility,
     restrict_logits,
 )
+from run_training.token_model import encode_tokens
 from run_training.trainer import main, update
 from sts_sim import RelicKey, State
 from sts_sim.observations.screens import (
@@ -464,6 +467,160 @@ class RestrictionTests(unittest.TestCase):
                 args[1] = "continued"
                 main(args + ["--avoid-prismatic", "--resume-from", str(checkpoint)])
         self.assertTrue(flags and all(flags))
+
+
+def reward_screen(decision) -> RewardScreen:
+    screen = decision.observation.screen
+    assert isinstance(screen, RewardScreen)
+    return screen
+
+
+class FinalCardSkipTests(unittest.TestCase):
+    """Simulator-backed: a masked open would reopen a closed reward, never another."""
+
+    def rewards(self, relics):
+        state = State.from_synthetic_spec(
+            json.dumps(
+                {
+                    "seed": 5,
+                    "floor": 3,
+                    "kind": "normal",
+                    "encounter": "Cultist",
+                    "deck": [{"key": "Strike_R", "upgrades": 1}] * 8,
+                    "relics": relics,
+                    "potions": [None, None, None],
+                    "hp": 80,
+                    "max_hp": 80,
+                    "gold": 99,
+                }
+            )
+        )
+        decision = state.decision()
+        while decision.observation.kind != "reward":
+            plays = [a for a in decision.actions if a.kind == "play_card"]
+            decision = state.step((plays or decision.actions)[0])
+        self.state, self.decision, self.closed = state, decision, ClosedCardRewards()
+
+    def step(self, kind, slot=None):
+        before = self.decision.observation
+        chosen = next(
+            a
+            for a in self.decision.actions
+            if a.kind == kind and (slot is None or a.reward_slot == slot)
+        )
+        self.decision = self.state.step(chosen)
+        self.closed = self.closed.advanced(
+            before, PolicyAction.from_action(chosen), self.decision.observation
+        )
+        return reward_screen(self.decision).cards
+
+    def eligible(self):
+        actions = tuple(PolicyAction.from_action(a) for a in self.decision.actions)
+        eligibility = macro_eligibility(
+            self.decision.observation,
+            actions,
+            avoid_prismatic=False,
+            closed_card_rewards=self.closed,
+        )
+        self.assertTrue(any(eligibility))
+        for encoder in (encode, encode_tokens):
+            row = encoder(
+                self.decision.observation, actions, closed_card_rewards=self.closed
+            )
+            self.assertEqual(row.eligibility, eligibility)
+        return {
+            (a.kind, a.reward_slot): ok
+            for a, ok in zip(actions, eligibility, strict=True)
+        }
+
+    def test_closing_the_only_card_reward_is_final(self):
+        self.rewards([])
+        self.assertTrue(self.eligible()[("open_card_reward", None)])
+        self.step("open_card_reward")
+        self.assertTrue(all(self.eligible().values()))  # Taking stays possible.
+        self.step("close_card_reward")
+        eligible = self.eligible()
+        self.assertFalse(eligible[("open_card_reward", None)])
+        self.assertTrue(eligible[("skip_reward", None)])
+        self.assertEqual(sum(not ok for ok in eligible.values()), 1)
+        # Default and opens-only decisions are unrestricted.
+        actions = tuple(PolicyAction.from_action(a) for a in self.decision.actions)
+        observation = self.decision.observation
+        self.assertEqual(
+            macro_eligibility(observation, actions, avoid_prismatic=False), ()
+        )
+        opens = tuple(a for a in actions if a.kind == "open_card_reward")
+        self.assertEqual(
+            macro_eligibility(
+                observation,
+                opens,
+                avoid_prismatic=False,
+                closed_card_rewards=self.closed,
+            ),
+            (),
+        )
+
+    def test_prayer_wheel_rewards_are_tracked_by_public_slot(self):
+        self.rewards(["Prayer Wheel"])
+        closed_cards = self.step("open_queued_card_reward", 1)
+        self.step("close_card_reward")
+        eligible = self.eligible()
+        self.assertFalse(eligible[("open_card_reward", None)])  # Shows slot 1.
+        self.assertFalse(eligible[("open_queued_card_reward", 1)])
+        self.assertTrue(eligible[("open_queued_card_reward", 0)])
+        self.step("open_queued_card_reward", 0)
+        self.assertTrue(all(self.eligible().values()))
+        self.step("take_card_reward", 0)
+        # The used reward left the queue, so the closed one shifted to slot 0.
+        eligible = self.eligible()
+        self.assertEqual(len(reward_screen(self.decision).queued_card_rewards), 1)
+        self.assertFalse(eligible[("open_card_reward", None)])
+        self.assertFalse(eligible[("open_queued_card_reward", 0)])
+        probe = self.state.clone()
+        reopened = probe.step(
+            next(a for a in self.decision.actions if a.kind == "open_card_reward")
+        )
+        self.assertEqual(reward_screen(reopened).cards, closed_cards)
+
+    def test_collector_records_the_protocol_only_when_enabled(self):
+        public = shop()
+        terminal = SimpleNamespace(
+            observation=replace(public, context=replace(public.context, act=2)),
+            actions=(action("proceed"),),
+            revision=1,
+        )
+
+        class ScriptedState:
+            def decision(self):
+                return SimpleNamespace(
+                    observation=public, actions=descriptors(), revision=0
+                )
+
+            def advance(self, _action):
+                return terminal
+
+        for enabled in (False, True):
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "fixture.jsonl"
+                collect(
+                    "1",
+                    MacroModel(8),
+                    cast(Any, None),
+                    objective="act1",
+                    final_act=True,
+                    max_actions=10,
+                    macro_rng=torch.Generator().manual_seed(3),
+                    combat_rng=torch.Generator(),
+                    journal=path,
+                    state_factory=lambda *a, **kw: cast(Any, ScriptedState()),
+                    final_card_skip=enabled,
+                    initial_metadata={"protocol": "scripted_public_test_fixture"},
+                )
+                setup = json.loads(path.read_text().splitlines()[0])
+            self.assertEqual(
+                setup.get("card_reward_protocol"),
+                CARD_REWARD_PROTOCOL if enabled else None,
+            )
 
 
 if __name__ == "__main__":

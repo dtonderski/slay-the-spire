@@ -43,6 +43,7 @@ class JobSpec:
     exploration_profile: str
     encoder: str
     direct_smith: bool
+    final_card_skip: bool
     decision_diagnostics: bool
     max_actions: int
     training_rng_seed: int | None
@@ -59,6 +60,7 @@ def collection_job(spec: JobSpec, device: str) -> CollectionJob:
             "exploration_profile": spec.exploration_profile,
             "encoder": spec.encoder,
             "direct_smith": spec.direct_smith,
+            "final_card_skip": spec.final_card_skip,
             "decision_diagnostics": spec.decision_diagnostics,
             "max_actions": spec.max_actions,
             "macro_rng": torch.Generator(device=device).manual_seed(spec.policy_seed),

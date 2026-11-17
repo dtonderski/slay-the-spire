@@ -68,6 +68,7 @@ def specs(directory: Path, seeds=SEEDS, max_actions=120) -> list[JobSpec]:
             exploration_profile="none",
             encoder="tokens",
             direct_smith=False,
+            final_card_skip=False,
             decision_diagnostics=False,
             max_actions=max_actions,
             training_rng_seed=None,

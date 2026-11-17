@@ -62,6 +62,7 @@ from run_training.parallel import (
 from run_training.progress import PROGRESS_PROTOCOL, progress_scores
 from run_training.restrictions import (
     AVOID_PRISMATIC_PROTOCOL,
+    CARD_REWARD_PROTOCOL,
     DIRECT_SMITH_PROTOCOL,
     NAVIGATION_PROTOCOL,
     checked_eligibility,
@@ -713,6 +714,11 @@ def parser() -> argparse.ArgumentParser:
         help="Explicit restricted-policy option: exclude the campfire upgrade-screen detour when direct upgrades are offered",
     )
     result.add_argument(
+        "--final-card-skip",
+        action="store_true",
+        help="Explicit restricted-policy option: closing a card reward without a card is final; it cannot be reopened",
+    )
+    result.add_argument(
         "--macro-exploration",
         choices=EXPLORATION_PROFILES,
         default="none",
@@ -962,6 +968,9 @@ def main(argv: list[str] | None = None) -> None:
         smith_protocol=DIRECT_SMITH_PROTOCOL
         if args.direct_smith
         else "all_legal_actions",
+        card_reward_protocol=CARD_REWARD_PROTOCOL
+        if args.final_card_skip
+        else "all_legal_actions",
         ascension=0,
         environment_protocol=(
             "root_journal_inherited_environment"
@@ -1019,6 +1028,8 @@ def main(argv: list[str] | None = None) -> None:
         added = {
             "direct_smith": False,
             "smith_protocol": "all_legal_actions",
+            "final_card_skip": False,
+            "card_reward_protocol": "all_legal_actions",
             "collection_shards": 1,
             "collection_worker_device": None,
         }
@@ -1096,6 +1107,7 @@ def main(argv: list[str] | None = None) -> None:
             exploration_profile=args.macro_exploration,
             encoder=args.encoder,
             direct_smith=args.direct_smith,
+            final_card_skip=args.final_card_skip,
             decision_diagnostics=args.decision_diagnostics == "all"
             or (evaluation and args.decision_diagnostics == "evaluation"),
             max_actions=args.max_actions,

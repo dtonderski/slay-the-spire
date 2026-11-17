@@ -42,6 +42,7 @@ from torch import Tensor, nn
 
 from run_training.contracts import PolicyAction
 from run_training.model import MacroPolicy, candidate_facts, policy_controls
+from run_training.restrictions import ClosedCardRewards
 
 # Identity rows are exact; free text (action kinds, event labels, screen tags)
 # is hashed into a separate range so it can never collide with an identity.
@@ -213,6 +214,7 @@ def encode_tokens(
     shop_finished: bool = False,
     exploration_profile: str = "none",
     direct_smith: bool = False,
+    closed_card_rewards: ClosedCardRewards | None = None,
 ) -> TokenInput:
     if not isinstance(observation, OBSERVATION_TYPES) or any(
         not isinstance(a, PolicyAction) for a in actions
@@ -230,6 +232,7 @@ def encode_tokens(
         shop_finished=shop_finished,
         exploration_profile=exploration_profile,
         direct_smith=direct_smith,
+        closed_card_rewards=closed_card_rewards,
     )
     context = observation.context
     screen = observation.screen
