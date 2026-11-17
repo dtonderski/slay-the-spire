@@ -104,7 +104,9 @@ def main():
         "--worker-device", choices=["cpu", "cuda"], help="Defaults to --device"
     )
     cli.add_argument(
-        "--objective", choices=["act1", "act1_binary"], default="act1_binary"
+        "--objective",
+        choices=["act1", "act1_binary", "heart_keys_budget"],
+        default="act1_binary",
     )
     cli.add_argument("--max-actions", type=int, default=3000)
     cli.add_argument("--adapt-legacy-combat-checkpoint", action="store_true")
@@ -120,6 +122,14 @@ def main():
         "--cprofile",
         action="store_true",
         help="Save per-trial CPU profiles; timings include profiler overhead",
+    )
+    cli.add_argument(
+        "--collect-only", action="store_true", help="Skip the optimizer update"
+    )
+    cli.add_argument(
+        "--overlap-inference",
+        action="store_true",
+        help="Run each wave's macro forward on a helper thread during combat scoring",
     )
     cli.add_argument("--out", type=Path, required=True)
     args = cli.parse_args()
@@ -204,6 +214,7 @@ def main():
             continue_on_failure=True,
             errors=args.out / "collection-errors.jsonl",
             stop_requested=lambda: False,
+            overlap_inference=args.overlap_inference,
         )
         if args.workers
         else None
@@ -325,12 +336,13 @@ def main():
                 continue_on_failure=True,
                 errors=args.out / "collection-errors.jsonl",
                 stop_requested=lambda: False,
+                overlap_inference=args.overlap_inference,
             )
         sync()
         collection_seconds = time.perf_counter() - start
         learn_start = time.perf_counter()
         learned = {"optimizer_step": 0.0, "batch_discarded": 1.0}
-        if all(ep.reward is not None for ep in episodes):
+        if not args.collect_only and all(ep.reward is not None for ep in episodes):
             extra = (
                 {"batch_steps": args.learner_batch_size}
                 if "batch_steps" in inspect.signature(trainer.update).parameters

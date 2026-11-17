@@ -140,3 +140,20 @@ class State:
     def player_hp(self) -> int: ...
     def legal_actions(self) -> list[Action]: ...
     def step(self, action: Action) -> Decision: ...
+    def advance(
+        self, action: Action
+    ) -> (
+        tuple[
+            Literal["combat"],
+            int,
+            int,
+            list[Action],
+            int,
+            int,
+            int,
+            int,
+            tuple[bool, bool, bool],
+            list[str],
+        ]
+        | tuple[Literal["decision"], int, int, list[Action], dict[str, object]]
+    ): ...

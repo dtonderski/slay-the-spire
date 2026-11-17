@@ -14,8 +14,8 @@ use pyo3::types::{PyDict, PyTuple};
 use pyo3::IntoPyObjectExt;
 use serde_json::{Map, Value};
 use sts_env::{
-    parse_seed, DecisionRevision, FairDecision, FairEnvironment, FairRunObservation, FairRunScreen,
-    PublicChoice, PublicChoiceRequest,
+    parse_seed, DecisionRevision, FairDecision, FairEnvironment, FairRunObservation,
+    FairRunOutcome, FairRunScreen, PublicChoice, PublicChoiceRequest,
 };
 
 #[pyclass(name = "Record", frozen)]
@@ -78,20 +78,24 @@ impl PyObservation {
     }
 
     fn _to_mapping(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        self.clone().into_mapping(py)
+    }
+}
+
+impl PyObservation {
+    /// The `_to_mapping` dict, consuming the record instead of cloning it.
+    fn into_mapping(self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let dict = PyDict::new(py);
         dict.set_item("schema_version", self.schema_version)?;
         dict.set_item("phase", self.phase.as_str())?;
         dict.set_item("kind", self.kind.as_str())?;
         dict.set_item(
             "context",
-            json_to_mapping(py, Value::Object(self.context.fields.clone()))?,
+            json_to_mapping(py, Value::Object(self.context.fields))?,
         )?;
-        match &self.screen {
+        match self.screen {
             Some(screen) => {
-                dict.set_item(
-                    "screen",
-                    json_to_mapping(py, Value::Object(screen.fields.clone()))?,
-                )?;
+                dict.set_item("screen", json_to_mapping(py, Value::Object(screen.fields))?)?;
             }
             None => dict.set_item("screen", py.None())?,
         }
@@ -331,6 +335,62 @@ impl PyState {
             })
             .map_err(|error| PyValueError::new_err(error.to_string()))
             .and_then(py_decision)
+    }
+
+    /// The same transition and errors as `step`, returned as a plain tuple.
+    ///
+    /// An ongoing combat successor with legal choices is `("combat", schema_version,
+    /// revision, actions, observation_schema_version, act, floor, player_hp,
+    /// (ruby, emerald, sapphire), monster_content_keys)`, read from the same fair
+    /// projection without converting its context and screen to records. Every
+    /// other successor is `("decision", schema_version, revision, actions,
+    /// observation_mapping)`, the mapping being `Observation._to_mapping()`.
+    fn advance(&mut self, py: Python<'_>, action: &PyAction) -> PyResult<Py<PyAny>> {
+        let FairDecision {
+            schema_version,
+            revision,
+            observation,
+            choices,
+        } = self
+            .env
+            .step(PublicChoiceRequest {
+                revision: action.revision,
+                choice: action.choice,
+            })
+            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        let actions = choices
+            .into_iter()
+            .map(|choice| py_action(choice, revision))
+            .collect::<Vec<_>>();
+        if let FairRunScreen::Combat(screen) = &observation.screen {
+            let context = &observation.context;
+            if context.outcome == FairRunOutcome::Ongoing && !actions.is_empty() {
+                let monsters = screen
+                    .monsters
+                    .iter()
+                    .map(|monster| monster.content_key.as_str())
+                    .collect::<Vec<_>>();
+                return (
+                    "combat",
+                    schema_version,
+                    revision.get(),
+                    actions,
+                    observation.schema_version,
+                    context.act,
+                    context.floor,
+                    context.player_hp,
+                    (
+                        context.keys.ruby,
+                        context.keys.emerald,
+                        context.keys.sapphire,
+                    ),
+                    monsters,
+                )
+                    .into_py_any(py);
+            }
+        }
+        let mapping = py_observation(observation)?.into_mapping(py)?;
+        ("decision", schema_version, revision.get(), actions, mapping).into_py_any(py)
     }
 }
 

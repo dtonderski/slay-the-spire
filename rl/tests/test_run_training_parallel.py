@@ -77,7 +77,14 @@ def specs(directory: Path, seeds=SEEDS, max_actions=120) -> list[JobSpec]:
     ]
 
 
-def pool(workers, shards, directory, device="cpu", continue_on_failure=False):
+def pool(
+    workers,
+    shards,
+    directory,
+    device="cpu",
+    continue_on_failure=False,
+    overlap_inference=False,
+):
     return ParallelCollector(
         workers,
         shards,
@@ -90,6 +97,7 @@ def pool(workers, shards, directory, device="cpu", continue_on_failure=False):
         continue_on_failure=continue_on_failure,
         errors=directory / "errors.jsonl",
         stop_requested=lambda: False,
+        overlap_inference=overlap_inference,
     )
 
 
@@ -154,6 +162,37 @@ class ParallelCollectionTests(unittest.TestCase):
         self.assertEqual(len(journals[0]), len(SEEDS))
         for result, paths in zip(results[1:], journals[1:], strict=True):
             self.assert_identical(results[0], result, (journals[0], paths))
+
+    def test_overlapped_inference_equals_serial_collection(self):
+        reference = self.directory / "reference"
+        expected = run(reference, 1, 0)
+        inline = self.directory / "inline"
+        actual = collect_many(
+            [collection_job(spec, "cpu") for spec in specs(inline)],
+            MACRO,
+            FrozenCombat(COMBAT, "cpu"),
+            width=3,
+            overlap_inference=True,
+        )
+        worker = self.directory / "worker"
+        collector = pool(2, 3, worker, overlap_inference=True)
+        try:
+            pooled = collector.collect(state_bytes(MACRO), specs(worker))
+        finally:
+            collector.close()
+        sharded = run(self.directory / "sharded", 3, 0)
+        for result, directory, base, base_directory in (
+            (actual, inline, expected, reference),
+            (pooled, worker, sharded, self.directory / "sharded"),
+        ):
+            self.assert_identical(
+                base,
+                result,
+                (
+                    sorted(base_directory.glob("*.jsonl")),
+                    sorted(directory.glob("*.jsonl")),
+                ),
+            )
 
     def legacy(self, device):
         reference = self.directory / "reference"

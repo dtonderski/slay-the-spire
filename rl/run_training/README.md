@@ -524,6 +524,52 @@ against 7.7 s) and at most one worker per free physical core; the longest run
 --collection-workers 8 --collection-worker-device cpu`. The first batch after
 start-up also pays process spawn and warm-up.
 
+`--collection-overlap-inference` (off by default) runs each wave's macro
+forward on a helper thread while the collector thread scores combat. Rows,
+models and per-episode generators are independent and the helper inherits the
+single intra-op thread, so episodes and journals are unchanged (tested, and
+fingerprint-identical on 256 heart runs); a collector then uses up to two busy
+cores. Resume ignores it. Worker processes also freeze start-up objects out of
+garbage collection and raise the generation-0 threshold to 10,000 (the default
+spent ~4% of shard time in collection passes).
+
+Where a shard's time goes (November 2026, one in-process shard = shard 0 of
+`S=8`: 32 natural `heart_keys_budget` runs, width 64, CPU, trained token macro
+checkpoint, 11,810 accepted actions, 3,293 macro decisions; wrapper timers,
+exclusive time, machine shared with two training runs):
+
+| Phase | Before ms/action | After ms/action |
+| --- | ---: | ---: |
+| macro forward (503 batched calls) | 0.17 | 0.18 |
+| combat forward (638 calls) + numeric export | 0.15 | 0.17 |
+| native step and `State.advance` | 0.10 | 0.06 |
+| typed observation decode (3,750 non-combat successors) | 0.08 | 0.04 |
+| macro token encoding | 0.03 | 0.03 |
+| garbage collection | 0.02 | 0.003 |
+| journal (JSON, gzip write and per-row flush) | 0.03 | 0.03 |
+| sampling, bookkeeping, generator loop | 0.05 | 0.05 |
+
+The forwards are compute-bound at one thread (a typical macro batch is ~7 rows of
+~70 padded tokens) and cannot change shape without changing rounding, so they
+now dominate. Before the change, most of the native step was converting the
+successor observation to records: the pure transition is ~15 µs of ~60 µs.
+Native `State.advance` now reads an ongoing combat successor's run-level fields
+from the fair projection without record conversion, and returns other successors
+as one observation mapping; unchanged map nodes reuse their previous decode.
+Uneven shards leave 13–19% of worker time idle at the batch tail; work stealing
+would change which runs share a forward and therefore rounding, so it is not
+done. Result pickling and transfer to the trainer take ~0.2 s per 256-run batch.
+
+256 runs, `S=N=8`, CPU workers, same settings, warm collection seconds (trials
+3–8 of 9, run back to back while two 8-worker training runs shared the machine,
+so expect ±20% noise; every trial fingerprint-identical):
+
+| Code | Mean | Range |
+| --- | ---: | ---: |
+| before | 10.9 s | 10.3–11.3 s |
+| after | 8.9 s | 7.4–9.8 s |
+| after, `--collection-overlap-inference` | 8.1 s | 6.9–9.6 s |
+
 The bounded comparison tool is [`benchmark_run_training.py`](../tools/benchmark_run_training.py).
 It is not an alternative training entry point. It resets fixed macro weights per
 trial, pins combat/native/source hashes, records complete-case coverage and
@@ -543,7 +589,9 @@ PYTHONPATH=rl uv run --project rl --no-sync python rl/tools/benchmark_run_traini
 ```
 
 Both benchmark profiles default to binary Act-1 completion targets; `--objective act1`
-selects the trainer's shaped objective. Match the experiment's `--max-actions`,
+selects the trainer's shaped objective and `heart_keys_budget` the full-run
+objective (runs ~1.8× longer than Act 1). `--collect-only` skips the update;
+`--overlap-inference` matches the trainer flag. Match the experiment's `--max-actions`,
 `--adapt-legacy-combat-checkpoint` and (natural starts only)
 `--training-environment-seed` explicitly. For `--profile campfire`, also supply
 `--root-manifest`; initial reconstruction is included in cold timing.

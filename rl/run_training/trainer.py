@@ -681,6 +681,12 @@ def parser() -> argparse.ArgumentParser:
         help="Spawned processes running the shards; 0 runs them in-process. Results do not depend on it",
     )
     result.add_argument(
+        "--collection-overlap-inference",
+        action="store_true",
+        help="Run each wave's macro forward on a helper thread while combat is scored; "
+        "up to two busy cores per collector. Results do not depend on it",
+    )
+    result.add_argument(
         "--collection-worker-device",
         choices=("cpu", "cuda"),
         help="Inference device of worker processes; defaults to --device. Results depend on it",
@@ -1018,6 +1024,7 @@ def main(argv: list[str] | None = None) -> None:
             "validation_seeds",
             "max_hours",
             "collection_workers",
+            "collection_overlap_inference",
             "warm_start",
             "adapt_legacy_map_checkpoint",
             "warm_start_policy_only",
@@ -1158,6 +1165,7 @@ def main(argv: list[str] | None = None) -> None:
                 continue_on_failure=args.continue_on_collection_failure,
                 errors=errors,
                 stop_requested=stopped,
+                overlap_inference=args.collection_overlap_inference,
             )
         if args.collection_width > 1:
             return collect_many(
@@ -1168,6 +1176,7 @@ def main(argv: list[str] | None = None) -> None:
                 continue_on_failure=args.continue_on_collection_failure,
                 stop_requested=stopped,
                 on_failure=lambda job, error: record_failure(errors, job, error),
+                overlap_inference=args.collection_overlap_inference,
             )
         # Keep a genuine serial reference path, including single-state inference.
         result = []
@@ -1324,6 +1333,7 @@ def main(argv: list[str] | None = None) -> None:
                     continue_on_failure=args.continue_on_collection_failure,
                     errors=errors,
                     stop_requested=stopped,
+                    overlap_inference=args.collection_overlap_inference,
                 )
             evaluate(iteration)
             for _ in range(args.updates) if args.updates else count():

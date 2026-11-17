@@ -9,6 +9,7 @@ from typing import Literal, get_args
 from ..content_ids import CardKey, CounterKey, PotionKey, RelicKey
 from ._decode import (
     _bool,
+    _child,
     _enum,
     _exact,
     _field_names,
@@ -135,7 +136,15 @@ def decode_run_context(value: object, path: str, previous: _Previous = None) -> 
         ),
         final_act_available=_bool(data["final_act_available"], f"{path}.final_act_available"),
         keys=decode_run_keys(data["keys"], f"{path}.keys"),
-        map=_reused(data, "map", path, lambda v, p: _optional(v, p, decode_map_screen), previous),
+        map=_reused(
+            data,
+            "map",
+            path,
+            lambda v, p: _optional(
+                v, p, lambda m, q: decode_map_screen(m, q, _child(previous, "map"))
+            ),
+            previous,
+        ),
         floor=_int(data["floor"], f"{path}.floor"),
         gold=_int(data["gold"], f"{path}.gold"),
         player_hp=_int(data["player_hp"], f"{path}.player_hp"),

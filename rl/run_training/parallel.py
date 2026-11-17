@@ -6,6 +6,7 @@ Changing the shard count changes which episodes share batched forwards, which ca
 change floating-point rounding.
 """
 
+import gc
 import io
 import json
 import multiprocessing
@@ -103,6 +104,7 @@ def collect_sharded(
     continue_on_failure: bool,
     errors: Path,
     stop_requested: Callable[[], bool],
+    overlap_inference: bool = False,
 ) -> list[RunEpisode]:
     return [
         episode
@@ -115,6 +117,7 @@ def collect_sharded(
             continue_on_failure=continue_on_failure,
             stop_requested=stop_requested,
             on_failure=lambda job, error: record_failure(errors, job, error),
+            overlap_inference=overlap_inference,
         )
     ]
 
@@ -134,9 +137,21 @@ class _Worker:
     continue_on_failure: bool
     errors: Path
     stop: Callable[[], bool]
+    overlap_inference: bool
 
 
 _WORKER: _Worker | None = None  # Set once per worker process by `_start_worker`.
+
+
+def tune_worker_runtime() -> None:
+    """Collector-process garbage collection settings; no effect on any result.
+
+    Models and imports are frozen out of collection passes, and generation-0
+    passes run every 10,000 net allocations instead of 700. With the defaults a
+    worker spent about 4% of collection time in the collector.
+    """
+    gc.freeze()
+    gc.set_threshold(10_000, 10, 10)
 
 
 def _start_worker(
@@ -149,6 +164,7 @@ def _start_worker(
     continue_on_failure: bool,
     errors: Path,
     stop,
+    overlap_inference: bool,
 ) -> None:
     global _WORKER
     # Only the trainer decides to stop; it sets the shared flag.
@@ -163,7 +179,9 @@ def _start_worker(
         continue_on_failure,
         errors,
         lambda: bool(stop.value),
+        overlap_inference,
     )
+    tune_worker_runtime()
 
 
 def _collect_shard(weights: bytes, specs: list[JobSpec]) -> list[RunEpisode]:
@@ -182,6 +200,7 @@ def _collect_shard(weights: bytes, specs: list[JobSpec]) -> list[RunEpisode]:
         continue_on_failure=worker.continue_on_failure,
         errors=worker.errors,
         stop_requested=worker.stop,
+        overlap_inference=worker.overlap_inference,
     )
 
 
@@ -202,6 +221,7 @@ class ParallelCollector:
         continue_on_failure: bool,
         errors: Path,
         stop_requested: Callable[[], bool],
+        overlap_inference: bool = False,
     ) -> None:
         # spawn: forking a process that has initialized CUDA is unsafe.
         context = multiprocessing.get_context("spawn")
@@ -222,6 +242,7 @@ class ParallelCollector:
                 continue_on_failure,
                 errors,
                 self.stop,
+                overlap_inference,
             ),
         )
 

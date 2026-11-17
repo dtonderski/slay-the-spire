@@ -7,6 +7,7 @@ seed/revision metadata, but only MacroInput or public combat tables reach models
 import gzip
 import json
 from collections.abc import Callable, Generator, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import IO, NotRequired, TypedDict, Unpack
@@ -781,6 +782,7 @@ def collect_many(
     continue_on_failure: bool = False,
     stop_requested: Callable[[], bool] | None = None,
     on_failure: Callable[[CollectionJob, CollectionFailure], None] | None = None,
+    overlap_inference: bool = False,
 ) -> list[RunEpisode]:
     """Cooperatively batch inference, never game transitions or RNG streams.
 
@@ -797,6 +799,7 @@ def collect_many(
     results = {}
     scheduled = 0
     exhausted = False
+    helper = ThreadPoolExecutor(1) if overlap_inference else None
 
     def advance(index, response=None, *, first=False):
         job, trajectory = active[index]
@@ -842,22 +845,37 @@ def collect_many(
             macros = [(i, r) for i, r in wave if isinstance(r, MacroRequest)]
             fights = [(i, r) for i, r in wave if isinstance(r, CombatRequest)]
             responses = {}
-            if macros:
+            macro_requests = [r for _, r in macros]
+            if macros and fights and helper is not None:
+                # Independent rows, models and per-episode generators: the macro
+                # forward's kernels run while this thread scores combat.
+                predicted = helper.submit(_predict_many, macro, macro_requests)
+                try:
+                    chosen = combat.choose_many([r for _, r in fights])
+                finally:
+                    # A macro failure is raised first, as in the serial order.
+                    macro_predictions = predicted.result()
                 responses.update(
-                    zip(
-                        [i for i, _ in macros],
-                        _predict_many(macro, [r for _, r in macros]),
-                        strict=True,
-                    )
+                    zip([i for i, _ in macros], macro_predictions, strict=True)
                 )
-            if fights:
-                responses.update(
-                    zip(
-                        [i for i, _ in fights],
-                        combat.choose_many([r for _, r in fights]),
-                        strict=True,
+                responses.update(zip([i for i, _ in fights], chosen, strict=True))
+            else:
+                if macros:
+                    responses.update(
+                        zip(
+                            [i for i, _ in macros],
+                            _predict_many(macro, macro_requests),
+                            strict=True,
+                        )
                     )
-                )
+                if fights:
+                    responses.update(
+                        zip(
+                            [i for i, _ in fights],
+                            combat.choose_many([r for _, r in fights]),
+                            strict=True,
+                        )
+                    )
             for index, _ in wave:
                 advance(index, responses[index])
     except BaseException as fatal:
@@ -873,4 +891,7 @@ def collect_many(
             finally:
                 trajectory.close()
         raise
+    finally:
+        if helper is not None:
+            helper.shutdown()
     return [results[i] for i in range(scheduled)]

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import Literal
 
 from . import _native, observations
 from ._native import Action
@@ -298,36 +298,43 @@ class State:
         Skips typed projection where a driver only needs run-level fields; every
         other successor (including combat that ended the run) is a full `Decision`.
         """
-        native = self._native.step(action)
-        observation = native.observation
-        if observation.kind != "combat":
-            return self._project(native)
-        context = observation.context
-        actions = tuple(native.actions)
-        if context.outcome != "ongoing" or not actions:
-            return self._project(native)
-        if observation.schema_version != FAIR_RUN_OBSERVATION_SCHEMA_VERSION:
-            raise ValueError(f"unsupported fair run schema {observation.schema_version}")
-        keys = cast(_native.Record, context.keys)
-        screen = observation.screen
-        if screen is None:
-            raise ValueError("combat observation without a screen")
-        monsters = cast(list[_native.Record], screen.monsters)
+        native = self._native.advance(action)
+        if native[0] == "decision":
+            _, schema_version, revision, actions, mapping = native
+            return Decision(
+                schema_version=schema_version,
+                revision=revision,
+                observation=self._decode_mapping(mapping),
+                actions=tuple(actions),
+            )
+        (
+            _,
+            schema_version,
+            revision,
+            actions,
+            observation_schema,
+            act,
+            floor,
+            player_hp,
+            (ruby, emerald, sapphire),
+            monsters,
+        ) = native
+        if observation_schema != FAIR_RUN_OBSERVATION_SCHEMA_VERSION:
+            raise ValueError(f"unsupported fair run schema {observation_schema}")
         return CombatStep(
-            schema_version=native.schema_version,
-            revision=native.revision,
-            actions=actions,
-            act=_int(context.act, "context.act"),
-            floor=_int(context.floor, "context.floor"),
-            player_hp=_int(context.player_hp, "context.player_hp"),
+            schema_version=schema_version,
+            revision=revision,
+            actions=tuple(actions),
+            act=_int(act, "context.act"),
+            floor=_int(floor, "context.floor"),
+            player_hp=_int(player_hp, "context.player_hp"),
             keys=RunKeys(
-                ruby=_bool(keys.ruby, "context.keys.ruby"),
-                emerald=_bool(keys.emerald, "context.keys.emerald"),
-                sapphire=_bool(keys.sapphire, "context.keys.sapphire"),
+                ruby=_bool(ruby, "context.keys.ruby"),
+                emerald=_bool(emerald, "context.keys.emerald"),
+                sapphire=_bool(sapphire, "context.keys.sapphire"),
             ),
             monsters=tuple(
-                _enum(monster.content_key, "screen.monsters.content_key", MonsterKey)
-                for monster in monsters
+                _enum(monster, "screen.monsters.content_key", MonsterKey) for monster in monsters
             ),
         )
 
@@ -335,7 +342,9 @@ class State:
         return f"State(revision={self.revision})"
 
     def _decode(self, native: _native.Observation) -> Observation:
-        mapping = native._to_mapping()
+        return self._decode_mapping(native._to_mapping())
+
+    def _decode_mapping(self, mapping: object) -> Observation:
         observation = decode_observation(mapping, previous=self._previous)
         self._previous = (mapping, observation)
         return observation
