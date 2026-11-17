@@ -17,6 +17,8 @@ the existing combat loop. `--task run` dispatches to a separate implementation:
   through a small transformer. See [Token encoder](#token-encoder).
 - `trainer.py`: completed-episode Monte Carlo actor-critic (`gamma=1`), on-policy
   public-input recomputation checks, fixed held-out evaluation, logs/checkpoints.
+- `parallel.py`: opt-in sharded collection in spawned worker processes; see
+  [Sharded collection](#sharded-collection-across-processes).
 - `rewards.py`: declared terminal reward components and outcome-based success.
 - `metrics.py`: accepted behavior counts, healing by HP band, elite entries and shop re-entry diagnostics.
 - `progress.py`: monotone public-history act, floor, key and Heart milestones.
@@ -455,11 +457,56 @@ feature assembly remain CPU costs. Native `numeric_steps` is deliberately not us
 its non-atomic batch failure contract needs trustworthy per-state settlement
 accounting before replacing individually journaled transitions.
 
+### Sharded collection across processes
+
+One trainer process collects on one core. `--collection-shards S` (default 1)
+splits each job list into `S` contiguous shards, `jobs[n*k//S : n*(k+1)//S]`;
+each shard is one cooperative `collect_many` call of `--collection-width` and
+results are concatenated in job order. `--collection-workers N` (default 0)
+only decides where shards run: `0` runs them one after another in the trainer,
+`N > 0` in `N` persistent spawned processes (`parallel.py`), each a full
+collector copy with its own macro model (same train mode as the trainer),
+frozen combat model and `--device`. Weights travel with every shard; workers
+ignore SIGINT/SIGTERM and stop through a flag only the trainer sets. Sharding
+requires natural starts and `--collection-width > 1`; `S=1, N=0` is the
+unchanged collector.
+
+For fixed source, device, weights, jobs, width and `S`, every episode (choices,
+stored logits/values, public inputs, statuses, rewards) and every journal is
+bit-identical for every `N`, including `S=1, N=1` against the in-process path
+on CUDA. Changing `S` changes which episodes share batched forwards, so
+logits can round differently (accepted commands matched in the measurement
+below, but that is not promised). Exact resume therefore checks
+`collection_shards` but ignores `collection_workers`. Failures keep the abort
+and whole-batch quarantine semantics; a failed shard stops its peers and its
+exception is re-raised in shard order; a dead worker is fatal.
+
+November 2026, RTX 5080, token macro model, 64 natural `act1` starts, width 64,
+median of four warm trials (collection only; the update took ~0.2 s):
+
+| Setting | Collection | Runs/s | RSS per worker | GPU per worker |
+| --- | ---: | ---: | ---: | ---: |
+| S=1, in-process | 8.02 s | 8.0 | — | — |
+| S=N=4 | 3.68 s | 17.4 | 1.5 GiB | 386 MiB |
+| S=N=8 | 3.77 s | 17.0 | 1.5 GiB | 384 MiB |
+| S=N=12 | 3.95 s | 16.2 | 1.5 GiB | 384 MiB |
+| 128 runs, S=1 in-process | 15.51 s | 8.3 | — | — |
+| 128 runs, S=N=8 | 4.31–7.29 s | 18–30 | 1.5 GiB | 386 MiB |
+
+Beyond four shards the time stops falling: it is bounded by the longest run
+(354 accepted actions, one inference round per action) times the fixed latency
+of a small batched forward, not by total work. CPU-device workers hit the same
+~3.4 s floor with 0.6 GiB RSS each. Larger batches per update amortise it.
+The first batch after start-up also pays process spawn and warm-up.
+
 The bounded comparison tool is [`benchmark_run_training.py`](../tools/benchmark_run_training.py).
 It is not an alternative training entry point. It resets fixed macro weights per
 trial, pins combat/native/source hashes, records complete-case coverage and
 execution fingerprints, and skips the entire optimizer update on any unresolved
-episode. Example (use a new directory):
+episode. The macro checkpoint's `encoder` and `direct_smith` settings are used
+for collection, in train mode like the trainer. `--shards` and `--workers`
+(natural starts only) use the same sharded collection; results then include
+exact per-episode and full-journal hashes. Example (use a new directory):
 
 ```bash
 PYTHONPATH=rl uv run --project rl --no-sync python rl/tools/benchmark_run_training.py \

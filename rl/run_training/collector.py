@@ -9,7 +9,7 @@ import json
 from collections.abc import Callable, Generator, Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import NotRequired, TypedDict, Unpack
+from typing import IO, NotRequired, TypedDict, Unpack
 
 import numpy as np
 import torch
@@ -163,7 +163,7 @@ class MacroPrediction:
 
 class FrozenCombat:
     def __init__(
-        self, checkpoint: Path, device: str, *, adapt_legacy: bool = False
+        self, checkpoint: Path | IO[bytes], device: str, *, adapt_legacy: bool = False
     ) -> None:
         # Checkpoints must be trusted. This is weight-only integration, not resume
         # of the original combat optimizer, precision protocol, or simulator.

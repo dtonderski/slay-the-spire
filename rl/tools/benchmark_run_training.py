@@ -22,9 +22,16 @@ import torch
 from run_training import collector, trainer
 from run_training.environment import episode_environment_seed
 from run_training.model import HealthMacroModel, MacroModel
+from run_training.parallel import (
+    JobSpec,
+    ParallelCollector,
+    collect_sharded,
+    collection_job,
+    state_bytes,
+)
 from run_training.roots import RootBank
 from run_training.token_model import TokenMacroModel
-from sts_sim import State, _native
+from sts_sim import _native
 
 
 def digest(path):
@@ -61,6 +68,22 @@ def journal_fingerprint(path):
     ).hexdigest()
 
 
+def episode_fingerprint(episode):
+    """Exact policy record: every choice, stored logit/value and public input."""
+    digest = hashlib.sha256(
+        repr((episode.status, episode.reward, episode.accepted, episode.floor)).encode()
+    )
+    for step in episode.steps:
+        digest.update(repr((step.choice, step.logits, step.value)).encode())
+        for value in vars(step.inputs).values():
+            digest.update(
+                value.tobytes()
+                if isinstance(value, np.ndarray)
+                else repr(value).encode()
+            )
+    return digest.hexdigest()
+
+
 def main():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("--profile", choices=["natural", "campfire"], required=True)
@@ -71,6 +94,10 @@ def main():
     cli.add_argument("--episodes", type=int, default=128)
     cli.add_argument("--trials", type=int, default=4)
     cli.add_argument("--width", type=int, default=1)
+    cli.add_argument("--shards", type=int, default=1)
+    cli.add_argument(
+        "--workers", type=int, default=0, help="Spawned shard processes; 0 in-process"
+    )
     cli.add_argument("--learner-batch-size", type=int, default=0)
     cli.add_argument("--device", choices=["cpu", "cuda"], default="cuda")
     cli.add_argument(
@@ -89,10 +116,14 @@ def main():
     cli.add_argument("--out", type=Path, required=True)
     args = cli.parse_args()
     if (
-        min(args.episodes, args.trials, args.width, args.max_actions) < 1
-        or args.learner_batch_size < 0
+        min(args.episodes, args.trials, args.width, args.max_actions, args.shards) < 1
+        or min(args.learner_batch_size, args.workers) < 0
     ):
         cli.error("Counts must be positive and learner batch size nonnegative")
+    if (args.shards > 1 or args.workers) and args.width == 1:
+        cli.error("Sharded collection requires --width > 1")
+    if args.workers and args.profile != "natural":
+        cli.error("Worker processes support natural starts only")
     if args.profile == "campfire" and args.root_manifest is None:
         cli.error("Campfire benchmark requires a root manifest")
     if args.training_environment_seed is not None:
@@ -145,48 +176,82 @@ def main():
     )
     all_trials = []
 
+    def job_of(job):
+        return collection_job(job, args.device) if isinstance(job, JobSpec) else job
+
+    pool = (
+        ParallelCollector(
+            args.workers,
+            args.shards,
+            model_type=kind,
+            model_width=saved["config"]["model_width"],
+            device=args.device,
+            combat=args.combat_checkpoint.read_bytes(),
+            adapt_legacy=args.adapt_legacy_combat_checkpoint,
+            width=args.width,
+            continue_on_failure=True,
+            errors=args.out / "collection-errors.jsonl",
+            stop_requested=lambda: False,
+        )
+        if args.workers
+        else None
+    )
+
     def sync():
         if args.device == "cuda":
             torch.cuda.synchronize()
 
     for trial in range(args.trials):
+        # Train mode, as in the trainer: eval() can select other transformer kernels.
         model.load_state_dict(saved["model"], strict=True)
-        model.eval()
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
         if args.device == "cuda":
             torch.cuda.reset_peak_memory_stats()
         paths = []
         policy_rngs = []
 
-        def jobs(trial=trial, paths=paths, policy_rngs=policy_rngs):
+        def jobs(trial=trial, paths=paths):
             for index in range(args.episodes):
-                seed = (
-                    bank.training[index % len(bank.training)] if bank else seeds[index]
-                )
-                factory = State.new
-                previous = metadata = None
-                if bank:
-                    state, _, previous, metadata = bank.initial(
-                        seed, [0.15, 0.5, 0.85][index % 3]
-                    )
-
-                    def start_root(*_a, state=state, **_kw):
-                        return state
-
-                    factory = start_root
                 journal = args.out / f"trial-{trial}-{index}.jsonl.gz"
                 paths.append(journal)
+                if not bank:
+                    seed = seeds[index]
+                    yield JobSpec(
+                        seed,
+                        journal,
+                        100000 + index,
+                        objective=args.objective,
+                        final_act=True,
+                        avoid_prismatic=args.avoid_prismatic,
+                        commit_navigation=not args.raw_navigation,
+                        exploration_profile="none",
+                        encoder=saved["config"].get("encoder", "hashed"),
+                        direct_smith=saved["config"].get("direct_smith", False),
+                        decision_diagnostics=False,
+                        max_actions=args.max_actions,
+                        training_rng_seed=episode_environment_seed(
+                            args.training_environment_seed, seed
+                        )
+                        if args.training_environment_seed is not None
+                        else None,
+                    )
+                    continue
+                seed = bank.training[index % len(bank.training)]
+                state, _, previous, metadata = bank.initial(
+                    seed, [0.15, 0.5, 0.85][index % 3]
+                )
+
+                def start_root(*_a, state=state, **_kw):
+                    return state
+
                 options: collector.CollectionOptions = {
                     "objective": args.objective,
                     "avoid_prismatic": args.avoid_prismatic,
                     "commit_navigation": not args.raw_navigation,
+                    "encoder": saved["config"].get("encoder", "hashed"),
+                    "direct_smith": saved["config"].get("direct_smith", False),
                     "final_act": True,
                     "max_actions": args.max_actions,
-                    "training_rng_seed": episode_environment_seed(
-                        args.training_environment_seed, seed
-                    )
-                    if args.training_environment_seed is not None
-                    else None,
                     "macro_rng": torch.Generator(device=args.device).manual_seed(
                         100000 + index
                     ),
@@ -194,23 +259,29 @@ def main():
                         (100000 + index) ^ 0x5DEECE66D
                     ),
                     "journal": journal,
-                    "state_factory": factory,
+                    "state_factory": start_root,
                     "initial_previous": previous,
                     "initial_metadata": metadata,
                 }
-                policy_rngs.extend((options["macro_rng"], options["combat_rng"]))
-                yield seed, options
+                yield collector.CollectionJob(seed, options)
 
         profiler = cProfile.Profile() if args.cprofile else None
         sync()
         if profiler is not None:
             profiler.enable()
         start = time.perf_counter()
-        if args.width == 1:
+        if pool is not None:
+            episodes = pool.collect(state_bytes(model), list(jobs()))
+        elif args.width == 1:
             episodes = []
-            for seed, options in jobs():
+            for job in map(job_of, jobs()):
+                policy_rngs.extend(
+                    (job.options["macro_rng"], job.options["combat_rng"])
+                )
                 try:
-                    episodes.append(collector.collect(seed, model, frozen, **options))
+                    episodes.append(
+                        collector.collect(job.seed, model, frozen, **job.options)
+                    )
                 except collector.CollectionFailure as error:
                     episodes.append(
                         collector.RunEpisode(
@@ -226,12 +297,20 @@ def main():
                         )
                     )
         else:
-            episodes = collector.collect_many(
-                (collector.CollectionJob(seed, options) for seed, options in jobs()),
+            scheduled = [job_of(job) for job in jobs()]
+            for job in scheduled:
+                policy_rngs.extend(
+                    (job.options["macro_rng"], job.options["combat_rng"])
+                )
+            episodes = collect_sharded(
+                scheduled,
                 model,
                 frozen,
+                shards=args.shards,
                 width=args.width,
                 continue_on_failure=True,
+                errors=args.out / "collection-errors.jsonl",
+                stop_requested=lambda: False,
             )
         sync()
         collection_seconds = time.perf_counter() - start
@@ -281,6 +360,11 @@ def main():
             else 0,
             "learned": learned,
             "journal_execution_sha256": [journal_fingerprint(p) for p in paths],
+            "journal_sha256": [
+                hashlib.sha256(gzip.decompress(p.read_bytes())).hexdigest()
+                for p in paths
+            ],
+            "episode_sha256": [episode_fingerprint(ep) for ep in episodes],
             "policy_rng_sha256": [
                 hashlib.sha256(rng.get_state().numpy().tobytes()).hexdigest()
                 for rng in policy_rngs
@@ -289,15 +373,11 @@ def main():
         all_trials.append(result)
         (args.out / "results.json").write_text(json.dumps(all_trials, indent=2) + "\n")
         print(
-            json.dumps(
-                {
-                    k: v
-                    for k, v in result.items()
-                    if k not in ("journal_execution_sha256", "policy_rng_sha256")
-                }
-            ),
+            json.dumps({k: v for k, v in result.items() if not k.endswith("sha256")}),
             flush=True,
         )
+    if pool is not None:
+        pool.close()
 
 
 if __name__ == "__main__":

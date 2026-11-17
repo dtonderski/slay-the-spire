@@ -14,8 +14,9 @@ import random
 import shutil
 import signal
 import time
+from collections.abc import Iterable
 from contextlib import contextmanager
-from itertools import count
+from itertools import count, repeat
 from pathlib import Path
 from threading import Event
 
@@ -49,6 +50,14 @@ from run_training.model import (
     HealthMacroModel,
     MacroModel,
     MacroPolicy,
+)
+from run_training.parallel import (
+    JobSpec,
+    ParallelCollector,
+    collect_sharded,
+    collection_job,
+    record_failure,
+    state_bytes,
 )
 from run_training.progress import PROGRESS_PROTOCOL, progress_scores
 from run_training.restrictions import (
@@ -659,6 +668,18 @@ def parser() -> argparse.ArgumentParser:
         help="Concurrent independent episodes; 1 keeps the serial reference collector",
     )
     result.add_argument(
+        "--collection-shards",
+        type=int,
+        default=1,
+        help="Contiguous job shards, each one cooperative collection; results depend on it",
+    )
+    result.add_argument(
+        "--collection-workers",
+        type=int,
+        default=0,
+        help="Spawned processes running the shards; 0 runs them in-process. Results do not depend on it",
+    )
+    result.add_argument(
         "--learner-batch-size",
         type=int,
         default=128,
@@ -761,8 +782,10 @@ def main(argv: list[str] | None = None) -> None:
             args.eval_every,
             args.model_width,
             args.collection_width,
+            args.collection_shards,
         )
         < 1
+        or args.collection_workers < 0
     ):
         cli.error("Counts must be positive")
     if args.updates < 0 or args.max_consecutive_skips < 0:
@@ -816,6 +839,11 @@ def main(argv: list[str] | None = None) -> None:
         if args.root_manifest
         else None
     )
+    parallel = args.collection_shards > 1 or args.collection_workers > 0
+    if parallel and (bank or args.collection_width < 2):
+        cli.error(
+            "Sharded collection requires natural starts and --collection-width > 1"
+        )
     if bank:
         if args.objective != "act1_binary":
             cli.error("Root curriculum requires the declared binary Act-1 objective")
@@ -835,6 +863,7 @@ def main(argv: list[str] | None = None) -> None:
         args.encoder, MacroModel
     )
     model = model_type(args.model_width).to(args.device)
+    combat_bytes = args.combat_checkpoint.read_bytes()
     combat = FrozenCombat(
         args.combat_checkpoint,
         args.device,
@@ -935,7 +964,7 @@ def main(argv: list[str] | None = None) -> None:
         gamma=1.0,
         observation_schema=FAIR_RUN_OBSERVATION_SCHEMA_VERSION,
         native_sha256=digest(Path(_native.__file__)),
-        combat_sha256=digest(args.combat_checkpoint),
+        combat_sha256=hashlib.sha256(combat_bytes).hexdigest(),
         validation_sha256=digest(args.validation_seeds),
         source_sha256=hashlib.sha256(source_bytes).hexdigest(),
     )
@@ -970,6 +999,7 @@ def main(argv: list[str] | None = None) -> None:
             "combat_checkpoint",
             "validation_seeds",
             "max_hours",
+            "collection_workers",
             "warm_start",
             "adapt_legacy_map_checkpoint",
             "warm_start_policy_only",
@@ -977,7 +1007,11 @@ def main(argv: list[str] | None = None) -> None:
             "parent_checkpoint_sha256",
         }
         # Options added after a checkpoint was written continue at their off value.
-        added = {"direct_smith": False, "smith_protocol": "all_legal_actions"}
+        added = {
+            "direct_smith": False,
+            "smith_protocol": "all_legal_actions",
+            "collection_shards": 1,
+        }
         for key, value in settings.items():
             if (
                 key not in ignored
@@ -1038,77 +1072,71 @@ def main(argv: list[str] | None = None) -> None:
     def stopped() -> bool:
         return stop_flag.is_set() or time.monotonic() >= deadline
 
-    def make_job(
-        seed: str,
-        directory: Path,
-        policy_seed: int,
-        hp_fraction: float | None = None,
-        *,
-        evaluation: bool = False,
-    ) -> CollectionJob:
-        factory = State.new
-        previous = None
-        metadata = None
-        environment_seed = (
-            episode_environment_seed(args.training_environment_seed, seed)
+    def make_spec(
+        seed: str, journal: Path, policy_seed: int, *, evaluation: bool = False
+    ) -> JobSpec:
+        return JobSpec(
+            seed,
+            journal,
+            policy_seed,
+            objective=args.objective,
+            final_act=args.final_act,
+            avoid_prismatic=args.avoid_prismatic,
+            commit_navigation=not args.raw_navigation,
+            exploration_profile=args.macro_exploration,
+            encoder=args.encoder,
+            direct_smith=args.direct_smith,
+            decision_diagnostics=args.decision_diagnostics == "all"
+            or (evaluation and args.decision_diagnostics == "evaluation"),
+            max_actions=args.max_actions,
+            training_rng_seed=episode_environment_seed(
+                args.training_environment_seed, seed
+            )
             if args.training_environment_seed is not None
-            else None
+            else None,
         )
+
+    def make_job(spec: JobSpec, hp_fraction: float | None) -> CollectionJob:
+        job = collection_job(spec, args.device)
+        job.options["stop_requested"] = stopped
         if bank:
             fraction = (
                 rng.uniform(args.root_hp_min, 1.0)
                 if hp_fraction is None
                 else hp_fraction
             )
-            state, _, previous, metadata = bank.initial(seed, fraction)
-            environment_seed = journal_environment_seed(metadata)
+            state, _, previous, metadata = bank.initial(spec.seed, fraction)
 
             def start_root(*_args, **_kwargs) -> State:
                 return state
 
-            factory = start_root
-        return CollectionJob(
-            seed,
-            {
-                "objective": args.objective,
-                "final_act": args.final_act,
-                "avoid_prismatic": args.avoid_prismatic,
-                "commit_navigation": not args.raw_navigation,
-                "exploration_profile": args.macro_exploration,
-                "encoder": args.encoder,
-                "direct_smith": args.direct_smith,
-                "decision_diagnostics": args.decision_diagnostics == "all"
-                or (evaluation and args.decision_diagnostics == "evaluation"),
-                "max_actions": args.max_actions,
-                "macro_rng": torch.Generator(device=args.device).manual_seed(
-                    policy_seed
-                ),
-                "combat_rng": torch.Generator(device=args.device).manual_seed(
-                    policy_seed ^ 0x5DEECE66D
-                ),
-                "journal": directory,
-                "stop_requested": stopped,
-                "state_factory": factory,
-                "initial_previous": previous,
-                "initial_metadata": metadata,
-                "training_rng_seed": environment_seed,
-            },
-        )
+            job.options["state_factory"] = start_root
+            job.options["initial_previous"] = previous
+            job.options["initial_metadata"] = metadata
+            job.options["training_rng_seed"] = journal_environment_seed(metadata)
+        return job
 
-    def record_failure(job: CollectionJob, error: CollectionFailure) -> None:
-        with (output / "collection-errors.jsonl").open("a") as errors:
-            errors.write(
-                json.dumps(
-                    {
-                        "seed": job.seed,
-                        "journal": str(job.options["journal"]),
-                        "error": str(error),
-                    }
-                )
-                + "\n"
+    errors = output / "collection-errors.jsonl"
+    pool: ParallelCollector | None = None
+
+    def episodes(
+        specs: Iterable[JobSpec],
+        hp_fractions: Iterable[float | None] = repeat(None),
+    ) -> list[RunEpisode]:
+        if pool is not None:
+            return pool.collect(state_bytes(model), list(specs))
+        jobs = map(make_job, specs, hp_fractions)
+        if parallel:
+            return collect_sharded(
+                list(jobs),
+                model,
+                combat,
+                shards=args.collection_shards,
+                width=args.collection_width,
+                continue_on_failure=args.continue_on_collection_failure,
+                errors=errors,
+                stop_requested=stopped,
             )
-
-    def episodes(jobs) -> list[RunEpisode]:
         if args.collection_width > 1:
             return collect_many(
                 jobs,
@@ -1117,20 +1145,19 @@ def main(argv: list[str] | None = None) -> None:
                 width=args.collection_width,
                 continue_on_failure=args.continue_on_collection_failure,
                 stop_requested=stopped,
-                on_failure=record_failure,
+                on_failure=lambda job, error: record_failure(errors, job, error),
             )
         # Keep a genuine serial reference path, including single-state inference.
         result = []
-        source = iter(jobs)
         while not stopped():
             try:
-                job = next(source)
+                job = next(jobs)
             except StopIteration:
                 break
             try:
                 result.append(collect(job.seed, model, combat, **job.options))
             except CollectionFailure as error:
-                record_failure(job, error)
+                record_failure(errors, job, error)
                 if not args.continue_on_collection_failure:
                     raise
                 result.append(failed_episode(error, job.options["objective"]))
@@ -1180,14 +1207,16 @@ def main(argv: list[str] | None = None) -> None:
             nonlocal best_key
             evaluation_started = time.monotonic()
             evaluated = episodes(
-                make_job(
-                    seed,
-                    output / "journals" / f"eval-{step}-{i}{suffix}",
-                    100000 + (i // len(args.root_eval_hp) if bank else i),
-                    hp_fraction,
-                    evaluation=True,
-                )
-                for i, (seed, hp_fraction) in enumerate(evaluation_cases)
+                (
+                    make_spec(
+                        seed,
+                        output / "journals" / f"eval-{step}-{i}{suffix}",
+                        100000 + (i // len(args.root_eval_hp) if bank else i),
+                        evaluation=True,
+                    )
+                    for i, (seed, _) in enumerate(evaluation_cases)
+                ),
+                [hp_fraction for _, hp_fraction in evaluation_cases],
             )
             root_scores = {}
             if bank:
@@ -1260,6 +1289,20 @@ def main(argv: list[str] | None = None) -> None:
 
         checkpoint()  # Last valid boundary remains recoverable after collection failure.
         try:
+            if args.collection_workers:
+                pool = ParallelCollector(
+                    args.collection_workers,
+                    args.collection_shards,
+                    model_type=model_type,
+                    model_width=args.model_width,
+                    device=args.device,
+                    combat=combat_bytes,
+                    adapt_legacy=args.adapt_legacy_combat_checkpoint,
+                    width=args.collection_width,
+                    continue_on_failure=args.continue_on_collection_failure,
+                    errors=errors,
+                    stop_requested=stopped,
+                )
             evaluate(iteration)
             for _ in range(args.updates) if args.updates else count():
                 if stopped():
@@ -1275,7 +1318,7 @@ def main(argv: list[str] | None = None) -> None:
                             while seed in held_out:
                                 seed = str(rng.getrandbits(63))
                         # Preserve serial seed -> policy RNG -> optional HP draw order.
-                        yield make_job(
+                        yield make_spec(
                             seed,
                             output
                             / "journals"
@@ -1383,3 +1426,6 @@ def main(argv: list[str] | None = None) -> None:
                 )
             )
             raise
+        finally:
+            if pool is not None:
+                pool.close()
